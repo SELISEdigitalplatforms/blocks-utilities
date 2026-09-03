@@ -1335,6 +1335,21 @@ A direct query must include the organization and the period boundaries. Both are
 (`ix_usage_current_org_subscription_status_period`); an unscoped query is a collection scan and a
 cross-organization read of billing state.
 
+`quantityScale` says how many decimal places that meter's quantities carry, and so how far the
+balances beside it can be fractional — zero meaning whole units. It is there because this is the one
+reader with no API to ask: meeting `used` of `512.5` otherwise leaves it unable to tell a meter
+measured to one place from one measured to six, which it needs in order to format the figure, to
+decide what the next usable amount is, and to know that a step of one is wrong for it. It is plan
+terms, so it moves with `subscriptionVersion` and never with `counterVersion`.
+
+`schemaVersion` is `2` from that field's addition. A reader that pins a schema version will see `1`
+on documents an older build wrote, where `quantityScale` is absent and whole units are the correct
+reading. Those documents are not left behind: the reconciliation sweep treats a schema below the
+current one as stale and republishes them, because adding a field moves neither version and so no
+version comparison could otherwise notice. Without that, a meter whose plan had already widened it
+would report whole units for the life of its window — and a never-resetting meter's window does not
+end.
+
 Staleness is exposed rather than hidden: `counterVersion` and `updatedAtUtc` are on every document. A
 projection is stale when its version is behind its counter, or when its age exceeds
 `Subscription:UsageProjectionStalenessSeconds` (default 900). Age alone cannot tell a quiet meter

@@ -161,6 +161,11 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             { "PlanId", When(subscriptionIsNewer, "PlanId") },
             { "PlanCode", When(subscriptionIsNewer, "PlanCode") },
             { "UnitLabel", When(subscriptionIsNewer, "UnitLabel") },
+            // The meter's granularity is plan terms, so it belongs to the subscription's version
+            // like the rest of them. In the balance group a late usage publish carrying
+            // pre-plan-change terms could drive a widened scale back down, and a reader would then
+            // format a figure to fewer places than it actually has.
+            { "QuantityScale", When(subscriptionIsNewer, "QuantityScale") },
             { "OverageAllowed", When(subscriptionIsNewer, "OverageAllowed") },
 
             // The allowance belongs to neither version on its own, so it moves on either.

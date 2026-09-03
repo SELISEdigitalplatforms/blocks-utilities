@@ -811,6 +811,127 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
     /// database it means a fixed subscription id would put every test in this class on the same
     /// document, and the version condition would then refuse whichever test ran second.
     /// </remarks>
+    // ------------------------------------------------------------------ the meter's granularity
+
+    /// <summary>
+    /// The granularity a direct reader needs is stored beside the balances it describes.
+    /// </summary>
+    /// <remarks>
+    /// Without it a reader meeting <c>Used</c> of <c>512.5</c> cannot tell whether that meter is
+    /// measured to one place or to six, which it needs to format the figure and to know what the
+    /// next usable amount is.
+    /// </remarks>
+    [Fact]
+    public async Task The_meters_granularity_is_published_with_its_balances()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        await _current.TryPublishAsync(
+            Document(tenantId, used: 40, counterVersion: 1, quantityScale: 3),
+            CancellationToken.None);
+
+        var stored = await _current.GetAsync(
+            tenantId,
+            SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09"),
+            CancellationToken.None);
+
+        stored!.QuantityScale.Should().Be(3);
+    }
+
+    /// <summary>
+    /// The granularity moves with the subscription's version, never with the counter's.
+    /// </summary>
+    /// <remarks>
+    /// It is plan terms. In the balance group, this write — newer usage carrying the terms as they
+    /// stood before a plan widened the meter — would drive the scale back down, and a reader would
+    /// then format a figure to fewer places than it actually has.
+    /// </remarks>
+    [Fact]
+    public async Task A_later_usage_publish_cannot_narrow_the_granularity()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        // The plan widens the meter to three places.
+        await _current.TryPublishAsync(
+            Document(tenantId, used: 10, counterVersion: 5, subscriptionVersion: 7, quantityScale: 3),
+            CancellationToken.None);
+
+        // A usage write that started before that change: newer counter, older subscription.
+        (await _current.TryPublishAsync(
+            Document(tenantId, used: 20, counterVersion: 6, subscriptionVersion: 6, quantityScale: 0),
+            CancellationToken.None)).Should().BeTrue();
+
+        var stored = await _current.GetAsync(
+            tenantId,
+            SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09"),
+            CancellationToken.None);
+
+        stored!.Used.Should().Be(20, "the balance is the counter's to say");
+        stored.QuantityScale.Should().Be(3, "the granularity is not");
+    }
+
+    /// <summary>A newer plan does widen it.</summary>
+    [Fact]
+    public async Task A_later_plan_change_widens_the_granularity()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        await _current.TryPublishAsync(
+            Document(tenantId, used: 10, counterVersion: 5, subscriptionVersion: 6, quantityScale: 0),
+            CancellationToken.None);
+        await _current.TryPublishAsync(
+            Document(tenantId, used: 10, counterVersion: 5, subscriptionVersion: 7, quantityScale: 3),
+            CancellationToken.None);
+
+        var stored = await _current.GetAsync(
+            tenantId,
+            SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09"),
+            CancellationToken.None);
+
+        stored!.QuantityScale.Should().Be(3);
+    }
+
+    /// <summary>
+    /// A document written before the field existed reads as whole units, which is what every meter
+    /// was then.
+    /// </summary>
+    [Fact]
+    public async Task A_document_written_without_a_granularity_reads_as_whole_units()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var documentId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09");
+
+        await _fixture.Database
+            .GetCollection<BsonDocument>("SubscriptionUsageCurrent")
+            .InsertOneAsync(new BsonDocument
+            {
+                ["_id"] = documentId,
+                ["TenantId"] = tenantId,
+                ["OrganizationId"] = "org-1",
+                ["SubscriptionId"] = Sub(tenantId),
+                ["MeterKey"] = "screening",
+                ["PeriodKey"] = "M2026-09",
+                ["PeriodStartUtc"] = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                ["PeriodEndUtc"] = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+                ["Used"] = new BsonInt64(40),
+                ["Included"] = new BsonInt64(100),
+                ["CounterVersion"] = new BsonInt64(1),
+                ["SubscriptionVersion"] = new BsonInt64(1),
+                // Written by the build before this field, so it carries the older schema and none
+                // of the field.
+                ["SchemaVersion"] = 1,
+                ["UpdatedAtUtc"] = DateTime.UtcNow,
+                ["ExpiresAtUtc"] = new DateTime(2027, 12, 31, 0, 0, 0, DateTimeKind.Utc)
+            });
+
+        var stored = await _current.GetAsync(tenantId, documentId, CancellationToken.None);
+
+        stored!.QuantityScale.Should().Be(0);
+        stored.SchemaVersion.Should().BeLessThan(
+            SubscriptionUsageCurrent.CurrentSchemaVersion,
+            "which is what tells the reconciliation sweep to republish it");
+    }
+
     private static string Sub(string tenantId) => $"sub-{tenantId}";
 
     private static SubscriptionUsageCurrent Document(
@@ -818,7 +939,8 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         long used,
         long counterVersion,
         string periodKey = "M2026-09",
-        long subscriptionVersion = 1) => new()
+        long subscriptionVersion = 1,
+        int quantityScale = 0) => new()
     {
         ItemId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", periodKey),
         TenantId = tenantId,
@@ -829,6 +951,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         PlanCode = "pro",
         MeterKey = "screening",
         UnitLabel = "screening",
+        QuantityScale = quantityScale,
         PeriodKey = periodKey,
         PeriodStartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
         PeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
