@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -806,6 +806,8 @@ public sealed class PaymentRepository : IPaymentRepository
         int maxRefundDays,
         string? storeId,
         bool isEnabled,
+        string? paymentMethodConfigurationId,
+        string[]? checkoutPaymentMethodTypes,
         CancellationToken cancellationToken)
     {
         var filter = ProviderVersionFilter(
@@ -821,6 +823,12 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(provider => provider.MaxRefundDays, maxRefundDays)
             .Set(provider => provider.StoreId, storeId)
             .Set(provider => provider.IsEnabled, isEnabled)
+            .Set(
+                provider => provider.PaymentMethodConfigurationId,
+                paymentMethodConfigurationId)
+            .Set(
+                provider => provider.CheckoutPaymentMethodTypes,
+                checkoutPaymentMethodTypes)
             .Inc(provider => provider.Version, 1);
 
         return await Providers(tenantId).FindOneAndUpdateAsync(

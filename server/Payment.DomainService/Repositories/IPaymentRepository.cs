@@ -1,4 +1,4 @@
-using Payment.DomainService.Entities;
+﻿using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 
 namespace Payment.DomainService.Repositories;
@@ -48,6 +48,8 @@ public interface IPaymentRepository
         int maxRefundDays,
         string? storeId,
         bool isEnabled,
+        string? paymentMethodConfigurationId,
+        string[]? checkoutPaymentMethodTypes,
         CancellationToken cancellationToken);
 
     Task<PaymentProvider?> TryRotateProviderCredentialsAsync(
