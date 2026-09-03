@@ -114,9 +114,34 @@ So worker lines now carry a trace id, and every line of one attempt shares it.
 > no exporter asked for records nothing. No exporter is named at that registration on purpose: the
 > platform's own tracing setup owns where spans go.
 
-**A worker trace id does not yet join the API request that scheduled the work.** The queue item
-carries no trace context to be a child of, so each attempt is a root span. Until that changes,
-`CorrelationId` remains the key that joins the two sides — see the three-step trace above.
+---
+
+## Joining a worker attempt to the request that caused it
+
+Work scheduled from inside a request stores that request's W3C trace context on the queue item. When
+the attempt eventually runs, it reports it three ways:
+
+| Where | What |
+| --- | --- |
+| Span link | `ActivityLink` to the scheduling trace |
+| Span tag | `subscription.scheduled_by.trace_id` |
+| Log scope | `ScheduledByTraceId` on every line of the attempt |
+
+So an operator holding the trace id of the request a customer complained about can find the
+background work it caused — by following the link if the backend renders links, and by grepping the
+trace id if it does not.
+
+**It is a link, not a parent, and that is deliberate.** A renewal is scheduled a month before it
+runs and a cancellation up to a year. A span that made itself a child of the request that scheduled
+it would describe a single trace as lasting a year — past every backend's retention window, and not
+something anybody can open. The link says the same causal thing without lying about duration.
+
+`ScheduledByTraceId="none"` means nothing scheduled it from inside a request. Every sweep-announced
+item reads that way, and so does anything queued at startup.
+
+The parent is whatever activity is ambient at dispatch — nothing in the worker loop, so an attempt
+there is a root span. When due jobs are run on demand from the admin endpoint instead, the attempt
+belongs to that request's trace, which is what somebody watching that request wants to see.
 
 ---
 
