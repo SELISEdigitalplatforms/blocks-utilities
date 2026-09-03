@@ -1,7 +1,8 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Utility.DomainService.PdfGenerator.Events;
 using Utility.DomainService.PdfGenerator.Utilities;
+using Utility.DomainService.Shared.Utilities;
 
 namespace Utility.DomainService.PdfGenerator.service
 {
@@ -26,12 +27,12 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("MergePdfsAsync started for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogInformation("MergePdfsAsync started for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 // Send event to worker for async processing
                 await SendMergePdfsEvent(request);
 
-                _logger.LogInformation("MergePdfsAsync event sent for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogInformation("MergePdfsAsync event sent for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 return new MergePdfsResponse
                 {
@@ -42,7 +43,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in MergePdfsAsync for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogError(ex, "Error in MergePdfsAsync for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
                 return new MergePdfsResponse
                 {
                     IsSuccess = false,
@@ -55,12 +56,12 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("CreatePdfsFromHtmlAsync started for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("CreatePdfsFromHtmlAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 // Send event to worker
                 await SendCreatePdfsFromHtmlEvent(request);
 
-                _logger.LogInformation("CreatePdfsFromHtmlAsync event sent for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("CreatePdfsFromHtmlAsync event sent for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 return new CreatePdfsFromHtmlResponse
                 {
@@ -71,7 +72,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in CreatePdfsFromHtmlAsync for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogError(ex, "Error in CreatePdfsFromHtmlAsync for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
                 return new CreatePdfsFromHtmlResponse
                 {
                     IsSuccess = false,
@@ -84,12 +85,12 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("ExtractTextFromPdfsAsync started for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("ExtractTextFromPdfsAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 // Send event to worker
                 await SendExtractTextFromPdfsEvent(request);
 
-                _logger.LogInformation("ExtractTextFromPdfsAsync event sent for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("ExtractTextFromPdfsAsync event sent for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 return new ExtractTextFromPdfsResponse
                 {
@@ -100,7 +101,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in ExtractTextFromPdfsAsync for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogError(ex, "Error in ExtractTextFromPdfsAsync for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
                 return new ExtractTextFromPdfsResponse
                 {
                     IsSuccess = false,
@@ -113,12 +114,12 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("CreatePdfsFromHtmlUsingTEAsync started for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("CreatePdfsFromHtmlUsingTEAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 // Send event to worker
                 await SendCreatePdfsFromHtmlUsingTEEvent(request);
 
-                _logger.LogInformation("CreatePdfsFromHtmlUsingTEAsync event sent for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("CreatePdfsFromHtmlUsingTEAsync event sent for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 return new CreatePdfsFromHtmlUsingTEResponse
                 {
@@ -129,7 +130,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in CreatePdfsFromHtmlUsingTEAsync for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogError(ex, "Error in CreatePdfsFromHtmlUsingTEAsync for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
                 return new CreatePdfsFromHtmlUsingTEResponse
                 {
                     IsSuccess = false,
@@ -142,12 +143,12 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("CreatePdfsFromHtmlUsingTEBulkAsync started for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("CreatePdfsFromHtmlUsingTEBulkAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 // Send event to worker
                 await SendCreatePdfsFromHtmlUsingTEBulkEvent(request);
 
-                _logger.LogInformation("CreatePdfsFromHtmlUsingTEBulkAsync event sent for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("CreatePdfsFromHtmlUsingTEBulkAsync event sent for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 return new CreatePdfsFromHtmlUsingTEBulkResponse
                 {
@@ -158,7 +159,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in CreatePdfsFromHtmlUsingTEBulkAsync for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogError(ex, "Error in CreatePdfsFromHtmlUsingTEBulkAsync for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
                 return new CreatePdfsFromHtmlUsingTEBulkResponse
                 {
                     IsSuccess = false,
@@ -171,7 +172,7 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("FixPdfsAsync started for MessageCorrelationId: {MessageCorrelationId}", request.MessageCorrelationId);
+                _logger.LogInformation("FixPdfsAsync started for MessageCorrelationId: {MessageCorrelationId}", LogSanitizer.Scrub(request.MessageCorrelationId));
 
                 if (request.PdfInfos == null || !request.PdfInfos.Any())
                 {
@@ -185,7 +186,7 @@ namespace Utility.DomainService.PdfGenerator.service
                 // Send event to worker
                 await SendFixPdfsEvent(request);
 
-                _logger.LogInformation("FixPdfsAsync event sent for MessageCorrelationId: {MessageCorrelationId}", request.MessageCorrelationId);
+                _logger.LogInformation("FixPdfsAsync event sent for MessageCorrelationId: {MessageCorrelationId}", LogSanitizer.Scrub(request.MessageCorrelationId));
 
                 return new FixPdfsResponse
                 {
@@ -196,7 +197,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in FixPdfsAsync for MessageCorrelationId: {MessageCorrelationId}", request.MessageCorrelationId);
+                _logger.LogError(ex, "Error in FixPdfsAsync for MessageCorrelationId: {MessageCorrelationId}", LogSanitizer.Scrub(request.MessageCorrelationId));
                 return new FixPdfsResponse
                 {
                     IsSuccess = false,
@@ -209,12 +210,12 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("StampImageToPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogInformation("StampImageToPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 // Send event to worker
                 await SendStampImageToPdfEvent(request);
 
-                _logger.LogInformation("StampImageToPdfAsync event sent for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogInformation("StampImageToPdfAsync event sent for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 return new StampImageToPdfResponse
                 {
@@ -225,7 +226,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in StampImageToPdfAsync for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogError(ex, "Error in StampImageToPdfAsync for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
                 return new StampImageToPdfResponse
                 {
                     IsSuccess = false,
@@ -238,12 +239,12 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("StampTextToPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogInformation("StampTextToPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 // Send event to worker
                 await SendStampTextToPdfEvent(request);
 
-                _logger.LogInformation("StampTextToPdfAsync event sent for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogInformation("StampTextToPdfAsync event sent for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 return new StampTextToPdfResponse
                 {
@@ -254,7 +255,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in StampTextToPdfAsync for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogError(ex, "Error in StampTextToPdfAsync for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
                 return new StampTextToPdfResponse
                 {
                     IsSuccess = false,
@@ -267,12 +268,12 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("StampIntoPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogInformation("StampIntoPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 // Send event to worker
                 await SendStampIntoPdfEvent(request);
 
-                _logger.LogInformation("StampIntoPdfAsync event sent for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogInformation("StampIntoPdfAsync event sent for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 return new StampIntoPdfResponse
                 {
@@ -283,7 +284,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in StampIntoPdfAsync for OutputPdfFileId: {OutputPdfFileId}", request.OutputPdfFileId);
+                _logger.LogError(ex, "Error in StampIntoPdfAsync for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
                 return new StampIntoPdfResponse
                 {
                     IsSuccess = false,
@@ -296,7 +297,7 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
-                _logger.LogInformation("ConvertDocumentsToPdfAsync started for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("ConvertDocumentsToPdfAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 if (request.ConvertCommands == null || request.ConvertCommands.Count == 0)
                 {
@@ -310,7 +311,7 @@ namespace Utility.DomainService.PdfGenerator.service
                 // Send event to worker
                 await SendConvertDocumentsToPdfEvent(request);
 
-                _logger.LogInformation("ConvertDocumentsToPdfAsync event sent for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogInformation("ConvertDocumentsToPdfAsync event sent for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 return new ConvertDocumentsToPdfResponse
                 {
@@ -321,7 +322,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in ConvertDocumentsToPdfAsync for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                _logger.LogError(ex, "Error in ConvertDocumentsToPdfAsync for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
                 return new ConvertDocumentsToPdfResponse
                 {
                     IsSuccess = false,

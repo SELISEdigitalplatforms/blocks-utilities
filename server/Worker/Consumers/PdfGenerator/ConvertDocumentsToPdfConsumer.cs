@@ -1,8 +1,9 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using System.Diagnostics.CodeAnalysis;
 using Utility.DomainService.PdfGenerator;
 using Utility.DomainService.PdfGenerator.Events;
 using Utility.DomainService.PdfGenerator.service;
+using Utility.DomainService.Shared.Utilities;
 
 namespace Worker.Consumers.PdfGenerator
 {
@@ -47,8 +48,8 @@ namespace Worker.Consumers.PdfGenerator
             var tenantId = @event.ProjectKey ?? BlocksContext.GetContext()?.TenantId ?? "";
             _logger.LogInformation(
                 "ConvertDocumentsToPdfConsumer: Processing event for MessageCoRelationId={MessageCoRelationId}, TenantId={TenantId}",
-                @event.MessageCoRelationId,
-                tenantId);
+                LogSanitizer.Scrub(@event.MessageCoRelationId),
+                LogSanitizer.Scrub(tenantId));
 
             var successCount = 0;
             var failureCount = 0;
@@ -84,7 +85,7 @@ namespace Worker.Consumers.PdfGenerator
                 _logger.LogError(
                     ex,
                     "ConvertDocumentsToPdfConsumer: Exception occurred for MessageCoRelationId={MessageCoRelationId}",
-                    @event.MessageCoRelationId);
+                    LogSanitizer.Scrub(@event.MessageCoRelationId));
 
                 await _notificationService.NotifyConvertDocumentsToPdfEvent(
                     false,
@@ -105,8 +106,8 @@ namespace Worker.Consumers.PdfGenerator
             {
                 _logger.LogInformation(
                     "ConvertDocumentsToPdfConsumer: Converting DocumentFileId={DocumentFileId}, name={DocumentFileName}",
-                    command.DocumentFileId,
-                    command.DocumentFileName);
+                    LogSanitizer.Scrub(command.DocumentFileId),
+                    LogSanitizer.Scrub(command.DocumentFileName));
 
                 // Checked before the download: an unsupported extension is a caller error, and
                 // finding that out after pulling the bytes across the network costs the same
@@ -115,7 +116,7 @@ namespace Worker.Consumers.PdfGenerator
                 {
                     _logger.LogError(
                         "ConvertDocumentsToPdfConsumer: Unsupported document type for DocumentFileName={DocumentFileName}",
-                        command.DocumentFileName);
+                        LogSanitizer.Scrub(command.DocumentFileName));
 
                     return false;
                 }
@@ -125,7 +126,7 @@ namespace Worker.Consumers.PdfGenerator
                 {
                     _logger.LogError(
                         "ConvertDocumentsToPdfConsumer: Failed to get document stream for DocumentFileId={DocumentFileId}",
-                        command.DocumentFileId);
+                        LogSanitizer.Scrub(command.DocumentFileId));
 
                     return false;
                 }
@@ -142,7 +143,7 @@ namespace Worker.Consumers.PdfGenerator
                 {
                     _logger.LogError(
                         "ConvertDocumentsToPdfConsumer: Conversion failed for DocumentFileId={DocumentFileId}",
-                        command.DocumentFileId);
+                        LogSanitizer.Scrub(command.DocumentFileId));
 
                     return false;
                 }
@@ -170,14 +171,14 @@ namespace Worker.Consumers.PdfGenerator
                 {
                     _logger.LogError(
                         "ConvertDocumentsToPdfConsumer: Failed to save converted PDF for OutputPdfFileId={OutputPdfFileId}",
-                        command.OutputPdfFileId);
+                        LogSanitizer.Scrub(command.OutputPdfFileId));
 
                     return false;
                 }
 
                 _logger.LogInformation(
                     "ConvertDocumentsToPdfConsumer: Saved converted PDF for OutputPdfFileId={OutputPdfFileId}, size={PdfSize} bytes",
-                    command.OutputPdfFileId,
+                    LogSanitizer.Scrub(command.OutputPdfFileId),
                     pdfStream.Length);
 
                 return true;
@@ -187,7 +188,7 @@ namespace Worker.Consumers.PdfGenerator
                 _logger.LogError(
                     ex,
                     "ConvertDocumentsToPdfConsumer: Error converting DocumentFileId={DocumentFileId}",
-                    command.DocumentFileId);
+                    LogSanitizer.Scrub(command.DocumentFileId));
 
                 return false;
             }
