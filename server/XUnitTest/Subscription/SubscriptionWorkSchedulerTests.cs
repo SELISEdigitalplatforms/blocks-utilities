@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -167,6 +168,58 @@ public sealed class SubscriptionWorkSchedulerTests
                 "corr-1");
 
         _scheduled.Should().ContainSingle().Which.MaxAttempts.Should().Be(9);
+    }
+
+    [Fact]
+    public async Task Work_scheduled_inside_a_request_remembers_the_trace_it_was_asked_for_under()
+    {
+        using var source = new ActivitySource("test.scheduling");
+        using var listener = Listening(source.Name);
+        using var request = source.StartActivity("POST /subscriptions", ActivityKind.Server);
+
+        await Scheduler().ScheduleAsync(
+            SubscriptionWorkType.Renewal,
+            TenantId,
+            "renewal:M20261001T000000Z",
+            _time.GetUtcNow().UtcDateTime,
+            "corr-1");
+
+        // Stored so the attempt can link back to this request a month from now. Parsed rather than
+        // string-compared, because what matters is that it resolves to this request's trace.
+        var stored = _scheduled.Should().ContainSingle().Subject.TraceParent;
+        SubscriptionWorkActivity.SchedulingContext(stored)!.Value.TraceId
+            .Should().Be(request!.TraceId);
+    }
+
+    [Fact]
+    public async Task Work_scheduled_outside_a_request_stores_no_trace_context()
+    {
+        // The sweep's ordinary case: nothing scheduled it from inside a request, so there is no
+        // trace to remember and a fabricated one would link an attempt to nothing.
+        await Scheduler().ScheduleAsync(
+            SubscriptionWorkType.Renewal,
+            TenantId,
+            "renewal:M20261001T000000Z",
+            _time.GetUtcNow().UtcDateTime,
+            "corr-1");
+
+        _scheduled.Should().ContainSingle().Which.TraceParent.Should().BeNull();
+    }
+
+    private static ActivityListener Listening(string sourceName)
+    {
+        // Without one, StartActivity returns null and there is no request to have been scheduled
+        // from — the condition the second test above is about, not the first.
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == sourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded
+        };
+
+        ActivitySource.AddActivityListener(listener);
+
+        return listener;
     }
 
     private SubscriptionWorkScheduler Scheduler(SubscriptionOptions? options = null) => new(

@@ -127,13 +127,24 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         // activity from, so without this one every line it wrote carried an empty trace id while
         // the API's were populated.
         //
-        // Consumer, not Internal: this process is taking work another one left for it. The activity
-        // is not linked to the scheduling request's trace yet — the queue item carries no trace
-        // context to be a child of — so this is a root span that stands on its own, and
-        // CorrelationId below remains the key that joins it to whoever scheduled the work.
+        // Consumer, not Internal: this process is taking work another one left for it.
+        //
+        // The stored context is a link, never a parent. Passing it as one would be the obvious move
+        // and would be wrong here: a renewal is scheduled a month before it runs and a cancellation
+        // up to a year, so the trace it joined would be one that started last November and is long
+        // past its backend's retention. A link says the same causal thing and stays openable.
+        //
+        // The parent is whatever is ambient instead — nothing in the worker, which is the case this
+        // exists for, but a real activity when the dispatcher is driven from an admin endpoint that
+        // runs due jobs on demand. Being a child of that request is right, and it is why no parent
+        // is forced here.
+        var scheduledBy = SubscriptionWorkActivity.SchedulingContext(work.TraceParent);
+
         using var activity = SubscriptionWorkActivity.Source.StartActivity(
             $"subscription.work {work.WorkType}",
-            ActivityKind.Consumer);
+            ActivityKind.Consumer,
+            default(ActivityContext),
+            links: scheduledBy is { } origin ? [new ActivityLink(origin)] : null);
 
         // Null whenever no tracer provider subscribed to the source, so every one of these is a
         // no-op rather than a guard somebody has to remember.
@@ -147,6 +158,14 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
             "subscription.subscription_id",
             SubscriptionWorkLogValue.AggregateId(work.AggregateId));
         activity?.SetTag("subscription.correlation_id", PaymentLogValue.Id(work.CorrelationId));
+        // The link above is the proper way to express this and depends on the trace backend
+        // rendering links. This tag does not, and neither does the log-scope field below — an
+        // operator holding the trace id of the request a customer complained about can find this
+        // work by grepping for it, whatever the backend supports.
+        if (scheduledBy is { } linked)
+        {
+            activity?.SetTag("subscription.scheduled_by.trace_id", linked.TraceId.ToString());
+        }
 
         // Everything about this attempt, on every line it writes: the item, who is on it, which
         // attempt, and the correlation the work was created under. One operation has to be
@@ -166,6 +185,12 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
             ["SubscriptionId"] = SubscriptionWorkLogValue.AggregateId(work.AggregateId),
             ["OrganizationId"] = SubscriptionWorkLogValue.AggregateId(work.OrganizationId),
             ["CorrelationId"] = PaymentLogValue.Id(work.CorrelationId),
+            // The trace the request that scheduled this ran under, so the two sides can be joined
+            // by trace id and not only by correlation id. "none" when nothing scheduled it from
+            // inside a request, which is every sweep.
+            ["ScheduledByTraceId"] = scheduledBy is { } from
+                ? from.TraceId.ToString()
+                : "none",
             ["OperationId"] = work.OperationId,
             ["LeaseId"] = leaseId,
             ["AttemptCount"] = work.AttemptCount

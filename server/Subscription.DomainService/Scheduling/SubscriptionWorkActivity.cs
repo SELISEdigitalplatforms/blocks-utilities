@@ -33,4 +33,30 @@ public static class SubscriptionWorkActivity
     /// the process.
     /// </summary>
     public static readonly ActivitySource Source = new(SourceName);
+
+    /// <summary>
+    /// The current trace context as a header value to store on scheduled work, or null when there
+    /// is nothing to store.
+    /// </summary>
+    /// <remarks>
+    /// Null outside a request — a sweep, a startup path, a test — which is the ordinary case rather
+    /// than a failure. The format check is not defensiveness about a value we produce: an activity
+    /// in the legacy hierarchical format has an <c>Id</c> that looks like an identifier and does not
+    /// parse as trace context, so storing it would fail silently at the far end a month later.
+    /// </remarks>
+    public static string? CurrentTraceParent() =>
+        Activity.Current is { IdFormat: ActivityIdFormat.W3C } current ? current.Id : null;
+
+    /// <summary>
+    /// The scheduling context to link an attempt to, or null when the work carries none.
+    /// </summary>
+    /// <remarks>
+    /// Remote, because it belongs to a different process and usually to a different month. Anything
+    /// unparseable is treated as absent: a span that refuses to start because a stored header was
+    /// malformed would stop a renewal over a diagnostic.
+    /// </remarks>
+    public static ActivityContext? SchedulingContext(string? traceParent) =>
+        ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var context)
+            ? context
+            : null;
 }
