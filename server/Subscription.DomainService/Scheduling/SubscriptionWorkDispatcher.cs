@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -121,6 +122,32 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         TimeSpan lease,
         CancellationToken cancellationToken)
     {
+        // Started before anything here logs, because the trace enricher stamps each line from
+        // whatever is current when that line is written. A worker has no request to inherit an
+        // activity from, so without this one every line it wrote carried an empty trace id while
+        // the API's were populated.
+        //
+        // Consumer, not Internal: this process is taking work another one left for it. The activity
+        // is not linked to the scheduling request's trace yet — the queue item carries no trace
+        // context to be a child of — so this is a root span that stands on its own, and
+        // CorrelationId below remains the key that joins it to whoever scheduled the work.
+        using var activity = SubscriptionWorkActivity.Source.StartActivity(
+            $"subscription.work {work.WorkType}",
+            ActivityKind.Consumer);
+
+        // Null whenever no tracer provider subscribed to the source, so every one of these is a
+        // no-op rather than a guard somebody has to remember.
+        activity?.SetTag("subscription.work.type", work.WorkType.ToString());
+        activity?.SetTag("subscription.work.item_id", work.ItemId);
+        activity?.SetTag("subscription.work.attempt", work.AttemptCount);
+        // Same rendering as the log scope below, so a span and a log line name the same thing the
+        // same way — including "none" for work that belongs to no one subscription.
+        activity?.SetTag("subscription.tenant_id", PaymentLogValue.Id(work.TenantId));
+        activity?.SetTag(
+            "subscription.subscription_id",
+            SubscriptionWorkLogValue.AggregateId(work.AggregateId));
+        activity?.SetTag("subscription.correlation_id", PaymentLogValue.Id(work.CorrelationId));
+
         // Everything about this attempt, on every line it writes: the item, who is on it, which
         // attempt, and the correlation the work was created under. One operation has to be
         // traceable from the API call that scheduled it to the provider request that finished it.
@@ -213,6 +240,11 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
                     return true;
 
                 default:
+                    // The outcome, not an exception: a retry is an ordinary result here, and a span
+                    // that ended Unset for it would leave a failing queue indistinguishable from a
+                    // healthy one in a trace view.
+                    activity?.SetStatus(ActivityStatusCode.Error, outcome.Result.ToString());
+
                     await FailAsync(work, leaseId, outcome, duration, cancellationToken);
 
                     return false;
@@ -226,6 +258,9 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         }
         catch (Exception exception)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+            activity?.AddException(exception);
+
             await renewal.StopAsync();
 
             if (renewal.LeaseWasLost)

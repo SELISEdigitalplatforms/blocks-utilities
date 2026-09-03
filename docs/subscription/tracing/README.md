@@ -81,21 +81,42 @@ So a message like `Subscription work completed DueAtUtc=… DurationMs=2 LagSeco
 its context — the template just doesn't repeat what the scope already carries. Query the fields, not
 the message text.
 
-> **This requires scope capture to be switched on.** Every `appsettings.json` in `server/Api` and
-> `server/Worker` now sets:
->
-> ```json
-> "Logging": {
->   "Console": {
->     "IncludeScopes": true,
->     "FormatterOptions": { "IncludeScopes": true }
->   }
-> }
-> ```
->
-> Without it those ten fields are computed on every line and then discarded by the sink, and the
-> scopes array renders as `[]`. If your production sink is not the console provider, set
-> `IncludeScopes` on whichever provider you use — the principle is the same.
+---
+
+## The trace id column, and why the worker's used to be empty
+
+The bracketed value beside each line is the **trace id**, not the log scope. The platform's log
+pipeline enriches every record from `Activity.Current`, so a line written outside any activity
+carries an empty one:
+
+```
+utilities         [8ced109d33cc2f17b42e8ae1cfc40e9e]  Executing endpoint '…'
+utilities-worker  []                                  Subscription work completed …
+```
+
+The API is instrumented per HTTP request, which is where its activity comes from. **A worker serves
+no request**, so nothing was creating one and every line it wrote had nothing to be stamped with.
+The enricher was working correctly and had nothing to read.
+
+Background work now runs inside a span of its own — `subscription.work {WorkType}`, kind `Consumer`
+— started by `SubscriptionWorkDispatcher` and carrying:
+
+```
+subscription.work.type   subscription.work.item_id   subscription.work.attempt
+subscription.tenant_id   subscription.subscription_id   subscription.correlation_id
+```
+
+So worker lines now carry a trace id, and every line of one attempt shares it.
+
+> **The source has to be subscribed to.** `Blocks.Subscription.BackgroundWork` — the same name the
+> queue's meter uses — is registered in `server/Worker/Program.cs`. Starting an activity from a
+> source nothing listens to returns null and sets nothing current, exactly as recording to a meter
+> no exporter asked for records nothing. No exporter is named at that registration on purpose: the
+> platform's own tracing setup owns where spans go.
+
+**A worker trace id does not yet join the API request that scheduled the work.** The queue item
+carries no trace context to be a child of, so each attempt is a root span. Until that changes,
+`CorrelationId` remains the key that joins the two sides — see the three-step trace above.
 
 ---
 

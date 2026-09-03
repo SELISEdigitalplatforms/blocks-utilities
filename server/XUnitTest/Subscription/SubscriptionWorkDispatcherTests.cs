@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -468,6 +469,101 @@ public sealed class SubscriptionWorkDispatcherTests
         await act.Should().NotThrowAsync();
     }
 
+    [Fact]
+    public async Task An_item_runs_inside_an_activity_so_its_log_lines_carry_a_trace_id()
+    {
+        using var recorder = new ActivityRecorder(SubscriptionWorkActivity.SourceName);
+        _claimed.Add(Work());
+
+        await Dispatcher().ProcessDueAsync("worker-1", default);
+
+        // The whole point: the trace enricher stamps a line from whatever is current when it is
+        // written, and a worker serves no request to inherit one from. Asserted from inside the
+        // handler because that is where a real handler's own logging happens.
+        _handler.ObservedActivity.Should().NotBeNull();
+        _handler.ObservedActivity!.TraceId.Should().NotBe(default(ActivityTraceId));
+
+        var span = recorder.Stopped.Should().ContainSingle().Subject;
+        span.Kind.Should().Be(ActivityKind.Consumer);
+        span.GetTagItem("subscription.work.type").Should().Be(nameof(SubscriptionWorkType.Renewal));
+        span.GetTagItem("subscription.work.item_id").Should().Be("work-1");
+        span.Status.Should().Be(ActivityStatusCode.Unset);
+    }
+
+    [Fact]
+    public async Task Work_that_belongs_to_no_subscription_says_so_on_its_span_too()
+    {
+        using var recorder = new ActivityRecorder(SubscriptionWorkActivity.SourceName);
+        // A tenant-wide sweep carries no aggregate. "none" rather than "missing" on the log scope,
+        // and the span must not disagree with the lines written inside it.
+        _claimed.Add(Work());
+
+        await Dispatcher().ProcessDueAsync("worker-1", default);
+
+        recorder.Stopped.Should().ContainSingle().Which
+            .GetTagItem("subscription.subscription_id").Should().Be("none");
+    }
+
+    [Fact]
+    public async Task A_retried_attempt_ends_its_span_as_an_error()
+    {
+        using var recorder = new ActivityRecorder(SubscriptionWorkActivity.SourceName);
+        _claimed.Add(Work());
+        _handler.Outcome = SubscriptionWorkOutcome.Retry("provider_unreachable", "No answer.");
+
+        await Dispatcher().ProcessDueAsync("worker-1", default);
+
+        // A retry is an ordinary outcome rather than an exception, so nothing else would have
+        // marked the span — and a failing queue that traces as healthy is worse than no trace.
+        recorder.Stopped.Should().ContainSingle().Which
+            .Status.Should().Be(ActivityStatusCode.Error);
+    }
+
+    [Fact]
+    public async Task Nothing_listening_to_the_source_leaves_the_work_untouched()
+    {
+        // No recorder, so StartActivity returns null and every activity call in the dispatcher is a
+        // no-op. Tracing is diagnostics: a process that registered no tracer provider still has to
+        // do the work.
+        _claimed.Add(Work());
+
+        var processed = await Dispatcher().ProcessDueAsync("worker-1", default);
+
+        processed.Should().Be(1);
+        _handler.Executions.Should().ContainSingle();
+        _handler.ObservedActivity.Should().BeNull();
+    }
+
+    /// <summary>
+    /// Collects the spans one source produces while a test runs.
+    /// </summary>
+    /// <remarks>
+    /// A listener is what makes <c>StartActivity</c> return anything at all, so this stands in for
+    /// the tracer provider the worker registers — and its absence stands in for a process that
+    /// registered none.
+    /// </remarks>
+    private sealed class ActivityRecorder : IDisposable
+    {
+        private readonly ActivityListener _listener;
+
+        public ActivityRecorder(string sourceName)
+        {
+            _listener = new ActivityListener
+            {
+                ShouldListenTo = source => source.Name == sourceName,
+                Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                    ActivitySamplingResult.AllDataAndRecorded,
+                ActivityStopped = activity => Stopped.Add(activity)
+            };
+
+            ActivitySource.AddActivityListener(_listener);
+        }
+
+        public List<Activity> Stopped { get; } = [];
+
+        public void Dispose() => _listener.Dispose();
+    }
+
     private SubscriptionWorkDispatcher Dispatcher(
         int batchSize = 20,
         int leaseSeconds = 120,
@@ -542,10 +638,18 @@ public sealed class SubscriptionWorkDispatcherTests
 
         public bool Cancelled { get; private set; }
 
+        /// <summary>
+        /// Whatever was current when this ran — which is what a real handler's log lines, and the
+        /// provider calls it makes, would be stamped with.
+        /// </summary>
+        public Activity? ObservedActivity { get; private set; }
+
         public async Task<SubscriptionWorkOutcome> ExecuteAsync(
             SubscriptionBackgroundWork work,
             CancellationToken cancellationToken)
         {
+            ObservedActivity = Activity.Current;
+
             if (Throw is not null)
             {
                 throw Throw;
