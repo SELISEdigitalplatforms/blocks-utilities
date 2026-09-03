@@ -29,7 +29,8 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
         SubscriptionDetail subscription,
         string? checkoutUrl = null,
         PendingCheckoutResponse? pendingCheckout = null,
-        bool? hasPaymentMethod = null)
+        bool? hasPaymentMethod = null,
+        string? providerName = null)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
@@ -150,7 +151,8 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             Meters = subscription.Plan.Meters
                 .Select(meter => ToMeterTerms(meter, subscription.CurrencyCode))
                 .ToList(),
-            Version = subscription.Version
+            Version = subscription.Version,
+            ProviderName = providerName
         };
     }
 

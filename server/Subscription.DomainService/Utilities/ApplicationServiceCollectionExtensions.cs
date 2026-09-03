@@ -234,6 +234,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionMerchantProfileService,
             SubscriptionMerchantProfileService>();
+        // Singleton, matching every dependency it composes (the catalog, the provider repository
+        // and the secret hydrator are all singletons themselves): it holds no per-request state,
+        // reading a live document and live secrets on every call.
+        services.AddSingleton<
+            ISubscriptionPaymentProviderReadinessService,
+            SubscriptionPaymentProviderReadinessService>();
         services.AddScoped<
             ISubscriptionBillingProfileGuard,
             SubscriptionBillingProfileGuard>();

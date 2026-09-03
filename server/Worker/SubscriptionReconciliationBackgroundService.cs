@@ -148,6 +148,16 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
             .GetRequiredService<IPaymentTenantContextScopeFactory>()
             .Establish(tenantId);
 
+        // Before the log scope, because the trace enricher stamps a line from whatever is current
+        // when it is written and the announcement lines below were the last ones still arriving
+        // without a trace id — an attempt runs inside a span, and the scheduling that produced it
+        // did not.
+        //
+        // It also gives the items this pass queues something to remember: the scheduler stores
+        // whatever is current as their trace context, so an attempt that starts minutes from now
+        // links back to this pass rather than to nothing.
+        using var activity = SubscriptionWorkActivity.StartRepairSweep(tenantId);
+
         using var logScope = _logger.BeginScope(new Dictionary<string, object?>
         {
             ["TenantHash"] = PaymentLogValue.Hash(tenantId),

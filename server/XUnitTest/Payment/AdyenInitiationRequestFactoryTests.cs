@@ -101,6 +101,77 @@ public sealed class AdyenInitiationRequestFactoryTests
         session.Metadata.OrganizationId.Should().BeNull();
     }
 
+    [Fact]
+    public void A_saved_card_defaults_to_card_on_file_when_no_recurring_model_is_requested()
+    {
+        var session = AdyenInitiationRequestFactory.ReadSession(
+            _factory.Create(
+                new MakePaymentRequest { CustomerEmail = "shopper@example.com", SavePaymentMethod = true },
+                new PaymentExecutionContext("tenant-1", "actor-1", "organization-1"),
+                new PaymentDetail { TenantId = "tenant-1", CurrencyCode = "EUR" },
+                Provider(),
+                "https://payments.example/return",
+                "payment-reference",
+                "shopper-reference",
+                null,
+                includeStoredPaymentMethods: false,
+                minorUnits: 2500));
+
+        session.RecurringProcessingModel.Should().Be("CardOnFile");
+    }
+
+    [Fact]
+    public void Subscription_checkout_declaring_its_recurring_model_gets_subscription_not_card_on_file()
+    {
+        var session = AdyenInitiationRequestFactory.ReadSession(
+            _factory.Create(
+                new MakePaymentRequest
+                {
+                    CustomerEmail = "shopper@example.com",
+                    SavePaymentMethod = true,
+                    RecurringModel = PaymentConstants.SubscriptionRecurringModel
+                },
+                new PaymentExecutionContext("tenant-1", "actor-1", "organization-1"),
+                new PaymentDetail { TenantId = "tenant-1", CurrencyCode = "EUR" },
+                Provider(),
+                "https://payments.example/return",
+                "payment-reference",
+                "shopper-reference",
+                null,
+                includeStoredPaymentMethods: false,
+                minorUnits: 2500));
+
+        session.RecurringProcessingModel.Should().Be(PaymentConstants.SubscriptionRecurringModel);
+        session.RecurringProcessingModel.Should().Be("Subscription");
+    }
+
+    [Fact]
+    public void No_token_is_saved_means_no_recurring_model_is_sent_even_if_one_was_requested()
+    {
+        // RecurringProcessingModel only makes sense alongside a shopper reference: nothing is
+        // being tokenized, so nothing should be declared reusable.
+        var session = AdyenInitiationRequestFactory.ReadSession(
+            _factory.Create(
+                new MakePaymentRequest
+                {
+                    CustomerEmail = "shopper@example.com",
+                    SavePaymentMethod = false,
+                    RecurringModel = PaymentConstants.SubscriptionRecurringModel
+                },
+                new PaymentExecutionContext("tenant-1", "actor-1", "organization-1"),
+                new PaymentDetail { TenantId = "tenant-1", CurrencyCode = "EUR" },
+                Provider(),
+                "https://payments.example/return",
+                "payment-reference",
+                "shopper-reference",
+                null,
+                includeStoredPaymentMethods: false,
+                minorUnits: 2500));
+
+        session.RecurringProcessingModel.Should().BeNull();
+        session.ShopperReference.Should().BeNull();
+    }
+
     private ProviderInitiationRequest Create(
         PaymentProvider provider,
         string? callerOrganizationId,

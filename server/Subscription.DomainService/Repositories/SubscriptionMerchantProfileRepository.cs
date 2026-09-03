@@ -42,6 +42,7 @@ public sealed class SubscriptionMerchantProfileRepository : ISubscriptionMerchan
             .Set(item => item.LogoFileId, profile.LogoFileId)
             .Set(item => item.PrimaryColor, profile.PrimaryColor)
             .Set(item => item.AccentColor, profile.AccentColor)
+            .Set(item => item.PaymentProviderName, profile.PaymentProviderName)
             .Set(item => item.LastUpdatedByUserId, profile.LastUpdatedByUserId)
             .Set(item => item.LastUpdatedDateUtc, now)
             .Inc(item => item.Version, 1);

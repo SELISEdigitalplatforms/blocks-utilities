@@ -1,4 +1,5 @@
 using FluentValidation;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Requests;
 
 namespace Subscription.DomainService.Validators;
@@ -6,9 +7,24 @@ namespace Subscription.DomainService.Validators;
 public sealed class UpdateMerchantProfileRequestValidator :
     AbstractValidator<UpdateMerchantProfileRequest>
 {
+    private static readonly string[] SupportedProviders =
+    [
+        PaymentConstants.StripeProvider,
+        PaymentConstants.AdyenOnlineProvider
+    ];
+
     public UpdateMerchantProfileRequestValidator()
     {
         RuleFor(request => request.LegalName).NotEmpty().MaximumLength(200);
+
+        // Only the two providers this build actually routes subscription charges through --
+        // matched case-insensitively the same way the console's own drop-down and the catalog's
+        // IsRegistered lookup do, so this can never accept a value readiness would then refuse.
+        RuleFor(request => request.PaymentProviderName)
+            .NotEmpty()
+            .Must(name => SupportedProviders.Any(
+                supported => string.Equals(supported, name, StringComparison.OrdinalIgnoreCase)))
+            .WithMessage("The payment provider must be STRIPE or ADYEN-ONLINE.");
         RuleFor(request => request.DisplayName).MaximumLength(200);
         RuleFor(request => request.TaxRegistrationId).MaximumLength(64);
         RuleFor(request => request.SupportEmail)

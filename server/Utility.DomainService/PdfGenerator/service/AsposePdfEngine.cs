@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
@@ -16,10 +17,12 @@ namespace Utility.DomainService.PdfGenerator.service
     public class AsposePdfEngine : IPdfEngine
     {
         private readonly ILogger<AsposePdfEngine> _logger;
+        private readonly IConfiguration _configuration;
 
-        public AsposePdfEngine(ILogger<AsposePdfEngine> logger)
+        public AsposePdfEngine(ILogger<AsposePdfEngine> logger, IConfiguration configuration)
         {
             _logger = logger;
+            _configuration = configuration;
         }
 
         public async Task<Stream?> MergePdfsAsync(List<Stream> pdfStreams)
@@ -98,12 +101,18 @@ namespace Utility.DomainService.PdfGenerator.service
             try
             {
                 _logger.LogInformation("AsposePdfEngine: Converting HTML to PDF using Aspose.Words");
-                
-                var htmlLoadOptions = new Aspose.Words.HtmlLoadOptions
+
+                // Aspose is licensed per process and watermarks every page without one, so this has
+                // to happen before the first Document is constructed, not just before the save.
+                AsposeLicense.EnsureApplied(_configuration, _logger);
+
+                // HtmlLoadOptions lives under Aspose.Words.Loading; the unqualified
+                // Aspose.Words.HtmlLoadOptions this used was an alias that no longer exists.
+                var htmlLoadOptions = new Aspose.Words.Loading.HtmlLoadOptions
                 {
                     LoadFormat = Aspose.Words.LoadFormat.Html
                 };
-                
+
                 var htmlBytes = Encoding.UTF8.GetBytes(htmlContent);
                 using (var htmlMemoryStream = new MemoryStream(htmlBytes))
                 {

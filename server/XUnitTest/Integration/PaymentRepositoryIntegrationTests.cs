@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Payment.DomainService.Models;
 using Payment.DomainService.Utilities;
 using MongoDB.Driver;
@@ -310,6 +310,8 @@ public sealed class PaymentRepositoryIntegrationTests
                 90,
                 null,
                 true,
+                null,
+                null,
                 CancellationToken.None);
         var second = _repository
             .TryUpdateProviderConfigurationAsync(
@@ -322,6 +324,8 @@ public sealed class PaymentRepositoryIntegrationTests
                 90,
                 null,
                 true,
+                null,
+                null,
                 CancellationToken.None);
 
         var results = await Task.WhenAll(first, second);
@@ -581,5 +585,170 @@ public sealed class PaymentRepositoryIntegrationTests
             .Should().BeTrue();
         (await _repository.HasUnresolvedRecurringPaymentAsync(tenantId, "other", CancellationToken.None))
             .Should().BeFalse();
+    }
+
+    private static PaymentDetail NewSetup(string tenantId) => new()
+    {
+        ItemId = Guid.NewGuid().ToString(),
+        TenantId = tenantId,
+        ProviderName = "adyen",
+        CurrencyCode = "EUR",
+        PreciseAmount = 0m,
+        IdempotencyKey = Guid.NewGuid().ToString(),
+        PaymentFlow = PaymentFlows.PaymentMethodSetup,
+        PaymentStatus = PaymentStatuses.Processing,
+        CreatedAtUtc = DateTime.UtcNow.AddHours(-1),
+        LastUpdatedDateUtc = DateTime.UtcNow.AddHours(-1)
+    };
+
+    /// <summary>
+    /// PR #393 review, Finding 1: the expiry sweep's final compare-and-set must re-verify "still
+    /// missing a signal" atomically in the same write as the status flip, not only at candidate
+    /// selection. This reproduces the race directly against Mongo: a setup is read as a candidate
+    /// (missing its token signal), then -- simulating the token webhook winning the race -- the
+    /// signal is recorded before the expiry attempt runs. The stale candidate read must not be
+    /// enough to expire it.
+    /// </summary>
+    [Fact]
+    public async Task TryExpireSetup_loses_the_race_to_a_signal_recorded_after_the_candidate_was_read()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var setup = NewSetup(tenantId);
+        setup.SetupAuthorizationConfirmedAtUtc = DateTime.UtcNow.AddHours(-1);
+        await _repository.TryCreateAsync(setup, CancellationToken.None);
+
+        var candidates = await _repository.GetDueSetupExpiryCandidatesAsync(
+            tenantId, DateTime.UtcNow, 10, CancellationToken.None);
+        candidates.Should().ContainSingle(p => p.ItemId == setup.ItemId);
+
+        // The token webhook wins the race between candidate selection and the expiry attempt.
+        (await _repository.TryRecordSetupTokenConfirmedAsync(
+                tenantId, setup.ItemId, DateTime.UtcNow, CancellationToken.None))
+            .Should().BeTrue();
+
+        var expired = await _repository.TryExpireSetupAsync(
+            tenantId, setup.ItemId, DateTime.UtcNow, CancellationToken.None);
+
+        expired.Should().BeFalse("the setup now has both signals and must not be expired out from under the webhook that just completed it");
+        var stored = await _repository.GetByIdAsync(tenantId, setup.ItemId, CancellationToken.None);
+        stored!.PaymentStatus.Should().Be(PaymentStatuses.Processing);
+        stored.SetupTokenConfirmedAtUtc.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// The companion case: a setup genuinely still missing a signal is expired normally, so
+    /// Finding 1's extra CAS condition does not silently disable the sweep altogether.
+    /// </summary>
+    [Fact]
+    public async Task TryExpireSetup_still_expires_a_setup_genuinely_missing_a_signal()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var setup = NewSetup(tenantId);
+        await _repository.TryCreateAsync(setup, CancellationToken.None);
+
+        var expired = await _repository.TryExpireSetupAsync(
+            tenantId, setup.ItemId, DateTime.UtcNow, CancellationToken.None);
+
+        expired.Should().BeTrue();
+        var stored = await _repository.GetByIdAsync(tenantId, setup.ItemId, CancellationToken.None);
+        stored!.PaymentStatus.Should().Be(PaymentStatuses.Expired);
+    }
+
+    [Fact]
+    public async Task GetSetupsReadyForCompletionAsync_returns_only_setups_with_both_signals()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var missingSignal = NewSetup(tenantId);
+        missingSignal.CreatedAtUtc = DateTime.UtcNow;
+        await _repository.TryCreateAsync(missingSignal, CancellationToken.None);
+
+        var bothSignals = NewSetup(tenantId);
+        bothSignals.SetupAuthorizationConfirmedAtUtc = DateTime.UtcNow;
+        bothSignals.SetupTokenConfirmedAtUtc = DateTime.UtcNow;
+        await _repository.TryCreateAsync(bothSignals, CancellationToken.None);
+
+        var notASetup = NewPayment(tenantId);
+        notASetup.PaymentStatus = PaymentStatuses.Processing;
+        await _repository.TryCreateAsync(notASetup, CancellationToken.None);
+
+        var ready = await _repository.GetSetupsReadyForCompletionAsync(tenantId, 50, CancellationToken.None);
+
+        ready.Select(p => p.ItemId).Should().BeEquivalentTo([bothSignals.ItemId]);
+    }
+
+    /// <summary>
+    /// PR #393 review (Finding, round 5): a setup with both signals already on record must be
+    /// found by the recovery sweep no matter how many older, genuinely-incomplete setups sit
+    /// ahead of it in the same tenant -- reproducing exactly the scenario the old shared
+    /// "oldest N Processing setups" query got wrong. That query, capped at <c>limit</c> and
+    /// sorted oldest-first, would have returned only the backlog here and never reached the
+    /// ready setup at all. <see cref="IPaymentRepository.GetSetupsReadyForCompletionAsync"/> is
+    /// filtered on readiness instead of position in an oldest-first window, so it finds the ready
+    /// setup regardless of how large -- or how much older -- the unrelated backlog is.
+    /// </summary>
+    [Fact]
+    public async Task GetSetupsReadyForCompletionAsync_finds_a_ready_setup_behind_a_backlog_larger_than_the_batch_cap()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        const int limit = 5;
+
+        // More than one batch's worth of older setups, all still genuinely missing a signal --
+        // the backlog the old shared query would have let crowd the ready setup out entirely.
+        for (var i = 0; i < limit + 3; i++)
+        {
+            var stuck = NewSetup(tenantId);
+            stuck.CreatedAtUtc = DateTime.UtcNow.AddHours(-2).AddSeconds(-i);
+            await _repository.TryCreateAsync(stuck, CancellationToken.None);
+        }
+
+        // Newer than every backlog record, so an oldest-first, capped query would place it last
+        // -- outside the window -- while it is, in fact, the only one actually ready right now.
+        var ready = NewSetup(tenantId);
+        ready.CreatedAtUtc = DateTime.UtcNow;
+        ready.SetupAuthorizationConfirmedAtUtc = DateTime.UtcNow;
+        ready.SetupTokenConfirmedAtUtc = DateTime.UtcNow;
+        await _repository.TryCreateAsync(ready, CancellationToken.None);
+
+        var found = await _repository.GetSetupsReadyForCompletionAsync(tenantId, limit, CancellationToken.None);
+
+        found.Select(p => p.ItemId).Should().BeEquivalentTo([ready.ItemId]);
+    }
+
+    [Fact]
+    public async Task GetPendingSetupAgeSummaryAsync_aggregates_the_oldest_age_per_missing_signal()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var olderMissingAuthorization = NewSetup(tenantId);
+        olderMissingAuthorization.CreatedAtUtc = DateTime.UtcNow.AddHours(-3);
+        olderMissingAuthorization.SetupTokenConfirmedAtUtc = DateTime.UtcNow.AddHours(-3);
+        await _repository.TryCreateAsync(olderMissingAuthorization, CancellationToken.None);
+
+        var newerMissingAuthorization = NewSetup(tenantId);
+        newerMissingAuthorization.CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        newerMissingAuthorization.SetupTokenConfirmedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        await _repository.TryCreateAsync(newerMissingAuthorization, CancellationToken.None);
+
+        var missingBoth = NewSetup(tenantId);
+        missingBoth.CreatedAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        await _repository.TryCreateAsync(missingBoth, CancellationToken.None);
+
+        var ready = NewSetup(tenantId);
+        ready.SetupAuthorizationConfirmedAtUtc = DateTime.UtcNow;
+        ready.SetupTokenConfirmedAtUtc = DateTime.UtcNow;
+        await _repository.TryCreateAsync(ready, CancellationToken.None);
+
+        var summary = await _repository.GetPendingSetupAgeSummaryAsync(tenantId, CancellationToken.None);
+
+        summary.Should().HaveCount(2);
+
+        var authorization = summary.Single(s => s.MissingSignal == "authorization");
+        authorization.Count.Should().Be(2);
+        authorization.OldestCreatedAtUtc.Should().BeCloseTo(
+            olderMissingAuthorization.CreatedAtUtc, TimeSpan.FromSeconds(1));
+
+        var both = summary.Single(s => s.MissingSignal == "both");
+        both.Count.Should().Be(1);
+        both.OldestCreatedAtUtc.Should().BeCloseTo(missingBoth.CreatedAtUtc, TimeSpan.FromSeconds(1));
     }
 }

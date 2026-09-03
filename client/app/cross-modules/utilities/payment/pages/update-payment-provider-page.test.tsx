@@ -51,6 +51,8 @@ const provider = (overrides: Partial<PaymentProvider> = {}): PaymentProvider => 
   maxRefundDays: 365,
   storeId: null,
   isEnabled: true,
+  paymentMethodConfigurationId: null,
+  checkoutPaymentMethodTypes: null,
   ...overrides,
 });
 
@@ -223,5 +225,184 @@ describe("UpdatePaymentProviderPage", () => {
     expect(
       screen.getByRole("button", { name: /Saving changes/ }),
     ).toBeDisabled();
+  });
+
+  /**
+   * The payment method selection. Stripe's own concept, so the block is absent for Adyen — which
+   * is what the factory above registers by default.
+   */
+  describe("checkout payment methods", () => {
+    const stripe = (overrides: Partial<PaymentProvider> = {}) =>
+      provider({ providerName: "STRIPE", ...overrides });
+
+    const showStripe = (overrides: Partial<PaymentProvider> = {}) => {
+      providersState = {
+        data: [stripe(overrides)],
+        isLoading: false,
+        isError: false,
+      };
+    };
+
+    const methods = async () => {
+      const [{ request }] = mutateAsyncMock.mock.calls[0];
+      return request.checkoutPaymentMethodTypes;
+    };
+
+    it("should not offer them for a provider that has no such concept", () => {
+      renderPage();
+
+      expect(screen.queryByRole("checkbox", { name: "Card" })).toBeNull();
+      expect(
+        screen.queryByLabelText(/Payment method configuration ID/),
+      ).toBeNull();
+    });
+
+    it("should offer them for Stripe", () => {
+      showStripe();
+      renderPage();
+
+      expect(screen.getByRole("checkbox", { name: "Card" })).toBeTruthy();
+      expect(screen.getByRole("checkbox", { name: "TWINT" })).toBeTruthy();
+    });
+
+    it("should tick the methods the provider already has", () => {
+      showStripe({ checkoutPaymentMethodTypes: ["card", "twint"] });
+      renderPage();
+
+      expect(screen.getByRole("checkbox", { name: "Card" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "TWINT" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "PayPal" })).not.toBeChecked();
+    });
+
+    it("should send the ticked methods", async () => {
+      showStripe({ checkoutPaymentMethodTypes: ["card"] });
+      renderPage();
+
+      fireEvent.click(screen.getByRole("checkbox", { name: "TWINT" }));
+      save();
+
+      await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled());
+      expect(await methods()).toEqual(["card", "twint"]);
+    });
+
+    /**
+     * Clearing the selection and never having made one are the same instruction to the server —
+     * both mean "offer whatever the account's own configuration enables" — so unticking
+     * everything has to omit the field rather than send an empty array, which Stripe rejects.
+     */
+    it("should omit the list entirely once everything is unticked", async () => {
+      showStripe({ checkoutPaymentMethodTypes: ["card"] });
+      renderPage();
+
+      fireEvent.click(screen.getByRole("checkbox", { name: "Card" }));
+      save();
+
+      await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled());
+      expect(await methods()).toBeUndefined();
+    });
+
+    /**
+     * Stripe rejects a session naming both, and the server resolves that by letting the ticked
+     * list win. The form says so by disabling the input rather than by implying both apply.
+     */
+    it("should disable the configuration id once a method is ticked", () => {
+      showStripe({ paymentMethodConfigurationId: "pmc_123" });
+      renderPage();
+
+      const configurationId = screen.getByLabelText(
+        /Payment method configuration ID/,
+      );
+      expect(configurationId).toBeEnabled();
+      expect((configurationId as HTMLInputElement).value).toBe("pmc_123");
+
+      fireEvent.click(screen.getByRole("checkbox", { name: "Card" }));
+
+      expect(configurationId).toBeDisabled();
+    });
+
+    it("should refuse a configuration id that is not one", async () => {
+      showStripe();
+      renderPage();
+
+      fireEvent.change(
+        screen.getByLabelText(/Payment method configuration ID/),
+        { target: { value: "card" } },
+      );
+      save();
+
+      expect(
+        await screen.findByText(
+          "A Stripe payment method configuration id starts with pmc_.",
+        ),
+      ).toBeTruthy();
+      expect(mutateAsyncMock).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The case this form could otherwise destroy. Both fields are settable through the API, where
+     * nothing holds them to the list of checkboxes offered here.
+     *
+     * Ticking any box rewrites the whole list from what the form offers, so a stored method the
+     * form did not offer would be dropped by an edit that had nothing to do with it — the
+     * operator ticks PayPal and silently loses us_bank_account from a live checkout. Showing it
+     * is what makes the rewrite lossless. (An untouched Save was never the risk: form state
+     * still holds what it hydrated.)
+     */
+    it("should show a method it does not itself offer, and keep it across an unrelated edit", async () => {
+      showStripe({ checkoutPaymentMethodTypes: ["card", "us_bank_account"] });
+      renderPage();
+
+      expect(
+        screen.getByRole("checkbox", { name: "us_bank_account" }),
+      ).toBeChecked();
+
+      fireEvent.click(screen.getByRole("checkbox", { name: "PayPal" }));
+      save();
+
+      await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled());
+      expect(await methods()).toEqual(["card", "paypal", "us_bank_account"]);
+    });
+
+    /** Shown, so it can also be removed deliberately. */
+    it("should let an unoffered method be removed", async () => {
+      showStripe({ checkoutPaymentMethodTypes: ["card", "us_bank_account"] });
+      renderPage();
+
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: "us_bank_account" }),
+      );
+      save();
+
+      await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled());
+      expect(await methods()).toEqual(["card"]);
+    });
+
+    /**
+     * Hidden for Adyen, but still hydrated from the stored provider and sent back — stripping it
+     * would clear a value this form never showed the operator.
+     */
+    it("should preserve methods stored on a provider that does not show them", async () => {
+      providersState = {
+        data: [provider({ checkoutPaymentMethodTypes: ["card"] })],
+        isLoading: false,
+        isError: false,
+      };
+      renderPage();
+
+      expect(screen.queryByRole("checkbox", { name: "Card" })).toBeNull();
+
+      save();
+
+      await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled());
+      expect(await methods()).toEqual(["card"]);
+    });
+
+    /** A method Stripe cannot charge again is marked, since ticking it changes no renewal. */
+    it("should mark the methods that cannot back a renewal", () => {
+      showStripe();
+      renderPage();
+
+      expect(screen.getAllByText("one-off payments only")).toHaveLength(2);
+    });
   });
 });

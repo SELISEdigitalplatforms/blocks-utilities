@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -175,6 +175,8 @@ public sealed class PaymentProviderAdministrationTests
                 It.IsAny<int>(),
                 It.IsAny<string?>(),
                 It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<string[]?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(updated);
 
@@ -569,6 +571,8 @@ public sealed class PaymentProviderAdministrationTests
                 30,
                 null,
                 true,
+                It.IsAny<string?>(),
+                It.IsAny<string[]?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -777,6 +781,8 @@ public sealed class PaymentProviderAdministrationTests
                 It.IsAny<int>(),
                 It.IsAny<string?>(),
                 It.IsAny<bool>(),
+                It.IsAny<string?>(),
+                It.IsAny<string[]?>(),
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new TimeoutException("mongo down"));
 

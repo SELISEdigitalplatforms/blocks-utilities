@@ -20,6 +20,10 @@ export interface PaymentProvider {
   maxRefundDays: number;
   storeId: string | null;
   isEnabled: boolean;
+  /** A Dashboard-built `pmc_…` configuration, ignored while methods are named explicitly. */
+  paymentMethodConfigurationId: string | null;
+  /** The methods checkout offers. Null defers to the provider account's own configuration. */
+  checkoutPaymentMethodTypes: string[] | null;
 }
 
 export interface RegisterPaymentProviderRequest {
@@ -38,6 +42,12 @@ export interface RegisterPaymentProviderRequest {
   manualCapture: boolean;
   maxRefundDays: number;
   storeId?: string;
+  paymentMethodConfigurationId?: string;
+  /**
+   * Omitted rather than sent empty. An empty array is not a checkout offering nothing — the server
+   * reads it as "never set", the same as omitting it, and defers to the account's configuration.
+   */
+  checkoutPaymentMethodTypes?: string[];
   apiKey: string;
   webhookHmacKey: string;
   tokenHmacKey?: string;
@@ -84,6 +94,9 @@ export interface UpdatePaymentProviderRequest {
   maxRefundDays: number;
   storeId?: string;
   isEnabled: boolean;
+  paymentMethodConfigurationId?: string;
+  /** Omitted rather than sent empty; see the note on the register request. */
+  checkoutPaymentMethodTypes?: string[];
 }
 
 export interface RotatePaymentProviderCredentialsRequest {

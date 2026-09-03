@@ -79,6 +79,21 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             cancellationToken);
         if (providerFailure != null) return providerFailure;
 
+        // Fail closed, before anything is built and long before the provider is contacted, when
+        // the caller already froze which exact PaymentProvider row this payment must resolve to
+        // (see MakePaymentRequest.ExpectedProviderId). Resolving independently and comparing only
+        // after a session already exists let a fallback to a shared configuration create a live
+        // Adyen session and payment record with no way to link it back -- see PR #393's
+        // subscription_payment_provider_scope_mismatch finding.
+        var scopeMismatch = await ValidateExpectedProviderAsync(
+            request.ExpectedProviderId,
+            provider!,
+            payment,
+            leaseId,
+            correlationId,
+            cancellationToken);
+        if (scopeMismatch != null) return scopeMismatch;
+
         var sessionClient = _sessionClients.Resolve(provider!.ProviderName);
         var requestFactory = _requestFactories.Resolve(provider.ProviderName);
         if (sessionClient == null || requestFactory == null)
@@ -207,7 +222,9 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
                 frontendResultUrl,
                 PaymentHashing.HashSensitiveValue(protectedState.State.Nonce),
                 shopperReference,
-                cancellationToken))
+                cancellationToken,
+                provider.ItemId,
+                provider.OrganizationId))
         {
             return PaymentOperationResult.Failure(
                 PaymentFailureKind.Conflict,
@@ -250,6 +267,16 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             payment.ProviderName,
             cancellationToken);
         if (provider == null) return;
+
+        // The same fail-closed guard InitiateAsync applies, for the same reason: a provider
+        // configuration change between the original attempt and this recovery must not silently
+        // retry the session against a different row than the one this payment was resolved
+        // against (and, for a subscription, than the one frozen on its billing account).
+        if (!string.IsNullOrWhiteSpace(payment.ResolvedProviderId) &&
+            !string.Equals(payment.ResolvedProviderId, provider.ItemId, StringComparison.Ordinal))
+        {
+            return;
+        }
 
         var sessionClient = _sessionClients.Resolve(provider.ProviderName);
         if (sessionClient == null) return;
@@ -329,6 +356,40 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Refuses to proceed when the caller froze an exact provider row and the scope-fallback
+    /// chain resolved a different one.
+    /// </summary>
+    /// <remarks>
+    /// Null <paramref name="expectedProviderId"/> means no caller has frozen an expectation for
+    /// this payment, so every existing caller that never sets
+    /// <see cref="Requests.MakePaymentRequest.ExpectedProviderId"/> is unaffected.
+    /// </remarks>
+    private async Task<PaymentOperationResult?> ValidateExpectedProviderAsync(
+        string? expectedProviderId,
+        PaymentProvider provider,
+        PaymentDetail payment,
+        string leaseId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(expectedProviderId) ||
+            string.Equals(expectedProviderId, provider.ItemId, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return await _stateTransitions.CompleteFailureAsync(
+            payment,
+            leaseId,
+            PaymentFailureKind.Unavailable,
+            "payment_provider_scope_mismatch",
+            "The payment provider resolved a different configuration than the one this payment " +
+                "was expected to use.",
+            correlationId,
+            cancellationToken);
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-namespace Utility.DomainService.PdfGenerator.Events
+﻿namespace Utility.DomainService.PdfGenerator.Events
 {
     /// <summary>
     /// Event for merging PDFs
@@ -132,5 +132,16 @@ namespace Utility.DomainService.PdfGenerator.Events
         public bool OpenInBrowser { get; set; } = false;
         public string? ProjectKey { get; set; }
     }
-}
 
+    /// <summary>
+    /// Event for converting word-processing documents to PDF
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
+    public record ConvertDocumentsToPdfEvent
+    {
+        public string MessageCoRelationId { get; set; } = string.Empty;
+        public Dictionary<string, string>? EventReferenceData { get; set; }
+        public List<ConvertDocumentToPdfCommand> ConvertCommands { get; set; } = new();
+        public string? ProjectKey { get; set; }
+    }
+}

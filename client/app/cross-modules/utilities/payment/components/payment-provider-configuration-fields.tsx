@@ -1,4 +1,6 @@
-import { useFormContext } from "react-hook-form";
+import { useFormContext, useWatch } from "react-hook-form";
+import { Badge } from "@/components/ui-kits/badge/badge";
+import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import {
   FormControl,
   FormDescription,
@@ -9,6 +11,10 @@ import {
 } from "@/components/ui-kits/form/form";
 import { Input } from "@/components/ui-kits/input/input";
 import { Switch } from "@/components/ui-kits/switch/switch";
+import {
+  canBeReusedOffSession,
+  PAYMENT_METHOD_OPTIONS,
+} from "../constants/payment.constants";
 
 interface ProviderConfigurationFields {
   frontendResultUrl: string;
@@ -17,16 +23,58 @@ interface ProviderConfigurationFields {
   maxRefundDays: number;
   storeId?: string;
   isEnabled?: boolean;
+  checkoutPaymentMethodTypes: string[];
+  paymentMethodConfigurationId?: string;
 }
 
 interface PaymentProviderConfigurationFieldsProps {
   includeEnabled?: boolean;
+  /**
+   * Which provider is being configured. The payment method selection is Stripe's own concept and
+   * is hidden for anything else; Adyen ignores both fields entirely.
+   */
+  providerName?: string;
+  /**
+   * The methods already stored on this provider. Any that the curated list does not offer are
+   * added to it, so they stay visible and can be kept or removed deliberately.
+   *
+   * These two fields are settable through the API, where nothing constrains them to the list
+   * below. Ticking any box rewrites the whole list from what is offered here, so a method that
+   * was not offered would be dropped by an edit that had nothing to do with it — a silent change
+   * to how a live checkout behaves. Read from the stored provider rather than from form state,
+   * so unticking one does not make its checkbox vanish mid-edit.
+   */
+  additionalPaymentMethods?: readonly string[];
+}
+
+/** One method the form can offer; labelled by its raw value when it is not a curated one. */
+interface PaymentMethodChoice {
+  value: string;
+  label: string;
+  hint?: string | undefined;
 }
 
 export const PaymentProviderConfigurationFields = ({
   includeEnabled = false,
+  providerName,
+  additionalPaymentMethods = [],
 }: PaymentProviderConfigurationFieldsProps) => {
   const form = useFormContext<ProviderConfigurationFields>();
+  const selectedMethods = useWatch({
+    control: form.control,
+    name: "checkoutPaymentMethodTypes",
+  });
+  const hasSelectedMethods = (selectedMethods ?? []).length > 0;
+
+  const offered: PaymentMethodChoice[] = [
+    ...PAYMENT_METHOD_OPTIONS,
+    ...[...new Set(additionalPaymentMethods)]
+      .filter(
+        (method) =>
+          !PAYMENT_METHOD_OPTIONS.some((option) => option.value === method),
+      )
+      .map((method) => ({ value: method, label: method })),
+  ];
 
   return (
     <div className="grid gap-5 sm:grid-cols-2">
@@ -150,6 +198,114 @@ export const PaymentProviderConfigurationFields = ({
           </FormItem>
         )}
       />
+
+      {providerName === "STRIPE" && (
+        <div className="space-y-5 rounded-xl border p-4 sm:col-span-2">
+          <div>
+            <h3 className="font-semibold">Checkout payment methods</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Which methods Stripe Checkout offers a shopper.
+            </p>
+          </div>
+
+          <FormField
+            control={form.control}
+            name="checkoutPaymentMethodTypes"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Offer these methods</FormLabel>
+                <div className="space-y-3 rounded-md border p-3">
+                  {offered.map((option) => {
+                    const selected = (field.value ?? []).includes(
+                      option.value,
+                    );
+
+                    return (
+                      <div key={option.value} className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          {/* The label wraps the control so the method name is its accessible
+                              name. The badge and hint stay outside it, or they would be read as
+                              part of that name. */}
+                          <label className="flex cursor-pointer items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={selected}
+                              onCheckedChange={(checked) => {
+                                const chosen = new Set(field.value ?? []);
+
+                                if (checked) {
+                                  chosen.add(option.value);
+                                } else {
+                                  chosen.delete(option.value);
+                                }
+
+                                // Rebuilt in the order shown rather than in the order ticked:
+                                // Stripe renders the methods in the order they arrive, and a
+                                // checkbox list gives no sign of click order, so ordering by
+                                // what is on screen is the only version an operator can predict.
+                                field.onChange(
+                                  offered
+                                    .map((candidate) => candidate.value)
+                                    .filter((value) => chosen.has(value)),
+                                );
+                              }}
+                            />
+                            {option.label}
+                          </label>
+                          {!canBeReusedOffSession(option.value) && (
+                            <Badge variant="outline">
+                              one-off payments only
+                            </Badge>
+                          )}
+                        </div>
+                        {option.hint && (
+                          <p className="pl-6 text-xs text-muted-foreground">
+                            {option.hint}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <FormDescription>
+                  Leave every box unchecked to offer whatever the Stripe
+                  Dashboard enables, which is what this provider does today. A
+                  method marked one-off cannot be charged again later, so Stripe
+                  leaves it off a subscription&rsquo;s first payment even when it
+                  is ticked here — it still appears on ordinary payments.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="paymentMethodConfigurationId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Payment method configuration ID</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    value={field.value ?? ""}
+                    maxLength={100}
+                    placeholder="pmc_…"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={hasSelectedMethods}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {hasSelectedMethods
+                    ? "Ignored while methods are ticked above — Stripe rejects a checkout that names both, so the ticked list wins. Untick them all to use this instead."
+                    : "Optional. A configuration assembled in the Stripe Dashboard, used when no method is ticked above."}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+      )}
 
       {includeEnabled && (
         <FormField

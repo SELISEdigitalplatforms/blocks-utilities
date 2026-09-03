@@ -1,4 +1,5 @@
 import { AlertCircle, CalendarClock, CreditCard, ExternalLink, History, Inbox } from "lucide-react";
+import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
@@ -11,6 +12,15 @@ import { SubscriptionStatusBadge } from "./subscription-status-badge";
 
 const formatDate = (isoDate: string | null) =>
   isoDate ? new Date(isoDate).toLocaleString() : "—";
+
+// Debugging aid, not customer-facing marketing: an operator comparing two subscriptions that
+// charge through different providers has no other way to see which is which from this screen.
+const PROVIDER_LABELS: Record<string, string> = {
+  STRIPE: "Stripe",
+  "ADYEN-ONLINE": "Adyen",
+};
+const formatProviderName = (providerName: string | null) =>
+  providerName ? (PROVIDER_LABELS[providerName] ?? providerName) : null;
 
 const describeTier = (tier: QuantityDiscountTier) => {
   const range =
@@ -125,6 +135,11 @@ export const CurrentSubscriptionCard = ({
           <div className="flex items-center gap-2">
             <h3 className="font-semibold">{subscription.planName}</h3>
             <SubscriptionStatusBadge status={subscription.status} />
+            {formatProviderName(subscription.providerName) && (
+              <Badge variant="secondary" className="font-normal">
+                {formatProviderName(subscription.providerName)}
+              </Badge>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">
             {scopeLabel} · {subscription.planCode} ·{" "}

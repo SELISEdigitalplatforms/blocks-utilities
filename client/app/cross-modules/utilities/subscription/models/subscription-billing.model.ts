@@ -54,6 +54,27 @@ export interface UpdateBillingProfileRequest {
  * under the deployment-wide fallback — which every other tenant is also using, and which is the one
  * thing a console showing these values has to make visible.
  */
+/** Names the two providers this build can route a subscription charge through. */
+export type SubscriptionPaymentProviderName = "STRIPE" | "ADYEN-ONLINE";
+
+/**
+ * Whether a provider is actually usable for a new subscription right now — see the server's
+ * `SubscriptionPaymentProviderReadiness` enum, which this mirrors exactly.
+ */
+export type SubscriptionPaymentProviderStatus =
+  | "Ready"
+  | "Unsupported"
+  | "NotConfigured"
+  | "Disabled"
+  | "Misconfigured"
+  | "CredentialsUnavailable";
+
+/** One provider's readiness, as rendered on the merchant-profile page's two selection cards. */
+export interface SubscriptionMerchantProfilePaymentProvider {
+  name: SubscriptionPaymentProviderName;
+  status: SubscriptionPaymentProviderStatus;
+}
+
 export interface SubscriptionMerchantProfile {
   legalName: string;
   displayName?: string | null;
@@ -71,6 +92,15 @@ export interface SubscriptionMerchantProfile {
   missingFields: string[];
   isInheritedFromConfiguration: boolean;
   lastUpdatedDateUtc?: string | null;
+  /**
+   * The provider new subscriptions will be routed through — the stored value, or `STRIPE` for a
+   * tenant that has never saved one.
+   */
+  paymentProviderName: SubscriptionPaymentProviderName;
+  /** Whether {@link paymentProviderName} is actually usable for a new subscription right now. */
+  paymentProviderStatus: SubscriptionPaymentProviderStatus;
+  /** Readiness for every provider this build supports, independent of which one is selected. */
+  paymentProviders: SubscriptionMerchantProfilePaymentProvider[];
 }
 
 export interface UpdateMerchantProfileRequest {
@@ -85,6 +115,8 @@ export interface UpdateMerchantProfileRequest {
   primaryColor?: string | null;
   /** A six-digit hex color, with or without the leading '#'. Null clears it back to the default. */
   accentColor?: string | null;
+  /** Required: the console never submits a blank value. */
+  paymentProviderName: SubscriptionPaymentProviderName;
 }
 
 export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote";

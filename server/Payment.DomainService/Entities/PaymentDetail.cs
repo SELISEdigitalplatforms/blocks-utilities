@@ -36,6 +36,39 @@ public sealed class PaymentDetail
     public string? OrganizationId { get; set; }
 
     /// <summary>
+    /// The item id of the exact <see cref="PaymentProvider"/> row the scope-fallback chain
+    /// resolved and executed this payment against -- set once, at initiation, before the
+    /// provider is ever contacted. Distinct from <see cref="OrganizationId"/>, which is the
+    /// request/operation scope rather than the provider configuration that actually answered it.
+    /// </summary>
+    public string? ResolvedProviderId { get; set; }
+
+    /// <summary>
+    /// The real scope of the resolved <see cref="PaymentProvider"/> row: null for a tenant-level
+    /// configuration, an organization id for one scoped to a single organization. Never coerced
+    /// to the caller's own organization -- a null here means "tenant-wide" and must stay null.
+    /// </summary>
+    public string? ResolvedProviderOrganizationId { get; set; }
+
+    /// <summary>
+    /// When a successful (non-refused) authorization event was confirmed for a
+    /// <see cref="Enums.PaymentFlows.PaymentMethodSetup"/> payment. One of the two independent,
+    /// idempotently-recorded signals a card setup needs before it is Ready -- see
+    /// <see cref="Services.PaymentMethodSetupWebhookStateTransitionService"/>'s remarks on the
+    /// two-signal state machine. Null while pending; never cleared once set, and never set by an
+    /// explicit decline, which is a negative signal handled on its own.
+    /// </summary>
+    public DateTime? SetupAuthorizationConfirmedAtUtc { get; set; }
+
+    /// <summary>
+    /// When a recurring token was confirmed for this setup, whether it arrived inline on the
+    /// authorization event or -- the documented shape -- on a separate, later
+    /// <c>recurring.token.created</c> webhook. The other of the two independent signals; see
+    /// <see cref="SetupAuthorizationConfirmedAtUtc"/>.
+    /// </summary>
+    public DateTime? SetupTokenConfirmedAtUtc { get; set; }
+
+    /// <summary>
     /// Whether this payment came from the console or from an application. See
     /// <see cref="PaymentOrigins"/>. Null on payments taken before this was recorded, which are
     /// not assumed to be either.

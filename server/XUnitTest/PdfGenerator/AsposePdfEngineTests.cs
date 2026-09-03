@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Moq;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
@@ -14,7 +15,7 @@ namespace XUnitTest.PdfGenerator
         public AsposePdfEngineTests()
         {
             var logger = Mock.Of<ILogger<AsposePdfEngine>>();
-            _engine = new AsposePdfEngine(logger);
+            _engine = new AsposePdfEngine(logger, Mock.Of<IConfiguration>());
         }
 
         #region MergePdfsAsync

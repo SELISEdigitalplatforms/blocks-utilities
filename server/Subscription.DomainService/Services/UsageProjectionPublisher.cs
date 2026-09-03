@@ -319,6 +319,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         PlanCode = subscription.Plan.Code,
         MeterKey = meter.MeterKey,
         UnitLabel = meter.UnitLabel,
+        QuantityScale = meter.QuantityScale,
         PeriodKey = period.Key,
         PeriodStartUtc = period.StartUtc,
         PeriodEndUtc = period.EndUtc,

@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 
 namespace Payment.DomainService.Entities;
 
@@ -82,6 +82,27 @@ public sealed class PaymentProvider
     [System.Text.Json.Serialization.JsonIgnore]
     public string? ShopperReferenceHmacKey { get; set; }
     public string[]? PaymentMethods { get; set; }
+
+    /// <summary>
+    /// Stripe's <c>pmc_…</c> payment method configuration, when this provider should offer a
+    /// configuration other than the account's default. Ignored when
+    /// <see cref="CheckoutPaymentMethodTypes"/> names methods explicitly, because Stripe rejects
+    /// a session carrying both.
+    /// </summary>
+    public string? PaymentMethodConfigurationId { get; set; }
+
+    /// <summary>
+    /// The payment methods a hosted checkout should offer, named explicitly. Null or empty — the
+    /// default — leaves the choice to the provider, which resolves it from the account's own
+    /// Dashboard configuration.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from <see cref="PaymentMethods"/>, which predates this and is read
+    /// by nothing: a document written before this field existed may carry provider-specific
+    /// names in it, and reinterpreting those as Stripe method types would silently change what a
+    /// live checkout offers on deploy.
+    /// </remarks>
+    public string[]? CheckoutPaymentMethodTypes { get; set; }
     public bool AllowRecurringFlagFromPayload { get; set; }
     public bool IsRecurring { get; set; }
     public Dictionary<string, object>? Utilities { get; set; }
