@@ -292,6 +292,44 @@ namespace Utility.DomainService.PdfGenerator.service
             }
         }
 
+        public async Task<ConvertDocumentsToPdfResponse> ConvertDocumentsToPdfAsync(ConvertDocumentsToPdfRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("ConvertDocumentsToPdfAsync started for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+
+                if (request.ConvertCommands == null || request.ConvertCommands.Count == 0)
+                {
+                    return new ConvertDocumentsToPdfResponse
+                    {
+                        IsSuccess = false,
+                        Message = "ConvertCommands cannot be null or empty"
+                    };
+                }
+
+                // Send event to worker
+                await SendConvertDocumentsToPdfEvent(request);
+
+                _logger.LogInformation("ConvertDocumentsToPdfAsync event sent for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+
+                return new ConvertDocumentsToPdfResponse
+                {
+                    IsSuccess = true,
+                    MessageCoRelationId = request.MessageCoRelationId,
+                    Message = "Convert documents to PDF request queued successfully"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ConvertDocumentsToPdfAsync for MessageCoRelationId: {MessageCoRelationId}", request.MessageCoRelationId);
+                return new ConvertDocumentsToPdfResponse
+                {
+                    IsSuccess = false,
+                    Message = $"Error: {ex.Message}"
+                };
+            }
+        }
+
         #region Private Helper Methods - Send Events
 
         private async Task SendMergePdfsEvent(MergePdfsRequest request)
@@ -466,6 +504,23 @@ namespace Utility.DomainService.PdfGenerator.service
                         Engine = (int)request.Engine,
                         EventReferenceData = request.EventReferenceData,
                         OpenInBrowser = request.OpenInBrowser,
+                        ProjectKey = request.ProjectKey
+                    }
+                }
+            );
+        }
+
+        private async Task SendConvertDocumentsToPdfEvent(ConvertDocumentsToPdfRequest request)
+        {
+            await _messageClient.SendToConsumerAsync(
+                new ConsumerMessage<ConvertDocumentsToPdfEvent>
+                {
+                    ConsumerName = PdfGeneratorConstants.ConvertDocumentsToPdfQueue,
+                    Payload = new ConvertDocumentsToPdfEvent
+                    {
+                        MessageCoRelationId = request.MessageCoRelationId,
+                        EventReferenceData = request.EventReferenceData,
+                        ConvertCommands = request.ConvertCommands,
                         ProjectKey = request.ProjectKey
                     }
                 }

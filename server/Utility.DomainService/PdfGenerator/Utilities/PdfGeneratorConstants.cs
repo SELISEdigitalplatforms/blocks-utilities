@@ -16,6 +16,7 @@ namespace Utility.DomainService.PdfGenerator.Utilities
         public const string StampImageToPdfQueue = "blocks_pdf_stamp_image_listener";
         public const string StampTextToPdfQueue = "blocks_pdf_stamp_text_listener";
         public const string StampIntoPdfQueue = "blocks_pdf_stamp_listener";
+        public const string ConvertDocumentsToPdfQueue = "blocks_pdf_convert_document_listener";
 
         public static MessageConfiguration GetMessageConfiguration(string messageConnectionString)
         {
@@ -29,7 +30,8 @@ namespace Utility.DomainService.PdfGenerator.Utilities
                 FixPdfsQueue,
                 StampImageToPdfQueue,
                 StampTextToPdfQueue,
-                StampIntoPdfQueue
+                StampIntoPdfQueue,
+                ConvertDocumentsToPdfQueue
             );
         }
     }

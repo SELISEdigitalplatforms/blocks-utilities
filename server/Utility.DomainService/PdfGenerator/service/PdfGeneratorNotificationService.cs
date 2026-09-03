@@ -135,6 +135,18 @@ namespace Utility.DomainService.PdfGenerator.service
             });
         }
 
+        public async Task NotifyConvertDocumentsToPdfEvent(bool success, string messageCoRelationId, string? projectKey, int successCount, int failureCount)
+        {
+            _logger.LogInformation("NotifyConvertDocumentsToPdfEvent: Sending notification for messageCoRelationId={MessageCoRelationId}, success={Success}", messageCoRelationId, success);
+
+            await SendNotificationAsync("Convert Documents to PDF", success, messageCoRelationId, new
+            {
+                MessageCoRelationId = messageCoRelationId,
+                SuccessCount = successCount,
+                FailureCount = failureCount
+            });
+        }
+
         private async Task SendNotificationAsync(string title, bool success, string subscriptionFilterId, object additionalData)
         {
             try

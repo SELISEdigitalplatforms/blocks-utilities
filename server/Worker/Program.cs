@@ -12,6 +12,7 @@ using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using Worker;
 using Worker.Configuration;
+using Worker.Consumers.PdfGenerator;
 using Worker.Consumers.Payment;
 using Worker.Consumers.Subscription;
 using Subscription.DomainService.Entities;
@@ -75,6 +76,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                 UsageThresholdReachedConsumer>();
             // Register the test consumer
             services.RegisterUtilityServices();
+            services.RegisterPdfGeneratorConsumers();
             services.AddSingleton<IVault>(_ => paymentVault);
             services.RegisterPaymentDomainServices(context.Configuration);
             services.RegisterSubscriptionDomainServices(
