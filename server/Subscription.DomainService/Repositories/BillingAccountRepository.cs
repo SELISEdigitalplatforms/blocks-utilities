@@ -86,53 +86,88 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
                      ?? account;
         }
 
-        return await BackfillProviderIdentityAsync(account, result, cancellationToken);
+        return await ReconcileProviderIdentityAsync(account, result, cancellationToken);
     }
 
     /// <summary>
-    /// One-time self-healing backfill of <see cref="BillingAccount.ProviderId"/> and
-    /// <see cref="BillingAccount.ProviderOrganizationId"/> onto a legacy account that predates
-    /// this PR's provider-identity work and so was created with both left null.
+    /// Keeps <see cref="BillingAccount.ProviderId"/> and
+    /// <see cref="BillingAccount.ProviderOrganizationId"/> pointed at whatever readiness resolved
+    /// just now, for as long as doing so is still safe -- and freezes them the moment it stops
+    /// being safe.
     /// </summary>
     /// <remarks>
+    /// An account is one per organization and provider and outlives every subscription on it (see
+    /// <see cref="IBillingAccountRepository.GetOrCreateAndReconcileAsync"/>), so the very first
+    /// signup attempt for a given (tenant, organization, provider name) is not necessarily the one
+    /// that ends up paying anything: it can be misconfigured, abandoned, or superseded by a
+    /// corrected <c>PaymentProvider</c> row before a card is ever actually charged or stored. Only
+    /// once <see cref="BillingAccount.ProviderCustomerId"/> is set does that account name a real
+    /// customer at a real provider -- filled in from a confirmed charge, never guessed at (see its
+    /// own remarks) -- and only from that point on would moving <see cref="BillingAccount.ProviderId"/>
+    /// risk stranding a saved card or repointing a live mandate. Before then, re-pinning to the
+    /// current resolution is not merely safe, it is the only way an operator who fixes a
+    /// misconfigured provider between two subscribe attempts is not stuck forever with the first,
+    /// broken one -- see PR #393's <c>subscription_payment_provider_scope_mismatch</c> finding.
+    /// <para>
     /// Deliberately not folded into <see cref="Reconciliation"/>: that single find-and-modify
-    /// cannot express "write this field only if it is currently null" — <c>$set</c> and
-    /// <c>$setOnInsert</c> both act unconditionally on their own side of insert-vs-update — so the
-    /// conditional write here follows this codebase's established compare-and-set convention
+    /// cannot express "write this field only if the account has taken no money yet" — <c>$set</c>
+    /// and <c>$setOnInsert</c> both act unconditionally on their own side of insert-vs-update — so
+    /// the conditional write here follows this codebase's established compare-and-set convention
     /// instead (see <c>PaymentRepository.TryRecordSetupTokenConfirmedAsync</c> in
-    /// Payment.DomainService): a conditional update filtered on the field still being null.
-    /// That filter is what makes
-    /// this strictly additive and one-directional — a billing account's provider identity is
-    /// frozen once set, and this must never be the thing that silently moves it, only the thing
-    /// that fills in a value legacy accounts were never given a chance to record.
+    /// Payment.DomainService): a conditional update filtered on <c>ProviderCustomerId</c> still
+    /// being unset. That filter is what makes this reversible only until real money is on the
+    /// line, and absolute afterwards -- a billing account that has already taken a payment must
+    /// never have its provider identity moved by anything, this method included.
+    /// </para>
     /// <para>
     /// Uses <c>FindOneAndUpdate</c> with <see cref="ReturnDocument.After"/> rather than an
     /// <c>UpdateOneAsync</c> read off its <c>ModifiedCount</c>, so a losing writer in a race
-    /// between two concurrent backfills of the same legacy account still gets back whatever is
+    /// between two concurrent reconciliations of the same account still gets back whatever is
     /// actually on the document now -- the value the winner wrote -- instead of the stale
-    /// pre-update <paramref name="stored"/> it was handed, which would still show
-    /// <c>ProviderId == null</c> and cause its caller to skip the fail-closed
-    /// <c>ExpectedProviderId</c> check even though the database already has a frozen identity.
-    /// See PR #393 review (Finding 2).
+    /// pre-update <paramref name="stored"/> it was handed, which could show a <c>ProviderId</c>
+    /// this call itself just made stale.
     /// </para>
     /// </remarks>
-    private async Task<BillingAccount> BackfillProviderIdentityAsync(
+    private async Task<BillingAccount> ReconcileProviderIdentityAsync(
         BillingAccount account,
         BillingAccount stored,
         CancellationToken cancellationToken)
     {
-        if (stored.ProviderId is not null || account.ProviderId is null)
+        if (account.ProviderId is null)
         {
-            // Either this account's provider identity is already frozen (nothing to backfill),
-            // or the caller has no provider identity to offer -- e.g. a reconcile call that
+            // The caller has no provider identity to offer -- e.g. a reconcile call that
             // predates this PR's provider-identity work reaching this code path.
             return stored;
         }
 
+        if (!string.IsNullOrWhiteSpace(stored.ProviderCustomerId))
+        {
+            // A real charge already confirmed a customer against this account's provider.
+            // Frozen, permanently: see the type's remarks.
+            return stored;
+        }
+
+        if (string.Equals(stored.ProviderId, account.ProviderId, StringComparison.Ordinal) &&
+            string.Equals(
+                stored.ProviderOrganizationId, account.ProviderOrganizationId, StringComparison.Ordinal))
+        {
+            // Already pinned to exactly what readiness resolved just now. Nothing to reconcile,
+            // and no write to race anyone over.
+            return stored;
+        }
+
+        // Optimistic concurrency on the exact ProviderId this call read, not merely "still
+        // unset": two concurrent reconciles that both read the same stored value and each want to
+        // write a different one must not both succeed -- exactly one may win, or the two calls
+        // converge on different answers, and the whole point of the reload below is that every
+        // caller agrees on a single truth.
         var filter = Builders<BillingAccount>.Filter.And(
             Builders<BillingAccount>.Filter.Eq(x => x.TenantId, stored.TenantId),
             Builders<BillingAccount>.Filter.Eq(x => x.ItemId, stored.ItemId),
-            Builders<BillingAccount>.Filter.Eq(x => x.ProviderId, null));
+            Builders<BillingAccount>.Filter.Eq(x => x.ProviderId, stored.ProviderId),
+            Builders<BillingAccount>.Filter.Or(
+                Builders<BillingAccount>.Filter.Eq(x => x.ProviderCustomerId, null),
+                Builders<BillingAccount>.Filter.Eq(x => x.ProviderCustomerId, string.Empty)));
 
         var update = Builders<BillingAccount>.Update
             .Set(x => x.ProviderId, account.ProviderId)
@@ -152,10 +187,10 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
             return updated;
         }
 
-        // The filter no longer matched: another concurrent call already backfilled this account
-        // between the read that produced `stored` and this attempt. Re-read rather than return
-        // the stale `stored` object, so every concurrent caller ends up agreeing on the same
-        // winning, non-null ProviderId rather than the loser silently reporting none at all.
+        // The filter no longer matched: a concurrent charge confirmed a customer (or another
+        // caller already reconciled this account) between the read that produced `stored` and
+        // this attempt. Re-read rather than return the stale `stored` object, so every concurrent
+        // caller ends up agreeing on whatever is actually on the document now.
         return await FindAsync(
                    stored.TenantId,
                    stored.OrganizationId,
