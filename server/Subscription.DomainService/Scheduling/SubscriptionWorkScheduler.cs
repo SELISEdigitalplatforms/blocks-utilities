@@ -52,7 +52,12 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
                 NextAttemptAtUtc = dueAtUtc,
                 Priority = PriorityOf(workType),
                 MaxAttempts = Math.Max(1, _options.CurrentValue.SchedulerMaxAttempts),
-                CorrelationId = correlationId
+                CorrelationId = correlationId,
+                // Read here rather than passed in, for the same reason the correlation id is
+                // ambient: a parameter added to this method reaches only the call sites somebody
+                // remembered to update, and the ones nobody remembers are exactly the ones that are
+                // hard to trace afterwards. Null when nothing is scheduling from inside a request.
+                TraceParent = SubscriptionWorkActivity.CurrentTraceParent()
             },
             cancellationToken);
 
@@ -65,7 +70,9 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
                 workType,
                 PaymentLogValue.Label(workKey),
                 PaymentLogValue.Id(tenantId),
-                PaymentLogValue.Id(aggregateId),
+                // "none" rather than "missing" when the work is tenant-wide: a sweep has no
+                // subscription, and saying so is different from having lost one.
+                SubscriptionWorkLogValue.AggregateId(aggregateId),
                 dueAtUtc,
                 PaymentLogValue.Id(correlationId));
         }

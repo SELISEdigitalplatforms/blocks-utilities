@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Building2, CheckCircle2, Upload, X } from "lucide-react";
+import { useParams } from "react-router";
 import { useProjectStore } from "@seliseblocks/genesis-os";
+import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Input } from "@/components/ui-kits/input/input";
@@ -20,7 +22,41 @@ import {
   useMerchantProfile,
   useUpdateMerchantProfile,
 } from "../hooks/use-merchant-profile";
-import type { SubscriptionMerchantProfile } from "../models/subscription-billing.model";
+import type {
+  SubscriptionMerchantProfile,
+  SubscriptionMerchantProfilePaymentProvider,
+  SubscriptionPaymentProviderName,
+} from "../models/subscription-billing.model";
+
+const PAYMENT_PROVIDERS: {
+  name: SubscriptionPaymentProviderName;
+  label: string;
+}[] = [
+  { name: "STRIPE", label: "Stripe" },
+  { name: "ADYEN-ONLINE", label: "Adyen" },
+];
+
+/** A short, human phrase for each readiness outcome — see the server's own enum remarks. */
+const readinessLabel = (
+  status: SubscriptionMerchantProfilePaymentProvider["status"] | undefined,
+): string => {
+  switch (status) {
+    case "Ready":
+      return "Ready";
+    case "NotConfigured":
+      return "Not configured";
+    case "Disabled":
+      return "Disabled";
+    case "Misconfigured":
+      return "Misconfigured";
+    case "CredentialsUnavailable":
+      return "Credentials unavailable";
+    case "Unsupported":
+      return "Unsupported";
+    default:
+      return "Unknown";
+  }
+};
 
 /** Matches the server's own allow-list — see FinancialDocumentLogoResolver.SniffMimeType. */
 const ALLOWED_LOGO_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml"];
@@ -56,6 +92,7 @@ interface MerchantForm {
   logoFileId: string;
   primaryColor: string;
   accentColor: string;
+  paymentProviderName: SubscriptionPaymentProviderName;
 }
 
 const emptyForm: MerchantForm = {
@@ -73,6 +110,7 @@ const emptyForm: MerchantForm = {
   logoFileId: "",
   primaryColor: DEFAULT_PRIMARY_COLOR,
   accentColor: DEFAULT_ACCENT_COLOR,
+  paymentProviderName: "STRIPE",
 };
 
 const toForm = (profile: SubscriptionMerchantProfile): MerchantForm => ({
@@ -93,6 +131,7 @@ const toForm = (profile: SubscriptionMerchantProfile): MerchantForm => ({
   // fields are left untouched, not a placeholder standing in for "unset".
   primaryColor: profile.primaryColor ?? DEFAULT_PRIMARY_COLOR,
   accentColor: profile.accentColor ?? DEFAULT_ACCENT_COLOR,
+  paymentProviderName: profile.paymentProviderName ?? "STRIPE",
 });
 
 /**
@@ -108,6 +147,8 @@ export const SubscriptionMerchantProfilePage = () => {
   // it still carries whichever organization the catalogue was being read as, so a detour through
   // here does not silently reset it.
   const subscriptionLink = useSubscriptionLink();
+  const { itemId } = useParams();
+  const paymentProvidersLink = `/app/${itemId ?? ""}/payment/providers`;
   const { data: profile, isLoading, error } = useMerchantProfile();
   const update = useUpdateMerchantProfile();
   const [form, setForm] = useState<MerchantForm>(emptyForm);
@@ -246,12 +287,21 @@ export const SubscriptionMerchantProfilePage = () => {
         logoFileId: form.logoFileId.trim() || null,
         primaryColor: form.primaryColor || null,
         accentColor: form.accentColor || null,
+        paymentProviderName: form.paymentProviderName,
       },
       { onSuccess: () => setSaved(true) },
     );
   };
 
   const saveError = update.error instanceof Error ? update.error.message : null;
+
+  const selectedProviderStatus = profile?.paymentProviders.find(
+    (provider) => provider.name === form.paymentProviderName,
+  )?.status;
+  const selectedProviderNotReady = Boolean(profile) && selectedProviderStatus !== "Ready";
+  const providerChanged = Boolean(
+    profile && form.paymentProviderName !== (profile.paymentProviderName ?? "STRIPE"),
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -432,6 +482,64 @@ export const SubscriptionMerchantProfilePage = () => {
         </div>
       </Card>
 
+      <Card className="flex flex-col gap-5 p-5" data-testid="merchant-payment-provider">
+        <div>
+          <h2 className="text-sm font-medium">Subscription payment provider</h2>
+          <p className="text-xs text-muted-foreground">
+            Which provider a new subscription is routed through at creation. Existing subscriptions
+            keep whichever provider they were created with — changing this never moves them.
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          {PAYMENT_PROVIDERS.map((candidate) => {
+            const status = profile?.paymentProviders.find(
+              (provider) => provider.name === candidate.name,
+            )?.status;
+            const ready = status === "Ready";
+            const selected = form.paymentProviderName === candidate.name;
+
+            return (
+              <button
+                key={candidate.name}
+                type="button"
+                data-testid={`merchant-payment-provider-${candidate.name}`}
+                onClick={() => {
+                  setForm((current) => ({ ...current, paymentProviderName: candidate.name }));
+                  setSaved(false);
+                }}
+                className={`flex flex-col gap-2 rounded-md border p-4 text-left transition-colors ${
+                  selected ? "border-primary ring-1 ring-primary" : "border-input"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{candidate.label}</span>
+                  <Badge variant={ready ? "success" : "secondary"}>
+                    {readinessLabel(status)}
+                  </Badge>
+                </div>
+                {!ready && (
+                  <p className="text-xs text-muted-foreground">
+                    Set this up on the{" "}
+                    <a href={paymentProvidersLink} className="underline">
+                      Payment Providers page
+                    </a>{" "}
+                    before selecting it here.
+                  </p>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {providerChanged && (
+          <p className="text-xs text-muted-foreground" data-testid="merchant-payment-provider-changed">
+            This provider will be used for new subscriptions. Existing subscriptions will continue
+            using their current provider.
+          </p>
+        )}
+      </Card>
+
       <Card className="flex flex-col gap-5 p-5">
         <div>
           <h2 className="text-sm font-medium">Invoice branding</h2>
@@ -557,11 +665,16 @@ export const SubscriptionMerchantProfilePage = () => {
         )}
 
         <div className="flex items-center gap-3">
-          <Button onClick={submit} disabled={isLoading || update.isPending}>
+          <Button
+            onClick={submit}
+            disabled={isLoading || update.isPending || selectedProviderNotReady}
+          >
             {update.isPending ? "Saving…" : "Save merchant profile"}
           </Button>
           <span className="text-xs text-muted-foreground">
-            Accepted from the platform console only — an invoice names a seller in law.
+            {selectedProviderNotReady
+              ? "The selected payment provider isn't ready yet — fix its configuration first."
+              : "Accepted from the platform console only — an invoice names a seller in law."}
           </span>
         </div>
       </Card>

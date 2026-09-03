@@ -214,6 +214,24 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
                 counters[candidate.ItemId].AppliedRecordCount - candidate.CounterVersion);
         }
 
+        // A document written by an earlier build of this projection is stale whatever its versions
+        // say, and its schema version is the only thing that reveals it: adding a field moves
+        // neither the counter's version nor the subscription's, so neither comparison below can see
+        // that the document is missing one. Without this a meter whose plan was authored before the
+        // field existed would keep reporting the old shape for the life of its window, and a
+        // never-resetting meter's window does not end.
+        var behindOnSchema = candidates
+            .Where(candidate =>
+                candidate.SchemaVersion < SubscriptionUsageCurrent.CurrentSchemaVersion)
+            .ToList();
+
+        // Both sets need no subscription read to decide: the document itself already proves it is
+        // behind.
+        var settledWithoutReading = behindOnUsage
+            .Concat(behindOnSchema)
+            .Select(candidate => candidate.SubscriptionId)
+            .ToHashSet(StringComparer.Ordinal);
+
         // Both versions, not just the counter.
         //
         // A counter-only comparison cannot see a metadata change: a plan change, a quantity change or
@@ -234,8 +252,7 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 
         foreach (var subscriptionId in subscriptionIds)
         {
-            if (behindOnUsage.Exists(candidate =>
-                    string.Equals(candidate.SubscriptionId, subscriptionId, StringComparison.Ordinal)))
+            if (settledWithoutReading.Contains(subscriptionId))
             {
                 behind.Add(subscriptionId);
 

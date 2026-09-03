@@ -281,8 +281,29 @@ export const stepProblems = (
   return [];
 };
 
+/**
+ * The first step with something wrong on it, or undefined when the draft is ready to save.
+ *
+ * The review step is excluded because it authors nothing. Pure and exported so the decision can be
+ * tested on its own: reaching it through the builder means completing every step, stepping back
+ * through the progress bar, breaking a field and jumping forward again — a lot of clicks to prove
+ * one comparison.
+ */
+export const firstBlockedStep = (
+  draft: CampaignDraft,
+  plans: SubscriptionPlan[],
+): StepId | undefined =>
+  ([1, 2, 3] as const).find((step) => stepProblems(step, draft, plans).length > 0);
+
+/**
+ * Whether the draft can be saved at all.
+ *
+ * Defined as "nothing blocks it" rather than walking the steps again, so the answer and the step
+ * the author is sent to can never disagree — one saying the draft is fine while the other names a
+ * step to fix would be the worst of both.
+ */
 export const canSubmit = (draft: CampaignDraft, plans: SubscriptionPlan[]): boolean =>
-  ([1, 2, 3] as const).every((step) => stepProblems(step, draft, plans).length === 0);
+  firstBlockedStep(draft, plans) === undefined;
 
 /** The exact request `POST /api/subscription-discounts` expects — units converted here, once. */
 export const toCreateDiscountRequest = (

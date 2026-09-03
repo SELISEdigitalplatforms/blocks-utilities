@@ -194,8 +194,13 @@ public sealed class SubscriptionRepairAnnouncer
                 "WorkKey={WorkKey} CorrelationId={CorrelationId} CorrelationOrigin={Origin} " +
                 "TenantId={TenantId}",
                 scheduled,
-                workKey,
-                correlationId,
+                // Through the same sanitiser the scheduler uses. Logged raw, this printed
+                // "sweep:20260902T2035Z" while the line the scheduler wrote for the very same item
+                // printed "sweep20260902T2035Z" — the allow-list drops the colon — so an operator
+                // grepping either form found only half the trail. It is also the filter that stops
+                // a key from forging a second log entry.
+                PaymentLogValue.Label(workKey),
+                PaymentLogValue.Id(correlationId),
                 // Says outright that this correlation begins here. Anything downstream carries it,
                 // so the trail leads back to this line and stops — which is the truth.
                 "MintedByRepairSweep",

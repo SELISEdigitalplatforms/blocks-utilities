@@ -80,6 +80,29 @@ public sealed class SubscriptionBackgroundWork
     /// <summary>Ties every log line for this work back to whatever asked for it.</summary>
     public string CorrelationId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The W3C trace context of whatever scheduled this, when it was scheduled inside one.
+    /// </summary>
+    /// <remarks>
+    /// An attempt uses this as a <strong>link</strong> rather than as a parent, deliberately. A
+    /// renewal is scheduled a month before it runs and a cancellation up to a year; a span that made
+    /// itself a child of a request which finished last November would describe a single trace as
+    /// lasting a year — past every backend's retention window, and not a thing anybody can open.
+    /// A link says the same causal thing without lying about duration.
+    /// <para>
+    /// Nullable, and left null by everything that schedules outside a request — the repair sweep
+    /// among them, which mints its own correlation precisely because there is no caller to inherit
+    /// from. Documents written before this field existed keep deserializing and keep meaning what
+    /// they meant.
+    /// </para>
+    /// <para>
+    /// A trace id is not a secret and names no person, so this is safe in the one collection
+    /// operators query across every tenant at once. It is also the only thing here that could be
+    /// mistaken for one, which is why it is spelled out.
+    /// </para>
+    /// </remarks>
+    public string? TraceParent { get; set; }
+
     /// <summary>One attempt's own identity, so two attempts can be told apart in logs.</summary>
     public string? OperationId { get; set; }
 

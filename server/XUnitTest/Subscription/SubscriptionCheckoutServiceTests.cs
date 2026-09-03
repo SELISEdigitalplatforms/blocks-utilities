@@ -7,6 +7,7 @@ using Payment.DomainService.Requests;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
@@ -96,13 +97,23 @@ public sealed class SubscriptionCheckoutServiceTests
                     _paymentRequest = request;
                     _idempotencyKey = key;
                 })
-            .ReturnsAsync(PaymentOperationResult.Success(
-                new PaymentResponse
-                {
-                    PaymentDetailId = "pay-1",
-                    RedirectUrl = "https://checkout.stripe.com/session"
-                },
-                "corr-1"));
+            // OrganizationId mirrors what the request asked for -- the same thing the real
+            // payment module's organization resolver does when nothing overrides it (see
+            // PaymentOrganizationResolver). ResolvedProviderId mirrors whatever the request
+            // expected, which is what a real, correctly-scoped resolution does -- see
+            // HostedCheckoutInitiationService's own ExpectedProviderId check. Tests asserting a
+            // scope mismatch override this per-test to prove the mismatch check actually fires.
+            .ReturnsAsync((MakePaymentRequest request, string _, string _, CancellationToken _) =>
+                PaymentOperationResult.Success(
+                    new PaymentResponse
+                    {
+                        PaymentDetailId = "pay-1",
+                        RedirectUrl = "https://checkout.stripe.com/session",
+                        OrganizationId = request.OrganizationId,
+                        ResolvedProviderId = request.ExpectedProviderId,
+                        ResolvedProviderOrganizationId = request.OrganizationId
+                    },
+                    "corr-1"));
 
         _links
             .Setup(repository => repository.TryCreateAsync(
@@ -117,6 +128,16 @@ public sealed class SubscriptionCheckoutServiceTests
                 It.IsAny<SubscriptionTransition>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+
+        // The billing account every test gets unless it sets up its own: a Stripe account with
+        // no organization scope of its own, matching what every test in this file assumed before
+        // the provider had to be read from a real account rather than falling back silently.
+        // Individual tests below override this per subscription/account id where the provider,
+        // scope, or absence of an account is what they are actually testing.
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
     }
 
     [Fact]
@@ -140,6 +161,286 @@ public sealed class SubscriptionCheckoutServiceTests
     }
 
     [Fact]
+    public async Task The_initial_charge_declares_the_subscription_recurring_model()
+    {
+        // The token this charge saves is for scheduled, merchant-initiated renewals, so Adyen's
+        // Subscription model -- never the CardOnFile the factory otherwise defaults a saved card
+        // to when nothing declares a model.
+        await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        _paymentRequest!.RecurringModel.Should().Be(PaymentConstants.SubscriptionRecurringModel);
+        _paymentRequest.RecurringModel.Should().Be("Subscription");
+    }
+
+    /// <summary>
+    /// The charge must open against the exact merchant configuration frozen on the billing
+    /// account, not whatever ambient organization the payment module would otherwise infer.
+    /// </summary>
+    [Fact]
+    public async Task The_initial_charge_is_pinned_to_the_billing_accounts_provider_organization_scope()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = "console-org"
+            });
+
+        await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        _paymentRequest!.OrganizationId.Should().Be("console-org",
+            "the readiness check that validated this subscription's provider resolved this " +
+            "scope, and the charge must land through the exact same configuration");
+    }
+
+    /// <summary>
+    /// A billing account pinned to a genuinely tenant-wide configuration -- one that predates the
+    /// null-coercion bug fix and so carries a real, meaningful <c>null</c>
+    /// <see cref="BillingAccount.ProviderOrganizationId"/> -- must not have that null replaced
+    /// with the subscriber's own organization. <see cref="BillingAccount.ProviderId"/> being set
+    /// is what tells this account apart from a legacy one that never recorded a scope at all; only
+    /// the legacy case should fall back to the subscriber's organization.
+    /// </summary>
+    [Fact]
+    public async Task A_charge_against_a_tenant_wide_provider_scope_requests_no_organization()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = null,
+                ProviderId = "tenant-wide-provider-row"
+            });
+
+        _payments
+            .Setup(service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<MakePaymentRequest, string, string, CancellationToken>(
+                (request, key, _, _) =>
+                {
+                    _paymentRequest = request;
+                    _idempotencyKey = key;
+                })
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://checkout.example/session",
+                    OrganizationId = OrganizationId,
+                    ResolvedProviderId = "tenant-wide-provider-row",
+                    ResolvedProviderOrganizationId = null
+                },
+                "corr-1"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _paymentRequest!.OrganizationId.Should().BeNull(
+            "a recorded provider identity means the account's null scope is a real, meaningful " +
+            "tenant-wide fact, not a gap to fill in with the subscriber's own organization");
+    }
+
+    /// <summary>
+    /// A charge that came back resolved against a different PaymentProvider row than the one the
+    /// billing account was pinned to must never be adopted, whatever it otherwise reports.
+    /// </summary>
+    /// <remarks>
+    /// Compared by provider row id, deliberately -- not by organization. A tenant-wide or
+    /// console-level configuration's own <c>OrganizationId</c> can legitimately differ from the
+    /// caller's requested scope while still being the exact expected row; see
+    /// <see cref="Payment.DomainService.Responses.PaymentResponse.OrganizationId"/>'s remarks and
+    /// PR #393's finding. <see cref="The_initial_charge_is_pinned_to_the_billing_accounts_provider_organization_scope"/>
+    /// still proves what scope is requested; this proves what is compared once a response comes
+    /// back.
+    /// </remarks>
+    [Fact]
+    public async Task A_charge_resolved_under_a_different_provider_than_the_billing_account_fails_closed()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = "console-org",
+                ProviderId = "expected-provider-row"
+            });
+
+        // Simulates an authorization gap in the payment module's own provider resolution: the
+        // request asked for "expected-provider-row", but the payment actually resolved a
+        // different configuration -- a fallback to a shared tenant-level row, say, that happens
+        // to share the same organization scope but is not the row this account was pinned to.
+        _payments
+            .Setup(service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://checkout.example/session",
+                    OrganizationId = "console-org",
+                    ResolvedProviderId = "a-different-provider-row",
+                    ResolvedProviderOrganizationId = "console-org"
+                },
+                "corr-1"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_payment_provider_scope_mismatch");
+        result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
+    }
+
+    /// <summary>
+    /// An account created before <see cref="BillingAccount.ProviderId"/> existed has nothing to
+    /// compare a resolved payment against, so the defense-in-depth check in
+    /// <c>SubscriptionCheckoutService</c> must skip itself rather than fail closed against a fact
+    /// it was never given -- the payment module's own <c>ExpectedProviderId</c> check is skipped
+    /// the same way for the same reason.
+    /// </summary>
+    [Fact]
+    public async Task A_charge_is_accepted_when_the_billing_account_has_no_frozen_provider_id_to_compare()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = "console-org",
+                ProviderId = null
+            });
+
+        _payments
+            .Setup(service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://checkout.example/session",
+                    OrganizationId = "console-org",
+                    ResolvedProviderId = "whatever-was-actually-resolved",
+                    ResolvedProviderOrganizationId = "console-org"
+                },
+                "corr-1"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// The other half of
+    /// <see cref="A_charge_is_accepted_when_the_billing_account_has_no_frozen_provider_id_to_compare"/>:
+    /// the account names a row but the payment does not.
+    /// </summary>
+    /// <remarks>
+    /// The real-world failure this closes, reported against a live Stripe subscription in the
+    /// default organization: <c>ResolvedProviderId</c> is a column this PR added, so every
+    /// <c>PaymentDetail</c> written before it has none. The initial charge is raised under
+    /// <c>SubscriptionConstants.InitialChargeKeyFor</c> precisely so a retry adopts the payment an
+    /// earlier attempt already made rather than raising a second one -- and that adopted payment
+    /// comes back with the column unset. Comparing it as an ordinary value made "we did not record
+    /// this" indistinguishable from "this resolved a different row", and every retry failed closed
+    /// with <c>subscription_payment_provider_scope_mismatch</c> for a correctly configured
+    /// merchant. <c>MakePaymentAsync</c>'s own fail-closed <c>ExpectedProviderId</c> check has
+    /// already compared the row it resolved by this point, so skipping here waves nothing through.
+    /// </remarks>
+    [Fact]
+    public async Task A_charge_that_records_no_resolved_provider_is_accepted_rather_than_read_as_a_mismatch()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.AdyenOnlineProvider,
+                ProviderOrganizationId = "console-org",
+                ProviderId = "expected-provider-row"
+            });
+
+        // A payment adopted through the initial-charge idempotency key, recorded before
+        // ResolvedProviderId existed: it names no row at all rather than a different one.
+        _payments
+            .Setup(service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://checkout.example/session",
+                    OrganizationId = "console-org",
+                    ResolvedProviderId = null,
+                    ResolvedProviderOrganizationId = null
+                },
+                "corr-1"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "a payment that records no resolved provider has not been shown to disagree with " +
+            "the billing account's frozen one");
+    }
+
+    /// <summary>
+    /// A missing or corrupted billing account must never silently route the charge through
+    /// Stripe -- the fail-open bug this PR exists to close.
+    /// </summary>
+    [Fact]
+    public async Task An_adyen_subscription_with_a_missing_billing_account_fails_closed_rather_than_falling_back_to_stripe()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((BillingAccount?)null);
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_billing_account_provider_unavailable");
+        result.FailureKind.Should().Be(PaymentFailureKind.Unavailable);
+        _payments.Verify(
+            service => service.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a subscription that cannot say what provider it was pinned to must never be " +
+            "charged through a provider it was never pinned to");
+    }
+
+    /// <summary>Same fail-closed rule for a billing account whose provider name is blank.</summary>
+    [Fact]
+    public async Task A_billing_account_with_a_blank_provider_name_fails_closed()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = string.Empty });
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_billing_account_provider_unavailable");
+    }
+
+    [Fact]
     public async Task The_charge_carries_the_subscriptions_own_order_id_and_idempotency_key()
     {
         await Service().SubscribeAsync(
@@ -157,15 +458,24 @@ public sealed class SubscriptionCheckoutServiceTests
             "the payment module refuses an idempotency key that is not a UUID");
     }
 
+    /// <summary>
+    /// Superseded by <see cref="The_initial_charge_is_pinned_to_the_billing_accounts_provider_organization_scope"/>:
+    /// the charge now always names the merchant organization scope the billing account was
+    /// frozen to at creation -- never left unset -- so checkout cannot validate one merchant
+    /// configuration and charge through a different one. Where the account carries no scope of
+    /// its own (the common case, and every account created before this existed), that scope is
+    /// the subscriber's own organization, which is what this proves.
+    /// </summary>
     [Fact]
-    public async Task The_charge_does_not_name_an_organization()
+    public async Task The_charge_names_the_subscriber_organization_when_the_account_has_no_frozen_scope_of_its_own()
     {
         await Service().SubscribeAsync(
             new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
 
-        _paymentRequest!.OrganizationId.Should().BeNull(
-            "organizations here are subscribers, not merchants: naming one would look for a " +
-            "merchant account the customer does not have");
+        _paymentRequest!.OrganizationId.Should().Be(OrganizationId,
+            "the default billing account in this file carries no ProviderOrganizationId of its " +
+            "own, so the charge falls back to the subscriber's own organization -- the same " +
+            "scope readiness would have validated for it");
     }
 
     [Fact]
@@ -723,13 +1033,15 @@ public sealed class SubscriptionCheckoutServiceTests
                 It.IsAny<CancellationToken>()))
             .Callback<CreatePaymentMethodSetupRequest, string, string, CancellationToken>(
                 (request, _, _, _) => _setupRequest = request)
-            .ReturnsAsync(PaymentOperationResult.Success(
-                new PaymentResponse
-                {
-                    PaymentDetailId = "pay-setup-1",
-                    RedirectUrl = url
-                },
-                "corr-1"));
+            .ReturnsAsync((CreatePaymentMethodSetupRequest request, string _, string _, CancellationToken _) =>
+                PaymentOperationResult.Success(
+                    new PaymentResponse
+                    {
+                        PaymentDetailId = "pay-setup-1",
+                        RedirectUrl = url,
+                        OrganizationId = request.OrganizationId
+                    },
+                    "corr-1"));
 
     // ---- Prefilling Stripe's own page with what the billing profile already collected ---------
     //
@@ -743,7 +1055,11 @@ public sealed class SubscriptionCheckoutServiceTests
         _billingAccounts
             .Setup(repository => repository.GetAsync(
                 TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BillingAccount { BillingEmail = "maya@example.com" });
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                BillingEmail = "maya@example.com"
+            });
 
         await Service().SubscribeAsync(
             new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
@@ -757,7 +1073,11 @@ public sealed class SubscriptionCheckoutServiceTests
         _billingAccounts
             .Setup(repository => repository.GetAsync(
                 TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BillingAccount { BillingEmail = null });
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                BillingEmail = null
+            });
 
         await Service().SubscribeAsync(
             new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
@@ -765,6 +1085,45 @@ public sealed class SubscriptionCheckoutServiceTests
         // Not empty string: Stripe's own form-encoding helper only omits a field for a literal
         // null, and an empty customer_email is a value the provider can reject outright.
         _paymentRequest!.CustomerEmail.Should().BeNull();
+    }
+
+    /// <summary>
+    /// The card-setup half of
+    /// <see cref="A_charge_that_records_no_resolved_provider_is_accepted_rather_than_read_as_a_mismatch"/>.
+    /// </summary>
+    /// <remarks>
+    /// Reachable the same way and for the same reason: a setup session adopted through the
+    /// subscription's own setup idempotency key can be one recorded before
+    /// <c>ResolvedProviderId</c> existed. The trial that needs this card is precisely the case
+    /// where an older attempt is most likely to be lying around, so refusing on an unset column
+    /// would strand a subscriber whose provider was never in doubt.
+    /// </remarks>
+    [Fact]
+    public async Task A_card_setup_that_records_no_resolved_provider_is_accepted_rather_than_read_as_a_mismatch()
+    {
+        _subscription.Status = SubscriptionStatus.Trialing;
+        GivenSubscriptionById(_subscription);
+
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                ProviderOrganizationId = OrganizationId,
+                ProviderId = "expected-provider-row"
+            });
+
+        // GivenSetupSessionOpens returns a response with no ResolvedProviderId, which is exactly
+        // the shape a pre-existing setup payment comes back in.
+        GivenSetupSessionOpens();
+
+        var result = await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "a setup session that records no resolved provider has not been shown to disagree " +
+            "with the billing account's frozen one");
     }
 
     [Fact]

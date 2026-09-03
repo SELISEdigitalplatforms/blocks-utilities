@@ -57,6 +57,25 @@ public sealed class SubscriptionUsageCurrent
 
     public string UnitLabel { get; set; } = string.Empty;
 
+    /// <summary>
+    /// How many decimal places this meter's quantities may carry, and so how far the balances on
+    /// this document can be fractional. Zero means whole units only.
+    /// </summary>
+    /// <remarks>
+    /// Carried here for the reader this collection exists for: one reading it directly over Mongo,
+    /// with no API to ask. Such a reader meets <c>Used</c> of <c>512.5</c> with no way to tell
+    /// whether that meter is measured to one place or to six — which it needs in order to format
+    /// the figure, to decide what the next usable amount is, and to know that a step of one is
+    /// wrong for it.
+    /// <para>
+    /// Terms rather than balance: it comes from the plan, so it moves with the subscription's
+    /// version and never with the counter's. A document written before this field existed has none,
+    /// deserializes to zero, and so reports whole units — which is what every meter was before
+    /// fractional quantities existed.
+    /// </para>
+    /// </remarks>
+    public int QuantityScale { get; set; }
+
     public string PeriodKey { get; set; } = string.Empty;
 
     public DateTime PeriodStartUtc { get; set; }
@@ -130,7 +149,19 @@ public sealed class SubscriptionUsageCurrent
     /// </summary>
     public DateTime ExpiresAtUtc { get; set; }
 
-    public const int CurrentSchemaVersion = 1;
+    /// <summary>
+    /// Raised to 2 by the addition of <see cref="QuantityScale"/>.
+    /// </summary>
+    /// <remarks>
+    /// Raised rather than left alone because adding a field is invisible to both version
+    /// comparisons: neither the counter's nor the subscription's version moves, so the
+    /// reconciliation sweep could not otherwise tell that a stored document predates the field.
+    /// Left at 1, a meter whose plan was authored before <see cref="QuantityScale"/> existed would
+    /// report whole units for the life of its window — and a never-resetting meter's window does
+    /// not end. The sweep treats a document below this as stale, so the ordinary cycle republishes
+    /// it and no migration is needed.
+    /// </remarks>
+    public const int CurrentSchemaVersion = 2;
 
     public static string CreateId(
         string subscriptionId,

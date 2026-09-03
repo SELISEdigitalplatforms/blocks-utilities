@@ -29,6 +29,7 @@ import {
   TENANT_WIDE_ORGANIZATION,
 } from "../../constants/subscription.constants";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
+import { StepHeading } from "./step-heading";
 
 /**
  * @param isEditing
@@ -48,13 +49,12 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
   const organizations = organizationsData?.organizations ?? [];
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold">Identity</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The basics: what this plan is called, and who it&apos;s for.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <StepHeading
+        eyebrow="Identity"
+        title="Identity"
+        description="The basics: what this plan is called, and who it's for."
+      />
 
       <div className="grid gap-5 sm:grid-cols-2">
         <FormField

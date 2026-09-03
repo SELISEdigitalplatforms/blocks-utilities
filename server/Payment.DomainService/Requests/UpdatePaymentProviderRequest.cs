@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Payment.DomainService.Requests;
@@ -23,6 +23,20 @@ public sealed class UpdatePaymentProviderRequest
     public string? StoreId { get; set; }
 
     public bool IsEnabled { get; set; }
+
+    /// <summary>
+    /// Stripe's <c>pmc_…</c> payment method configuration, when the checkout should offer one
+    /// other than the account's default. Mutually exclusive with
+    /// <c>CheckoutPaymentMethodTypes</c>.
+    /// </summary>
+    public string? PaymentMethodConfigurationId { get; set; }
+
+    /// <summary>
+    /// The payment methods the hosted checkout should offer, e.g. <c>card</c>, <c>twint</c>,
+    /// <c>paypal</c>, <c>klarna</c>. Omit to let the provider resolve them from its own
+    /// Dashboard configuration, which is the default and what every existing provider does.
+    /// </summary>
+    public string[]? CheckoutPaymentMethodTypes { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? UnmappedFields { get; set; }

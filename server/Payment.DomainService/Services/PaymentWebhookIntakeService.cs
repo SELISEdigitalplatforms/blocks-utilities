@@ -409,6 +409,21 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         payload.RefundId = refund?.RefundId;
         payload.CaptureId = capture?.CaptureId;
 
+        // Adyen (and potentially another provider with the same gap) reports a zero-value
+        // card-setup authorization through the exact same event name and normalizer-assigned
+        // intent as an ordinary payment authorization -- there is no event-level way to tell them
+        // apart, unlike Stripe's distinct setup_intent.succeeded, which the Stripe normalizer maps
+        // straight to PaymentMethodSetup and never reaches this branch. The payment this event
+        // names is the only thing that can disambiguate it, and it is only known now, after
+        // ownership has been verified. Without this correction the setup's Standard webhook was
+        // misrouted through PaymentWebhookStateTransitionService's ordinary authorization path and
+        // never reached PaymentMethodSetupWebhookStateTransitionService at all -- see PR #393.
+        if (webhookEvent.Intent == WebhookIntent.Authorization &&
+            string.Equals(payment.PaymentFlow, PaymentFlows.PaymentMethodSetup, StringComparison.Ordinal))
+        {
+            webhookEvent.Intent = WebhookIntent.PaymentMethodSetup;
+        }
+
         _logger.LogInformation(
             "Webhook event admitted Index={Index} Intent={Intent}",
             index,

@@ -24,6 +24,7 @@ public sealed class SubscriptionCancellationServiceCampaignTests
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
+    private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
     private readonly Mock<ICampaignRedemptionRepository> _redemptions = new();
     private readonly ControlledTimeProvider _time =
@@ -123,6 +124,7 @@ public sealed class SubscriptionCancellationServiceCampaignTests
         _contextResolver.Object,
         new SubscriptionOutboxEventFactory(),
         new SubscriptionResponseMapper(),
+        _billingAccounts.Object,
         _cache.Object,
         NullLogger<SubscriptionCancellationService>.Instance,
         _time,

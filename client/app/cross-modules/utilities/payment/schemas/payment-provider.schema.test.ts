@@ -226,4 +226,87 @@ describe("payment provider schemas", () => {
     expect(result.success).toBe(true);
   });
 
+  /**
+   * The two payment method fields. Neither is validated on the server, so the checks here and the
+   * fixed checkbox list in the form are the whole of the guard against a value Stripe will refuse.
+   */
+  describe("checkout payment methods", () => {
+    it("accepts a Dashboard configuration id", () => {
+      const result = registerPaymentProviderSchema.safeParse({
+        ...stripeBase,
+        paymentMethodConfigurationId: "pmc_123",
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects a configuration id that is not one", () => {
+      const result = registerPaymentProviderSchema.safeParse({
+        ...stripeBase,
+        paymentMethodConfigurationId: "card",
+      });
+
+      expect(messageFor(result, "paymentMethodConfigurationId")).toBe(
+        "A Stripe payment method configuration id starts with pmc_.",
+      );
+    });
+
+    /** Blank is how the form says "not set", the same as every other optional field here. */
+    it("accepts a blank configuration id", () => {
+      const result = registerPaymentProviderSchema.safeParse({
+        ...stripeBase,
+        paymentMethodConfigurationId: "",
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it("defaults the method list to empty when it is absent", () => {
+      const result = registerPaymentProviderSchema.safeParse(stripeBase);
+
+      expect(result.success && result.data.checkoutPaymentMethodTypes).toEqual(
+        [],
+      );
+    });
+
+    it("keeps the methods it was given, in the order given", () => {
+      const result = registerPaymentProviderSchema.safeParse({
+        ...stripeBase,
+        checkoutPaymentMethodTypes: ["card", "twint"],
+      });
+
+      expect(result.success && result.data.checkoutPaymentMethodTypes).toEqual([
+        "card",
+        "twint",
+      ]);
+    });
+
+    /**
+     * A method this build does not offer as a checkbox, set through the API. Rejecting it would
+     * leave that provider unsaveable from the portal, which is worse than accepting a value the
+     * operator did not choose here and cannot mistype here either.
+     */
+    it("accepts a method the form does not itself offer", () => {
+      const result = updatePaymentProviderSchema.safeParse({
+        frontendResultUrl: "https://app.example/payment/result",
+        countryCode: "CH",
+        manualCapture: false,
+        maxRefundDays: 365,
+        storeId: "",
+        isEnabled: true,
+        checkoutPaymentMethodTypes: ["us_bank_account"],
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects a blank method rather than sending one to Stripe", () => {
+      const result = registerPaymentProviderSchema.safeParse({
+        ...stripeBase,
+        checkoutPaymentMethodTypes: [""],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
 });

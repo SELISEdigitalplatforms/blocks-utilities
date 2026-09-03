@@ -59,6 +59,25 @@ public sealed class SubscriptionMerchantProfile
     public string? AccentColor { get; set; }
 
     /// <summary>
+    /// Which provider new subscriptions are routed through at creation. See
+    /// <c>PaymentConstants.StripeProvider</c> / <c>PaymentConstants.AdyenOnlineProvider</c>.
+    /// </summary>
+    /// <remarks>
+    /// Nullable and never defaulted here, deliberately: a document written before this field
+    /// existed must read back as Stripe without a migration, and the one place that fallback is
+    /// applied is <c>SubscriptionMerchantProfileService.Map</c> and wherever creation resolves the
+    /// effective provider -- never here, where a stored default would be indistinguishable from an
+    /// explicit choice. Every write through <c>UpdateMerchantProfileRequest</c> always supplies a
+    /// value, so only a legacy document ever reads as null.
+    /// <para>
+    /// Never read from downstream of subscription creation: <see cref="BillingAccount.ProviderName"/>
+    /// is frozen once and is the only thing every later money operation on an existing subscription
+    /// consults. Changing this field must never move which provider an existing subscription charges.
+    /// </para>
+    /// </remarks>
+    public string? PaymentProviderName { get; set; }
+
+    /// <summary>
     /// Whether this is enough to issue a document under.
     /// </summary>
     /// <remarks>

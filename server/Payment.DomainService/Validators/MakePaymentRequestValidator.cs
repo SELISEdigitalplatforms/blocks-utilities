@@ -1,6 +1,7 @@
 using FluentValidation;
 using Payment.DomainService.Providers;
 using Payment.DomainService.Requests;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Validators;
 
@@ -50,8 +51,17 @@ public sealed class MakePaymentRequestValidator : AbstractValidator<MakePaymentR
             .Equal(false)
             .WithMessage("Merchant-initiated recurring payments are not supported by this endpoint.");
 
+        // Otherwise managed by the Hosted Checkout flow itself (see AdyenInitiationRequestFactory),
+        // which defaults an unset value to CardOnFile whenever a token is saved at all. The one
+        // caller allowed to declare an explicit model is subscription checkout, whose renewals are
+        // scheduled and merchant-initiated -- Adyen's "Subscription" recurring model, not the
+        // shopper-initiated CardOnFile a caller saving a card for on-demand reuse gets by default.
         RuleFor(x => x.RecurringModel)
-            .Empty()
-            .WithMessage("RecurringModel is managed by the Hosted Checkout flow.");
+            .Must(value => string.IsNullOrEmpty(value) ||
+                           string.Equals(value, PaymentConstants.SubscriptionRecurringModel, StringComparison.Ordinal))
+            .WithMessage(
+                $"RecurringModel must be left unset, or set to " +
+                $"\"{PaymentConstants.SubscriptionRecurringModel}\" for a token that will be " +
+                $"charged on a fixed, merchant-driven schedule.");
     }
 }

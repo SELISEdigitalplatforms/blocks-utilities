@@ -76,8 +76,19 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
             StorePaymentMethodMode = request.ShouldSavePaymentMethod
                 ? "askForConsent"
                 : "disabled",
+            // Subscription checkout declares its own model explicitly (see MakePaymentRequest.
+            // RecurringModel and the validator that limits it to that one caller); any other
+            // caller that saves a token here keeps the long-standing CardOnFile default -- a
+            // shopper-initiated reuse, not a merchant-driven schedule. Not verified against a
+            // live Adyen sandbox in this environment: this follows
+            // https://docs.adyen.com/online-payments/tokenization/make-token-payments, which
+            // documents Subscription as the correct model for fixed-schedule, merchant-initiated
+            // charges (what a subscription renewal is) as opposed to CardOnFile's
+            // shopper-initiated ones, but the actual Adyen sandbox behaviour was not exercised.
             RecurringProcessingModel = sendShopperReference
-                ? "CardOnFile"
+                ? (request.RecurringModel is { Length: > 0 } requestedModel
+                    ? requestedModel
+                    : PaymentConstants.AdyenCardOnFileRecurringModel)
                 : null,
             ShopperReference = sendShopperReference
                 ? shopperReference

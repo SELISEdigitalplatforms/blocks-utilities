@@ -220,3 +220,8 @@ results/
 QWEN.md
 .clinerules
 .windsurfrules
+
+# Aspose.Words licence. A purchased credential that Aspose marks "not redistributable", so it is
+# supplied per environment (Aspose:LicenseBase64 / Aspose:LicensePath, or dropped in the project
+# directory for local runs) rather than committed. Without it Aspose output is watermarked.
+Aspose.Words.lic

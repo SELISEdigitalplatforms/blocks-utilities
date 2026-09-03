@@ -23,6 +23,7 @@ import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscriptio
 import { stepFor } from "../../utilities/meter-quantity";
 import { describeEntitlementMeterMismatch } from "../../utilities/plan-consistency";
 import { CardListItem, CardListShell } from "./card-list-shell";
+import { StepHeading } from "./step-heading";
 
 export const StepUsageLimits = () => {
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
@@ -35,14 +36,12 @@ export const StepUsageLimits = () => {
   const [limitOverrides, setLimitOverrides] = useState<Record<number, boolean>>({});
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold">What the plan grants</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          What a subscriber on this plan is allowed to do — separate from what they&apos;re billed for.
-          Skip this if the plan just grants everything.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <StepHeading
+        eyebrow="Entitlements"
+        title="What the plan grants"
+        description="What a subscriber on this plan is allowed to do — separate from what they're billed for. Skip this if the plan just grants everything."
+      />
 
       <CardListShell
         addLabel="Add usage limit"

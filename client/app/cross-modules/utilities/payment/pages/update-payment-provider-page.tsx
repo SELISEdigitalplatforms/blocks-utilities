@@ -60,6 +60,8 @@ export const UpdatePaymentProviderPage = () => {
       maxRefundDays: 0,
       storeId: "",
       isEnabled: true,
+      checkoutPaymentMethodTypes: [],
+      paymentMethodConfigurationId: "",
     },
   });
 
@@ -75,6 +77,9 @@ export const UpdatePaymentProviderPage = () => {
       maxRefundDays: provider.maxRefundDays,
       storeId: provider.storeId ?? "",
       isEnabled: provider.isEnabled,
+      checkoutPaymentMethodTypes: provider.checkoutPaymentMethodTypes ?? [],
+      paymentMethodConfigurationId:
+        provider.paymentMethodConfigurationId ?? "",
     });
   }, [form, provider]);
 
@@ -132,6 +137,20 @@ export const UpdatePaymentProviderPage = () => {
       maxRefundDays: values.maxRefundDays,
       storeId: normalizeOptional(values.storeId),
       isEnabled: values.isEnabled,
+      // Omitted when empty: the server reads an absent list and an empty one the same way, as
+      // "defer to the account's configuration", so unticking everything clears the selection.
+      //
+      // Sent whatever the provider is, rather than only for Stripe. The fields are hidden for
+      // anything else, but they are hydrated from the stored provider either way — so sending
+      // them back preserves what is there, where stripping them would quietly clear a value this
+      // form never showed.
+      checkoutPaymentMethodTypes:
+        values.checkoutPaymentMethodTypes.length > 0
+          ? values.checkoutPaymentMethodTypes
+          : undefined,
+      paymentMethodConfigurationId: normalizeOptional(
+        values.paymentMethodConfigurationId,
+      ),
     };
 
     try {
@@ -199,7 +218,13 @@ export const UpdatePaymentProviderPage = () => {
                     Saving replaces only the fields shown below.
                   </p>
                 </div>
-                <PaymentProviderConfigurationFields includeEnabled />
+                <PaymentProviderConfigurationFields
+                  includeEnabled
+                  providerName={provider.providerName}
+                  additionalPaymentMethods={
+                    provider.checkoutPaymentMethodTypes ?? []
+                  }
+                />
               </section>
 
               {submissionError && (

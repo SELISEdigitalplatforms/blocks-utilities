@@ -38,4 +38,14 @@ public interface ISubscriptionMerchantProfileService
     Task<IReadOnlyList<string>> MissingFieldsAsync(
         string tenantId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The provider a new subscription for this tenant should be created against -- the stored
+    /// selection, or <c>STRIPE</c> for a tenant that has never saved one. Read directly rather
+    /// than through <see cref="GetAsync"/>, which also evaluates readiness for every registered
+    /// provider for the console's own two cards -- work a subscription creation has no use for.
+    /// </summary>
+    Task<string> ResolveProviderNameAsync(
+        string tenantId,
+        CancellationToken cancellationToken);
 }

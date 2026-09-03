@@ -1,4 +1,4 @@
-using Payment.DomainService.Entities;
+﻿using Payment.DomainService.Entities;
 using Payment.DomainService.Responses;
 
 namespace Payment.DomainService.Services;
@@ -24,7 +24,9 @@ public sealed class PaymentProviderResponseMapper :
             ManualCapture = provider.ManualCapture,
             MaxRefundDays = provider.MaxRefundDays,
             StoreId = provider.StoreId,
-            IsEnabled = provider.IsEnabled
+            IsEnabled = provider.IsEnabled,
+            PaymentMethodConfigurationId = provider.PaymentMethodConfigurationId,
+            CheckoutPaymentMethodTypes = provider.CheckoutPaymentMethodTypes
         };
     }
 }

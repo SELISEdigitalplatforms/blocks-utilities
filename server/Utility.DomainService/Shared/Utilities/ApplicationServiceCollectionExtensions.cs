@@ -1,5 +1,6 @@
 using Blocks.Extension.DependencyInjection;
 using FluentValidation;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Storage.DomainService.Storage;
 using Storage.DomainService.Storage.Validators;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,6 +48,23 @@ namespace DomainService.Utilities
             services.AddSingleton<IPdfGeneratorService, PdfGeneratorService>();
             services.AddSingleton<IPdfGeneratorRepository, PdfGeneratorRepository>();
             services.AddSingleton<IPdfGeneratorNotificationService, PdfGeneratorNotificationService>();
+
+            // PDF engines and the provider that selects between them by engine number. Registered
+            // here rather than in the worker so both hosts resolve the same graph; without these the
+            // PDF consumers cannot be constructed at all and every queued PDF message is dropped.
+            // TryAdd so the Subscription module's own registration of PuppeteerSharpEngine, which
+            // may run either before or after this, does not produce a second browser-owning
+            // singleton.
+            services.TryAddSingleton<PuppeteerSharpEngine>();
+            services.TryAddSingleton<PdfSharpCoreEngine>();
+            services.TryAddSingleton<AsposePdfEngine>();
+            services.TryAddSingleton<WkHtmlToPdfEngine>();
+            services.TryAddSingleton<IPdfEngineProvider, PdfEngineProvider>();
+            services.TryAddSingleton<PdfStorageHelper>();
+
+            // Document conversion. Not an IPdfEngine: Aspose is the only library here that reads
+            // Word formats, so there is nothing to select between.
+            services.TryAddSingleton<IDocumentToPdfConverter, AsposeDocumentToPdfConverter>();
 
             // Magic Link Services
             services.AddSingleton<IMagicLinkService, MagicLinkService>();

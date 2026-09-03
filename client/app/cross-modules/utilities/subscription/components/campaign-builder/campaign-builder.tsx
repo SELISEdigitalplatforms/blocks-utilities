@@ -2,12 +2,14 @@ import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
+import { toast } from "@/hooks/use-toast";
 import StepperProviderComponent, { useStepper } from "@/components/stepper/stepper-provider";
 import type { Steps } from "@/components/stepper/stepper-models";
 import type { SubscriptionPlan } from "../../models/subscription-plan.model";
 import { CampaignBuilderProgress } from "./campaign-builder-progress";
 import {
   EMPTY_DRAFT,
+  firstBlockedStep,
   stepProblems,
   toCreateDiscountRequest,
   withCampaignKind,
@@ -54,7 +56,7 @@ const CampaignBuilderWizard = ({
   initialDraft = EMPTY_DRAFT,
   editing = false,
 }: CampaignBuilderProps) => {
-  const { currentStep, nextStep, previousStep } = useStepper();
+  const { currentStep, nextStep, previousStep, goToStep } = useStepper();
   const [draft, setDraft] = useState<CampaignDraft>(initialDraft);
   const step = currentStep as StepId;
   const isLastStep = currentStep === STEPS.length;
@@ -72,9 +74,28 @@ const CampaignBuilderWizard = ({
   const canAdvance = problems.length === 0;
 
   const submit = async () => {
-    if (stepProblems(1, draft, plans).length > 0 ||
-        stepProblems(2, draft, plans).length > 0 ||
-        stepProblems(3, draft, plans).length > 0) {
+    // This used to return in silence, so Save appeared to do nothing whatever — and the per-step
+    // problem list that would have explained it is hidden on the review step, the only step Save
+    // appears on.
+    //
+    // Getting here takes an unusual route, and it is worth naming so this guard is not mistaken
+    // for dead code: Next is disabled while the current step has problems, and stepping back
+    // through the progress bar clears the completed steps behind it, so an author cannot break a
+    // field and walk forward. What can happen is `plans` changing under an open review step — a
+    // free-opening campaign names the entitlement it caps, and that name is checked against the
+    // plan it applies to, so a plan edited elsewhere can invalidate a step already passed.
+    //
+    // Either way the answer is the same: go to the first step that has something wrong, where its
+    // own problem list is already rendered.
+    const blocked = firstBlockedStep(draft, plans);
+
+    if (blocked !== undefined) {
+      goToStep(blocked);
+      toast({
+        variant: "destructive",
+        title: `Something to fix in ${STEPS[blocked - 1].title}`,
+        description: "Taken to the step that needs attention.",
+      });
       return;
     }
 

@@ -177,4 +177,77 @@ public sealed class RecurringPaymentReservationServiceTests
         result.CanInitiate.Should().BeTrue();
         result.Payment.Should().BeSameAs(claimed);
     }
+
+    /// <summary>
+    /// A subscription renewal, dunning retry, settlement or usage invoice charged through this
+    /// provider-neutral path -- Adyen included -- carries its full invoice breakdown along with
+    /// it, exactly as a Stripe Invoice charge records on its own <see cref="PaymentDetail"/>.
+    /// </summary>
+    /// <remarks>
+    /// Closes a real gap: <c>CreateRecurringPaymentRequest.SubscriptionInvoiceBreakdown</c> used
+    /// to be forwarded from <c>RecurringChargeBillingGateway</c> with nowhere to land -- this
+    /// class's own <see cref="RecurringPaymentReservationService.CreatePayment"/> never read it,
+    /// so an Adyen-routed charge recorded a payment with none of the figures its invoice needed.
+    /// </remarks>
+    [Fact]
+    public async Task ReserveAsync_WithSubscriptionBreakdown_RecordsItOnTheCreatedPayment()
+    {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(p => p.TryCreateAsync(It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        _request.ProviderName = "ADYEN-ONLINE";
+        _request.SubscriptionInvoiceBreakdown = new SubscriptionInvoiceBreakdown
+        {
+            NetAmountMinor = 83_640,
+            TaxAmountMinor = 6_360,
+            TaxRateBasisPoints = 770,
+            TaxMode = "Exclusive",
+            CreditConsumedMinor = 1_500,
+            GrossAmountMinor = 100_000,
+            BuiltInDiscountMinor = 8_000,
+            PromotionalDiscountMinor = 9_200,
+            AutomaticDiscountBasisPoints = 800,
+            QuantityDiscountBasisPoints = 500,
+            DiscountCombination = "Additive"
+        };
+
+        await RunAsync();
+
+        recorded.Should().NotBeNull();
+        recorded!.ProviderName.Should().Be("ADYEN-ONLINE");
+        recorded.SubscriptionNetAmountMinor.Should().Be(83_640);
+        recorded.SubscriptionTaxAmountMinor.Should().Be(6_360);
+        recorded.SubscriptionTaxRateBasisPoints.Should().Be(770);
+        recorded.SubscriptionTaxMode.Should().Be("Exclusive");
+        recorded.SubscriptionCreditAmountMinor.Should().Be(1_500);
+        recorded.SubscriptionGrossAmountMinor.Should().Be(100_000);
+        recorded.SubscriptionBuiltInDiscountMinor.Should().Be(8_000);
+        recorded.SubscriptionPromotionalDiscountMinor.Should().Be(9_200);
+        recorded.SubscriptionAutomaticDiscountBasisPoints.Should().Be(800);
+        recorded.SubscriptionQuantityDiscountBasisPoints.Should().Be(500);
+        recorded.SubscriptionDiscountCombination.Should().Be("Additive");
+    }
+
+    [Fact]
+    public async Task ReserveAsync_WithNoSubscriptionBreakdown_RecordsNoneRatherThanZeroes()
+    {
+        // An ordinary unscheduled-card-on-file charge never sets this -- the created payment
+        // should read as "not a subscription charge", not as "a subscription charge with nothing
+        // in it".
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(p => p.TryCreateAsync(It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        await RunAsync();
+
+        recorded.Should().NotBeNull();
+        recorded!.SubscriptionGrossAmountMinor.Should().BeNull();
+        recorded.SubscriptionNetAmountMinor.Should().BeNull();
+        recorded.SubscriptionSettlement.Should().BeNull();
+    }
 }

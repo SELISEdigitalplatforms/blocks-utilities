@@ -1,4 +1,4 @@
-namespace Payment.DomainService.Responses;
+﻿namespace Payment.DomainService.Responses;
 
 /// <summary>
 /// Safe payment-provider configuration. Credential material and tenant
@@ -37,4 +37,8 @@ public sealed class PaymentProviderResponse
     public string? StoreId { get; init; }
 
     public bool IsEnabled { get; init; }
+
+    public string? PaymentMethodConfigurationId { get; init; }
+
+    public string[]? CheckoutPaymentMethodTypes { get; init; }
 }

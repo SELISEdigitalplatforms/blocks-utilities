@@ -14,6 +14,7 @@ namespace Utility.DomainService.PdfGenerator.service
         Task NotifyStampImageToPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
         Task NotifyStampTextToPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
         Task NotifyStampIntoPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
+        Task NotifyConvertDocumentsToPdfEvent(bool success, string messageCoRelationId, string? projectKey, int successCount, int failureCount);
     }
 }
 
