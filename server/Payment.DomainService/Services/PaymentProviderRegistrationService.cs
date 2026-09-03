@@ -12,6 +12,8 @@ using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Utilities;
 
+using Payment.DomainService.Providers.Stripe;
+
 namespace Payment.DomainService.Services;
 
 /// <summary>
@@ -232,6 +234,10 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             MaxRefundDays = request.MaxRefundDays,
             StoreId = request.StoreId,
             IsEnabled = true,
+            PaymentMethodConfigurationId =
+                Normalize(request.PaymentMethodConfigurationId),
+            CheckoutPaymentMethodTypes =
+                NormalizeMethods(request.CheckoutPaymentMethodTypes),
             ProviderSecretsCiphertext = secrets.ProviderCiphertext,
             TenantSecuritySecretsCiphertext = secrets.TenantCiphertext,
             SecretsEncryptionKeyId = secrets.KeyId
@@ -403,6 +409,21 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
 
     private static string CreateKey() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// An empty selection is stored as null rather than an empty array: the two mean opposite
+    /// things downstream, where null defers to the account's own configuration and an empty
+    /// array would be a checkout offering nothing.
+    /// </summary>
+    private static string[]? NormalizeMethods(string[]? values)
+    {
+        var normalized = StripePaymentMethodSelection.Normalize(values);
+
+        return normalized.Count == 0 ? null : [.. normalized];
+    }
 
     private sealed record RegistrationSecrets(
         bool IsProtected,

@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Payment.DomainService.Models;
 using Payment.DomainService.Utilities;
 using MongoDB.Driver;
@@ -310,6 +310,8 @@ public sealed class PaymentRepositoryIntegrationTests
                 90,
                 null,
                 true,
+                null,
+                null,
                 CancellationToken.None);
         var second = _repository
             .TryUpdateProviderConfigurationAsync(
@@ -322,6 +324,8 @@ public sealed class PaymentRepositoryIntegrationTests
                 90,
                 null,
                 true,
+                null,
+                null,
                 CancellationToken.None);
 
         var results = await Task.WhenAll(first, second);

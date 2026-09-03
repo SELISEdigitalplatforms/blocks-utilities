@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -75,6 +75,8 @@ public sealed class PaymentProviderConfigurationServiceTests
                     90,
                     "store-1",
                     false,
+                    It.IsAny<string?>(),
+                    It.IsAny<string[]?>(),
                     It.IsAny<CancellationToken>()))
             .ReturnsAsync(updated);
 
@@ -130,6 +132,8 @@ public sealed class PaymentProviderConfigurationServiceTests
                     It.IsAny<int>(),
                     It.IsAny<string?>(),
                     It.IsAny<bool>(),
+                    It.IsAny<string?>(),
+                    It.IsAny<string[]?>(),
                     It.IsAny<CancellationToken>()))
             .ReturnsAsync((PaymentProvider?)null);
 

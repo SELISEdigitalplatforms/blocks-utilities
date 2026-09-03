@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
@@ -399,7 +399,8 @@ public sealed class SubscriptionPaymentProviderReadinessServiceTests
         public Task<PaymentProvider?> TryUpdateProviderConfigurationAsync(
             string tenantId, string providerItemId, long expectedVersion, string frontendResultUrl,
             string? countryCode, bool manualCapture, int maxRefundDays, string? storeId,
-            bool isEnabled, CancellationToken cancellationToken) =>
+            bool isEnabled, string? paymentMethodConfigurationId,
+            string[]? checkoutPaymentMethodTypes, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<PaymentProvider?> TryRotateProviderCredentialsAsync(
