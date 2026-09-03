@@ -1,9 +1,10 @@
 using System.Diagnostics;
+using Payment.DomainService.Utilities;
 
 namespace Subscription.DomainService.Scheduling;
 
 /// <summary>
-/// The span every background work attempt runs inside.
+/// The spans the background work queue produces: one per attempt, and one per repair sweep pass.
 /// </summary>
 /// <remarks>
 /// A worker serves no HTTP request, so the ASP.NET Core instrumentation that gives every API line a
@@ -59,4 +60,31 @@ public static class SubscriptionWorkActivity
         ActivityContext.TryParse(traceParent, traceState: null, isRemote: true, out var context)
             ? context
             : null;
+
+    /// <summary>
+    /// One repair sweep pass over one tenant.
+    /// </summary>
+    /// <remarks>
+    /// The sweep announces work rather than running it, so its lines were the ones still arriving
+    /// with an empty trace id after attempts had theirs: an attempt runs inside a span, and the
+    /// scheduling that produced it did not.
+    /// <para>
+    /// Giving the pass a span closes that, and does a second thing worth more: it is what
+    /// <see cref="CurrentTraceParent"/> reads when the sweep queues an item, so an attempt that
+    /// starts minutes later links back to the pass that found it. Until this existed the sweep
+    /// stored no context and the link was dead weight for every item it announced — which is most
+    /// of them.
+    /// </para>
+    /// <para>
+    /// Internal, not Consumer: nothing handed this work to the sweep. It went looking.
+    /// </para>
+    /// </remarks>
+    public static Activity? StartRepairSweep(string tenantId)
+    {
+        var activity = Source.StartActivity("subscription.repair_sweep", ActivityKind.Internal);
+
+        activity?.SetTag("subscription.tenant_id", PaymentLogValue.Id(tenantId));
+
+        return activity;
+    }
 }
