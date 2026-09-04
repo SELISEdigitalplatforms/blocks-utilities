@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using Utility.DomainService.PdfGenerator.Entities;
+using Utility.DomainService.Shared.Utilities;
 
 namespace Utility.DomainService.PdfGenerator.service
 {
@@ -145,12 +146,12 @@ namespace Utility.DomainService.PdfGenerator.service
 
                 await collection.ReplaceOneAsync(filter, job, new ReplaceOptions { IsUpsert = true });
 
-                _logger.LogInformation("SaveDocumentConversionJobAsync: Recorded conversion of file {FileId}", job.Id);
+                _logger.LogInformation("SaveDocumentConversionJobAsync: Recorded conversion of file {FileId}", LogSanitizer.Scrub(job.Id));
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in SaveDocumentConversionJobAsync for file {FileId}", job.Id);
+                _logger.LogError(ex, "Error in SaveDocumentConversionJobAsync for file {FileId}", LogSanitizer.Scrub(job.Id));
                 return false;
             }
         }
@@ -172,7 +173,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in GetDocumentConversionJobAsync for file {FileId}", fileId);
+                _logger.LogError(ex, "Error in GetDocumentConversionJobAsync for file {FileId}", LogSanitizer.Scrub(fileId));
                 return null;
             }
         }
@@ -200,7 +201,7 @@ namespace Utility.DomainService.PdfGenerator.service
 
                 if (result.MatchedCount == 0)
                 {
-                    _logger.LogWarning("UpdateDocumentConversionJobAsync: No conversion record for file {FileId}", job.Id);
+                    _logger.LogWarning("UpdateDocumentConversionJobAsync: No conversion record for file {FileId}", LogSanitizer.Scrub(job.Id));
                     return false;
                 }
 
@@ -208,7 +209,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in UpdateDocumentConversionJobAsync for file {FileId}", job.Id);
+                _logger.LogError(ex, "Error in UpdateDocumentConversionJobAsync for file {FileId}", LogSanitizer.Scrub(job.Id));
                 return false;
             }
         }
