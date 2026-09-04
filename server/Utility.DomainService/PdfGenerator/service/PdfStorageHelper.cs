@@ -141,6 +141,46 @@ namespace Utility.DomainService.PdfGenerator.service
         }
 
         /// <summary>
+        /// Resolves a file's storage record: its name, the directory it lives in, and the URL its
+        /// content can be downloaded from.
+        /// </summary>
+        /// <remarks>
+        /// In-place document conversion needs the record, not just the bytes. The name carries the
+        /// extension that decides whether the file can be converted at all, and the directory has to
+        /// be preserved so replacing a file does not silently relocate it. Exposed separately from
+        /// <see cref="GetPdfStream"/> so a caller can read the record, decide, and only then pay for
+        /// the download.
+        /// </remarks>
+        public async Task<FileResponse?> GetFileRecord(string fileId, string? projectKey = null)
+        {
+            _logger.LogInformation("GetFileRecord: Getting storage record for fileId={FileId}", fileId);
+
+            var fileData = await _storageDriverService.GetUrlForDownloadFileAsync(new GetFileRequest
+            {
+                FileId = fileId
+            });
+
+            if (fileData == null || string.IsNullOrEmpty(fileData.Url))
+            {
+                _logger.LogError("GetFileRecord: File data is null or URL is empty for fileId={FileId}", fileId);
+                return null;
+            }
+
+            return fileData;
+        }
+
+        /// <summary>
+        /// Downloads the content of a record already resolved by <see cref="GetFileRecord"/>,
+        /// without asking storage to resolve it a second time.
+        /// </summary>
+        public async Task<Stream?> GetStreamForRecord(FileResponse fileData)
+        {
+            ArgumentNullException.ThrowIfNull(fileData);
+
+            return await GetFileStreamFromUrl(fileData.Url);
+        }
+
+        /// <summary>
         /// Gets image file as stream
         /// </summary>
         public async Task<Stream?> GetImageStream(string fileId, string? projectKey = null)
