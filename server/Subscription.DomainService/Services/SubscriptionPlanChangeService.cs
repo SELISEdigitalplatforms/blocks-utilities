@@ -300,7 +300,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // would not actually collect.
         long chargeMinor;
         long rawSettlementMinor;
-        long targetPeriodTotalMinor;
+        long nextRenewalAmountMinor;
         FinancialDocumentSettlementResponse settlementResponse;
 
         if (r.Subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidAnnual &&
@@ -317,7 +317,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
             chargeMinor = stubUpgrade.ChargeMinor;
             rawSettlementMinor = stubUpgrade.RawSettlementMinor;
-            targetPeriodTotalMinor = stubUpgrade.Annual.Target.PeriodTotalMinor;
+            nextRenewalAmountMinor = stubUpgrade.Annual.Target.PeriodTotalMinor;
             settlementResponse = SettlementResponseOf(stubUpgrade);
         }
         else
@@ -335,7 +335,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             chargeMinor = outcome.ChargeMinor;
             rawSettlementMinor =
                 outcome.Breakdown.Target.ProratedValueMinor - outcome.Breakdown.Outgoing.ProratedValueMinor;
-            targetPeriodTotalMinor = outcome.Breakdown.Target.PeriodTotalMinor;
+            nextRenewalAmountMinor = outcome.TargetFullPeriodTotalMinor;
             settlementResponse = SettlementResponseOf(outcome.Breakdown);
         }
 
@@ -411,11 +411,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 Settlement = settlementResponse,
                 NewPeriodStartUtc = quotedSchedule.CurrentPeriodStartUtc,
                 NewPeriodEndUtc = quotedSchedule.CurrentPeriodEndUtc,
-                // Already the whole target period, tax included, undiminished by proration — see
-                // ProrationSide.PeriodTotalMinor — so there is nothing left to compute here. For an
-                // opening-stub upgrade this is the target annual period's own total, which is the
-                // figure that will actually recur once the year opens.
-                NextRenewalAmountMinor = targetPeriodTotalMinor,
+                // What recurs, which is not the same figure as the settlement's target side. A
+                // move onto a calendar-aligned price buys a stub first — priced by day fraction,
+                // and for a yearly target from the linked monthly basis — and the period that
+                // then recurs is the whole one at the target's own price. See
+                // ProrationOutcome.TargetFullPeriodTotalMinor for why the two are carried
+                // separately. For an opening-stub upgrade this is already the target annual
+                // period's own total, which is exactly the figure that recurs once the year opens.
+                NextRenewalAmountMinor = nextRenewalAmountMinor,
                 Blockers = blockers,
                 QuotedAtUtc = r.Now
             },

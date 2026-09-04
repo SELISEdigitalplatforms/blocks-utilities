@@ -31,7 +31,7 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
         _logger = logger;
     }
 
-    public async Task<int> ProcessDueAsync(string tenantId, CancellationToken cancellationToken)
+    public async Task<PaymentWebhookProcessingResult> ProcessDueAsync(string tenantId, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
         var options = _options.CurrentValue;
@@ -56,7 +56,7 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
                 tenantHash,
                 stopwatch.Elapsed.TotalMilliseconds);
 
-            return 0;
+            return PaymentWebhookProcessingResult.Empty;
         }
 
         _logger.LogInformation(
@@ -65,6 +65,12 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
             due.Count);
 
         var processed = 0;
+
+        // The payments this pass actually transitioned, in the order they were applied. Ordinal
+        // dedupe because two events for one payment in a single batch is ordinary — an
+        // authorisation and its capture, say — and the caller should look the link up once.
+        var transitioned = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var candidate in due)
         {
@@ -134,6 +140,17 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
                 await _inbox.MarkProcessedAsync(tenantId, claimed.WebhookId, leaseId, cancellationToken);
                 processed++;
 
+                // Only after the record is marked processed: an id reported for a transition that
+                // then failed to commit would send the caller looking for a confirmation that
+                // does not exist.
+                var paymentDetailId = claimed.NormalizedPayload.PaymentDetailId;
+
+                if (!string.IsNullOrWhiteSpace(paymentDetailId) &&
+                    seen.Add(paymentDetailId))
+                {
+                    transitioned.Add(paymentDetailId);
+                }
+
                 _logger.LogInformation(
                     "Webhook worker record completed FinalStatus=Processed DurationMs={DurationMs}",
                     itemStopwatch.Elapsed.TotalMilliseconds);
@@ -188,6 +205,6 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
             processed,
             stopwatch.Elapsed.TotalMilliseconds);
 
-        return processed;
+        return new PaymentWebhookProcessingResult(processed, transitioned);
     }
 }

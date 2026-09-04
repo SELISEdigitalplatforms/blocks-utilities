@@ -80,7 +80,9 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
             .RecoverDueAsync(tenantId, token);
         await services.GetRequiredService<IPaymentRefundRecoveryProcessor>()
             .RecoverDueAsync(tenantId, token);
-        await services.GetRequiredService<IPaymentWebhookProcessor>()
+        // Result discarded: the targeted subscription settle rides the webhook-driven work
+        // command, and this periodic reconciliation pass has the repair sweep behind it.
+        _ = await services.GetRequiredService<IPaymentWebhookProcessor>()
             .ProcessDueAsync(tenantId, token);
         await services.GetRequiredService<IStoredPaymentMethodRemovalRecoveryProcessor>()
             .RecoverDueRemovalsAsync(tenantId, token);

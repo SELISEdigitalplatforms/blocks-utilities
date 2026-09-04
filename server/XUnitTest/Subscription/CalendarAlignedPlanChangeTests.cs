@@ -126,6 +126,125 @@ public sealed class CalendarAlignedPlanChangeTests
         // side is discounted by the whole 1000 because it is a whole period: (8900 - 1000) x 16/31
         // = 4077. 8806 - 4077 = 4729.
         outcome.ChargeMinor.Should().Be(4_729);
+
+        // The recurring period carries the subscriber's discount too — the whole 1000, since a
+        // full month is not scaled. A full period priced without the subscription's discount would
+        // report 40000, and one that let the day fraction through would report the 8806 stub.
+        outcome.TargetFullPeriodTotalMinor.Should().Be(39_000);
+    }
+
+    /// <summary>
+    /// A tax-inclusive target, where the configured amount already contains the tax rather than
+    /// having it added on top.
+    /// </summary>
+    /// <remarks>
+    /// The mode is the point. An inclusive price's total is its own configured amount, so this
+    /// figure separates a full period that read the price's real mode from one that assumed
+    /// exclusive (which would add 8.1% on top and report 39781) or that read no mode at all
+    /// (the pre-modes truncating path, 39780). It cannot, by construction, catch a missing tax
+    /// call — an inclusive total equals its input either way — which is why the yearly service
+    /// test asserts an <em>exclusive</em> figure, where the tax is visible in the number.
+    /// </remarks>
+    [Fact]
+    public void A_tax_inclusive_target_recurs_at_its_own_configured_amount()
+    {
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            Subscription(),
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 40_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                AutomaticDiscountBasisPoints = 800,
+                TaxRateBasisPoints = 810,
+                TaxMode = TaxMode.Inclusive
+            },
+            [],
+            Now,
+            Now,
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new BillingDayFraction(7, 31));
+
+        // 40000 less the 8% automatic discount is 36800, and the 8.1% VAT is already inside that
+        // — so the whole month costs the subscriber 36800, of which 2757 is tax.
+        outcome.TargetFullPeriodTotalMinor.Should().Be(36_800);
+    }
+
+    /// <summary>
+    /// The stub being bought and the period that recurs afterward are two different amounts, and
+    /// the settlement needs both.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ProrationSide.PeriodTotalMinor"/> is the period this settlement actually prices
+    /// — the stub — which is what the invoice explains. What recurs from the next boundary on is
+    /// the whole month at the target's own price, and quoting the stub for it understates the
+    /// recurring price by however much of the month the stub missed.
+    /// </remarks>
+    [Fact]
+    public void The_target_full_period_is_the_price_moved_onto_not_the_stub_being_bought()
+    {
+        var outcome = Calculate(targetUnitAmountMinor: 40_000);
+
+        // The stub: 40000 x 7/31 = 9032, as the charge tests above already pin.
+        outcome.Breakdown.Target.PeriodTotalMinor.Should().Be(9_032,
+            "the settlement prices the seven dates to the boundary, and says so");
+
+        // What recurs: the whole month, untouched by the fraction.
+        outcome.TargetFullPeriodTotalMinor.Should().Be(40_000);
+    }
+
+    /// <summary>
+    /// A whole target period has no stub to tell apart, so the two figures must agree exactly —
+    /// this is what keeps every existing anniversary and land-on-the-first quote unchanged.
+    /// </summary>
+    [Fact]
+    public void A_whole_target_period_reports_the_identical_figure_both_ways()
+    {
+        var outcome = Calculate(
+            targetUnitAmountMinor: 40_000,
+            fraction: new BillingDayFraction(30, 30));
+
+        outcome.TargetFullPeriodTotalMinor.Should().Be(outcome.Breakdown.Target.PeriodTotalMinor);
+        outcome.TargetFullPeriodTotalMinor.Should().Be(40_000);
+    }
+
+    /// <summary>
+    /// The one case that made this worth fixing: a calendar-aligned yearly target is charged from
+    /// its linked monthly basis for the days to the boundary, and quoting that basis as the
+    /// recurring price understates the year by roughly twelve times.
+    /// </summary>
+    [Fact]
+    public void A_calendar_yearly_target_recurs_at_the_annual_rate_not_the_monthly_stub()
+    {
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            Subscription(),
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 1_200_000,
+                Interval = BillingInterval.Year,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                CalendarStubBasePriceId = "price-monthly",
+                CalendarStubBaseUnitAmountMinor = 110_000
+            },
+            [],
+            Now,
+            Now,
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new BillingDayFraction(7, 31));
+
+        // The stub is priced from the monthly basis, exactly as a fresh signup's would be:
+        // 110000 x 7/31 = 24839.
+        outcome.Breakdown.Target.PeriodTotalMinor.Should().Be(24_839,
+            "the days before the year begins are bought at the monthly rate");
+
+        // The year itself, which is what the subscriber will actually be charged on 1 September.
+        outcome.TargetFullPeriodTotalMinor.Should().Be(1_200_000);
     }
 
     private static ProrationOutcome Calculate(
