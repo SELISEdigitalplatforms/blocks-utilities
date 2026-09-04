@@ -40,6 +40,7 @@ public sealed class SubscriptionActivationProcessorTests
     private readonly Mock<IBillingAccountRepository> _accounts = new();
     private readonly Mock<IPaymentRepository> _payments = new();
     private readonly Mock<IStoredPaymentMethodRepository> _storedMethods = new();
+    private readonly Mock<ISubscriptionFinancialDocumentAnnouncer> _documents = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
 
@@ -701,6 +702,82 @@ public sealed class SubscriptionActivationProcessorTests
             "no money moved, so there is no opening charge and no invoice behind one");
     }
 
+    /// <summary>
+    /// The D-01 scenario: a card setup that lands directly on Active, not Trialing, is an opening
+    /// period that owed nothing today — a discount to zero, or a price already at zero — not a
+    /// trial. It still owes a document, the same reasoning a trial invoice already gets, so this
+    /// is announced instead of being silently skipped the way an ordinary charge is for a setup.
+    /// </summary>
+    [Fact]
+    public async Task A_card_setup_that_activates_directly_announces_the_opening_period()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.InitialChargeAmountMinor = 0);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _documents.Verify(
+            documents => documents.AnnounceOpeningDiscountAsync(
+                It.Is<SubscriptionDetail>(s => s.ItemId == "sub-1"),
+                "pay-1",
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<FinancialDocumentPerson?>()),
+            Times.Once);
+
+        // Never a charge announcement for a card setup — that would issue a document describing
+        // money that was never taken.
+        _documents.Verify(
+            documents => documents.AnnounceChargeAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<string>(),
+                It.IsAny<SubscriptionChargeKind>(),
+                It.IsAny<string?>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<FinancialDocumentPerson?>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// The control: a card setup that starts a trial is announced as a trial, not as an opening
+    /// discount — the two document types describe different things, and a trial already has its
+    /// own announcement.
+    /// </summary>
+    [Fact]
+    public async Task A_card_setup_that_starts_a_trial_does_not_announce_an_opening_discount()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.Trial = new TrialTerms
+        {
+            StartsAtUtc = DateTime.UtcNow,
+            EndsAtUtc = DateTime.UtcNow.AddDays(14)
+        });
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _documents.Verify(
+            documents => documents.AnnounceOpeningDiscountAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<FinancialDocumentPerson?>()),
+            Times.Never);
+        _documents.Verify(
+            documents => documents.AnnounceTrialAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<FinancialDocumentPerson?>()),
+            Times.Once);
+    }
+
     [Fact]
     public async Task A_confirmed_setup_waits_until_its_card_is_usable_for_renewal()
     {
@@ -766,7 +843,8 @@ public sealed class SubscriptionActivationProcessorTests
         new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionActivationProcessor>.Instance,
         _time,
-        renewals: _renewals.Object);
+        renewals: _renewals.Object,
+        documents: _documents.Object);
 
     private static SubscriptionDetail NewSubscription() => new()
     {

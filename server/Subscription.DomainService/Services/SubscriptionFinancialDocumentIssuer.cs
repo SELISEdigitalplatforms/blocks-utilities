@@ -293,7 +293,10 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// </summary>
     /// <remarks>
     /// A charge defers to <see cref="IssueForPaymentAsync"/>, which reads the figures off the payment
-    /// — the source froze what the charge was for, never what it came to.
+    /// — the source froze what the charge was for, never what it came to. An opening period that
+    /// activated with nothing due has no payment to defer to — the card-setup record behind it
+    /// carries no money at all — so its figures were frozen on the source itself instead, the same
+    /// reason a banked-credit source freezes them.
     /// </remarks>
     private async Task<SubscriptionFinancialDocument?> IssueFromSourceAsync(
         SubscriptionDetail subscription,
@@ -306,12 +309,18 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             // The result carries its reason for the caller that named a payment; here only the
             // document matters, because this path is draining a subscription's own obligations and
             // each one is consumed or abandoned on its own terms.
-            return source.PaymentDetailId is { Length: > 0 } paymentDetailId
-                ? (await IssueForPaymentAsync(
+            if (source.PaymentDetailId is { Length: > 0 } paymentDetailId)
+            {
+                return (await IssueForPaymentAsync(
                     subscription.TenantId,
                     paymentDetailId,
                     correlationId,
-                    cancellationToken)).Document
+                    cancellationToken)).Document;
+            }
+
+            return source.Amounts is not null
+                ? await IssueOpeningDiscountInvoiceAsync(
+                    subscription, source, correlationId, cancellationToken)
                 : await AbandonAsync(subscription, source, cancellationToken);
         }
 
@@ -699,6 +708,60 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 RequiresPaymentMethod = trial.RequiresPaymentMethod,
                 FirstBillingAtUtc = subscription.NextFeeBillingAtUtc
             },
+            cancellationToken: cancellationToken);
+
+        if (document is not null)
+        {
+            await ConsumeAsync(subscription, source, cancellationToken);
+        }
+
+        return document;
+    }
+
+    /// <summary>
+    /// The document for an opening period that activated with nothing due — a price discounted to
+    /// zero, or one that was already zero.
+    /// </summary>
+    /// <remarks>
+    /// Reads its figures off the source, not off a payment: the card-setup record behind this event
+    /// carries no money at all, so <see cref="SubscriptionFinancialDocumentAnnouncer"/> froze the
+    /// breakdown on the source itself at the moment of activation, via
+    /// <see cref="RecomposeInitialCharge"/>. Otherwise the same shape as any other invoice — a real
+    /// gross, a real discount and a real (zero) total, not the zero-throughout statement a trial
+    /// invoice makes.
+    /// </remarks>
+    private async Task<SubscriptionFinancialDocument?> IssueOpeningDiscountInvoiceAsync(
+        SubscriptionDetail subscription,
+        SubscriptionDocumentSource source,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (source.Amounts is not { } amounts)
+        {
+            return await AbandonAsync(subscription, source, cancellationToken);
+        }
+
+        var terms = TermsFor(
+            subscription,
+            source,
+            new SubscriptionChargeReference(subscription.ItemId, SubscriptionChargeKind.Initial, null),
+            subscription.ItemId);
+
+        var document = await ComposeAndIssueAsync(
+            subscription,
+            FinancialDocumentType.Invoice,
+            source.SourceKey,
+            source.OccurredAtUtc,
+            amounts,
+            LinesFor(terms, SubscriptionChargeKind.Initial, amounts),
+            source.Period,
+            terms,
+            correlationId,
+            paymentDetailId: null,
+            settlement: null,
+            initiatedBy: source.InitiatedBy,
+            initiatedByUserId: source.InitiatedBy?.UserId,
+            settlementReservationId: null,
             cancellationToken: cancellationToken);
 
         if (document is not null)
@@ -1237,8 +1300,15 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// discount terms and the calendar fraction are all on the subscription and none of them can be
     /// moved by editing the catalogue, so the calculator is being asked the same question it was
     /// asked at checkout rather than a fresh one.
+    /// <para>
+    /// Internal rather than private: <see cref="SubscriptionFinancialDocumentAnnouncer"/> reuses it
+    /// to freeze the same breakdown on a source for an opening period that activated with nothing
+    /// due — a card-setup activation carries no payment to read a breakdown off later, so this is
+    /// called at the moment of activation instead of at issue, while <c>subscription</c> is still
+    /// exactly the terms the customer was quoted.
+    /// </para>
     /// </remarks>
-    private static FinancialDocumentAmounts? RecomposeInitialCharge(
+    internal static FinancialDocumentAmounts? RecomposeInitialCharge(
         SubscriptionDetail subscription)
     {
         if (subscription.InitialChargeAmountMinor is not { } frozen)
