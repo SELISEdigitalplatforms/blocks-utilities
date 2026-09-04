@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -260,41 +260,36 @@ namespace XUnitTest.PdfGenerator
 
     public class ConvertDocumentsToPdfContractTests
     {
-        [Fact]
-        public void ResolveOutputFileName_ExplicitName_IsUsedVerbatim()
+        [Theory]
+        [InlineData("Q3 Report.docx", "Q3 Report.pdf")]
+        [InlineData("contract.doc", "contract.pdf")]
+        [InlineData("notes.RTF", "notes.pdf")]
+        [InlineData("archive.tar.gz", "archive.tar.pdf")]
+        public void ToPdfName_SwapsTheSourceExtension(string sourceName, string expected)
         {
-            var name = ConvertDocumentsToPdfConsumer.ResolveOutputFileName(new ConvertDocumentToPdfCommand
-            {
-                DocumentFileName = "source.docx",
-                OutputPdfFileName = "Signed Contract.pdf",
-                OutputPdfFileId = "out-1"
-            });
+            ConvertDocumentsToPdfConsumer.ToPdfName(sourceName, "file-1").Should().Be(expected);
+        }
 
-            name.Should().Be("Signed Contract.pdf");
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ToPdfName_NoUsableSourceName_FallsBackToTheFileId(string? sourceName)
+        {
+            ConvertDocumentsToPdfConsumer.ToPdfName(sourceName, "file-1").Should().Be("file-1.pdf");
         }
 
         [Fact]
-        public void ResolveOutputFileName_NoExplicitName_SwapsSourceExtension()
+        public void ConvertCommand_NeedsNothingButTheFileId()
         {
-            var name = ConvertDocumentsToPdfConsumer.ResolveOutputFileName(new ConvertDocumentToPdfCommand
-            {
-                DocumentFileName = "Q3 Report.docx",
-                OutputPdfFileId = "out-1"
-            });
+            // The whole point of the contract: name, directory and destination all come from the
+            // file's storage record, so a caller supplies one field.
+            var command = new ConvertDocumentToPdfCommand { DocumentFileId = "doc-1" };
 
-            name.Should().Be("Q3 Report.pdf");
-        }
-
-        [Fact]
-        public void ResolveOutputFileName_NoUsableSourceName_FallsBackToOutputId()
-        {
-            var name = ConvertDocumentsToPdfConsumer.ResolveOutputFileName(new ConvertDocumentToPdfCommand
-            {
-                DocumentFileName = string.Empty,
-                OutputPdfFileId = "out-1"
-            });
-
-            name.Should().Be("out-1.pdf");
+            command.DocumentFileId.Should().Be("doc-1");
+            command.PreserveFormFields.Should().BeFalse();
+            command.PdfACompliant.Should().BeFalse();
+            command.UpdateFields.Should().BeFalse();
         }
 
         [Fact]
@@ -302,24 +297,18 @@ namespace XUnitTest.PdfGenerator
         {
             var request = new ConvertDocumentsToPdfRequest
             {
-                ProjectKey = "p1",
-                MessageCoRelationId = "corr",
-                EventReferenceData = new Dictionary<string, string> { ["source"] = "test" },
                 ConvertCommands = new List<ConvertDocumentToPdfCommand>
                 {
-                    new()
-                    {
-                        DocumentFileId = "doc-1",
-                        DocumentFileName = "contract.docx",
-                        OutputPdfFileId = "pdf-1",
-                        PdfACompliant = true
-                    }
+                    new() { DocumentFileId = "doc-1", PdfACompliant = true }
                 }
             };
 
-            request.ProjectKey.Should().Be("p1");
+            // Everything except the commands is optional, so an untouched request is still valid.
+            request.ProjectKey.Should().BeNull();
+            request.MessageCoRelationId.Should().BeEmpty();
+            request.EventReferenceData.Should().BeNull();
             request.ConvertCommands.Should().ContainSingle()
-                .Which.DocumentFileName.Should().Be("contract.docx");
+                .Which.DocumentFileId.Should().Be("doc-1");
 
             var response = new ConvertDocumentsToPdfResponse
             {

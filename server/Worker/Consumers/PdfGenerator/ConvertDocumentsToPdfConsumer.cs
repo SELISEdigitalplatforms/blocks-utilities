@@ -1,4 +1,4 @@
-﻿using Blocks.Genesis;
+using Blocks.Genesis;
 using System.Diagnostics.CodeAnalysis;
 using Utility.DomainService.PdfGenerator;
 using Utility.DomainService.PdfGenerator.Events;
@@ -8,24 +8,21 @@ using Utility.DomainService.Shared.Utilities;
 namespace Worker.Consumers.PdfGenerator
 {
     /// <summary>
-    /// Converts word-processing documents held in storage to PDF and writes the result back as a
-    /// new file.
+    /// Converts word-processing documents held in storage to PDF, replacing the source file.
     /// </summary>
     /// <remarks>
-    /// The source file is left untouched and the PDF is written to its own file ID, unlike the
-    /// e-signature service's converter which overwrites the original and renames it. Keeping both
-    /// means a conversion that renders badly can be diagnosed against the input that produced it,
-    /// and it matches how every other consumer in this module treats its output.
+    /// The PDF is written back to the document's own file ID and the record is renamed to a .pdf
+    /// extension, so anything already referencing that ID keeps working and ends up pointing at the
+    /// PDF. This is how the e-signature service converts documents before signing, and it is the
+    /// reason the command needs nothing but the file ID.
+    ///
+    /// It is also destructive: the original .docx is gone once this succeeds, so a conversion that
+    /// renders badly cannot be compared against the input that produced it. That is the accepted
+    /// trade for having one file ID mean one document throughout its life.
     /// </remarks>
     [ExcludeFromCodeCoverage]
     public class ConvertDocumentsToPdfConsumer : IConsumer<ConvertDocumentsToPdfEvent>
     {
-        /// <summary>
-        /// Where converted PDFs land. Its own directory so a retention or access policy can be set
-        /// for converted source documents without touching generated output.
-        /// </summary>
-        private const string OutputDirectory = "Blocks-PDF-Converted-Files";
-
         private readonly ILogger<ConvertDocumentsToPdfConsumer> _logger;
         private readonly PdfStorageHelper _storageHelper;
         private readonly IDocumentToPdfConverter _converter;
@@ -104,28 +101,47 @@ namespace Worker.Consumers.PdfGenerator
         {
             try
             {
-                _logger.LogInformation(
-                    "ConvertDocumentsToPdfConsumer: Converting DocumentFileId={DocumentFileId}, name={DocumentFileName}",
-                    LogSanitizer.Scrub(command.DocumentFileId),
-                    LogSanitizer.Scrub(command.DocumentFileName));
+                if (string.IsNullOrWhiteSpace(command.DocumentFileId))
+                {
+                    _logger.LogError("ConvertDocumentsToPdfConsumer: DocumentFileId is required");
+                    return false;
+                }
 
-                // Checked before the download: an unsupported extension is a caller error, and
-                // finding that out after pulling the bytes across the network costs the same
-                // rejection plus a transfer.
-                if (!_converter.IsSupportedDocument(command.DocumentFileName))
+                // The record first: it carries the name whose extension decides whether this can be
+                // converted, and the directory the replacement has to stay in. Resolving it does not
+                // transfer the file's bytes, so an unsupported document is rejected before anything
+                // large moves.
+                var record = await _storageHelper.GetFileRecord(command.DocumentFileId, @event.ProjectKey);
+                if (record == null)
                 {
                     _logger.LogError(
-                        "ConvertDocumentsToPdfConsumer: Unsupported document type for DocumentFileName={DocumentFileName}",
-                        LogSanitizer.Scrub(command.DocumentFileName));
+                        "ConvertDocumentsToPdfConsumer: No storage record for DocumentFileId={DocumentFileId}",
+                        LogSanitizer.Scrub(command.DocumentFileId));
 
                     return false;
                 }
 
-                using var documentStream = await _storageHelper.GetPdfStream(command.DocumentFileId, @event.ProjectKey);
+                var sourceName = record.Name ?? string.Empty;
+
+                _logger.LogInformation(
+                    "ConvertDocumentsToPdfConsumer: Converting DocumentFileId={DocumentFileId}, name={DocumentFileName}",
+                    LogSanitizer.Scrub(command.DocumentFileId),
+                    LogSanitizer.Scrub(sourceName));
+
+                if (!_converter.IsSupportedDocument(sourceName))
+                {
+                    _logger.LogError(
+                        "ConvertDocumentsToPdfConsumer: Unsupported document type for name={DocumentFileName}",
+                        LogSanitizer.Scrub(sourceName));
+
+                    return false;
+                }
+
+                using var documentStream = await _storageHelper.GetStreamForRecord(record);
                 if (documentStream == null)
                 {
                     _logger.LogError(
-                        "ConvertDocumentsToPdfConsumer: Failed to get document stream for DocumentFileId={DocumentFileId}",
+                        "ConvertDocumentsToPdfConsumer: Failed to download DocumentFileId={DocumentFileId}",
                         LogSanitizer.Scrub(command.DocumentFileId));
 
                     return false;
@@ -148,37 +164,41 @@ namespace Worker.Consumers.PdfGenerator
                     return false;
                 }
 
+                var pdfName = ToPdfName(sourceName, command.DocumentFileId);
+
                 var metadata = new Dictionary<string, string>
                 {
                     { "MessageCoRelationId", @event.MessageCoRelationId },
-                    { "SourceDocumentFileId", command.DocumentFileId },
-                    { "SourceDocumentFileName", command.DocumentFileName },
-                    { "CreatedDate", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") },
+                    { "ConvertedFromName", sourceName },
+                    { "ConvertedDate", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") },
                     { "FileType", "ConvertedPDF" },
-                    { "PdfACompliant", command.PdfACompliant.ToString() },
-                    { "OpenInBrowser", command.OpenInBrowser.ToString() }
+                    { "PdfACompliant", command.PdfACompliant.ToString() }
                 };
 
+                // Same item ID and same parent directory: this is a replacement, not a new file. The
+                // new name carries the .pdf extension so the record stops claiming to be a Word
+                // document once its bytes are a PDF.
                 var saveSuccess = await _storageHelper.SavePdfToStorage(
                     pdfStream,
-                    command.OutputPdfFileId,
-                    ResolveOutputFileName(command),
+                    command.DocumentFileId,
+                    pdfName,
                     metadata,
-                    OutputDirectory,
+                    record.ParentDirectoryID ?? string.Empty,
                     @event.ProjectKey);
 
                 if (!saveSuccess)
                 {
                     _logger.LogError(
-                        "ConvertDocumentsToPdfConsumer: Failed to save converted PDF for OutputPdfFileId={OutputPdfFileId}",
-                        LogSanitizer.Scrub(command.OutputPdfFileId));
+                        "ConvertDocumentsToPdfConsumer: Failed to write converted PDF back to DocumentFileId={DocumentFileId}",
+                        LogSanitizer.Scrub(command.DocumentFileId));
 
                     return false;
                 }
 
                 _logger.LogInformation(
-                    "ConvertDocumentsToPdfConsumer: Saved converted PDF for OutputPdfFileId={OutputPdfFileId}, size={PdfSize} bytes",
-                    LogSanitizer.Scrub(command.OutputPdfFileId),
+                    "ConvertDocumentsToPdfConsumer: Replaced DocumentFileId={DocumentFileId} with {PdfName}, size={PdfSize} bytes",
+                    LogSanitizer.Scrub(command.DocumentFileId),
+                    LogSanitizer.Scrub(pdfName),
                     pdfStream.Length);
 
                 return true;
@@ -195,20 +215,17 @@ namespace Worker.Consumers.PdfGenerator
         }
 
         /// <summary>
-        /// Uses the caller's output name when given, otherwise the source name with its extension
-        /// swapped for .pdf — the same naming the e-signature converter produces.
+        /// The source name with its extension swapped for .pdf, falling back to the file ID when
+        /// storage holds no usable name.
         /// </summary>
-        public static string ResolveOutputFileName(ConvertDocumentToPdfCommand command)
+        public static string ToPdfName(string? sourceName, string fileId)
         {
-            if (!string.IsNullOrWhiteSpace(command.OutputPdfFileName))
-            {
-                return command.OutputPdfFileName;
-            }
-
-            var withoutExtension = Path.GetFileNameWithoutExtension(command.DocumentFileName);
+            var withoutExtension = string.IsNullOrWhiteSpace(sourceName)
+                ? string.Empty
+                : Path.GetFileNameWithoutExtension(sourceName);
 
             return string.IsNullOrWhiteSpace(withoutExtension)
-                ? $"{command.OutputPdfFileId}.pdf"
+                ? $"{fileId}.pdf"
                 : $"{withoutExtension}.pdf";
         }
     }

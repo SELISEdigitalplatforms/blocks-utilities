@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Blocks.Genesis;
 using Utility.DomainService.PdfGenerator.service;
@@ -200,26 +200,30 @@ namespace Api.Controllers
         }
 
         /// <summary>
-        /// Convert word-processing documents (.doc, .docx, .rtf, .odt, ...) to PDF
+        /// Convert word-processing documents (.doc, .docx, .rtf, .odt, ...) to PDF, in place
         /// </summary>
         /// <remarks>
         /// <param name="request"></param> Request parameters:
         ///
-        /// MessageCoRelationId: Unique identifier for specific request
-        /// EventReferenceData: Set of values stored on data fields related to a specific event
-        /// ConvertCommands: Documents to convert. Each command carries:
-        ///   DocumentFileId / DocumentFileName: Source file in storage. The extension decides
-        ///     whether the file can be read, so the name must include one.
-        ///   OutputPdfFileId / OutputPdfFileName: Destination. The source name with a .pdf
-        ///     extension is used when OutputPdfFileName is omitted.
+        /// ConvertCommands: Documents to convert. Each command needs only:
+        ///   DocumentFileId: The document in storage. The PDF is written back to this same ID and
+        ///     the file is renamed to a .pdf extension, so the original document is replaced and
+        ///     anything already referencing the ID ends up pointing at the PDF.
+        /// Optional per command:
         ///   PreserveFormFields: Keep interactive form fields editable instead of flattening them.
         ///   PdfACompliant: Emit PDF/A-1b for archival. Forces font embedding and flattens fields.
         ///   UpdateFields: Recalculate page numbers, cross-references and TOC entries first.
-        /// ProjectKey: Project key for multi-tenancy
         ///
-        /// Conversion uses Aspose.Words and does not take an Engine number: it is the only library
-        /// here that reads Word formats. The source file is left in place; the PDF is written to
-        /// OutputPdfFileId.
+        /// Optional on the request:
+        ///   MessageCoRelationId: Identifies the request so the caller is notified when the batch
+        ///     finishes. Omit it and the conversion still runs, without the completion notification.
+        ///   EventReferenceData: Echoed back with the completion event.
+        ///   ProjectKey: Defaults to the tenant on the ambient context. Supply it only for a call
+        ///     made on behalf of another project.
+        ///
+        /// The document's name, extension and directory are read from its storage record, so they
+        /// are never sent. Conversion uses Aspose.Words and takes no Engine number: it is the only
+        /// library here that reads Word formats.
         /// </remarks>
         /// <returns>ConvertDocumentsToPdfResponse</returns>
         [HttpPost]
