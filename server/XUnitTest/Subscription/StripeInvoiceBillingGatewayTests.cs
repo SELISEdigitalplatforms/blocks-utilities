@@ -619,6 +619,35 @@ public sealed class StripeInvoiceBillingGatewayTests
         // The two are alternatives: a settlement is not a discounted price, so the flat fields stay
         // empty rather than describing it badly.
         recorded.SubscriptionGrossAmountMinor.Should().BeNull();
+        recorded.SubscriptionNetAmountMinor.Should().BeNull();
+        recorded.SubscriptionTaxAmountMinor.Should().BeNull();
+        recorded.SubscriptionCreditAmountMinor.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_renewal_that_nets_to_zero_still_records_its_zero_rather_than_a_null()
+    {
+        // A 100%-coupon renewal genuinely nets to zero. That must keep reading back as "the
+        // breakdown says zero", not be pushed onto the settlement's null-means-not-applicable path.
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        var request = Request();
+        request.GrossAmountMinor = 10_000;
+        request.PromotionalDiscountMinor = 10_000;
+        request.NetAmountMinor = 0;
+        request.TaxAmountMinor = 0;
+        request.CreditConsumedMinor = 0;
+
+        await Gateway().ChargeAsync(request, "idem-1", "corr-1", CancellationToken.None);
+
+        recorded!.SubscriptionNetAmountMinor.Should().Be(0);
+        recorded.SubscriptionTaxAmountMinor.Should().Be(0);
+        recorded.SubscriptionCreditAmountMinor.Should().Be(0);
     }
 
     private static SubscriptionChargeRequest Request() => new()

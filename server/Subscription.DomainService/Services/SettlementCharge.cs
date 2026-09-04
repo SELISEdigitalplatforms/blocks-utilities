@@ -36,7 +36,15 @@ internal static class SettlementCharge
         Description = Describe(subscription, reservation),
         // From the reservation, which recorded it when the change was quoted — not from the
         // subscription as it stands now, which the settlement is about to change.
-        Settlement = reservation.Settlement
+        Settlement = reservation.Settlement,
+        // Rate and mode only, not net or tax - the breakdown carries the actual figures, and
+        // duplicating them as flat fields would put the charge back into the shape it replaces. The
+        // target price where this is a plan change, since that is what the customer is being taxed
+        // under going forward; a quantity change never moves the price. Where a change crosses tax
+        // modes this states only the target side's rate - a simplification, the two sides' own rates
+        // remain in the settlement table itself.
+        TaxRateBasisPoints = (reservation.PlanChange?.Price ?? subscription.Price).TaxRateBasisPoints,
+        TaxMode = (reservation.PlanChange?.Price ?? subscription.Price).TaxMode
     };
 
     /// <summary>

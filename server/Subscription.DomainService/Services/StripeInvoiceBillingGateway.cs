@@ -477,9 +477,12 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
             OrderId = request.OrderId,
             Description = request.Description?.Trim(),
             ProviderInvoiceId = invoiceId,
-            SubscriptionNetAmountMinor = request.NetAmountMinor,
-            SubscriptionTaxAmountMinor = request.TaxAmountMinor,
-            SubscriptionCreditAmountMinor = request.CreditConsumedMinor,
+            // A settlement records its amount as a two-sided breakdown instead - see
+            // SubscriptionSettlementBreakdown. Storing a flat 0 beside it would be indistinguishable
+            // from a renewal that genuinely netted to zero, and would be read back as one.
+            SubscriptionNetAmountMinor = request.Settlement is null ? request.NetAmountMinor : null,
+            SubscriptionTaxAmountMinor = request.Settlement is null ? request.TaxAmountMinor : null,
+            SubscriptionCreditAmountMinor = request.Settlement is null ? request.CreditConsumedMinor : null,
             SubscriptionTaxRateBasisPoints = request.TaxRateBasisPoints,
             SubscriptionTaxMode = request.TaxRateBasisPoints > 0
                 ? (request.TaxMode ?? TaxMode.Exclusive).ToString()
