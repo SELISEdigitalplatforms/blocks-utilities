@@ -102,19 +102,6 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
                 correlationId);
         }
 
-        if (string.IsNullOrWhiteSpace(organizationId))
-        {
-            return SubscriptionOperationResult<SubscriptionSimulationStateResponse>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_simulation_organization_required",
-                "organizationId is required: the console has no subscription of its own.",
-                correlationId,
-                new Dictionary<string, string[]>
-                {
-                    ["OrganizationId"] = ["'Organization Id' must not be empty."]
-                });
-        }
-
         if (!IsValidLimit(auditLimit) || !IsValidLimit(paymentLimit))
         {
             return SubscriptionOperationResult<SubscriptionSimulationStateResponse>.Failure(
@@ -131,6 +118,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
 
         // Resolves and, for the console, verifies the named organization actually exists — the
         // guard above only established who is asking, not that what they asked for is real.
+        // A blank organization is its question too, not one to pre-empt here; see
+        // ResolveTargetAsync for why refusing it outright was wrong.
         var resolution = await _contextResolver.ResolveAsync(
             correlationId, organizationId, cancellationToken);
 
@@ -656,19 +645,16 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
                 correlationId));
         }
 
-        if (string.IsNullOrWhiteSpace(organizationId))
-        {
-            return (null, null, SubscriptionOperationResult<T>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_simulation_organization_required",
-                "organizationId is required: the console has no subscription of its own.",
-                correlationId,
-                new Dictionary<string, string[]>
-                {
-                    ["OrganizationId"] = ["'Organization Id' must not be empty."]
-                }));
-        }
-
+        // Deliberately not refused when blank. The harness is reachable only by the console
+        // (see SubscriptionSimulationGuard), and for a console caller a blank organization is
+        // not "nobody" — the resolver reads it as the console's own organization, exactly as
+        // POST /subscriptions and GET /subscriptions/current already do. Refusing it here made
+        // the harness the only path on the page that disagreed: an operator could subscribe
+        // under the console scope, be shown the subscription, and then be told the console has
+        // no subscription of its own when they tried to renew it.
+        //
+        // A genuinely unresolvable organization still fails, in the resolver, as
+        // subscription_organization_missing.
         var resolution = await _contextResolver.ResolveAsync(
             correlationId, organizationId, cancellationToken);
 

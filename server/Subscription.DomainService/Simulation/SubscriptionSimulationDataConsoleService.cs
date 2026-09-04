@@ -228,19 +228,9 @@ public sealed class SubscriptionSimulationDataConsoleService : ISubscriptionSimu
                 correlationId));
         }
 
-        if (string.IsNullOrWhiteSpace(organizationId))
-        {
-            return (null, SubscriptionOperationResult<T>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_simulation_organization_required",
-                "organizationId is required: the console has no subscription of its own.",
-                correlationId,
-                new Dictionary<string, string[]>
-                {
-                    ["OrganizationId"] = ["'Organization Id' must not be empty."]
-                }));
-        }
-
+        // A blank organization is left to the resolver, which reads it as the console's own
+        // organization for a console caller — the same answer POST /subscriptions gives. See
+        // SubscriptionSimulationService.ResolveTargetAsync for the whole reasoning.
         var resolution = await _contextResolver.ResolveAsync(correlationId, organizationId, cancellationToken);
 
         if (!resolution.IsSuccess || resolution.Context is null)
