@@ -85,4 +85,19 @@ public interface ISubscriptionUsageCurrentRepository
         string tenantId,
         string documentId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The current windows across an organization, optionally narrowed to one subscription or
+    /// meter — the open-period half of the tenant-usage-report's allowance history. Unlike
+    /// <see cref="ListCurrentAsync"/> this does not require a subscription id, since the report
+    /// may ask for every open window an organization has.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionUsageCurrent>> ListByOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string? subscriptionId,
+        string? meterKey,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken);
 }

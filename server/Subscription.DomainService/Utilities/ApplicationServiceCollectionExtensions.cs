@@ -77,6 +77,12 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionUsageCurrentRepository,
             SubscriptionUsageCurrentRepository>();
         services.AddSingleton<
+            ISubscriptionUsageActivityRollupRepository,
+            SubscriptionUsageActivityRollupRepository>();
+        services.AddSingleton<
+            ISubscriptionUsageActorRollupRepository,
+            SubscriptionUsageActorRollupRepository>();
+        services.AddSingleton<
             ISubscriptionPaymentLinkRepository,
             SubscriptionPaymentLinkRepository>();
         services.AddSingleton<
@@ -179,6 +185,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentIssueWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentDeliveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsageProjectionRefreshWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, UsageActivityRollupWorkHandler>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
@@ -255,6 +262,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionFinancialDocumentHistoryService,
             SubscriptionFinancialDocumentHistoryService>();
+        services.AddScoped<
+            ISubscriptionUsageReportService,
+            SubscriptionUsageReportService>();
 
         // The two adapters that reach into the platform's PDF and storage modules, and the pieces of
         // those modules they need. Registered here with TryAdd rather than assumed: the PDF module
@@ -301,6 +311,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IUsageRecordingService, UsageRecordingService>();
         services.AddScoped<IUsageProjectionPublisher, UsageProjectionPublisher>();
         services.AddScoped<IUsageProjectionReconciler, UsageProjectionReconciler>();
+        services.AddScoped<IUsageRollupService, UsageRollupService>();
         // Singleton on purpose: the reconciler is scoped and the reconciliation service opens a
         // fresh scope per tenant sweep, so a cursor living on the reconciler was reset on every
         // pass and the backfill never got past its first page.

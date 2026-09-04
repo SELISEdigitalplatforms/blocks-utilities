@@ -343,6 +343,41 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             .Limit(limit)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SubscriptionUsageCurrent>> ListByOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string? subscriptionId,
+        string? meterKey,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var builder = Builders<SubscriptionUsageCurrent>.Filter;
+        var filters = new List<FilterDefinition<SubscriptionUsageCurrent>>
+        {
+            builder.Eq(current => current.OrganizationId, organizationId),
+            builder.Lte(current => current.PeriodStartUtc, asOfUtc),
+            // Strictly after, matching ListCurrentAsync's own boundary: a period ends the instant
+            // its successor begins.
+            builder.Gt(current => current.PeriodEndUtc, asOfUtc)
+        };
+
+        if (!string.IsNullOrWhiteSpace(subscriptionId))
+        {
+            filters.Add(builder.Eq(current => current.SubscriptionId, subscriptionId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(meterKey))
+        {
+            filters.Add(builder.Eq(current => current.MeterKey, meterKey));
+        }
+
+        return await Current(tenantId)
+            .Find(builder.And(filters))
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<SubscriptionUsageCurrent?> GetAsync(
         string tenantId,
         string documentId,

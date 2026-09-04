@@ -35,6 +35,8 @@ public sealed class SubscriptionServiceRegistrationTests
     [InlineData(typeof(IBillingAccountRepository))]
     [InlineData(typeof(ISubscriptionRepository))]
     [InlineData(typeof(ISubscriptionUsageRepository))]
+    [InlineData(typeof(ISubscriptionUsageActivityRollupRepository))]
+    [InlineData(typeof(ISubscriptionUsageActorRollupRepository))]
     [InlineData(typeof(ISubscriptionPaymentLinkRepository))]
     [InlineData(typeof(ISubscriptionSimulationRunRepository))]
     public void Repositories_are_singletons(Type serviceType)

@@ -58,4 +58,26 @@ public interface ISubscriptionUsageInvoiceRepository
         DateTime nextAttemptAtUtc,
         string? failureReason,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Closed usage periods across the tenant, optionally narrowed to one organization or
+    /// subscription and a creation-date window — the closed-period half of the allowance-history
+    /// report. Newest first, keyset-paged the same way
+    /// <see cref="ISubscriptionFinancialDocumentRepository.ListAsync"/> is.
+    /// </summary>
+    Task<UsageInvoicePage> ListAsync(
+        string tenantId,
+        string? organizationId,
+        string? subscriptionId,
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        int pageSize,
+        UsageInvoiceCursor? after,
+        CancellationToken cancellationToken);
 }
+
+public sealed record UsageInvoicePage(
+    IReadOnlyList<SubscriptionUsageInvoice> Items,
+    bool HasMore);
+
+public sealed record UsageInvoiceCursor(DateTime CreatedAtUtc, string InvoiceId);

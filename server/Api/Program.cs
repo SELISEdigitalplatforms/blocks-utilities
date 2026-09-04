@@ -97,6 +97,15 @@ services.AddAuthorization(options =>
             .RequireAuthenticatedUser()
             .RequireClaim("permission", "subscription.background-work.manage"));
 
+    // Tenant-wide metered-usage reporting. Distinct from every other subscription read, which is
+    // scoped to the caller's own organization by construction — this claim is what lets a Tenant
+    // Admin see every organization on the tenant, so it is gated the same explicit way background-
+    // work recovery is rather than granted to anybody merely authenticated.
+    options.AddPolicy(
+        "SubscriptionUsageReportReader",
+        policy => policy
+            .RequireAuthenticatedUser()
+            .RequireClaim("permission", "subscription.usage-report.read"));
 });
 
 builder.Services.Configure<MvcOptions>(options =>

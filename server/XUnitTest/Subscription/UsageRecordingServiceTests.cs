@@ -217,6 +217,28 @@ public sealed class UsageRecordingServiceTests
         _ledger[1].CompensatesRecordId.Should().Be(_ledger[0].ItemId);
     }
 
+    /// <summary>
+    /// A future per-actor usage rollup sums <c>RecordedByUserId</c>-attributed ledger deltas, so a
+    /// reversal must net out of the same actor who caused it — not land unattributed.
+    /// </summary>
+    [Fact]
+    public async Task A_reversals_recorded_by_user_id_matches_the_record_it_reverses()
+    {
+        _subscription.Plan.Meters[0].OverageAllowed = false;
+        _balance = 500;
+
+        var request = NewRequest("usage-1");
+        request.Enforce = true;
+
+        await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        _ledger.Should().HaveCount(2);
+        _ledger[0].RecordedByUserId.Should().Be("user-1");
+        _ledger[1].EntryType.Should().Be(UsageEntryType.Reversal);
+        _ledger[1].RecordedByUserId.Should().Be(_ledger[0].RecordedByUserId,
+            "the reversal must be attributed to the same actor whose call it is undoing");
+    }
+
     [Fact]
     public async Task A_trial_uses_its_own_grant_rather_than_the_plans_allowance()
     {

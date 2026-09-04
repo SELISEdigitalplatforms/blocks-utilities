@@ -170,6 +170,68 @@ public sealed class SubscriptionUsageInvoiceRepository : ISubscriptionUsageInvoi
                 .Set(invoice => invoice.LastUpdatedDateUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
 
+    public async Task<UsageInvoicePage> ListAsync(
+        string tenantId,
+        string? organizationId,
+        string? subscriptionId,
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        int pageSize,
+        UsageInvoiceCursor? after,
+        CancellationToken cancellationToken)
+    {
+        await EnsureIndexesAsync(tenantId, cancellationToken);
+
+        var builder = Builders<SubscriptionUsageInvoice>.Filter;
+        var filters = new List<FilterDefinition<SubscriptionUsageInvoice>> { TenantFilter(tenantId) };
+
+        if (!string.IsNullOrWhiteSpace(organizationId))
+        {
+            filters.Add(builder.Eq(invoice => invoice.OrganizationId, organizationId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(subscriptionId))
+        {
+            filters.Add(builder.Eq(invoice => invoice.SubscriptionId, subscriptionId));
+        }
+
+        if (fromUtc is { } from)
+        {
+            filters.Add(builder.Gte(invoice => invoice.CreatedAtUtc, from));
+        }
+
+        if (toUtc is { } to)
+        {
+            filters.Add(builder.Lte(invoice => invoice.CreatedAtUtc, to));
+        }
+
+        if (after is not null)
+        {
+            filters.Add(builder.Or(
+                builder.Lt(invoice => invoice.CreatedAtUtc, after.CreatedAtUtc),
+                builder.And(
+                    builder.Eq(invoice => invoice.CreatedAtUtc, after.CreatedAtUtc),
+                    builder.Lt(invoice => invoice.ItemId, after.InvoiceId))));
+        }
+
+        var items = await Invoices(tenantId)
+            .Find(builder.And(filters))
+            .Sort(Builders<SubscriptionUsageInvoice>.Sort
+                .Descending(invoice => invoice.CreatedAtUtc)
+                .Descending(invoice => invoice.ItemId))
+            .Limit(pageSize + 1)
+            .ToListAsync(cancellationToken);
+
+        var hasMore = items.Count > pageSize;
+
+        if (hasMore)
+        {
+            items.RemoveAt(items.Count - 1);
+        }
+
+        return new UsageInvoicePage(items, hasMore);
+    }
+
     private static FilterDefinition<SubscriptionUsageInvoice> PendingFilter(
         string tenantId,
         string invoiceId) =>

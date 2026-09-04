@@ -58,6 +58,21 @@ public sealed class SubscriptionOptions
     public int UsageProjectionBackfillBatchSize { get; set; } = 50;
 
     /// <summary>
+    /// How many ledger records one tenant-usage-analytics rollup pass reads per tenant, walked
+    /// forward from a persisted cursor. Bounded the same way the projection backfill is: the pass
+    /// costs the same whatever the backlog, and a tenant larger than one page is caught up by
+    /// successive sweep passes rather than one long pass holding the ledger.
+    /// </summary>
+    public int UsageRollupBatchSize { get; set; } = 500;
+
+    /// <summary>
+    /// How far back a tenant's first-ever rollup pass reaches into ledger history that predates
+    /// this feature. Every pass after it resumes from its own cursor, so this bounds only the
+    /// one-time catch-up.
+    /// </summary>
+    public int UsageRollupFirstPassReachDays { get; set; } = 400;
+
+    /// <summary>
     /// How long a subscription may sit unpaid before the initial charge is considered
     /// abandoned. Covers the shopper who opens checkout and closes the tab.
     /// </summary>

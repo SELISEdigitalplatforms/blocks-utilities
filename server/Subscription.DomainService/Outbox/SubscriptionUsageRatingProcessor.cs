@@ -453,6 +453,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 ? ledger.Balance
                 : counter?.Balance ?? 0;
 
+            // Whether this meter saw any activity this window at all — distinct from whether it
+            // priced to a positive overage. A meter with entries that net to a zero balance (all
+            // consumption reversed) was still rated; a meter nothing ever touched was not.
+            var wasRated = ledger.RecordCount > 0 || counter is not null;
+
             // The window's own frozen allowance — a trial grant or a carried-forward allowance
             // included — never the plan's bare IncludedQuantity. The same resolver the overage
             // preview uses, so the two can never disagree about what "overage" means for this
@@ -500,7 +505,12 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 return InvoiceReadiness.Deferred;
             }
 
-            if (allocations.TotalAmountMinor <= 0)
+            // Only a meter with no activity this window at all is skipped. A meter that was rated
+            // but priced to zero (fully within allowance) still gets a line — at AmountMinor = 0
+            // — so the invoice records what it included and used, not just what it charged for.
+            // This must never change the charge itself: a zero-amount line contributes nothing to
+            // the aggregate total summed below.
+            if (!wasRated)
             {
                 continue;
             }
@@ -508,6 +518,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             lines.Add(new UsageInvoiceLine
             {
                 MeterKey = meter.MeterKey,
+                IncludedQuantity = allowance,
+                UsedQuantity = balance,
                 OverageQuantity = overageQuantity,
                 AmountMinor = allocations.TotalAmountMinor
             });

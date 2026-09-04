@@ -311,7 +311,19 @@ public sealed class UsageChargePreviewParityTests
         // this fix removes, not as behaviour under test.
         SubscriptionUsageRater.OverageAmountMinor(subscription.Plan.Meters[0], 300, "CHF")
             .Should().Be(1_500, "this is what the pre-fix computation would have billed");
-        createdInvoice!.Lines.Should().BeEmpty("300 usage is under the 500 trial allowance");
+        // A rated meter now always records a line, even fully within allowance — see
+        // SubscriptionUsageRatingProcessor's own remarks on why the invoice must record what was
+        // included and used, not just what it charged for. The charge itself is unaffected: a
+        // zero-amount line contributes nothing to the total asserted below.
+        createdInvoice!.Lines.Should().ContainSingle()
+            .Which.Should().BeEquivalentTo(new
+            {
+                MeterKey = "screening",
+                IncludedQuantity = 500m,
+                UsedQuantity = 300m,
+                OverageQuantity = 0m,
+                AmountMinor = 0L
+            });
         createdInvoice.TotalAmountMinor.Should().Be(0);
 
         // The preview must agree: usage arrives as a hypothetical addition on top of nothing
