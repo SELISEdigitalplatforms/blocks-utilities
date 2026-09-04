@@ -126,6 +126,51 @@ public sealed class CalendarAlignedPlanChangeTests
         // side is discounted by the whole 1000 because it is a whole period: (8900 - 1000) x 16/31
         // = 4077. 8806 - 4077 = 4729.
         outcome.ChargeMinor.Should().Be(4_729);
+
+        // The recurring period carries the subscriber's discount too — the whole 1000, since a
+        // full month is not scaled. A full period priced without the subscription's discount would
+        // report 40000, and one that let the day fraction through would report the 8806 stub.
+        outcome.TargetFullPeriodTotalMinor.Should().Be(39_000);
+    }
+
+    /// <summary>
+    /// A tax-inclusive target, where the configured amount already contains the tax rather than
+    /// having it added on top.
+    /// </summary>
+    /// <remarks>
+    /// The mode is the point. An inclusive price's total is its own configured amount, so this
+    /// figure separates a full period that read the price's real mode from one that assumed
+    /// exclusive (which would add 8.1% on top and report 39781) or that read no mode at all
+    /// (the pre-modes truncating path, 39780). It cannot, by construction, catch a missing tax
+    /// call — an inclusive total equals its input either way — which is why the yearly service
+    /// test asserts an <em>exclusive</em> figure, where the tax is visible in the number.
+    /// </remarks>
+    [Fact]
+    public void A_tax_inclusive_target_recurs_at_its_own_configured_amount()
+    {
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            Subscription(),
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 40_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                AutomaticDiscountBasisPoints = 800,
+                TaxRateBasisPoints = 810,
+                TaxMode = TaxMode.Inclusive
+            },
+            [],
+            Now,
+            Now,
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new BillingDayFraction(7, 31));
+
+        // 40000 less the 8% automatic discount is 36800, and the 8.1% VAT is already inside that
+        // — so the whole month costs the subscriber 36800, of which 2757 is tax.
+        outcome.TargetFullPeriodTotalMinor.Should().Be(36_800);
     }
 
     /// <summary>

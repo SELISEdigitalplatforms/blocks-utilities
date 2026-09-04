@@ -1280,6 +1280,13 @@ public sealed class SubscriptionPlanChangeServiceTests
                 BillingAlignment = BillingAlignment.CalendarMonth,
                 CalendarStubBasePriceId = "price-monthly-2",
                 CalendarStubBaseUnitAmountMinor = 110_000,
+                // The rates from the report that motivated this: 8% for paying yearly, 8.1% VAT
+                // on top. Both non-zero deliberately — with either at zero its stage of the
+                // pricing is the identity function, and a full period that skipped that stage
+                // would report the right figure for the wrong reason.
+                AutomaticDiscountBasisPoints = 800,
+                TaxRateBasisPoints = 810,
+                TaxMode = TaxMode.Exclusive,
                 Status = CatalogueStatus.Active
             });
 
@@ -1287,12 +1294,17 @@ public sealed class SubscriptionPlanChangeServiceTests
             "sub-1", Request(), "corr-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value!.NextRenewalAmountMinor.Should().Be(1_200_000,
-            "the year is what recurs on 1 September");
 
-        // Asserted alongside, so this fix cannot be mistaken for a repricing of the settlement:
-        // the stub really is 110000 x 27/31 = 95806, and the invoice still explains that.
-        result.Value.Settlement.Target.PeriodTotalMinor.Should().Be(95_806);
+        // 1200000 less the 8% automatic discount is 1104000; 8.1% VAT on that is 89424 exactly.
+        // Both stages of the pricing are visible in this one number, so a full period computed
+        // from the gross, or one that never reached the tax breakdown, cannot reach it.
+        result.Value!.NextRenewalAmountMinor.Should().Be(1_193_424,
+            "the year, discounted and taxed, is what recurs on 1 September");
+
+        // Asserted alongside, so this fix cannot be mistaken for a repricing of the settlement.
+        // The stub is the monthly basis through the identical pipeline: 110000 x 27/31 = 95806
+        // gross, less a truncated 8% (7664) is 88142, plus half-up 8.1% (7140) is 95282.
+        result.Value.Settlement.Target.PeriodTotalMinor.Should().Be(95_282);
     }
 
     /// <summary>
