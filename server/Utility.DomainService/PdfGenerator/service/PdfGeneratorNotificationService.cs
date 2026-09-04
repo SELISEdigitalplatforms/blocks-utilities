@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -135,15 +135,15 @@ namespace Utility.DomainService.PdfGenerator.service
             });
         }
 
-        public async Task NotifyConvertDocumentsToPdfEvent(bool success, string messageCoRelationId, string? projectKey, int successCount, int failureCount)
+        public async Task NotifyConvertDocumentToPdfEvent(bool success, string conversionId, string messageCoRelationId, string? projectKey)
         {
-            _logger.LogInformation("NotifyConvertDocumentsToPdfEvent: Sending notification for messageCoRelationId={MessageCoRelationId}, success={Success}", messageCoRelationId, success);
+            _logger.LogInformation("NotifyConvertDocumentToPdfEvent: Sending notification for conversionId={ConversionId}, success={Success}", conversionId, success);
 
-            await SendNotificationAsync("Convert Documents to PDF", success, messageCoRelationId, new
+            await SendNotificationAsync("Convert Document to PDF", success, messageCoRelationId, new
             {
+                ConversionId = conversionId,
                 MessageCoRelationId = messageCoRelationId,
-                SuccessCount = successCount,
-                FailureCount = failureCount
+                Success = success
             });
         }
 

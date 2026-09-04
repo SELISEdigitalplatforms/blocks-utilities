@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using System.Diagnostics.CodeAnalysis;
 using Utility.DomainService.PdfGenerator.Events;
 
@@ -30,7 +30,7 @@ namespace Worker.Consumers.PdfGenerator
             services.AddSingleton<IConsumer<StampImageToPdfEvent>, StampImageToPdfConsumer>();
             services.AddSingleton<IConsumer<StampTextToPdfEvent>, StampTextToPdfConsumer>();
             services.AddSingleton<IConsumer<StampIntoPdfEvent>, StampIntoPdfConsumer>();
-            services.AddSingleton<IConsumer<ConvertDocumentsToPdfEvent>, ConvertDocumentsToPdfConsumer>();
+            services.AddSingleton<IConsumer<ConvertDocumentToPdfEvent>, ConvertDocumentToPdfConsumer>();
 
             return services;
         }

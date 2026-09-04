@@ -1,4 +1,4 @@
-using Blocks.Extension.DependencyInjection;
+﻿using Blocks.Extension.DependencyInjection;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Storage.DomainService.Storage;
@@ -65,6 +65,7 @@ namespace DomainService.Utilities
             // Document conversion. Not an IPdfEngine: Aspose is the only library here that reads
             // Word formats, so there is nothing to select between.
             services.TryAddSingleton<IDocumentToPdfConverter, AsposeDocumentToPdfConverter>();
+            services.TryAddSingleton<IDocumentConversionService, DocumentConversionService>();
 
             // Magic Link Services
             services.AddSingleton<IMagicLinkService, MagicLinkService>();

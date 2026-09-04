@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using Utility.DomainService.PdfGenerator;
 using Utility.DomainService.PdfGenerator.service;
+using Utility.DomainService.PdfGenerator.Entities;
 using Worker.Consumers.PdfGenerator;
 
 namespace XUnitTest.PdfGenerator
@@ -258,7 +259,7 @@ namespace XUnitTest.PdfGenerator
         }
     }
 
-    public class ConvertDocumentsToPdfContractTests
+    public class ConvertDocumentToPdfContractTests
     {
         [Theory]
         [InlineData("Q3 Report.docx", "Q3 Report.pdf")]
@@ -267,7 +268,7 @@ namespace XUnitTest.PdfGenerator
         [InlineData("archive.tar.gz", "archive.tar.pdf")]
         public void ToPdfName_SwapsTheSourceExtension(string sourceName, string expected)
         {
-            ConvertDocumentsToPdfConsumer.ToPdfName(sourceName, "file-1").Should().Be(expected);
+            ConvertDocumentToPdfConsumer.ToPdfName(sourceName, "file-1").Should().Be(expected);
         }
 
         [Theory]
@@ -276,49 +277,63 @@ namespace XUnitTest.PdfGenerator
         [InlineData("   ")]
         public void ToPdfName_NoUsableSourceName_FallsBackToTheFileId(string? sourceName)
         {
-            ConvertDocumentsToPdfConsumer.ToPdfName(sourceName, "file-1").Should().Be("file-1.pdf");
+            ConvertDocumentToPdfConsumer.ToPdfName(sourceName, "file-1").Should().Be("file-1.pdf");
         }
 
         [Fact]
-        public void ConvertCommand_NeedsNothingButTheFileId()
+        public void Request_NeedsNothingButTheInputFileId()
         {
-            // The whole point of the contract: name, directory and destination all come from the
-            // file's storage record, so a caller supplies one field.
-            var command = new ConvertDocumentToPdfCommand { DocumentFileId = "doc-1" };
+            var request = new ConvertDocumentToPdfRequest { InputFileId = "doc-1" };
 
-            command.DocumentFileId.Should().Be("doc-1");
-            command.PreserveFormFields.Should().BeFalse();
-            command.PdfACompliant.Should().BeFalse();
-            command.UpdateFields.Should().BeFalse();
+            request.InputFileId.Should().Be("doc-1");
+            request.MessageCoRelationId.Should().BeNull();
         }
 
         [Fact]
-        public void ConvertDocumentsToPdfRequest_And_Response_ShouldStoreValues()
+        public void StatusResponse_ExposesNoFileUntilTheConversionSucceeds()
         {
-            var request = new ConvertDocumentsToPdfRequest
+            // A caller polling a running conversion must not be handed a file ID that still points
+            // at an unconverted document.
+            var running = new DocumentConversionStatusResponse
             {
-                ConvertCommands = new List<ConvertDocumentToPdfCommand>
-                {
-                    new() { DocumentFileId = "doc-1", PdfACompliant = true }
-                }
+                ConversionId = "c-1",
+                InputFileId = "doc-1",
+                Status = DocumentConversionStatus.Processing,
+                IsComplete = false
             };
 
-            // Everything except the commands is optional, so an untouched request is still valid.
-            request.ProjectKey.Should().BeNull();
-            request.MessageCoRelationId.Should().BeEmpty();
-            request.EventReferenceData.Should().BeNull();
-            request.ConvertCommands.Should().ContainSingle()
-                .Which.DocumentFileId.Should().Be("doc-1");
+            running.FileId.Should().BeNull();
+            running.DownloadUrl.Should().BeNull();
+            running.CompletedAtUtc.Should().BeNull();
+        }
 
-            var response = new ConvertDocumentsToPdfResponse
+        [Theory]
+        [InlineData(DocumentConversionStatus.Queued, false)]
+        [InlineData(DocumentConversionStatus.Processing, false)]
+        [InlineData(DocumentConversionStatus.Succeeded, true)]
+        [InlineData(DocumentConversionStatus.Failed, true)]
+        public void Status_TerminalStatesAreTheOnesAPollerStopsOn(
+            DocumentConversionStatus status,
+            bool expectedTerminal)
+        {
+            var isTerminal = status is DocumentConversionStatus.Succeeded or DocumentConversionStatus.Failed;
+
+            isTerminal.Should().Be(expectedTerminal);
+        }
+
+        [Fact]
+        public void AcceptedResponse_CarriesWhereToPoll()
+        {
+            var accepted = new ConvertDocumentToPdfAcceptedResponse
             {
-                IsSuccess = true,
-                MessageCoRelationId = "corr",
-                Message = "queued"
+                ConversionId = "c-1",
+                InputFileId = "doc-1",
+                Status = DocumentConversionStatus.Queued,
+                StatusUrl = "/document-conversions/c-1"
             };
 
-            response.IsSuccess.Should().BeTrue();
-            response.MessageCoRelationId.Should().Be("corr");
+            accepted.Status.Should().Be(DocumentConversionStatus.Queued);
+            accepted.StatusUrl.Should().Be("/document-conversions/c-1");
         }
     }
 }

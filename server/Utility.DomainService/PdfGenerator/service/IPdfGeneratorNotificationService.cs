@@ -1,4 +1,4 @@
-namespace Utility.DomainService.PdfGenerator.service
+﻿namespace Utility.DomainService.PdfGenerator.service
 {
     /// <summary>
     /// Notification service interface for PDF generator operations
@@ -14,7 +14,7 @@ namespace Utility.DomainService.PdfGenerator.service
         Task NotifyStampImageToPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
         Task NotifyStampTextToPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
         Task NotifyStampIntoPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
-        Task NotifyConvertDocumentsToPdfEvent(bool success, string messageCoRelationId, string? projectKey, int successCount, int failureCount);
+        Task NotifyConvertDocumentToPdfEvent(bool success, string conversionId, string messageCoRelationId, string? projectKey);
     }
 }
 

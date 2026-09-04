@@ -198,39 +198,5 @@ namespace Api.Controllers
         {
             return await _pdfGeneratorService.StampIntoPdfAsync(request);
         }
-
-        /// <summary>
-        /// Convert word-processing documents (.doc, .docx, .rtf, .odt, ...) to PDF, in place
-        /// </summary>
-        /// <remarks>
-        /// <param name="request"></param> Request parameters:
-        ///
-        /// ConvertCommands: Documents to convert. Each command needs only:
-        ///   DocumentFileId: The document in storage. The PDF is written back to this same ID and
-        ///     the file is renamed to a .pdf extension, so the original document is replaced and
-        ///     anything already referencing the ID ends up pointing at the PDF.
-        /// Optional per command:
-        ///   PreserveFormFields: Keep interactive form fields editable instead of flattening them.
-        ///   PdfACompliant: Emit PDF/A-1b for archival. Forces font embedding and flattens fields.
-        ///   UpdateFields: Recalculate page numbers, cross-references and TOC entries first.
-        ///
-        /// Optional on the request:
-        ///   MessageCoRelationId: Identifies the request so the caller is notified when the batch
-        ///     finishes. Omit it and the conversion still runs, without the completion notification.
-        ///   EventReferenceData: Echoed back with the completion event.
-        ///   ProjectKey: Defaults to the tenant on the ambient context. Supply it only for a call
-        ///     made on behalf of another project.
-        ///
-        /// The document's name, extension and directory are read from its storage record, so they
-        /// are never sent. Conversion uses Aspose.Words and takes no Engine number: it is the only
-        /// library here that reads Word formats.
-        /// </remarks>
-        /// <returns>ConvertDocumentsToPdfResponse</returns>
-        [HttpPost]
-        [Authorize]
-        public async Task<ConvertDocumentsToPdfResponse> ConvertDocumentsToPdf([FromBody] ConvertDocumentsToPdfRequest request)
-        {
-            return await _pdfGeneratorService.ConvertDocumentsToPdfAsync(request);
-        }
     }
 }

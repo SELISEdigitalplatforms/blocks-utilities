@@ -4,6 +4,54 @@
         <name>Api</name>
     </assembly>
     <members>
+        <member name="T:Api.Controllers.DocumentConversionsController">
+            <summary>
+            Converting a word-processing document (.doc, .docx, .rtf, .odt, ...) into a PDF.
+            </summary>
+            <remarks>
+            Its own controller rather than another action on <c>PdfGeneratorController</c>, because a
+            conversion is a resource with a lifetime: it is created, it progresses, and it can be asked
+            about afterwards. The PDF generator's other operations are fire-and-forget queue pushes that
+            keep no record and have nothing to expose.
+            <para>
+            The PDF replaces the source file, so the document's own storage ID is the only thing a caller
+            supplies — its name, extension and directory all come from the file's storage record.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.DocumentConversionsController.Convert(Utility.DomainService.PdfGenerator.ConvertDocumentToPdfRequest,System.Threading.CancellationToken)">
+            <summary>
+            Queues a document for conversion to PDF.
+            </summary>
+            <remarks>
+            Returns 202 as soon as the conversion is recorded and queued — the document is not converted
+            yet. The response carries a <c>conversionId</c> and the <c>statusUrl</c> to poll.
+            <para>
+            Supplying <c>messageCoRelationId</c> also gets a completion notification. It is optional, and
+            omitting it changes nothing about the conversion itself.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.DocumentConversionsController.GetStatus(System.String,System.Threading.CancellationToken)">
+            <summary>
+            Reads a conversion's outcome, and where to download the PDF once there is one.
+            </summary>
+            <remarks>
+            The fallback for a completion notification that never arrived. A conversion that is still
+            running answers 200 with <c>status</c> of <c>Queued</c> or <c>Processing</c> and
+            <c>isComplete: false</c> — a poller stops when <c>isComplete</c> turns true, whether the
+            conversion succeeded or failed.
+            <para>
+            A failed conversion is still a 200: the question "what happened to this conversion?" was
+            answered. <c>errorCode</c> carries why it failed. 404 means no such conversion, which is a
+            different sentence entirely.
+            </para>
+            <para>
+            <c>downloadUrl</c> is resolved on each request because storage URLs expire, and is null until
+            the conversion succeeds.
+            </para>
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.EntitlementsController">
             <summary>
             What the caller's organization may do. Served under <c>/api/entitlements</c>.
@@ -460,35 +508,6 @@
             ProjectKey: Project key for multi-tenancy
             </remarks>
             <returns>StampIntoPdfResponse</returns>
-        </member>
-        <member name="M:Api.Controllers.PdfGeneratorController.ConvertDocumentsToPdf(Utility.DomainService.PdfGenerator.ConvertDocumentsToPdfRequest)">
-             <summary>
-             Convert word-processing documents (.doc, .docx, .rtf, .odt, ...) to PDF, in place
-             </summary>
-             <remarks>
-             <param name="request"></param> Request parameters:
-            
-             ConvertCommands: Documents to convert. Each command needs only:
-               DocumentFileId: The document in storage. The PDF is written back to this same ID and
-                 the file is renamed to a .pdf extension, so the original document is replaced and
-                 anything already referencing the ID ends up pointing at the PDF.
-             Optional per command:
-               PreserveFormFields: Keep interactive form fields editable instead of flattening them.
-               PdfACompliant: Emit PDF/A-1b for archival. Forces font embedding and flattens fields.
-               UpdateFields: Recalculate page numbers, cross-references and TOC entries first.
-            
-             Optional on the request:
-               MessageCoRelationId: Identifies the request so the caller is notified when the batch
-                 finishes. Omit it and the conversion still runs, without the completion notification.
-               EventReferenceData: Echoed back with the completion event.
-               ProjectKey: Defaults to the tenant on the ambient context. Supply it only for a call
-                 made on behalf of another project.
-            
-             The document's name, extension and directory are read from its storage record, so they
-             are never sent. Conversion uses Aspose.Words and takes no Engine number: it is the only
-             library here that reads Word formats.
-             </remarks>
-             <returns>ConvertDocumentsToPdfResponse</returns>
         </member>
         <member name="M:Api.Controllers.SequenceController.#ctor(Utility.DomainService.Sequence.service.ISequenceService)">
             <summary>
@@ -1174,6 +1193,16 @@
             Registers correlation before anything that logs, so no log line in a request is written
             outside the scope it belongs to.
             </summary>
+        </member>
+        <member name="T:Api.Utilities.DocumentConversionApiResults">
+            <summary>
+            Maps a document-conversion result onto an HTTP response.
+            </summary>
+            <remarks>
+            The same shape as <see cref="T:Api.Utilities.SubscriptionApiResults"/>, and deliberately the same status codes
+            for the same kinds of failure: a client that has learned how one part of this API reports a
+            validation error or a missing record should not have to learn it again here.
+            </remarks>
         </member>
         <member name="T:Api.Utilities.SubscriptionApiResults">
             <summary>
