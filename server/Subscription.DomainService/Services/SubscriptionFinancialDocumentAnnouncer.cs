@@ -108,6 +108,60 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
             cancellationToken);
     }
 
+    /// <remarks>
+    /// The breakdown is recomputed and frozen here rather than left for the issuer to read off a
+    /// payment, because there is no payment to read it off: a card-setup activation carries no
+    /// money. <c>subscription</c> is exactly the terms just committed, so this is the one moment the
+    /// recomputation is guaranteed to still describe what actually activated.
+    /// <para>
+    /// No dedicated recovery sweep backstops this the way <see cref="AnnounceTrialAsync"/> is backed
+    /// by one over trials, or a settled charge is backed by one over payments: there is no query that
+    /// finds "activated with nothing due" the way there is for "trial started" or "payment captured".
+    /// A crash between the activation transition committing and this call landing would lose the
+    /// document silently. Accepted for now as the same risk class a banked-credit source already
+    /// carries — recorded on nothing but the one call — rather than building a new sweep for it.
+    /// </para>
+    /// </remarks>
+    public async Task AnnounceOpeningDiscountAsync(
+        SubscriptionDetail subscription,
+        string paymentMethodSetupPaymentId,
+        string correlationId,
+        CancellationToken cancellationToken,
+        FinancialDocumentPerson? initiatedBy = null)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        if (string.IsNullOrWhiteSpace(paymentMethodSetupPaymentId))
+        {
+            return;
+        }
+
+        if (SubscriptionFinancialDocumentIssuer.RecomposeInitialCharge(subscription) is { } amounts)
+        {
+            await RecordAsync(
+                subscription,
+                SubscriptionDocumentSourceFactory.ForOpeningDiscount(
+                    subscription,
+                    paymentMethodSetupPaymentId,
+                    amounts,
+                    initiatedBy,
+                    _time.GetUtcNow().UtcDateTime,
+                    correlationId),
+                cancellationToken);
+        }
+
+        // Keyed on the subscription, not on the setup payment: the handler drains whatever that
+        // subscription owes, the same way a trial's announcement does — and unlike a real charge,
+        // the setup payment's own status will never reach "settled", so naming it here the way
+        // AnnounceChargeAsync does would queue work that can never complete.
+        await ScheduleAsync(
+            subscription,
+            $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}",
+            subscription.ItemId,
+            correlationId,
+            cancellationToken);
+    }
+
     public Task RequestPendingAsync(
         SubscriptionDetail subscription,
         string correlationId,

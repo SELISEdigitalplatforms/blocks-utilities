@@ -452,11 +452,9 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             // Announced after the transition commits, so a document is only ever promised for a
             // subscription that actually started.
             //
-            // Never for a card setup. The payment row behind a setup exists so the provider
+            // Never a charge for a card setup. The payment row behind a setup exists so the provider
             // machinery has something to hang a session off and holds no money at all; invoicing it
-            // would issue a document for a charge that was never taken. A trial that collects a
-            // card now takes nothing on the day it starts, so this is the only announcement it
-            // gets until it converts.
+            // as a charge would issue a document describing money that was never taken.
             if (!IsCardSetup(link))
             {
                 await _documents.AnnounceChargeAsync(
@@ -464,6 +462,21 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                     payment.ItemId,
                     SubscriptionChargeKind.Initial,
                     null,
+                    link.CorrelationId,
+                    cancellationToken,
+                    SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));
+            }
+            else if (target == SubscriptionStatus.Active)
+            {
+                // A card setup landing directly on Active, rather than on Trialing, is an opening
+                // period that owed nothing today — a price discounted to zero, or one that was
+                // already zero — not a trial. It still deserves a document stating what it was
+                // worth, the same reasoning a trial invoice already applies to a period nobody paid
+                // for; see AnnounceOpeningDiscountAsync for why its figures are frozen here rather
+                // than read off this payment.
+                await _documents.AnnounceOpeningDiscountAsync(
+                    subscription,
+                    payment.ItemId,
                     link.CorrelationId,
                     cancellationToken,
                     SubscriptionDocumentSourceFactory.ActorOf(payment.UserId));

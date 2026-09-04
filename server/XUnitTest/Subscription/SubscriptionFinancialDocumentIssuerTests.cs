@@ -647,6 +647,82 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task An_opening_discount_period_gets_an_invoice_describing_what_it_was_worth()
+    {
+        var subscription = Subscribed();
+
+        // What SubscriptionFinancialDocumentAnnouncer would have frozen at activation: a real
+        // gross, a real discount, and a total of zero — not the zero-throughout statement a trial
+        // invoice makes.
+        var amounts = new FinancialDocumentAmounts
+        {
+            GrossSubtotalMinor = 29_000,
+            PromotionalDiscountMinor = 29_000,
+            NetSubtotalMinor = 0,
+            TaxRateBasisPoints = 770,
+            TaxMode = nameof(TaxMode.Exclusive),
+            TaxAmountMinor = 0,
+            TotalMinor = 0
+        };
+
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForOpeningDiscount(
+                subscription, "pay-1", amounts, null, SettledAt, "corr-1"));
+
+        var issuer = Issuer();
+        (await issuer.IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-1", CancellationToken.None))
+            .Should().Be(1);
+
+        var document = _documents.Documents.Single();
+        document.DocumentType.Should().Be(FinancialDocumentType.Invoice);
+        document.PaymentDetailId.Should().BeNull(
+            "the card-setup payment behind this event carries no money and is never named as it");
+        document.Amounts.GrossSubtotalMinor.Should().Be(29_000);
+        document.Amounts.PromotionalDiscountMinor.Should().Be(29_000);
+        document.Amounts.TotalMinor.Should().Be(0);
+        document.Lines.Should().ContainSingle();
+
+        // Numbered in the invoice series, same as any other invoice — this states what a real
+        // charge was for, unlike a trial invoice's separate statement of terms.
+        document.DocumentNumber.Should().StartWith("INV-");
+
+        // And exactly one, however many times the activation is announced.
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForOpeningDiscount(
+                subscription, "pay-1", amounts, null, SettledAt, "corr-2"));
+
+        await issuer.IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-2", CancellationToken.None);
+
+        _documents.Documents.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task An_opening_discount_source_with_no_frozen_amounts_is_abandoned()
+    {
+        // Internally impossible: no payment to read a breakdown off, and no breakdown frozen on
+        // the source either. Discarded rather than retried forever, the same as an ordinary
+        // invoice source naming no payment.
+        var subscription = Subscribed();
+
+        Owing(subscription, new SubscriptionDocumentSource
+        {
+            SourceKey = "payment:pay-1",
+            DocumentType = FinancialDocumentType.Invoice
+        });
+
+        (await Issuer().IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-1", CancellationToken.None))
+            .Should().Be(0);
+
+        _documents.Documents.Should().BeEmpty();
+        _consumed.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_full_refund_reverses_exactly_what_was_charged_and_links_to_its_invoice()
     {
         Subscribed();
