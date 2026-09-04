@@ -1250,6 +1250,103 @@ public sealed class SubscriptionPlanChangeServiceTests
         result.Value!.NextRenewalAmountMinor.Should().Be(2_000);
     }
 
+    /// <summary>
+    /// The recurring price of a calendar-aligned yearly target is the year, never the monthly
+    /// stub the move onto it buys first.
+    /// </summary>
+    /// <remarks>
+    /// The subscriber is shown "next full period" for a period they will never be on: the change
+    /// lands on the first, where no stub exists, and the whole year is charged. Quoting the stub
+    /// understated the recurring price by roughly the ratio of a month to a year.
+    /// </remarks>
+    [Fact]
+    public async Task NextRenewalAmountMinor_is_the_whole_year_for_a_calendar_aligned_yearly_target()
+    {
+        // 5 August, so the days to the 1 September boundary are 27 of the month's 31.
+        _time.Advance(TimeSpan.FromDays(4));
+
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price
+            {
+                ItemId = "price-2",
+                TenantId = TenantId,
+                PlanId = "plan-2",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 1_200_000,
+                Interval = BillingInterval.Year,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                CalendarStubBasePriceId = "price-monthly-2",
+                CalendarStubBaseUnitAmountMinor = 110_000,
+                Status = CatalogueStatus.Active
+            });
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.NextRenewalAmountMinor.Should().Be(1_200_000,
+            "the year is what recurs on 1 September");
+
+        // Asserted alongside, so this fix cannot be mistaken for a repricing of the settlement:
+        // the stub really is 110000 x 27/31 = 95806, and the invoice still explains that.
+        result.Value.Settlement.Target.PeriodTotalMinor.Should().Be(95_806);
+    }
+
+    /// <summary>
+    /// The same defect without a stub basis in sight: a calendar-aligned monthly target has no
+    /// price swap, but the day fraction still scaled the figure being quoted as recurring.
+    /// </summary>
+    [Fact]
+    public async Task NextRenewalAmountMinor_is_the_whole_month_for_a_calendar_aligned_monthly_target()
+    {
+        _time.Advance(TimeSpan.FromDays(4));
+
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price
+            {
+                ItemId = "price-2",
+                TenantId = TenantId,
+                PlanId = "plan-2",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 3_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                Status = CatalogueStatus.Active
+            });
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.NextRenewalAmountMinor.Should().Be(3_000);
+
+        // 3000 x 27/31 = 2613 — the stub, unchanged.
+        result.Value.Settlement.Target.PeriodTotalMinor.Should().Be(2_613);
+    }
+
+    /// <summary>
+    /// An anniversary target is never day-scaled, so its quote must come out bit-identical — the
+    /// guard that keeps this fix from touching every ordinary plan change.
+    /// </summary>
+    [Fact]
+    public async Task NextRenewalAmountMinor_is_unchanged_for_an_anniversary_target_mid_period()
+    {
+        // Half-way through the paid period, so proration is live on both sides.
+        _time.Advance(TimeSpan.FromDays(14));
+
+        var result = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.NextRenewalAmountMinor.Should().Be(2_000);
+    }
+
     // ---- Timing: what applies now and what waits for the paid period to end ------------------
 
     [Fact]

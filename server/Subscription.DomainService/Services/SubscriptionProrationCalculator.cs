@@ -105,6 +105,22 @@ public static class SubscriptionProrationCalculator
             newPrice.TaxRateBasisPoints,
             newPrice.TaxMode).TotalAmountMinor;
 
+        // What recurs, as distinct from what is being bought. Everything above prices the period
+        // this settlement covers, and for a calendar-aligned target that period is a stub: priced
+        // by day fraction, and for a yearly target from the linked monthly basis rather than the
+        // annual amount at all. Neither is what the subscriber pays from the next boundary on, so
+        // the whole period is priced separately — against the *original* target price, not the
+        // stub-swapped one, and with no fraction.
+        //
+        // Only when there is a fraction to undo. Prorate returns an amount untouched once
+        // coveredDays reaches totalDays (see CalendarBillingAlignment.Prorate), so for a whole
+        // period — every anniversary target, and every change landing on the first —
+        // newTaxInclusive already *is* the full period, and reusing it keeps those quotes
+        // bit-identical rather than merely equal by inspection.
+        var targetFullPeriodTotalMinor = targetFraction.IsPartial
+            ? FullPeriod(subscription, targetPlan, targetPrice, targetQuantityItems, nowUtc)
+            : newTaxInclusive;
+
         var oldRemainingValue = Prorate(oldTaxInclusive, remainingTicks, totalTicks);
         var targetTotalTicks = (targetPeriodEndUtc - targetPeriodStartUtc).Ticks;
         var targetRemainingTicks = Math.Clamp(
@@ -149,7 +165,45 @@ public static class SubscriptionProrationCalculator
         var breakdown = new ProrationBreakdown(
             outgoing, target, settled.CreditConsumedMinor, settled.NetSettlementMinor);
 
-        return new ProrationOutcome(settled.ChargeMinor, settled.NewCreditBalanceMinor, breakdown);
+        return new ProrationOutcome(
+            settled.ChargeMinor,
+            settled.NewCreditBalanceMinor,
+            breakdown,
+            targetFullPeriodTotalMinor);
+    }
+
+    /// <summary>
+    /// A whole period at a plan and price, tax included, with no day fraction applied — what a
+    /// renewal on these terms will charge.
+    /// </summary>
+    /// <remarks>
+    /// Priced through the same pair every other full period in this module goes through, so it
+    /// cannot drift from what a renewal actually charges: the subscriber's own discount at their
+    /// own period index, then the price's own tax rate and mode.
+    /// <para>
+    /// Deliberately not <see cref="SubscriptionAmountCalculator.PeriodAmountMinor"/>, which
+    /// subtracts <see cref="SubscriptionDetail.CreditBalanceMinor"/>. The settlement already spends
+    /// that same balance in <see cref="SettleRawDelta"/>, so a subscriber holding credit would see
+    /// it deducted twice — once off the charge, and again off the recurring price they were quoted.
+    /// </para>
+    /// </remarks>
+    private static long FullPeriod(
+        SubscriptionDetail subscription,
+        PlanSnapshot plan,
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantityItems,
+        DateTime nowUtc)
+    {
+        var discounted = SubscriptionAmountCalculator.DiscountedAmountMinor(
+            plan,
+            subscription.Discount,
+            price,
+            quantityItems,
+            subscription.DiscountPeriodsApplied,
+            nowUtc);
+
+        return SubscriptionAmountCalculator.TaxBreakdownFor(
+            discounted.AmountMinor, price.TaxRateBasisPoints, price.TaxMode).TotalAmountMinor;
     }
 
     /// <param name="currentAnnual">
@@ -357,10 +411,24 @@ public static class SubscriptionProrationCalculator
 /// The two sides the charge came from, for the payment record. Default when the period was malformed
 /// and nothing could be prorated.
 /// </param>
+/// <param name="TargetFullPeriodTotalMinor">
+/// What a whole period at the target costs, tax included — what recurs from the next boundary on,
+/// as opposed to <see cref="ProrationBreakdown.Target"/>'s
+/// <see cref="ProrationSide.PeriodTotalMinor"/>, which is the period this settlement actually
+/// prices.
+/// </param>
+/// <remarks>
+/// <see cref="TargetFullPeriodTotalMinor"/> is deliberately here rather than on
+/// <see cref="ProrationSide"/>. A side is what reaches storage and the financial documents —
+/// <c>SettlementCharge.SideOf</c>, <c>SubscriptionSettlementBreakdown</c>, the invoice HTML and its
+/// React mirror all read one — and widening it would rewrite records already written. An outcome is
+/// returned by <see cref="SubscriptionProrationCalculator.Calculate"/> and never serialised.
+/// </remarks>
 public readonly record struct ProrationOutcome(
     long ChargeMinor,
     long NewCreditBalanceMinor,
-    ProrationBreakdown Breakdown = default);
+    ProrationBreakdown Breakdown = default,
+    long TargetFullPeriodTotalMinor = 0);
 
 /// <summary>
 /// One side of a settlement: what a period costs, and how much of that this instant is worth.
