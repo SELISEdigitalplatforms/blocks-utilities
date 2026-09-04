@@ -522,6 +522,7 @@
       <li><a href="#errors">Error codes</a></li>
       <li><a href="#gotchas">Rules that bite</a></li>
       <li><a href="#discount-test-cases">Discount test cases</a></li>
+      <li><a href="#plan-test-cases">Plan test cases</a></li>
     </ol>
   </nav>
 
@@ -4200,6 +4201,448 @@ npm run type-check
 npm test -- --run</code></pre>
       <p class="prose">Mongo integration tests are required for the unique redemption index, concurrent reservation and stale-reconciliation guarantees. Run them in CI or against a disposable local MongoDB; unit tests cannot prove database concurrency behavior.</p>
     </section>
+
+    <section id="plan-test-cases">
+      <h2>Plan Configuration Test Cases</h2>
+      <p class="prose">
+        These cases prove that a plan was <em>authored</em> the way its commercial terms intended.
+        They are separate from the discount cases above: nothing here needs a campaign, and most
+        need no money to move at all. Run them in a disposable tenant with API and Worker running,
+        MongoDB available and webhook delivery enabled. Use the simulation harness to advance the
+        billing and usage clocks rather than waiting for them, and read every balance from the usage
+        response or the server preview — never from browser arithmetic.
+      </p>
+      <p class="prose">
+        Amounts below use the AMLora catalogue: Tier&nbsp;1 CHF&nbsp;290 monthly with 150 included
+        screenings, Tier&nbsp;2 CHF&nbsp;950 monthly with 450, both calendar-aligned, with an 8%
+        automatic discount on the yearly prices.
+      </p>
+
+      <h3>Test catalogue</h3>
+      <table>
+        <thead><tr><th>ID</th><th>Scenario</th><th>Expected result</th></tr></thead>
+        <tbody>
+          <tr><td>P-01</td><td>Flat tier ignores quantity</td><td>Fee unchanged at every quantity; quantity increase settles CHF 0.</td></tr>
+          <tr><td>P-02</td><td>Tier capacity is enforced</td><td>Quantity above <code>maxQuantity</code> refused; at or below accepted.</td></tr>
+          <tr><td>P-03</td><td>Advertised minimum is not enforced</td><td>A firm below the marketed range may still subscribe.</td></tr>
+          <tr><td>P-04</td><td>Volume band applies to the whole quantity</td><td>Band discount covers every unit, not only those above the threshold.</td></tr>
+          <tr><td>P-05</td><td>Quantity increase vs decrease</td><td>Increase immediate and prorated; decrease scheduled, never refunded.</td></tr>
+          <tr><td>P-06</td><td>Meter aggregation</td><td><code>Sum</code>, <code>Max</code> and <code>LastValue</code> each collapse the same recordings differently.</td></tr>
+          <tr><td>P-07</td><td>Periodic allowance resets</td><td>New period key, <code>used</code> back to zero, full allowance restored.</td></tr>
+          <tr><td>P-08</td><td>Lifetime capacity persists and releases</td><td>Balance survives renewal; negative recordings release it; never below zero.</td></tr>
+          <tr><td>P-09</td><td>Carry-forward cap binds</td><td>Window opens at <code>includedQuantity + carryForwardCap</code>, never more.</td></tr>
+          <tr><td>P-10</td><td>Usage clock is independent of the fee clock</td><td>Yearly price still resets a monthly allowance eleven more times.</td></tr>
+          <tr><td>P-11</td><td>Only the excess is priced</td><td>Charge derives from <code>usage − includedQuantity</code>, not from total usage.</td></tr>
+          <tr><td>P-12</td><td>Rate tables are graduated</td><td>Each portion of the excess is charged at its own band's rate.</td></tr>
+          <tr><td>P-13</td><td>Blocked meter refuses and rolls back</td><td><code>allowed: false</code> and the balance is unchanged.</td></tr>
+          <tr><td>P-14</td><td>Overage failure is contained</td><td>Usage invoice abandoned after its own retries; subscription status untouched.</td></tr>
+          <tr><td>P-15</td><td>Entitlement readable without spending</td><td>Balance returned by a read; <code>used</code> unchanged by the read.</td></tr>
+          <tr><td>P-16</td><td>Entitlement is advisory, recording is authoritative</td><td>Two concurrent reads both allow; only one recording succeeds.</td></tr>
+          <tr><td>P-17</td><td>Entitlement survives a provider outage</td><td>Entitlement reads keep succeeding with the payment provider unreachable.</td></tr>
+          <tr><td>P-18</td><td>Calendar proration uses real days</td><td>Fraction is calendar dates over the month's actual length.</td></tr>
+          <tr><td>P-19</td><td>Signup on the local first is a full period</td><td>Not prorated, and reported as not prorated.</td></tr>
+          <tr><td>P-20</td><td>Yearly stub priced from the monthly basis</td><td>Stub is a fraction of the linked monthly price, carrying the yearly discount.</td></tr>
+          <tr><td>P-21</td><td>Annual charge timing changes refund exposure</td><td><code>AtBoundary</code> never charges the year; <code>AtCheckout</code> refunds nothing.</td></tr>
+          <tr><td>P-22</td><td>Trial end boundary is exclusive</td><td>A trial resolving to local midnight on the 1st has run through the last day of the previous month.</td></tr>
+          <tr><td>P-23</td><td>Card-free trial end</td><td><code>Unpaid</code> immediately, with no dunning attempts.</td></tr>
+          <tr><td>P-24</td><td>Trial grant replaces the plan allowance</td><td>Trial allowance while trialing; plan allowance in the first paid window.</td></tr>
+          <tr><td>P-25</td><td>Card required when nothing is due today</td><td>Card-setup checkout, <code>Incomplete</code> until stored, no charge on the statement.</td></tr>
+          <tr><td>P-26</td><td>Plan change classification</td><td>Upgrade immediate and charged; downgrade scheduled, never refunded.</td></tr>
+          <tr><td>P-27</td><td>Trial plan change is free</td><td>Both directions immediate, no charge and no credit.</td></tr>
+          <tr><td>P-28</td><td>Dunning ladder</td><td><code>PastDue</code> still grants; <code>Unpaid</code> does not.</td></tr>
+          <tr><td>P-29</td><td>Catalogue edits are not retroactive</td><td>Existing subscriptions keep the terms they were sold.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>P-01 to P-03 — Flat tiers with an enforced ceiling</h3>
+      <p class="prose">
+        A flat tier is a quantity item that <strong>no price multiplies</strong>. The item exists to
+        enforce capacity; the flat-fee price ignores it. Author Tier&nbsp;2 with a <code>user</code>
+        item at <code>minQuantity: 1</code>, <code>maxQuantity: 9</code>,
+        <code>defaultQuantity: 1</code>, and a CHF&nbsp;950 monthly price whose
+        <code>quantityItemKey</code> is null.
+      </p>
+      <ol>
+        <li>Subscribe. Expect one user held and CHF&nbsp;950 charged for the period.</li>
+        <li>Preview a quantity change to 6. Expect <code>proratedChargeMinor: 0</code> and
+          <code>nextRenewalAmountMinor</code> unchanged at CHF&nbsp;950.</li>
+        <li>Apply it, then preview a change to 10. Expect refusal on <code>maxQuantity</code>.</li>
+        <li>On a fresh organization, subscribe with quantity 2 to a tier marketed as “4–9 users”.
+          Expect success.</li>
+      </ol>
+      <pre><code>// P-01 expectation, any quantity within capacity
+Quantity 1 → CHF 950.00
+Quantity 6 → CHF 950.00      prorated settlement CHF 0.00
+Quantity 9 → CHF 950.00
+Quantity 10 → refused, maxQuantity</code></pre>
+      <p class="prose">
+        <strong>Failure to watch for:</strong> if step 2 settles anything other than zero, the price
+        is multiplying the quantity item and the tier is not flat. <strong>Second failure:</strong>
+        if step 4 is refused, the marketed range was authored into <code>minQuantity</code>, which
+        makes the plan unsellable to firms below the range even though nothing requires them to be
+        above it.
+      </p>
+
+      <h3>P-04 — Volume bands cover the whole quantity</h3>
+      <p class="prose">
+        Volume pricing, not graduated pricing: the band is selected by the whole quantity and its
+        discount applies to the whole charge. Author a per-user price of CHF&nbsp;150 with bands
+        <code>1–4 → 0%</code> and <code>5–10 → 10%</code>.
+      </p>
+      <pre><code>Quantity 4: 4 × 150.00              = CHF 600.00
+Quantity 5: 5 × 150.00 × 90%        = CHF 675.00
+Incorrect graduated result (must not occur):
+            4 × 150.00 + 1 × 135.00 = CHF 735.00</code></pre>
+      <p class="prose">
+        Assert the cliff deliberately: five users cost less than four. That is the intended pull up a
+        band, but it should be a decision rather than a discovery. Note that this is the
+        <strong>opposite</strong> rule to meter rate tables in P-12.
+      </p>
+
+      <h3>P-05 — Quantity increase and decrease are asymmetric</h3>
+      <ol>
+        <li>Hold 4 units on a per-unit price with the P-04 bands.</li>
+        <li>Preview an increase to 7. Expect <code>timing: "Immediate"</code>, a positive
+          <code>proratedChargeMinor</code> covering the remaining days, and a
+          <code>targetTier</code> naming the 5–10 band.</li>
+        <li>Edit the quantity in the form and confirm the previous quote is discarded — a
+          confirmation cannot be sent against figures the subscriber never saw.</li>
+        <li>Apply, then preview a decrease to 4. Expect <code>timing: "NextPeriod"</code>,
+          <code>proratedChargeMinor: 0</code>, and the subscription still holding 7 today.</li>
+        <li>Withdraw the pending decrease and confirm the subscription remains at 7 permanently.</li>
+      </ol>
+      <p class="prose">
+        <strong>Never refunded.</strong> A decrease returns no money for the paid remainder of the
+        period; the units stay available until the boundary.
+      </p>
+
+      <h3>P-06 — How usage is measured</h3>
+      <p class="prose">
+        Record <code>50</code>, then <code>200</code>, then <code>80</code> into one window against
+        three otherwise identical meters, reading <code>used</code> after each call.
+      </p>
+      <table>
+        <thead><tr><th>Aggregation</th><th>After 50</th><th>After 200</th><th>After 80</th><th>Author it for</th></tr></thead>
+        <tbody>
+          <tr><td><code>Sum</code></td><td>50</td><td>250</td><td>330</td><td>Screenings, API calls, messages — consumption that is spent</td></tr>
+          <tr><td><code>Max</code></td><td>50</td><td>200</td><td>200</td><td>Peak concurrency — capacity you had to be sized for</td></tr>
+          <tr><td><code>LastValue</code></td><td>50</td><td>200</td><td>80</td><td>Stored GB, active records — a level you are currently at</td></tr>
+        </tbody>
+      </table>
+      <p class="prose">
+        <strong>Failure to watch for:</strong> a storage meter whose <code>used</code> only ever
+        climbs and never falls when customers delete data is authored as <code>Sum</code> and should
+        be <code>LastValue</code>. Summing successive readings of a level produces a figure the
+        subscriber never reached.
+      </p>
+
+      <h3>P-07 to P-08 — Reset policy</h3>
+      <p class="prose">
+        Periodic counters are addressed by a key containing the period, so crossing a boundary
+        addresses a different document which the next write upserts at zero. Lifetime counters
+        address a stable key instead and survive both fee renewals and usage-window boundaries.
+      </p>
+      <ol>
+        <li><strong>P-07.</strong> On a <code>Periodic</code> meter with 450 included, record 100.
+          Advance past the usage boundary and read the meter. Expect <code>used: 0</code>,
+          <code>remaining: 450</code> and a <strong>new</strong> <code>periodKey</code>.</li>
+        <li><strong>P-08.</strong> On a <code>Never</code> meter with 100 included, record
+          <code>+40</code> then <code>-15</code>. Expect a balance of 25. Record <code>-30</code>
+          and expect refusal: a lifetime balance may not fall below zero.</li>
+        <li>Attempt the same negative recordings against a <code>Periodic</code> meter. Expect
+          refusal — usage that has been consumed cannot be un-recorded.</li>
+        <li>Confirm the builder refuses <code>Never</code> together with overage pricing. Lifetime
+          capacity must stop at its allowance; only periodic counters are rated.</li>
+      </ol>
+
+      <h3>P-09 — Carry-forward cap</h3>
+      <p class="prose">
+        The cap limits what <em>rolls in</em>, not the total. The included amount is always granted
+        on top, and the cap applies at every rollover rather than once.
+      </p>
+      <pre><code>includedQuantity: 450, carryForwardCap: 200
+
+Window 1: opens 450, uses 100          → 350 unused, 200 eligible to roll
+Window 2: opens 200 + 450 = 650        ← assert this figure
+Window 3 (after using all 650): opens 0 + 450 = 450
+
+Ceiling in any single window = includedQuantity + carryForwardCap = 650</code></pre>
+      <p class="prose">
+        Assert 650 rather than 800 (which would mean the cap was ignored) or 200 (which would mean
+        the carried amount replaced the allowance instead of adding to it). A cap larger than the
+        included amount is almost always a mis-authored <code>Never</code> meter: if a period can
+        carry in more than it grants, the allowance is not really periodic.
+      </p>
+
+      <h3>P-10 — The two clocks are independent</h3>
+      <p class="prose">
+        A plan declares one usage allowance cadence independently of its fee cadence. Both values are
+        snapshotted, so editing the catalogue later cannot move an existing subscriber's reset
+        window.
+      </p>
+      <ol>
+        <li>Author Tier&nbsp;2 with a yearly price and <code>usageInterval: Month</code>,
+          <code>usageIntervalCount: 1</code>.</li>
+        <li>Subscribe and consume part of the allowance.</li>
+        <li>Advance one month. Expect <strong>no invoice</strong> — the year is not due — and the
+          allowance restored to 450 under a new period key.</li>
+        <li>Repeat to month three to confirm it is not a one-off.</li>
+      </ol>
+      <pre><code>Billing period:  ├──────────── one year, one invoice ────────────┤
+Usage windows:   ├─M1─┤─M2─┤─M3─┤─M4─┤ … ├─M11─┤─M12─┤
+                  450  450  450  450       450   450</code></pre>
+      <p class="prose">
+        <strong>Failure to watch for:</strong> if the allowance does not reset, <code>usageInterval</code>
+        is following the fee cadence and an annual subscriber receives 450 screenings for the whole
+        year instead of per month — a twelvefold under-delivery that does not surface until month
+        two.
+      </p>
+
+      <h3>P-11 to P-12 — Overage is graduated, and counts only the excess</h3>
+      <p class="prose">
+        <code>includedQuantity</code> is the only place a free allowance lives, so a rate table never
+        needs a zero-cost first band. Tier boundaries are counted from the first overage unit,
+        inclusive, and each portion is charged at its own band's rate.
+      </p>
+      <pre><code>Included 450. Rate table (CHF):
+  ≤ 500   → 1.00
+  ≤ 2000  → 0.95
+  ≤ 5000  → 0.90
+  above   → 0.85
+
+Total usage 1,050 → excess 600
+  500 × 1.00 = 500.00
+  100 × 0.95 =  95.00
+  Expected            CHF 595.00
+
+Incorrect slab result (must not occur):  600 × 0.95 = CHF 570.00
+Incorrect gross result (must not occur): 1,050 priced without the allowance</code></pre>
+      <p class="prose">
+        Verify through the overage preview, which rates the hypothetical slice with the
+        subscription's own snapshotted terms and the same order of operations period-end rating
+        uses. A meter with no rate table in the subscription's currency rates to zero rather than
+        blocking every other meter's charge.
+      </p>
+
+      <h3>P-13 to P-14 — Enforcement, and containment of failure</h3>
+      <ol>
+        <li>Author the meter with <code>overageAllowed: false</code>. Consume the full allowance,
+          then record one more unit with <code>enforce: true</code>. Expect
+          <code>allowed: false</code> and the balance unchanged — the refused call is rolled back
+          with a compensating entry.</li>
+        <li>Repeat with <code>enforce: false</code>. The call succeeds and the unit is recorded, but
+          nothing is billed. A meter that allows overage with no rate table behaves the same way:
+          recorded, permitted, billed nothing.</li>
+        <li>With overage allowed and priced, force the overage charge to decline. Expect the usage
+          invoice to retry on its own bounded schedule and then be <strong>abandoned</strong>.</li>
+        <li>Assert the subscription is still <code>Active</code>.</li>
+      </ol>
+      <p class="prose">
+        <strong>Failure to watch for:</strong> if the subscription moves to <code>PastDue</code>
+        after step 3, usage failures have been wired into fee dunning. Overage is deliberately a
+        second, independent invoice; a customer whose card is declined for last month's overage keeps
+        everything the fee renewal already paid for.
+      </p>
+
+      <h3>P-15 to P-17 — Entitlements</h3>
+      <p class="prose">
+        Pricing decides what a period costs; entitlements answer whether an action is permitted. A
+        counted entitlement needs both a limit and the meter that draws it down.
+      </p>
+      <ol>
+        <li><strong>P-15.</strong> Add <code>screening</code> as a <code>Count</code> entitlement with
+          limit 450 against the <code>screening</code> meter. Record 313 units, then read entitlements
+          <em>without</em> recording. Expect <code>used: 313</code>, <code>remaining: 137</code>, and
+          <code>used</code> still 313 afterwards. Without the entitlement the same read returns
+          <code>NotInPlan</code> and the balance can only be learned by spending a unit — which no
+          dashboard, banner or pre-flight check can do.</li>
+        <li><strong>P-16.</strong> At 449 of 450, issue two concurrent entitlement reads. Expect
+          <strong>both</strong> to allow. Then record twice with <code>enforce: true</code> and expect
+          exactly <strong>one</strong> to succeed. This is correct: reading is advisory, recording is
+          authoritative because it includes the caller's own contribution.</li>
+        <li><strong>P-17.</strong> Make the payment provider unreachable and read entitlements.
+          Expect success — entitlement reads touch only our own database, which is what keeps every
+          existing customer working during a provider outage. Confirm counters are not served stale;
+          only the subscription is briefly cached.</li>
+      </ol>
+      <p class="prose">
+        A limit above <code>includedQuantity</code> is reported rather than rejected, because with
+        overage allowed it is a legitimate configuration: the application permits 500 while the plan
+        includes 450 and bills 50. With overage <em>blocked</em> the same pairing is a defect — the
+        last 50 can never be used.
+      </p>
+
+      <h3>P-18 to P-19 — Calendar proration</h3>
+      <p class="prose">
+        The opening period is priced by calendar dates counted inclusively over the month's actual
+        length. The time of day never enters into it, and the subscriber's own timezone decides which
+        date it is.
+      </p>
+      <pre><code>Tier 2, CHF 950.00, calendar-aligned monthly
+
+Signup 25 August    → 25–31 Aug is 7 dates of 31 → 95000 × 7/31 = CHF 214.52
+Signup 25 February  → 25–28 Feb is 4 dates of 28 → 95000 × 4/28 = CHF 135.71
+Fixed 30-day assumption (must not occur):          95000 × 4/30 = CHF 126.67</code></pre>
+      <ol>
+        <li>Subscribe at 09:00 and again at 23:50 on the same date in the same timezone. Expect an
+          identical charge; anything else lets a 23:59 signup pay for a day it had a minute of.</li>
+        <li>Subscribe at 23:00 UTC on 31 August as a subscriber in <code>Europe/Zurich</code>, where
+          it is already 1 September. Expect a <strong>full</strong> period with
+          <code>prorated: false</code>, not a one-day stub.</li>
+        <li>Confirm a month-end anchor clamps on read only: an anchor on the 31st bills on the 28th
+          in February and returns to the 31st in March.</li>
+      </ol>
+
+      <h3>P-20 to P-21 — Calendar-aligned yearly</h3>
+      <p class="prose">
+        A week of an annual amount is not a chargeable quantity, so a calendar-aligned yearly price
+        names the monthly price its opening period is a fraction of. The annual amount stays
+        independently authored, because what a year costs is a commercial decision.
+      </p>
+      <pre><code>Tier 2: monthly CHF 950.00, yearly CHF 11,400.00, automatic discount 8%
+Signup 25 August
+
+25–31 August:  95000 × 7/31 = 21452, less 8%  → CHF    197.36
+1 September:   1140000,      less 8%          → CHF 10,488.00
+1 September+1: the same again                 → CHF 10,488.00
+
+Incorrect: 1140000 × 7/365            (annual amount prorated by days)
+Incorrect: CHF 214.52                 (stub charged without the yearly discount)</code></pre>
+      <ol>
+        <li>Assert the stub carries the yearly price's automatic discount: a subscriber on an 8%-off
+          annual plan is on it from the 25th, and charging the first week undiscounted sells the
+          discount a week late.</li>
+        <li>Assert a promotional code does <strong>not</strong> reach the stub. It applies to the
+          year alone and is consumed once when the year settles.</li>
+        <li>Author the same plan twice, once per <code>calendarAnnualChargeTiming</code>. Subscribe
+          25 August and cancel 28 August.</li>
+      </ol>
+      <table>
+        <thead><tr><th>Timing</th><th>At checkout</th><th>On 1 September</th><th>Cancel during the stub</th></tr></thead>
+        <tbody>
+          <tr><td><code>AtBoundary</code></td><td>the stub</td><td>the year is charged</td><td>access ends with the stub; the year is never charged</td></tr>
+          <tr><td><code>AtCheckout</code></td><td>the stub and the year</td><td>the year opens, nothing charged</td><td>nothing is refunded; access runs to the end of the year</td></tr>
+        </tbody>
+      </table>
+      <p class="prose">
+        Both come to the same money, so the assertion that matters is the cancellation column: an
+        author choosing between these is choosing a refund policy as much as a collection date. While
+        the year is unpaid, assert that a plan or quantity change is refused with
+        <code>subscription_initial_annual_period_unpaid</code>, and that a downgrade or decrease may
+        still be scheduled for the boundary.
+      </p>
+
+      <h3>P-22 to P-24 — Trials</h3>
+      <ol>
+        <li><strong>P-22.</strong> Author an <code>EndOfCalendarMonth</code> trial and subscribe on
+          12 August as a subscriber in <code>Europe/Zurich</code>. The resolved end is local midnight
+          on 1 September, which is an <strong>exclusive</strong> boundary — the trial has run through
+          31 August. Assert any subscriber-facing copy reads “through August 31”, not “ends
+          September 1”, which is a day later than the truth.</li>
+        <li>Subscribe on 31 August with the same kind. Expect a <strong>one-day</strong> trial.
+          Nothing tops it up to a minimum length; if that is unacceptable the plan needs
+          <code>Days</code> or <code>AnniversaryMonths</code>.</li>
+        <li><strong>P-23.</strong> Author a trial with the card requirement <em>off</em> and let it
+          lapse without adding a card. Expect <code>Unpaid</code> <strong>immediately</strong>, with
+          <strong>no</strong> <code>PastDue</code> and no retry attempts in the audit timeline —
+          retrying a charge with nothing to charge cannot succeed on attempt two. Confirm
+          entitlements stop.</li>
+        <li>Add a payment method to that <code>Unpaid</code> subscription. Expect the outstanding
+          amount to be charged <strong>immediately</strong>. Repeat the same action mid-trial and
+          expect <strong>no</strong> charge: the same call, resolved by the subscription's own
+          status.</li>
+        <li><strong>P-24.</strong> Give the trial its own grant of 50 against a meter the plan
+          includes 450 of. Expect an allowance of 50 while <code>Trialing</code> and 450 in the first
+          paid window. Confirm a trial grant is refused on a lifetime meter.</li>
+      </ol>
+      <p class="prose">
+        Assert conversion timing separately: a payment-free trial ending mid-month charges a stub from
+        the trial-end date to the next first, keyed to the period the <strong>trial ended in</strong>
+        rather than the sweep's own clock. Delay the sweep deliberately — a trial ending 20 August
+        picked up on 2 September must still bill the 12/31 August stub, then raise September as its
+        own charge.
+      </p>
+
+      <h3>P-25 — Requiring a card when nothing is due today</h3>
+      <p class="prose">
+        This is not the trial's card question. It governs activation, including a plan with no trial
+        at all — a 100% opening reduction, a calendar stub that rounds to nothing, or a genuinely
+        zero price.
+      </p>
+      <table>
+        <thead><tr><th>Opening amount</th><th>Card required</th><th>Expected</th></tr></thead>
+        <tbody>
+          <tr><td>more than zero</td><td>—</td><td>the ordinary payment checkout</td></tr>
+          <tr><td>zero</td><td>no</td><td>activates immediately, no checkout returned</td></tr>
+          <tr><td>zero</td><td>yes</td><td>a card-setup checkout; <code>Incomplete</code> until the card is stored</td></tr>
+        </tbody>
+      </table>
+      <ol>
+        <li>Subscribe to a plan whose opening amount is zero with the requirement on. Expect a
+          <strong>setup</strong> session, not a payment, and <strong>no charge on the statement</strong>
+          — not a one-cent charge and not a zero-value payment.</li>
+        <li>Complete it and deliver the webhook. Expect activation with a card on file.</li>
+        <li>Abandon it instead. Expect the subscription to remain <code>Incomplete</code> rather than
+          failing: nothing was refused, so another attempt is free to succeed.</li>
+        <li>Retry and confirm a <strong>new</strong> session is minted rather than the expired one
+          reopened, and that two simultaneous retries produce one session.</li>
+        <li>Cancel while a setup is outstanding, then complete the card form. Expect no subscription
+          to start.</li>
+      </ol>
+
+      <h3>P-26 to P-29 — Changes, dunning and snapshots</h3>
+      <ol>
+        <li><strong>P-26.</strong> From Tier&nbsp;2, change to Tier&nbsp;3 mid-period. Expect
+          <code>timing: "Immediate"</code> and a prorated charge. Change back to Tier&nbsp;2. Expect
+          <code>timing: "NextRenewal"</code>, nothing charged, nothing refunded, and Tier&nbsp;3 still
+          in force today. Confirm a booked plan change refuses a quantity change and vice versa —
+          one pending commercial change at a time.</li>
+        <li>Attempt a change across currencies or billing intervals, and from
+          <code>PastDue</code>. Expect refusal in both cases.</li>
+        <li><strong>P-27.</strong> Perform both directions from <code>Trialing</code>. Expect both
+          immediate, with no charge and no credit — nothing has been paid for, so there is nothing to
+          prorate.</li>
+        <li><strong>P-28.</strong> Force a renewal decline. Expect <code>PastDue</code> with
+          entitlements <strong>still granted</strong> — that is the grace period. Exhaust the
+          attempts and expect <code>Unpaid</code> with entitlements stopped. Add a card and expect an
+          immediate charge back to <code>Active</code>.</li>
+        <li><strong>P-29.</strong> Subscribe, then edit the plan in the catalogue. Expect the
+          subscription unchanged: it bills from its own copy of the terms. Confirm the plan itself
+          becomes uneditable once anything has subscribed in any status, cancelled included, and that
+          archiving a plan removes it from selectors while existing subscribers keep renewing, rating
+          usage and receiving entitlements exactly as before.</li>
+      </ol>
+      <p class="prose">
+        <strong>Nothing creates credit and there is no refund path.</strong> Credit already held is
+        spent against an immediate upgrade and any remainder persists, but a settlement worth less
+        than what it replaced hands nothing back, and no amount in this module is ever negative.
+      </p>
+
+      <h3>Known gaps to assert around</h3>
+      <ul>
+        <li>A cancelled subscription's still-open <strong>final usage period is never rated</strong>.
+          An immediate cancellation clears the usage billing date the moment entitlement stops, so
+          usage recorded in that final stretch has no billing path. Do not write a case expecting a
+          charge for it.</li>
+        <li>Overage is <strong>one aggregated charge per period, not one per meter</strong>. Per-meter
+          lines are recorded on the invoice for traceability, but the charge is the total.</li>
+      </ul>
+
+      <h3>Automated regression commands</h3>
+      <pre><code>dotnet test server/XUnitTest/XUnitTest.csproj --filter "FullyQualifiedName~Usage"
+dotnet test server/XUnitTest/XUnitTest.csproj --filter "FullyQualifiedName~Entitlement"
+dotnet test server/XUnitTest/XUnitTest.csproj --filter "FullyQualifiedName~Proration"
+dotnet test server/XUnitTest/XUnitTest.csproj --filter "FullyQualifiedName~Quantity"
+
+cd client
+npm run type-check
+npm test -- --run</code></pre>
+      <p class="prose">
+        Rollover, concurrent recording and the uniqueness guarantees behind usage invoices need the
+        MongoDB integration tests; unit tests cannot prove database concurrency behavior.
+      </p>
+    </section>
+
   </main>
 
   <footer>

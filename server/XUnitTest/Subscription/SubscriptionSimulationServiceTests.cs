@@ -96,15 +96,78 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
         result.ErrorCode.Should().Be("subscription_simulation_forbidden");
     }
 
+    /// <summary>
+    /// A blank organization is handed to the resolver rather than refused before it runs.
+    /// </summary>
+    /// <remarks>
+    /// The harness used to reject it outright, saying the console has no subscription of its own.
+    /// It does have one: for a console caller the resolver reads a blank organization as the
+    /// console's own, which is exactly what <c>POST /subscriptions</c> and
+    /// <c>GET /subscriptions/current</c> already do with the same input. So an operator working
+    /// in the console scope could create a subscription, be shown it, and then be told the
+    /// console has no subscription of its own the moment they tried to renew it.
+    /// <para>
+    /// Whether a blank organization resolves to anything is now the resolver's question alone,
+    /// and its refusal is the one that surfaces.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task Requires_an_organization_because_the_console_has_none_of_its_own()
+    public async Task A_blank_organization_is_resolved_rather_than_refused()
     {
         SetAuthorizedCaller();
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                CorrelationId, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Unresolved(
+                PaymentFailureKind.Unavailable,
+                "subscription_organization_missing",
+                "An organization is required to resolve a subscription."));
 
         var result = await GetStateAsync(organizationId: null);
 
         result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be("subscription_simulation_organization_required");
+        result.ErrorCode.Should().Be(
+            "subscription_organization_missing",
+            "the resolver's own answer, not a refusal the harness invented first");
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync(
+                CorrelationId, null, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// And when it does resolve, the subscription is looked up under the console's own
+    /// organization — the same one subscribing without naming an organization stored it under.
+    /// </summary>
+    /// <remarks>
+    /// Reported as <c>subscription_not_found</c> here only because this test stubs no
+    /// subscription; the point is which organization was searched, which the verification below
+    /// pins exactly.
+    /// </remarks>
+    [Fact]
+    public async Task A_blank_organization_acts_as_the_console_organization()
+    {
+        SetAuthorizedCaller();
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                CorrelationId, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(
+                    TenantId, ConsoleOrganizationId, "user-1", "user-1")));
+
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId,
+            new AdvanceRenewalRequest { OrganizationId = null, RunImmediately = true },
+            CorrelationId,
+            CancellationToken.None);
+
+        result.ErrorCode.Should().NotBe("subscription_simulation_organization_required");
+        _subscriptions.Verify(
+            repository => repository.GetAsync(
+                TenantId, ConsoleOrganizationId, SubscriptionId,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the blank organization became the console's own, and that is what was searched");
     }
 
     [Theory]

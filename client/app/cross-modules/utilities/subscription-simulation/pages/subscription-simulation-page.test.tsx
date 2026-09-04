@@ -170,3 +170,45 @@ describe("SubscriptionSimulationPage overage-terms visibility", () => {
     expect(screen.queryByText(/^Usage$/)).not.toBeInTheDocument();
   });
 });
+
+/**
+ * What the default scope is called.
+ *
+ * Selecting no organization does not act tenant-wide. The server reads a blank organization as
+ * the console's own — a real organization, the one a subscription created here is stored under —
+ * so calling it "Tenant-wide" told an operator they had a subscription belonging to no
+ * organization in particular, which nothing in the model can produce. It also read as a
+ * contradiction of the heading right beside it, "Every action below is scoped to this
+ * organization".
+ */
+describe("SubscriptionSimulationPage acting-as scope", () => {
+  const withNoSubscription = () =>
+    useCurrentSimulatedSubscription.mockReturnValue({
+      data: null,
+      error: null,
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+  it("names the console organization rather than calling it tenant-wide", () => {
+    withNoSubscription();
+
+    renderPage();
+
+    expect(screen.getByLabelText("Organization")).toHaveTextContent(
+      "Console organization",
+    );
+    expect(screen.queryByText("Tenant-wide only")).not.toBeInTheDocument();
+  });
+
+  it("says what acting with no organization named actually does", () => {
+    withNoSubscription();
+
+    renderPage();
+
+    expect(
+      screen.getByText(/acts as the console's own/i),
+    ).toBeInTheDocument();
+  });
+});

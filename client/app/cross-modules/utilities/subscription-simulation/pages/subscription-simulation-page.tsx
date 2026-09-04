@@ -78,7 +78,13 @@ export const SubscriptionSimulationPage = () => {
 
   const scopeLabel = useMemo(() => {
     if (!organizationScope) {
-      return "Tenant-wide";
+      // Not "Tenant-wide", which is what this said and is not what happens. Naming no
+      // organization does not act tenant-wide: the server reads it as the console's own
+      // organization (Payment:ConsoleOrganizationId, "default" out of the box) and a
+      // subscription created here is stored under it. Calling it tenant-wide left an operator
+      // believing they had a subscription belonging to no organization in particular, which
+      // nothing in the model can produce.
+      return "Console organization";
     }
     return (
       organizationsData?.organizations?.find(
@@ -240,6 +246,8 @@ export const SubscriptionSimulationPage = () => {
             <p className="text-xs text-muted-foreground">
               Every action below is scoped to this organization, exactly as it would be for a
               real integration.
+              {!organizationScope &&
+                " Naming no organization acts as the console's own — a real organization, not a tenant-wide one, and what a subscription created here belongs to."}
             </p>
           </div>
 
@@ -255,7 +263,9 @@ export const SubscriptionSimulationPage = () => {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={TENANT_WIDE_ORGANIZATION}>Tenant-wide only</SelectItem>
+              <SelectItem value={TENANT_WIDE_ORGANIZATION}>
+                Console organization
+              </SelectItem>
               {organizations.map((organization) => (
                 <SelectItem key={organization.itemId} value={organization.itemId}>
                   {organization.name}
