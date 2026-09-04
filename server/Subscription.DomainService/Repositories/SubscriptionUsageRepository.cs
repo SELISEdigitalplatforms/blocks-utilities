@@ -287,6 +287,35 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<SubscriptionUsageRecord>> ListRecordedSinceAsync(
+        string tenantId,
+        DateTime afterRecordedAtUtc,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await EnsureIndexesAsync(tenantId, cancellationToken);
+
+        var builder = Builders<SubscriptionUsageRecord>.Filter;
+        var filter = builder.And(
+            builder.Eq(record => record.TenantId, tenantId),
+            string.IsNullOrWhiteSpace(afterId)
+                ? builder.Gte(record => record.RecordedAtUtc, afterRecordedAtUtc)
+                : builder.Or(
+                    builder.Gt(record => record.RecordedAtUtc, afterRecordedAtUtc),
+                    builder.And(
+                        builder.Eq(record => record.RecordedAtUtc, afterRecordedAtUtc),
+                        builder.Gt(record => record.ItemId, afterId))));
+
+        return await Records(tenantId)
+            .Find(filter)
+            .Sort(Builders<SubscriptionUsageRecord>.Sort
+                .Ascending(record => record.RecordedAtUtc)
+                .Ascending(record => record.ItemId))
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     private IMongoCollection<SubscriptionUsageRecord> Records(string tenantId) =>
         SubscriptionCollections.Of<SubscriptionUsageRecord>(
             _dbContextProvider,

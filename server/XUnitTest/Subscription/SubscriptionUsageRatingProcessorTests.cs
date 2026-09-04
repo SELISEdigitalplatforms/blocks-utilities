@@ -122,6 +122,42 @@ public sealed class SubscriptionUsageRatingProcessorTests
         _createdInvoice.NextAttemptAtUtc.Should().BeNull();
     }
 
+    /// <summary>
+    /// A meter that was rated but priced to zero (fully within allowance) still gets an invoice
+    /// line — recording what it included and used, not just what it charged for — while the
+    /// aggregate charged total must stay byte-identical to what it was before this line existed.
+    /// </summary>
+    [Fact]
+    public async Task A_period_entirely_within_allowance_still_records_a_zero_amount_line()
+    {
+        _due = [NewSubscription("sub-1")];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 100), NewCounter("envelope", 40)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.State.Should().Be(SubscriptionUsageInvoiceState.NoCharge);
+        _createdInvoice.TotalAmountMinor.Should().Be(0,
+            "a zero-amount line must never change the aggregate charged total");
+        _createdInvoice.NetAmountMinor.Should().Be(0);
+
+        var screening = _createdInvoice.Lines.Should().ContainSingle(
+            line => line.MeterKey == "screening").Which;
+        screening.IncludedQuantity.Should().Be(500);
+        screening.UsedQuantity.Should().Be(100);
+        screening.OverageQuantity.Should().Be(0);
+        screening.AmountMinor.Should().Be(0);
+
+        var envelope = _createdInvoice.Lines.Should().ContainSingle(
+            line => line.MeterKey == "envelope").Which;
+        envelope.IncludedQuantity.Should().Be(100);
+        envelope.UsedQuantity.Should().Be(40);
+        envelope.OverageQuantity.Should().Be(0);
+        envelope.AmountMinor.Should().Be(0);
+    }
+
     [Fact]
     public async Task A_period_with_overage_creates_a_pending_invoice_priced_across_meters()
     {
@@ -135,8 +171,18 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         // screening: 200 overage * 10 = 2,000. envelope has no counter overage (under included).
         _createdInvoice!.State.Should().Be(SubscriptionUsageInvoiceState.Pending);
-        _createdInvoice.TotalAmountMinor.Should().Be(2_000);
-        _createdInvoice.Lines.Should().ContainSingle(line => line.MeterKey == "screening");
+        _createdInvoice.TotalAmountMinor.Should().Be(2_000,
+            "the aggregate charged total must stay unchanged by the new zero-amount lines");
+        _createdInvoice.NetAmountMinor.Should().Be(2_000);
+        // envelope was still rated (it saw activity) and now gets its own zero-amount line
+        // alongside screening's overage line — the two lines' amounts must still sum to the
+        // unchanged aggregate above.
+        _createdInvoice.Lines.Should().HaveCount(2);
+        _createdInvoice.Lines.Should().ContainSingle(line => line.MeterKey == "screening")
+            .Which.AmountMinor.Should().Be(2_000);
+        _createdInvoice.Lines.Should().ContainSingle(line => line.MeterKey == "envelope")
+            .Which.AmountMinor.Should().Be(0);
+        _createdInvoice.Lines.Sum(line => line.AmountMinor).Should().Be(_createdInvoice.TotalAmountMinor);
         _createdInvoice.NextAttemptAtUtc.Should().NotBeNull();
     }
 

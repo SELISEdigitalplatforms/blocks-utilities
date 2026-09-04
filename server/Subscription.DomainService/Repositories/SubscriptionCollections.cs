@@ -52,6 +52,21 @@ internal static class SubscriptionCollections
     public const string CampaignRedemptions = "SubscriptionCampaignRedemptions";
 
     /// <summary>
+    /// One document per subscription, meter and day — the precomputed volume-over-time and
+    /// per-organization view behind the tenant-admin usage report. Derived from
+    /// <see cref="UsageRecords"/> and disposable; never authoritative.
+    /// </summary>
+    public const string UsageActivityRollups = "SubscriptionUsageActivityRollups";
+
+    /// <summary>
+    /// One document per organization, meter, day and user — the per-actor breakdown behind the
+    /// tenant-admin usage report. Its own collection rather than a map embedded on
+    /// <see cref="UsageActivityRollups"/>, so a busy organization's headcount cannot grow one
+    /// document past Mongo's size limit.
+    /// </summary>
+    public const string UsageActorRollups = "SubscriptionUsageActorRollups";
+
+    /// <summary>
     /// Append-only record of every mail handed to the listener, payload included. Separate from the
     /// documents it reports on, because it also covers mail that has no document behind it.
     /// </summary>

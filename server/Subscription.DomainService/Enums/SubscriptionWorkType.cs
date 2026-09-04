@@ -66,5 +66,15 @@ public enum SubscriptionWorkType
     /// Bookkeeping, not money. Priority sits below every work type that can charge a customer.
     /// </para>
     /// </remarks>
-    UsageProjectionRefresh = 10
+    UsageProjectionRefresh = 10,
+
+    /// <summary>
+    /// Fold newly-recorded ledger entries into the tenant-usage-analytics rollup collections.
+    /// </summary>
+    /// <remarks>
+    /// Scheduled by the repair sweep whenever the ledger holds records past the rollup's own
+    /// persisted cursor. Bookkeeping for a read-only report, not money: it writes to two derived
+    /// collections nothing in the enforcement or billing path ever reads.
+    /// </remarks>
+    UsageActivityRollup = 11
 }

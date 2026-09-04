@@ -84,6 +84,14 @@ public static class SubscriptionIndexDefinitions
     public const string UsagePeriodIndexName =
         "ix_subscription_usage_tenant_subscription_meter_period";
 
+    /// <summary>
+    /// What the usage-rollup job walks forward on. Additive and load-bearing: without it, the
+    /// rollup's incremental pass over <c>RecordedAtUtc</c> is the exact collection scan this
+    /// report exists to avoid.
+    /// </summary>
+    public const string UsageRecordRolloverScanIndexName =
+        "ix_subscription_usage_tenant_recorded_at";
+
     public const string UsageCounterExpiryIndexName =
         "ttl_subscription_usage_counter_expires";
 
@@ -98,6 +106,14 @@ public static class SubscriptionIndexDefinitions
 
     public const string UsageInvoiceSweepIndexName =
         "ix_subscription_usageinvoice_tenant_state_next_attempt";
+
+    /// <summary>
+    /// What the allowance-history report's closed-period half queries: every invoice for a
+    /// tenant, optionally an organization, newest first. The id tie-break lets a page resume
+    /// exactly across invoices created in the same instant.
+    /// </summary>
+    public const string UsageInvoiceOrganizationIndexName =
+        "ix_subscription_usageinvoice_tenant_org_created";
 
     /// <summary>
     /// One open subscription attempt per organization, enforced before checkout by the database
@@ -351,7 +367,15 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(record => record.SubscriptionId)
                 .Ascending(record => record.MeterKey)
                 .Ascending(record => record.PeriodKey),
-            new CreateIndexOptions { Name = UsagePeriodIndexName })
+            new CreateIndexOptions { Name = UsagePeriodIndexName }),
+        // Tie-broken on the id so a page of records sharing one RecordedAtUtc instant — ordinary
+        // under concurrent writers — can still be resumed exactly rather than re-read or skipped.
+        new(
+            Builders<SubscriptionUsageRecord>.IndexKeys
+                .Ascending(record => record.TenantId)
+                .Ascending(record => record.RecordedAtUtc)
+                .Ascending(record => record.ItemId),
+            new CreateIndexOptions { Name = UsageRecordRolloverScanIndexName })
     ];
 
     /// <summary>
@@ -520,6 +544,86 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(invoice => invoice.TenantId)
                 .Ascending(invoice => invoice.State)
                 .Ascending(invoice => invoice.NextAttemptAtUtc),
-            new CreateIndexOptions { Name = UsageInvoiceSweepIndexName })
+            new CreateIndexOptions { Name = UsageInvoiceSweepIndexName }),
+        new(
+            Builders<SubscriptionUsageInvoice>.IndexKeys
+                .Ascending(invoice => invoice.TenantId)
+                .Ascending(invoice => invoice.OrganizationId)
+                .Descending(invoice => invoice.CreatedAtUtc)
+                .Descending(invoice => invoice.ItemId),
+            new CreateIndexOptions { Name = UsageInvoiceOrganizationIndexName })
+    ];
+
+    public const string UsageActivityRollupUniqueIndexName =
+        "ux_usage_activity_rollup_identity";
+    public const string UsageActivityRollupTenantIndexName =
+        "ix_usage_activity_rollup_tenant_meter_day";
+    public const string UsageActivityRollupOrganizationIndexName =
+        "ix_usage_activity_rollup_tenant_org_meter_day";
+
+    /// <summary>
+    /// The tenant-usage-report's read indexes. The first is a restatement of the composed
+    /// <c>ItemId</c>, declared anyway so a consumer reading this collection directly sees the
+    /// guarantee in the index list; the other two serve the unfiltered and organization-filtered
+    /// listings respectively, both newest-day-first with the id as tie-break so a page of buckets
+    /// sharing one day can be resumed without a blocking sort.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<SubscriptionUsageActivityRollup>>
+        CreateUsageActivityRollupIndexes() =>
+    [
+        new(
+            Builders<SubscriptionUsageActivityRollup>.IndexKeys
+                .Ascending(rollup => rollup.TenantId)
+                .Ascending(rollup => rollup.OrganizationId)
+                .Ascending(rollup => rollup.SubscriptionId)
+                .Ascending(rollup => rollup.MeterKey)
+                .Ascending(rollup => rollup.DayUtc),
+            new CreateIndexOptions { Name = UsageActivityRollupUniqueIndexName, Unique = true }),
+        new(
+            Builders<SubscriptionUsageActivityRollup>.IndexKeys
+                .Ascending(rollup => rollup.TenantId)
+                .Ascending(rollup => rollup.MeterKey)
+                .Descending(rollup => rollup.DayUtc)
+                .Descending(rollup => rollup.ItemId),
+            new CreateIndexOptions { Name = UsageActivityRollupTenantIndexName }),
+        new(
+            Builders<SubscriptionUsageActivityRollup>.IndexKeys
+                .Ascending(rollup => rollup.TenantId)
+                .Ascending(rollup => rollup.OrganizationId)
+                .Ascending(rollup => rollup.MeterKey)
+                .Descending(rollup => rollup.DayUtc)
+                .Descending(rollup => rollup.ItemId),
+            new CreateIndexOptions { Name = UsageActivityRollupOrganizationIndexName })
+    ];
+
+    public const string UsageActorRollupUniqueIndexName = "ux_usage_actor_rollup_identity";
+    public const string UsageActorRollupReadIndexName =
+        "ix_usage_actor_rollup_tenant_org_meter_day_user";
+
+    /// <summary>
+    /// The per-actor breakdown's read indexes. The unique index restates the composed
+    /// <c>ItemId</c> the same way the activity rollup's does; the read index serves the actor
+    /// listing itself, sorted by descending consumption client-side since totals here are per
+    /// bucket rather than a running sum an index could order by.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<SubscriptionUsageActorRollup>>
+        CreateUsageActorRollupIndexes() =>
+    [
+        new(
+            Builders<SubscriptionUsageActorRollup>.IndexKeys
+                .Ascending(rollup => rollup.TenantId)
+                .Ascending(rollup => rollup.OrganizationId)
+                .Ascending(rollup => rollup.MeterKey)
+                .Ascending(rollup => rollup.DayUtc)
+                .Ascending(rollup => rollup.UserId),
+            new CreateIndexOptions { Name = UsageActorRollupUniqueIndexName, Unique = true }),
+        new(
+            Builders<SubscriptionUsageActorRollup>.IndexKeys
+                .Ascending(rollup => rollup.TenantId)
+                .Ascending(rollup => rollup.OrganizationId)
+                .Ascending(rollup => rollup.MeterKey)
+                .Descending(rollup => rollup.DayUtc)
+                .Ascending(rollup => rollup.UserId),
+            new CreateIndexOptions { Name = UsageActorRollupReadIndexName })
     ];
 }

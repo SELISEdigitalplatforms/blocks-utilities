@@ -42,6 +42,7 @@ public sealed class SubscriptionRepairAnnouncer
     private readonly TimeProvider _time;
     private readonly CampaignRedemptionReconciler? _campaignRedemptions;
     private readonly IUsageProjectionReconciler? _usageProjections;
+    private readonly ISubscriptionUsageRepository? _usage;
 
     public SubscriptionRepairAnnouncer(
         ISubscriptionWorkScheduler scheduler,
@@ -61,7 +62,10 @@ public sealed class SubscriptionRepairAnnouncer
         CampaignRedemptionReconciler? campaignRedemptions = null,
         // Optional for the same reason: a caller or test that constructs this class by hand,
         // unaware the usage projection exists, must keep compiling and keep behaving as before.
-        IUsageProjectionReconciler? usageProjections = null)
+        IUsageProjectionReconciler? usageProjections = null,
+        // Optional for the same reason: this is what the usage-rollup due-check reads, and a
+        // caller unaware of it must keep compiling.
+        ISubscriptionUsageRepository? usage = null)
     {
         _scheduler = scheduler;
         _subscriptions = subscriptions;
@@ -76,6 +80,7 @@ public sealed class SubscriptionRepairAnnouncer
         _time = time ?? TimeProvider.System;
         _campaignRedemptions = campaignRedemptions;
         _usageProjections = usageProjections;
+        _usage = usage;
     }
 
     /// <summary>
@@ -326,6 +331,29 @@ public sealed class SubscriptionRepairAnnouncer
                 cancellationToken)).Count > 0)
         {
             due.Add(SubscriptionWorkType.FinancialDocumentDelivery);
+        }
+
+        // Asked from the rollup job's own stored mark, the same way the document sweep above asks
+        // from its two — so this answers "does the ledger hold anything past what the rollup has
+        // accounted for" rather than guessing at a fixed lookback window.
+        if (_usage is not null)
+        {
+            var rolledUpTo = await _cursors.GetAsync(
+                tenantId,
+                Services.UsageRollupService.RollupCursorName,
+                cancellationToken);
+
+            var pending = await _usage.ListRecordedSinceAsync(
+                tenantId,
+                rolledUpTo?.ReadUpToUtc ?? DateTime.MinValue.ToUniversalTime(),
+                rolledUpTo?.AfterId,
+                1,
+                cancellationToken);
+
+            if (pending.Count > 0)
+            {
+                due.Add(SubscriptionWorkType.UsageActivityRollup);
+            }
         }
 
         return due;

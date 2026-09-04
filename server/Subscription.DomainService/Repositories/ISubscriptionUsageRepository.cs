@@ -100,4 +100,21 @@ public interface ISubscriptionUsageRepository
         string? periodKey,
         int limit,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every ledger record across the tenant, walked forward from a stored mark on
+    /// <c>RecordedAtUtc</c>. What the usage-rollup job reads instead of scanning the ledger.
+    /// </summary>
+    /// <remarks>
+    /// Ordered by <c>RecordedAtUtc</c> then <c>ItemId</c> so a page can resume exactly, even
+    /// across records that share one recorded instant. Deliberately not ordered by
+    /// <c>OccurredAtUtc</c> — a late-reported record's <c>OccurredAtUtc</c> can be arbitrarily far
+    /// in the past, so paging on it could never reach a stable "caught up" position.
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionUsageRecord>> ListRecordedSinceAsync(
+        string tenantId,
+        DateTime afterRecordedAtUtc,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken);
 }

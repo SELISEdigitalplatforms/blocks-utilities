@@ -834,6 +834,10 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 IdempotencyKey = $"{record.IdempotencyKey}:reversal",
                 CompensatesRecordId = record.ItemId,
                 OccurredAtUtc = record.OccurredAtUtc,
+                // Copied from the record being reversed so a reversal nets out of the actor who
+                // caused it, not an unattributed bucket. See the per-actor rollup, which sums this
+                // field directly rather than following CompensatesRecordId back at rollup time.
+                RecordedByUserId = record.RecordedByUserId,
                 CorrelationId = correlationId
             },
             cancellationToken);
