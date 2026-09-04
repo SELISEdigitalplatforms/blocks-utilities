@@ -1328,20 +1328,29 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         var (outgoingNet, outgoingTax) = ProratedNetAndTax(settlement.Outgoing);
         var (targetNet, targetTax) = ProratedNetAndTax(settlement.Target);
 
-        var netWeight = Math.Max(0, targetNet - outgoingNet);
-        var taxWeight = Math.Max(0, targetTax - outgoingTax);
+        var netDelta = targetNet - outgoingNet;
+        var taxDelta = targetTax - outgoingTax;
 
         // An opening-stub upgrade settles two periods at once - see
         // SubscriptionSettlementBreakdown.Annual. Credit and total are spent once against the
-        // combined figure, so only the nested side weights are added in here.
+        // combined figure, so only the nested side deltas are added in here.
         if (settlement.Annual is { } annual)
         {
             var (annualOutgoingNet, annualOutgoingTax) = ProratedNetAndTax(annual.Outgoing);
             var (annualTargetNet, annualTargetTax) = ProratedNetAndTax(annual.Target);
 
-            netWeight += Math.Max(0, annualTargetNet - annualOutgoingNet);
-            taxWeight += Math.Max(0, annualTargetTax - annualOutgoingTax);
+            netDelta += annualTargetNet - annualOutgoingNet;
+            taxDelta += annualTargetTax - annualOutgoingTax;
         }
+
+        // Summed before clamping, not clamped per period and then summed. CalculateOpeningStubUpgrade
+        // combines the two periods' raw deltas before it ever clamps - combinedRawDelta = stubDelta +
+        // annualDelta - so that is the sum this has to match for netWeight + taxWeight to land on
+        // exactly total + credit, which is what lets Split return the split unchanged rather than
+        // reallocating. Clamping each period first would drop a negative component and overstate the
+        // weights, quietly trading that exactness for an approximation.
+        var netWeight = Math.Max(0, netDelta);
+        var taxWeight = Math.Max(0, taxDelta);
 
         long net;
         long tax;

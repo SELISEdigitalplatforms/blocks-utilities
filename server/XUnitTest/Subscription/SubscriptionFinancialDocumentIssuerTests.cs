@@ -261,8 +261,18 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             payment.SubscriptionCreditAmountMinor = null;
             payment.SubscriptionSettlement = new SubscriptionSettlementBreakdown
             {
-                Outgoing = new SubscriptionSettlementSide { ProratedValueMinor = 3_000 },
-                Target = new SubscriptionSettlementSide { ProratedValueMinor = 9_000 },
+                Outgoing = new SubscriptionSettlementSide
+                {
+                    TaxAmountMinor = 540,
+                    PeriodTotalMinor = 6_000,
+                    ProratedValueMinor = 3_000
+                },
+                Target = new SubscriptionSettlementSide
+                {
+                    TaxAmountMinor = 1_620,
+                    PeriodTotalMinor = 18_000,
+                    ProratedValueMinor = 9_000
+                },
                 CreditConsumedMinor = 0,
                 NetSettlementMinor = 6_000
             };
@@ -276,6 +286,11 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document!.Settlement.Should().NotBeNull();
         document.Settlement!.NetSettlementMinor.Should().Be(6_000);
         document.Lines.Should().ContainSingle();
+
+        // Both sides carry a real period and tax, so this exercises the main split rather than the
+        // empty-breakdown fallback: net 5,460 and tax 540 out of the 6,000 total.
+        document.Amounts.NetSubtotalMinor.Should().Be(5_460);
+        document.Amounts.TaxAmountMinor.Should().Be(540);
     }
 
     [Fact]
@@ -412,7 +427,8 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
                 SubscriptionId,
                 SettlementReservationKind.PlanChange,
                 "res-9");
-            payment.PreciseAmount = 10.34m;
+            // 940 net + 94 tax - 200 credit = 834, the total the provider actually took.
+            payment.PreciseAmount = 8.34m;
             payment.SubscriptionGrossAmountMinor = null;
             payment.SubscriptionBuiltInDiscountMinor = null;
             payment.SubscriptionPromotionalDiscountMinor = null;
@@ -421,15 +437,24 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             payment.SubscriptionCreditAmountMinor = null;
 
             var settlement = SettlementBreakdown();
-            settlement.NetSettlementMinor = 1_034;
+            settlement.CreditConsumedMinor = 200;
+            settlement.NetSettlementMinor = 834;
+            // A different, larger credit on the nested breakdown. Only the top-level 200 is ever
+            // spent — the nested figure is the annual side's own contribution for the invoice to
+            // explain, not a second deduction — so a bug that summed the two would produce 500 here
+            // instead of 200 and this test would catch it.
             settlement.Annual = SettlementBreakdown();
+            settlement.Annual.CreditConsumedMinor = 300;
             payment.SubscriptionSettlement = settlement;
         });
 
         var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
-        document!.Amounts.TotalMinor.Should().Be(1_034);
+        document!.Amounts.CreditAppliedMinor.Should().Be(200);
+        document.Amounts.NetSubtotalMinor.Should().Be(940);
+        document.Amounts.TaxAmountMinor.Should().Be(94);
+        document.Amounts.TotalMinor.Should().Be(834);
         (document.Amounts.NetSubtotalMinor + document.Amounts.TaxAmountMinor -
             document.Amounts.CreditAppliedMinor).Should().Be(document.Amounts.TotalMinor);
     }
@@ -496,19 +521,26 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document.Amounts.TaxAmountMinor.Should().Be(47);
     }
 
-    /// <summary>The outgoing/target sides used across the settlement tests above: net 517 overall.</summary>
+    /// <summary>
+    /// The outgoing/target sides used across the settlement tests above: net 517 overall.
+    /// </summary>
+    /// <remarks>
+    /// Gross less discounts (none here) equals period total less tax on each side, the identity a
+    /// real settlement side always satisfies — Gross 900 = PeriodTotal 990 - Tax 90, and Gross 1,840 =
+    /// PeriodTotal 2,024 - Tax 184.
+    /// </remarks>
     private static SubscriptionSettlementBreakdown SettlementBreakdown() => new()
     {
         Outgoing = new SubscriptionSettlementSide
         {
-            GrossAmountMinor = 1_000,
+            GrossAmountMinor = 900,
             TaxAmountMinor = 90,
             PeriodTotalMinor = 990,
             ProratedValueMinor = 495
         },
         Target = new SubscriptionSettlementSide
         {
-            GrossAmountMinor = 2_024,
+            GrossAmountMinor = 1_840,
             TaxAmountMinor = 184,
             PeriodTotalMinor = 2_024,
             ProratedValueMinor = 1_012

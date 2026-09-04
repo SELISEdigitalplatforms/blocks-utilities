@@ -443,23 +443,27 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
     /// </summary>
     /// <remarks>
     /// Three routes, checked in the issuer's own order. A settlement — a plan change or a paid
-    /// quantity increase — carries a two-sided breakdown instead of a flat one and the issuer reads
+    /// quantity increase — carries a two-sided breakdown instead of a flat one, and the issuer reads
     /// that first, ahead of the flat fields below, because a settlement payment stores a flat net of
-    /// zero beside its breakdown. A charge this module raised the ordinary way carries its own frozen
-    /// flat breakdown and the issuer prefers that next, totalling net plus tax less credit; anything
-    /// older is reported as a single gross line converted from <c>PreciseAmount</c>. A zero total is
-    /// not an error to the issuer — it is nothing payable, so it consumes the obligation and completes
-    /// with no document. That is correct behaviour and a useless seed, which is why this belongs in
-    /// the preconditions rather than being discovered as an empty collection at the end.
+    /// zero beside its breakdown. Its total comes from <c>PreciseAmount</c> — what the provider
+    /// actually took — not from the breakdown's own <c>NetSettlementMinor</c>, which can go negative
+    /// on a downgrade that banks credit instead of charging; that field says nothing about what this
+    /// document will total. A charge this module raised the ordinary way carries its own frozen flat
+    /// breakdown and the issuer prefers that next, totalling net plus tax less credit; anything older
+    /// is reported as a single gross line converted from <c>PreciseAmount</c>. A zero total is not an
+    /// error to the issuer — it is nothing payable, so it consumes the obligation and completes with
+    /// no document. That is correct behaviour and a useless seed, which is why this belongs in the
+    /// preconditions rather than being discovered as an empty collection at the end.
     /// </remarks>
     private static void AssertIssuerSeesAPositiveTotal(PaymentDetail payment)
     {
-        if (payment.SubscriptionSettlement is { } settlement)
+        if (payment.SubscriptionSettlement is not null)
         {
-            settlement.NetSettlementMinor.Should().NotBe(
+            payment.PreciseAmount.Should().BeGreaterThan(
                 0,
-                "the issuer reads the settlement's own breakdown ahead of the flat fields, so a " +
-                "seed with nothing settled would reach the total by pure coincidence, if at all");
+                "a settlement's total comes from PreciseAmount - what the provider actually took - " +
+                "not from the breakdown's own NetSettlementMinor, so a zero or negative amount here " +
+                "reads as nothing payable regardless of what the breakdown says");
 
             return;
         }
