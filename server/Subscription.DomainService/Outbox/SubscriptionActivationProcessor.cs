@@ -337,7 +337,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             case SettlementOutcome.Abandon:
                 return await ApplyAbandonmentAsync(link, payment!, cancellationToken);
 
-            default:
+            case SettlementOutcome.Undecided:
                 await RescheduleAsync(
                     link,
                     options,
@@ -348,6 +348,13 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                     payment.PaymentStatus, cancellationToken);
 
                 return false;
+
+            // Named rather than folded into the reschedule branch above: a new outcome silently
+            // treated as "still in flight" would defer a link forever, and the branch it landed
+            // in dereferences a payment that PaymentMissing does not have.
+            default:
+                throw new InvalidOperationException(
+                    $"Unhandled settlement outcome {outcome}.");
         }
     }
 
@@ -379,9 +386,15 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
 
         await AuditAsync(link, "SettlementStarted", "InProgress", null, cancellationToken);
 
-        return outcome == SettlementOutcome.Activate
-            ? await ApplyActivationAsync(link, payment!, cancellationToken)
-            : await ApplyAbandonmentAsync(link, payment!, cancellationToken);
+        return outcome switch
+        {
+            SettlementOutcome.Activate =>
+                await ApplyActivationAsync(link, payment!, cancellationToken),
+            SettlementOutcome.Abandon =>
+                await ApplyAbandonmentAsync(link, payment!, cancellationToken),
+            _ => throw new InvalidOperationException(
+                $"Unhandled settlement outcome {outcome}.")
+        };
     }
 
     private async Task<bool> ApplyActivationAsync(

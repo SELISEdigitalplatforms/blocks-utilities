@@ -367,19 +367,29 @@ public sealed class SubscriptionActivationProcessorTests
                 It.IsAny<DateTime>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(
-            [
-                new SubscriptionPaymentLink
-                {
-                    ItemId = "link-1",
-                    TenantId = TenantId,
-                    OrganizationId = "org-1",
-                    SubscriptionId = "sub-1",
-                    PaymentDetailId = "pay-1",
-                    Purpose = purpose,
-                    CorrelationId = "corr-1"
-                }
-            ]);
+            .ReturnsAsync([NewLink(purpose)]);
+
+    /// <summary>
+    /// The link both settlement paths act on. Shared so the sweep and the targeted pass are
+    /// provably testing the same object rather than two literals that can drift apart.
+    /// </summary>
+    private static SubscriptionPaymentLink NewLink(
+        SubscriptionPaymentPurpose purpose = SubscriptionPaymentPurpose.InitialCharge,
+        SubscriptionPaymentLinkState state = SubscriptionPaymentLinkState.Pending,
+        DateTime? nextCheckAtUtc = null,
+        int attemptCount = 0) => new()
+    {
+        ItemId = "link-1",
+        TenantId = TenantId,
+        OrganizationId = "org-1",
+        SubscriptionId = "sub-1",
+        PaymentDetailId = "pay-1",
+        Purpose = purpose,
+        CorrelationId = "corr-1",
+        State = state,
+        AttemptCount = attemptCount,
+        NextCheckAtUtc = nextCheckAtUtc
+    };
 
     private void GivenPayment(
         string status,
@@ -1017,6 +1027,69 @@ public sealed class SubscriptionActivationProcessorTests
             "take that record away");
     }
 
+    /// <summary>
+    /// The second dedupe on this path — the webhook processor already dedupes its own batch — and
+    /// the one that protects the point read.
+    /// </summary>
+    /// <remarks>
+    /// Pinned rather than left to inspection precisely because it looks redundant: someone
+    /// removing it as duplication would otherwise break nothing, and the link would be looked up
+    /// and settled once per event naming the same payment.
+    /// </remarks>
+    [Fact]
+    public async Task A_payment_named_twice_in_one_call_is_looked_up_and_settled_once()
+    {
+        GivenLinkForPayment();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            ["pay-1", "pay-1"],
+            CancellationToken.None);
+
+        settled.Should().Be(1);
+        _links.Verify(
+            repository => repository.FindByPaymentAsync(
+                TenantId,
+                "pay-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// Most webhook ticks confirm nothing a subscription is waiting on, so the common case must
+    /// cost no database calls at all.
+    /// </summary>
+    [Fact]
+    public async Task A_tick_that_transitioned_no_payments_touches_nothing()
+    {
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            [],
+            CancellationToken.None);
+
+        settled.Should().Be(0);
+        _links.VerifyNoOtherCalls();
+        _payments.VerifyNoOtherCalls();
+        _subscriptions.VerifyNoOtherCalls();
+    }
+
+    /// <summary>
+    /// Defensive: the parameter is non-nullable, so this guards against a caller that ignores
+    /// that rather than against anything the worker does today.
+    /// </summary>
+    [Fact]
+    public async Task A_null_collection_is_treated_as_nothing_to_settle()
+    {
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            null!,
+            CancellationToken.None);
+
+        settled.Should().Be(0);
+        _links.VerifyNoOtherCalls();
+    }
+
     /// <summary>The link the targeted pass finds by payment id, rather than by being due.</summary>
     private void GivenLinkForPayment(
         SubscriptionPaymentLinkState state = SubscriptionPaymentLinkState.Pending,
@@ -1028,19 +1101,11 @@ public sealed class SubscriptionActivationProcessorTests
                 TenantId,
                 "pay-1",
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SubscriptionPaymentLink
-            {
-                ItemId = "link-1",
-                TenantId = TenantId,
-                OrganizationId = "org-1",
-                SubscriptionId = "sub-1",
-                PaymentDetailId = "pay-1",
-                Purpose = purpose,
-                CorrelationId = "corr-1",
-                State = state,
-                AttemptCount = attemptCount,
-                NextCheckAtUtc = nextCheckAtUtc ?? _time.GetUtcNow().UtcDateTime
-            });
+            .ReturnsAsync(NewLink(
+                purpose,
+                state,
+                nextCheckAtUtc ?? _time.GetUtcNow().UtcDateTime,
+                attemptCount));
 
     private static SubscriptionDetail NewSubscription() => new()
     {
