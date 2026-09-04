@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Services;
@@ -104,10 +105,21 @@ public sealed class SubscriptionSimulationDataConsoleServiceTests : IDisposable
         result.ErrorCode.Should().Be("subscription_simulation_limit_invalid");
     }
 
+    /// <summary>
+    /// Naming no organization is resolved as the console's own, not refused. See the matching
+    /// test on <c>SubscriptionSimulationServiceTests</c> for why.
+    /// </summary>
     [Fact]
-    public async Task Find_requires_an_organization_because_the_console_has_none_of_its_own()
+    public async Task Find_resolves_a_blank_organization_rather_than_refusing_it()
     {
         SetAuthorizedCaller();
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                CorrelationId, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Unresolved(
+                PaymentFailureKind.Unavailable,
+                "subscription_organization_missing",
+                "An organization is required to resolve a subscription."));
 
         var result = await CreateService().FindAsync(
             "subscriptions",
@@ -115,8 +127,14 @@ public sealed class SubscriptionSimulationDataConsoleServiceTests : IDisposable
             CorrelationId,
             CancellationToken.None);
 
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be("subscription_simulation_organization_required");
+        result.ErrorCode.Should().Be(
+            "subscription_organization_missing",
+            "the resolver's own answer, not a refusal the harness invented first");
+        _contextResolver.Verify(
+            resolver => resolver.ResolveAsync(
+                CorrelationId, null, It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the blank organization is resolved, not refused before resolving");
     }
 
     [Fact]
