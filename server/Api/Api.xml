@@ -1207,6 +1207,44 @@
             outside the scope it belongs to.
             </summary>
         </member>
+        <member name="T:Api.OpenApi.ApiResponseFailureExampleOperationTransformer">
+            <summary>
+            Gives each 4xx/5xx response an explicit example showing <c>success: false</c>.
+            </summary>
+            <remarks>
+            Every controller in this API — Payment, Subscription, PdfGenerator's document conversions —
+            declares both its success and its failure responses as <c>ApiResponse&lt;T&gt;</c> for the same
+            <c>T</c>, so a 200 and its sibling 400 point at the exact same component schema. The OpenAPI
+            document itself carries no example (confirmed by inspecting the generated document: schemas here
+            have no <c>example</c> keyword at all), so Swagger UI and Scalar each synthesize their own
+            generic one from the schema shape when a response has none — and for a bare <c>boolean</c>
+            property with no guidance, that synthesis defaults to <c>true</c>. Since the 200 and 400
+            responses share one schema, both end up showing the identical synthesized example, and a 400 in
+            the docs reads <c>success: true</c> even though the server always returns <c>false</c> there.
+            <para>
+            Attaching an explicit example directly to each failure response (rather than editing the shared
+            schema, which would leak the same override onto the success response too) is the one point of
+            control that lets a 200 and a 400 for the same <c>T</c> show different examples in the docs.
+            Success responses are left alone: their schema-synthesized <c>success: true</c> already matches
+            what the server sends.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.OpenApi.ApiResponseFailureExampleOperationTransformer.IsApiResponse(System.Type)">
+            <summary>
+            True for <c>ApiResponse&lt;T&gt;</c> for any <c>T</c>. Reflection on the declared response
+            type rather than matching the generated schema's name, so this keeps working if the schema
+            naming ever changes.
+            </summary>
+        </member>
+        <member name="M:Api.OpenApi.ApiResponseFailureExampleOperationTransformer.BuildFailureExample">
+            <summary>
+            A generic failure envelope. The real <c>code</c>/<c>message</c> vary per endpoint and aren't
+            worth hand-authoring for every one of them; what matters for the reported problem is that
+            <c>success</c> reads <c>false</c> here, matching what <see cref="M:Payment.DomainService.Responses.ApiResponse`1.Fail(System.String,System.String,System.String,System.Collections.Generic.Dictionary{System.String,System.String[]})"/>
+            actually sends.
+            </summary>
+        </member>
         <member name="T:Api.Utilities.DocumentConversionApiResults">
             <summary>
             Maps a document-conversion result onto an HTTP response.
