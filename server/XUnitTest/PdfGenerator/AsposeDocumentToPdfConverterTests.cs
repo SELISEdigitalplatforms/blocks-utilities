@@ -281,23 +281,24 @@ namespace XUnitTest.PdfGenerator
         }
 
         [Fact]
-        public void Request_NeedsNothingButTheInputFileId()
+        public void Request_NeedsNothingButAFileIdList()
         {
-            var request = new ConvertDocumentToPdfRequest { InputFileId = "doc-1" };
+            var request = new ConvertDocumentToPdfRequest { FileIds = new List<string> { "doc-1", "doc-2" } };
 
-            request.InputFileId.Should().Be("doc-1");
+            request.FileIds.Should().Equal("doc-1", "doc-2");
             request.MessageCoRelationId.Should().BeNull();
         }
 
         [Fact]
-        public void StatusResponse_OffersNoDownloadUntilTheConversionSucceeds()
+        public void StatusResult_OffersNoDownloadUntilTheConversionSucceeds()
         {
             // A caller polling a running conversion must not be handed a URL that still points at
-            // the unconverted document. The file ID is always present — it is the key they polled
-            // with — but the download only appears once there is a PDF behind it.
-            var running = new DocumentConversionStatusResponse
+            // the unconverted document. The file ID is always present -- it is the key they queried
+            // with -- but the download only appears once there is a PDF behind it.
+            var running = new DocumentConversionStatusResult
             {
                 FileId = "doc-1",
+                Found = true,
                 FileName = "contract.docx",
                 Status = DocumentConversionStatus.Processing,
                 IsComplete = false
@@ -306,6 +307,23 @@ namespace XUnitTest.PdfGenerator
             running.FileId.Should().Be("doc-1");
             running.DownloadUrl.Should().BeNull();
             running.CompletedAtUtc.Should().BeNull();
+        }
+
+        [Fact]
+        public void StatusResult_NeverSubmitted_IsFoundFalseNotAMissingEntry()
+        {
+            // A batch caller matches every ID they asked about against exactly one result; a file
+            // that was never submitted still gets an entry, just one with Found = false.
+            var neverSubmitted = new DocumentConversionStatusResult
+            {
+                FileId = "doc-9",
+                Found = false,
+                ErrorCode = "conversion_not_found"
+            };
+
+            neverSubmitted.Found.Should().BeFalse();
+            neverSubmitted.Status.Should().BeNull();
+            neverSubmitted.ErrorCode.Should().Be("conversion_not_found");
         }
 
         [Theory]
@@ -323,19 +341,57 @@ namespace XUnitTest.PdfGenerator
         }
 
         [Fact]
-        public void AcceptedResponse_CarriesWhereToPoll()
+        public void Acceptance_AcceptedFile_CarriesItsQueuedStatus()
         {
             // The poll key is the file ID the caller already sent, not a new identifier.
-            var accepted = new ConvertDocumentToPdfAcceptedResponse
+            var accepted = new DocumentConversionAcceptance
             {
                 FileId = "doc-1",
-                Status = DocumentConversionStatus.Queued,
-                StatusUrl = "/document-conversions/doc-1"
+                Accepted = true,
+                Status = DocumentConversionStatus.Queued
             };
 
             accepted.FileId.Should().Be("doc-1");
+            accepted.Accepted.Should().BeTrue();
             accepted.Status.Should().Be(DocumentConversionStatus.Queued);
-            accepted.StatusUrl.Should().Be("/document-conversions/doc-1");
+            accepted.ErrorCode.Should().BeNull();
+        }
+
+        [Fact]
+        public void Acceptance_RejectedFile_CarriesWhyWithNoStatus()
+        {
+            // A rejected file was never queued, so there is nothing to poll for it and no Status to
+            // report -- only the reason it was turned away.
+            var rejected = new DocumentConversionAcceptance
+            {
+                FileId = string.Empty,
+                Accepted = false,
+                ErrorCode = "input_file_id_required"
+            };
+
+            rejected.Accepted.Should().BeFalse();
+            rejected.Status.Should().BeNull();
+            rejected.ErrorCode.Should().Be("input_file_id_required");
+        }
+
+        [Fact]
+        public void BatchResponse_CountsAcceptedAndRejectedSeparately()
+        {
+            var response = new ConvertDocumentsToPdfBatchResponse
+            {
+                Results = new List<DocumentConversionAcceptance>
+                {
+                    new() { FileId = "doc-1", Accepted = true, Status = DocumentConversionStatus.Queued },
+                    new() { FileId = "", Accepted = false, ErrorCode = "input_file_id_required" }
+                },
+                AcceptedCount = 1,
+                RejectedCount = 1
+            };
+
+            response.Results.Should().HaveCount(2);
+            response.AcceptedCount.Should().Be(1);
+            response.RejectedCount.Should().Be(1);
+            response.StatusUrl.Should().Be("/document-conversions/status");
         }
     }
 }
