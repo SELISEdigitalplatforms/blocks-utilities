@@ -263,12 +263,15 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             {
                 Outgoing = new SubscriptionSettlementSide
                 {
+                    // Gross less discounts (none here) equals period total less tax: 6,000 - 540.
+                    GrossAmountMinor = 5_460,
                     TaxAmountMinor = 540,
                     PeriodTotalMinor = 6_000,
                     ProratedValueMinor = 3_000
                 },
                 Target = new SubscriptionSettlementSide
                 {
+                    GrossAmountMinor = 16_380,
                     TaxAmountMinor = 1_620,
                     PeriodTotalMinor = 18_000,
                     ProratedValueMinor = 9_000
