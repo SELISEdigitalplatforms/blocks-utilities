@@ -248,6 +248,17 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
                 SubscriptionId,
                 SettlementReservationKind.PlanChange,
                 "res-9");
+            payment.PreciseAmount = 60.00m;
+            // Production never writes flat fields beside a settlement — see
+            // StripeInvoiceBillingGateway.NewPayment. A test that leaves SettledRenewal's flat 90,000
+            // in place would pass even if the issuer read the wrong branch, because it never has to
+            // fall back to the settlement at all.
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = null;
+            payment.SubscriptionTaxAmountMinor = null;
+            payment.SubscriptionCreditAmountMinor = null;
             payment.SubscriptionSettlement = new SubscriptionSettlementBreakdown
             {
                 Outgoing = new SubscriptionSettlementSide { ProratedValueMinor = 3_000 },
@@ -266,6 +277,245 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document.Settlement!.NetSettlementMinor.Should().Be(6_000);
         document.Lines.Should().ContainSingle();
     }
+
+    [Fact]
+    public async Task A_settlement_invoice_totals_what_the_provider_took_not_zero()
+    {
+        Subscribed();
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId,
+                SettlementReservationKind.PlanChange,
+                "res-9");
+            payment.PreciseAmount = 5.17m;
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = null;
+            payment.SubscriptionTaxAmountMinor = null;
+            payment.SubscriptionCreditAmountMinor = null;
+            payment.SubscriptionSettlement = SettlementBreakdown();
+        });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.TotalMinor.Should().Be(517);
+        document.Amounts.NetSubtotalMinor.Should().Be(470);
+        document.Amounts.TaxAmountMinor.Should().Be(47);
+        document.Amounts.GrossSubtotalMinor.Should().Be(470);
+        (document.Amounts.NetSubtotalMinor + document.Amounts.TaxAmountMinor -
+            document.Amounts.CreditAppliedMinor).Should().Be(document.Amounts.TotalMinor);
+    }
+
+    [Fact]
+    public async Task A_settlement_invoice_ignores_a_zero_net_stored_beside_its_breakdown()
+    {
+        // Every settlement payment row written before this fix stores a flat net/tax/credit of 0
+        // beside its breakdown. Without the settlement branch running first, this reproduces the
+        // reported bug exactly: a real charge that reads back as CHF 0.00.
+        Subscribed();
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId,
+                SettlementReservationKind.PlanChange,
+                "res-9");
+            payment.PreciseAmount = 5.17m;
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = 0;
+            payment.SubscriptionTaxAmountMinor = 0;
+            payment.SubscriptionCreditAmountMinor = 0;
+            payment.SubscriptionSettlement = SettlementBreakdown();
+        });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.TotalMinor.Should().Be(517);
+        document.Amounts.NetSubtotalMinor.Should().Be(470);
+        document.Amounts.TaxAmountMinor.Should().Be(47);
+        document.Amounts.GrossSubtotalMinor.Should().Be(470);
+    }
+
+    [Fact]
+    public async Task A_settlement_invoices_line_states_the_net_difference()
+    {
+        Subscribed();
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId,
+                SettlementReservationKind.PlanChange,
+                "res-9");
+            payment.PreciseAmount = 5.17m;
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = null;
+            payment.SubscriptionTaxAmountMinor = null;
+            payment.SubscriptionCreditAmountMinor = null;
+            payment.SubscriptionSettlement = SettlementBreakdown();
+        });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Lines.Should().ContainSingle();
+        document.Lines[0].AmountMinor.Should().Be(document.Amounts.NetSubtotalMinor);
+        document.Lines[0].AmountMinor.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task A_settlement_that_spent_credit_shows_it_below_tax()
+    {
+        Subscribed();
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId,
+                SettlementReservationKind.PlanChange,
+                "res-9");
+            payment.PreciseAmount = 3.17m;
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = null;
+            payment.SubscriptionTaxAmountMinor = null;
+            payment.SubscriptionCreditAmountMinor = null;
+
+            var settlement = SettlementBreakdown();
+            settlement.CreditConsumedMinor = 200;
+            settlement.NetSettlementMinor -= 200;
+            payment.SubscriptionSettlement = settlement;
+        });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.CreditAppliedMinor.Should().Be(200);
+        document.Amounts.TotalMinor.Should().Be(317);
+        // Credit pays the bill rather than shrinking what tax is calculated on.
+        (document.Amounts.NetSubtotalMinor + document.Amounts.TaxAmountMinor).Should().Be(517);
+    }
+
+    [Fact]
+    public async Task An_opening_stub_upgrade_counts_both_periods_and_the_credit_once()
+    {
+        Subscribed();
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId,
+                SettlementReservationKind.PlanChange,
+                "res-9");
+            payment.PreciseAmount = 10.34m;
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = null;
+            payment.SubscriptionTaxAmountMinor = null;
+            payment.SubscriptionCreditAmountMinor = null;
+
+            var settlement = SettlementBreakdown();
+            settlement.NetSettlementMinor = 1_034;
+            settlement.Annual = SettlementBreakdown();
+            payment.SubscriptionSettlement = settlement;
+        });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.TotalMinor.Should().Be(1_034);
+        (document.Amounts.NetSubtotalMinor + document.Amounts.TaxAmountMinor -
+            document.Amounts.CreditAppliedMinor).Should().Be(document.Amounts.TotalMinor);
+    }
+
+    [Fact]
+    public async Task A_settlement_with_an_empty_breakdown_reports_the_charge_untaxed()
+    {
+        Subscribed();
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId,
+                SettlementReservationKind.PlanChange,
+                "res-9");
+            payment.PreciseAmount = 5.17m;
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = null;
+            payment.SubscriptionTaxAmountMinor = null;
+            payment.SubscriptionCreditAmountMinor = null;
+            payment.SubscriptionSettlement = new SubscriptionSettlementBreakdown
+            {
+                Outgoing = new SubscriptionSettlementSide(),
+                Target = new SubscriptionSettlementSide(),
+                CreditConsumedMinor = 0,
+                NetSettlementMinor = 517
+            };
+        });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.TotalMinor.Should().Be(517);
+        document.Amounts.NetSubtotalMinor.Should().Be(517);
+        document.Amounts.TaxAmountMinor.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_quantity_change_settlement_is_read_the_same_way_as_a_plan_change()
+    {
+        Subscribed();
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.SettlementOrderIdFor(
+                SubscriptionId,
+                SettlementReservationKind.QuantityIncrease,
+                "res-9");
+            payment.PreciseAmount = 5.17m;
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = null;
+            payment.SubscriptionTaxAmountMinor = null;
+            payment.SubscriptionCreditAmountMinor = null;
+            payment.SubscriptionSettlement = SettlementBreakdown();
+        });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.TotalMinor.Should().Be(517);
+        document.Amounts.NetSubtotalMinor.Should().Be(470);
+        document.Amounts.TaxAmountMinor.Should().Be(47);
+    }
+
+    /// <summary>The outgoing/target sides used across the settlement tests above: net 517 overall.</summary>
+    private static SubscriptionSettlementBreakdown SettlementBreakdown() => new()
+    {
+        Outgoing = new SubscriptionSettlementSide
+        {
+            GrossAmountMinor = 1_000,
+            TaxAmountMinor = 90,
+            PeriodTotalMinor = 990,
+            ProratedValueMinor = 495
+        },
+        Target = new SubscriptionSettlementSide
+        {
+            GrossAmountMinor = 2_024,
+            TaxAmountMinor = 184,
+            PeriodTotalMinor = 2_024,
+            ProratedValueMinor = 1_012
+        },
+        CreditConsumedMinor = 0,
+        NetSettlementMinor = 517
+    };
 
     [Theory]
     [InlineData(PaymentStatuses.Refused)]

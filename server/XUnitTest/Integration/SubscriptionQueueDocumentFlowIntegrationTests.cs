@@ -442,15 +442,28 @@ public sealed class SubscriptionQueueDocumentFlowIntegrationTests
     /// The charge comes to something payable, by whichever route the issuer would price it.
     /// </summary>
     /// <remarks>
-    /// Two routes, checked in the issuer's own order. A charge this module raised carries its own
-    /// frozen breakdown and the issuer prefers it, totalling net plus tax less credit; anything older
-    /// is reported as a single gross line converted from <c>PreciseAmount</c>. A zero total is not an
-    /// error to the issuer — it is nothing payable, so it consumes the obligation and completes with
-    /// no document. That is correct behaviour and a useless seed, which is why this belongs in the
-    /// preconditions rather than being discovered as an empty collection at the end.
+    /// Three routes, checked in the issuer's own order. A settlement — a plan change or a paid
+    /// quantity increase — carries a two-sided breakdown instead of a flat one and the issuer reads
+    /// that first, ahead of the flat fields below, because a settlement payment stores a flat net of
+    /// zero beside its breakdown. A charge this module raised the ordinary way carries its own frozen
+    /// flat breakdown and the issuer prefers that next, totalling net plus tax less credit; anything
+    /// older is reported as a single gross line converted from <c>PreciseAmount</c>. A zero total is
+    /// not an error to the issuer — it is nothing payable, so it consumes the obligation and completes
+    /// with no document. That is correct behaviour and a useless seed, which is why this belongs in
+    /// the preconditions rather than being discovered as an empty collection at the end.
     /// </remarks>
     private static void AssertIssuerSeesAPositiveTotal(PaymentDetail payment)
     {
+        if (payment.SubscriptionSettlement is { } settlement)
+        {
+            settlement.NetSettlementMinor.Should().NotBe(
+                0,
+                "the issuer reads the settlement's own breakdown ahead of the flat fields, so a " +
+                "seed with nothing settled would reach the total by pure coincidence, if at all");
+
+            return;
+        }
+
         if (payment.SubscriptionNetAmountMinor is { } net)
         {
             var total =
