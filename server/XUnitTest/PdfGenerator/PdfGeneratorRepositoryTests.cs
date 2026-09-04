@@ -153,5 +153,18 @@ namespace XUnitTest.PdfGenerator
             Assert.False(exists);
         }
 
+
+        [Fact]
+        public async Task GetDocumentConversionJobsAsync_EmptyIdList_ReturnsEmptyWithoutQueryingMongo()
+        {
+            // A batch caller that somehow ends up asking about zero files should get an empty
+            // result immediately rather than round-tripping to Mongo for an $in filter with no
+            // values in it.
+            var jobs = await _repository.GetDocumentConversionJobsAsync(Array.Empty<string>(), "tenant1");
+
+            Assert.Empty(jobs);
+            _databaseMock.Verify(db => db.GetCollection<DocumentConversionJob>(It.IsAny<string>(), null), Times.Never);
+        }
+
     }
 }

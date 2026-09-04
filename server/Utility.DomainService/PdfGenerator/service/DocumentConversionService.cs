@@ -11,6 +11,14 @@ namespace Utility.DomainService.PdfGenerator.service
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     public class DocumentConversionService : IDocumentConversionService
     {
+        /// <summary>
+        /// The most files one request may name. A caller fanning out an unbounded list in a single
+        /// call turns one HTTP request into an unbounded number of Mongo writes and queue publishes
+        /// before anything is returned; this keeps that work, and the time a caller waits for it,
+        /// bounded to something a single request should reasonably ask for.
+        /// </summary>
+        internal const int MaxBatchSize = 50;
+
         private readonly ILogger<DocumentConversionService> _logger;
         private readonly IMessageClient _messageClient;
         private readonly IPdfGeneratorRepository _repository;
@@ -29,34 +37,97 @@ namespace Utility.DomainService.PdfGenerator.service
         }
 
         /// <inheritdoc />
-        public async Task<DocumentConversionResult<ConvertDocumentToPdfAcceptedResponse>> RequestConversionAsync(
+        public async Task<DocumentConversionResult<ConvertDocumentsToPdfBatchResponse>> RequestConversionsAsync(
             ConvertDocumentToPdfRequest request,
             string correlationId,
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(request);
 
-            if (string.IsNullOrWhiteSpace(request.InputFileId))
+            // A duplicate ID is one request for that file, not two, so queuing it twice would just
+            // race two workers over the same replacement.
+            var fileIds = (request.FileIds ?? new List<string>())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            if (fileIds.Count == 0)
             {
-                return DocumentConversionResult<ConvertDocumentToPdfAcceptedResponse>.Failure(
+                return DocumentConversionResult<ConvertDocumentsToPdfBatchResponse>.Failure(
                     DocumentConversionFailureKind.Validation,
-                    "input_file_id_required",
-                    "inputFileId is required.",
+                    "file_ids_required",
+                    "fileIds must contain at least one file ID.",
                     correlationId,
                     new Dictionary<string, string[]>(StringComparer.Ordinal)
                     {
-                        ["inputFileId"] = ["inputFileId is required."]
+                        ["fileIds"] = ["fileIds must contain at least one file ID."]
                     });
             }
 
-            var fileId = request.InputFileId;
+            if (fileIds.Count > MaxBatchSize)
+            {
+                return DocumentConversionResult<ConvertDocumentsToPdfBatchResponse>.Failure(
+                    DocumentConversionFailureKind.Validation,
+                    "too_many_files",
+                    $"A single request can convert at most {MaxBatchSize} files; {fileIds.Count} were sent.",
+                    correlationId,
+                    new Dictionary<string, string[]>(StringComparer.Ordinal)
+                    {
+                        ["fileIds"] = [$"A single request can convert at most {MaxBatchSize} files."]
+                    });
+            }
+
             var tenantId = BlocksContext.GetContext()?.TenantId ?? string.Empty;
+            var results = new List<DocumentConversionAcceptance>(fileIds.Count);
+
+            // Sequential rather than fanned out with Task.WhenAll: each file writes to the same
+            // tenant database and publishes to the same queue, so nothing here benefits from
+            // concurrency the way the read side's storage lookups do, and staying sequential keeps
+            // the per-file logging in request order.
+            foreach (var fileId in fileIds)
+            {
+                results.Add(await RequestOneConversion(fileId, request.MessageCoRelationId, tenantId));
+            }
+
+            var accepted = results.Count(r => r.Accepted);
+
+            return DocumentConversionResult<ConvertDocumentsToPdfBatchResponse>.Success(
+                new ConvertDocumentsToPdfBatchResponse
+                {
+                    MessageCoRelationId = request.MessageCoRelationId,
+                    Results = results,
+                    AcceptedCount = accepted,
+                    RejectedCount = results.Count - accepted
+                },
+                correlationId);
+        }
+
+        /// <summary>
+        /// Records and queues the conversion of one file. Never throws — any failure becomes a
+        /// rejected <see cref="DocumentConversionAcceptance"/>, so one bad file cannot abort the rest
+        /// of the batch the caller is waiting on.
+        /// </summary>
+        private async Task<DocumentConversionAcceptance> RequestOneConversion(
+            string fileId,
+            string? messageCoRelationId,
+            string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(fileId))
+            {
+                return new DocumentConversionAcceptance
+                {
+                    FileId = fileId ?? string.Empty,
+                    Accepted = false,
+                    ErrorCode = "input_file_id_required",
+                    ErrorMessage = "A file ID in the list was blank."
+                };
+            }
+
             var now = DateTime.UtcNow;
 
             var job = new DocumentConversionJob
             {
                 Id = fileId,
-                MessageCoRelationId = request.MessageCoRelationId,
+                MessageCoRelationId = messageCoRelationId,
                 Status = DocumentConversionStatus.Queued,
                 TenantId = tenantId,
                 CreatedBy = BlocksContext.GetContext()?.UserId,
@@ -66,14 +137,17 @@ namespace Utility.DomainService.PdfGenerator.service
 
             // The record is written before the event is published, deliberately. A caller that gets
             // an acknowledgement back must be able to poll immediately; publishing first leaves a
-            // window where the worker has already finished and the status endpoint still 404s.
+            // window where the worker has already finished and the status endpoint still says the
+            // file was never submitted.
             if (!await _repository.SaveDocumentConversionJobAsync(job))
             {
-                return DocumentConversionResult<ConvertDocumentToPdfAcceptedResponse>.Failure(
-                    DocumentConversionFailureKind.Unavailable,
-                    "conversion_not_recorded",
-                    "The conversion could not be recorded and was not started.",
-                    correlationId);
+                return new DocumentConversionAcceptance
+                {
+                    FileId = fileId,
+                    Accepted = false,
+                    ErrorCode = "conversion_not_recorded",
+                    ErrorMessage = "The conversion could not be recorded and was not started."
+                };
             }
 
             try
@@ -85,7 +159,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         Payload = new ConvertDocumentToPdfEvent
                         {
                             FileId = fileId,
-                            MessageCoRelationId = job.MessageCoRelationId,
+                            MessageCoRelationId = messageCoRelationId,
                             ProjectKey = tenantId
                         }
                     });
@@ -96,7 +170,7 @@ namespace Utility.DomainService.PdfGenerator.service
                 // than left Queued forever — a poller deserves an answer, not a permanent maybe.
                 _logger.LogError(
                     ex,
-                    "RequestConversionAsync: Failed to queue conversion of file {FileId}",
+                    "RequestConversionsAsync: Failed to queue conversion of file {FileId}",
                     LogSanitizer.Scrub(fileId));
 
                 job.Status = DocumentConversionStatus.Failed;
@@ -105,59 +179,100 @@ namespace Utility.DomainService.PdfGenerator.service
                 job.CompletedDate = DateTime.UtcNow;
                 await _repository.UpdateDocumentConversionJobAsync(job);
 
-                return DocumentConversionResult<ConvertDocumentToPdfAcceptedResponse>.Failure(
-                    DocumentConversionFailureKind.Unavailable,
-                    "conversion_not_queued",
-                    "The conversion could not be queued.",
-                    correlationId);
+                return new DocumentConversionAcceptance
+                {
+                    FileId = fileId,
+                    Accepted = false,
+                    ErrorCode = "conversion_not_queued",
+                    ErrorMessage = "The conversion could not be queued."
+                };
             }
 
             _logger.LogInformation(
-                "RequestConversionAsync: Queued conversion of file {FileId}",
+                "RequestConversionsAsync: Queued conversion of file {FileId}",
                 LogSanitizer.Scrub(fileId));
 
-            return DocumentConversionResult<ConvertDocumentToPdfAcceptedResponse>.Success(
-                new ConvertDocumentToPdfAcceptedResponse
-                {
-                    FileId = fileId,
-                    MessageCoRelationId = job.MessageCoRelationId,
-                    Status = job.Status,
-                    StatusUrl = $"/document-conversions/{fileId}"
-                },
-                correlationId);
+            return new DocumentConversionAcceptance
+            {
+                FileId = fileId,
+                Accepted = true,
+                Status = job.Status
+            };
         }
 
         /// <inheritdoc />
-        public async Task<DocumentConversionResult<DocumentConversionStatusResponse>> GetStatusAsync(
-            string fileId,
+        public async Task<DocumentConversionResult<DocumentConversionStatusBatchResponse>> GetStatusAsync(
+            GetDocumentConversionStatusRequest request,
             string correlationId,
             CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(fileId))
+            ArgumentNullException.ThrowIfNull(request);
+
+            var fileIds = (request.FileIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            if (fileIds.Count == 0)
             {
-                return DocumentConversionResult<DocumentConversionStatusResponse>.Failure(
+                return DocumentConversionResult<DocumentConversionStatusBatchResponse>.Failure(
                     DocumentConversionFailureKind.Validation,
-                    "file_id_required",
-                    "fileId is required.",
-                    correlationId);
+                    "file_ids_required",
+                    "fileIds must contain at least one file ID.",
+                    correlationId,
+                    new Dictionary<string, string[]>(StringComparer.Ordinal)
+                    {
+                        ["fileIds"] = ["fileIds must contain at least one file ID."]
+                    });
             }
 
-            var job = await _repository.GetDocumentConversionJobAsync(fileId);
-
-            if (job == null)
+            if (fileIds.Count > MaxBatchSize)
             {
-                return DocumentConversionResult<DocumentConversionStatusResponse>.Failure(
-                    DocumentConversionFailureKind.NotFound,
-                    "conversion_not_found",
-                    "That file has not been submitted for conversion.",
-                    correlationId);
+                return DocumentConversionResult<DocumentConversionStatusBatchResponse>.Failure(
+                    DocumentConversionFailureKind.Validation,
+                    "too_many_files",
+                    $"A single request can query at most {MaxBatchSize} files; {fileIds.Count} were sent.",
+                    correlationId,
+                    new Dictionary<string, string[]>(StringComparer.Ordinal)
+                    {
+                        ["fileIds"] = [$"A single request can query at most {MaxBatchSize} files."]
+                    });
+            }
+
+            var jobs = await _repository.GetDocumentConversionJobsAsync(fileIds);
+            var jobsById = jobs.ToDictionary(j => j.Id, StringComparer.Ordinal);
+
+            // Storage is consulted once per succeeded file, and those lookups are independent of one
+            // another, so they run concurrently rather than serially the way the write side does —
+            // there is no shared record any of them is racing to update.
+            var resolutions = await Task.WhenAll(fileIds.Select(fileId => BuildStatus(fileId, jobsById)));
+
+            return DocumentConversionResult<DocumentConversionStatusBatchResponse>.Success(
+                new DocumentConversionStatusBatchResponse { Results = resolutions.ToList() },
+                correlationId);
+        }
+
+        private async Task<DocumentConversionStatusResult> BuildStatus(
+            string fileId,
+            IReadOnlyDictionary<string, DocumentConversionJob> jobsById)
+        {
+            if (!jobsById.TryGetValue(fileId, out var job))
+            {
+                return new DocumentConversionStatusResult
+                {
+                    FileId = fileId,
+                    Found = false,
+                    ErrorCode = "conversion_not_found",
+                    ErrorMessage = "That file has not been submitted for conversion."
+                };
             }
 
             var isComplete = job.Status is DocumentConversionStatus.Succeeded or DocumentConversionStatus.Failed;
 
-            var response = new DocumentConversionStatusResponse
+            var result = new DocumentConversionStatusResult
             {
                 FileId = job.Id,
+                Found = true,
                 FileName = job.FileName,
                 MessageCoRelationId = job.MessageCoRelationId,
                 Status = job.Status,
@@ -182,12 +297,12 @@ namespace Utility.DomainService.PdfGenerator.service
                 }
                 else
                 {
-                    response.DownloadUrl = record.Url;
-                    response.FileName ??= record.Name;
+                    result.DownloadUrl = record.Url;
+                    result.FileName ??= record.Name;
                 }
             }
 
-            return DocumentConversionResult<DocumentConversionStatusResponse>.Success(response, correlationId);
+            return result;
         }
     }
 }

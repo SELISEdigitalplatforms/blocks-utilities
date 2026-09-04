@@ -179,6 +179,35 @@ namespace Utility.DomainService.PdfGenerator.service
         }
 
         /// <summary>
+        /// Reads several conversion records in one round trip via an $in filter, rather than the
+        /// batch status endpoint issuing one query per file.
+        /// </summary>
+        public async Task<List<DocumentConversionJob>> GetDocumentConversionJobsAsync(IEnumerable<string> fileIds, string? tenantId = null)
+        {
+            var ids = fileIds.ToList();
+
+            if (ids.Count == 0)
+            {
+                return new List<DocumentConversionJob>();
+            }
+
+            try
+            {
+                var tid = tenantId ?? BlocksContext.GetContext()?.TenantId ?? "";
+                var database = _dbContextProvider.GetDatabase(tid);
+                var collection = database.GetCollection<DocumentConversionJob>(DocumentConversionJobs);
+                var filter = Builders<DocumentConversionJob>.Filter.In(j => j.Id, ids);
+
+                return await collection.Find(filter).ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetDocumentConversionJobsAsync for {Count} file(s)", ids.Count);
+                return new List<DocumentConversionJob>();
+            }
+        }
+
+        /// <summary>
         /// Writes a conversion's new state.
         /// </summary>
         /// <remarks>
