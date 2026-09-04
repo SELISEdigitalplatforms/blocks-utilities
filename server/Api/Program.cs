@@ -76,6 +76,8 @@ services.AddOpenApi(options =>
         new ApiSecuritySchemeDocumentTransformer());
     options.AddOperationTransformer(
         new AuthorizedOperationSecurityTransformer());
+    options.AddOperationTransformer(
+        new ApiResponseFailureExampleOperationTransformer());
 });
 services.AddSingleton<
     IWebhookRequestBodyReader,

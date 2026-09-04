@@ -64,6 +64,57 @@ public static class SubscriptionDocumentSourceFactory
         };
     }
 
+    /// <summary>
+    /// The obligation an opening period that activated with nothing due leaves behind: a document
+    /// stating what it was worth, even though nothing was collected.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="ForCharge"/>, this freezes <see cref="SubscriptionDocumentSource.Amounts"/>.
+    /// There is no payment behind this event to read them from later — the card-setup record it
+    /// keys off carries no money at all — so the figures have to be pinned down here or nowhere, the
+    /// same reason a banked-credit source freezes them.
+    /// </remarks>
+    /// <param name="paymentMethodSetupPaymentId">
+    /// The card-setup payment's id, used only to key the obligation for idempotency. It carries no
+    /// money and is never read back as the document's payment.
+    /// </param>
+    /// <param name="amounts">
+    /// The breakdown to freeze, from <c>SubscriptionFinancialDocumentIssuer.RecomposeInitialCharge</c>
+    /// — computed here, at activation, because there is no later moment a payment would let it be
+    /// recomputed at.
+    /// </param>
+    public static SubscriptionDocumentSource ForOpeningDiscount(
+        SubscriptionDetail subscription,
+        string paymentMethodSetupPaymentId,
+        FinancialDocumentAmounts amounts,
+        FinancialDocumentPerson? initiatedBy,
+        DateTime occurredAtUtc,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(amounts);
+
+        var charge = new SubscriptionChargeReference(
+            subscription.ItemId,
+            SubscriptionChargeKind.Initial,
+            null);
+
+        return new SubscriptionDocumentSource
+        {
+            SourceKey = FinancialDocumentSourceKey.ForPayment(paymentMethodSetupPaymentId),
+            DocumentType = FinancialDocumentType.Invoice,
+            ChargeKind = SubscriptionChargeKind.Initial,
+            CurrencyCode = subscription.CurrencyCode,
+            Subject = SubjectOf(subscription),
+            QuantityItems = Frozen(subscription.QuantityItems),
+            Period = PeriodFor(subscription, charge),
+            Amounts = amounts,
+            InitiatedBy = initiatedBy,
+            OccurredAtUtc = occurredAtUtc,
+            CorrelationId = correlationId
+        };
+    }
+
     /// <summary>The obligation a trial start leaves behind: a document stating terms, not a charge.</summary>
     public static SubscriptionDocumentSource? ForTrial(
         SubscriptionDetail subscription,

@@ -63,6 +63,27 @@ public interface ISubscriptionFinancialDocumentAnnouncer
         FinancialDocumentPerson? initiatedBy = null);
 
     /// <summary>
+    /// Announces an opening period that activated with nothing due — a price discounted to zero, or
+    /// one that was already zero — which owes a document stating what it was worth even though
+    /// nothing was collected.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="AnnounceChargeAsync"/>, the figures are frozen into the obligation itself
+    /// rather than left for the issuer to read off a payment: the card-setup payment behind this
+    /// event carries no money and its status is never asked to reach "settled", because there is
+    /// nothing for it to settle.
+    /// </remarks>
+    /// <param name="paymentMethodSetupPaymentId">
+    /// The card-setup payment's id, used only to key the obligation for idempotency.
+    /// </param>
+    Task AnnounceOpeningDiscountAsync(
+        SubscriptionDetail subscription,
+        string paymentMethodSetupPaymentId,
+        string correlationId,
+        CancellationToken cancellationToken,
+        FinancialDocumentPerson? initiatedBy = null);
+
+    /// <summary>
     /// Asks for whatever a subscription already owes to be written now.
     /// </summary>
     /// <remarks>
