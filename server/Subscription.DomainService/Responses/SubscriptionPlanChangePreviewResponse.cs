@@ -75,7 +75,16 @@ public sealed class SubscriptionPlanChangePreviewResponse
 
     public DateTime NewPeriodEndUtc { get; init; }
 
-    /// <summary>What a full period costs at the target plan and price, once this change has settled.</summary>
+    /// <summary>
+    /// What a full period costs at the target plan and price, once this change has settled — never
+    /// the stub a move onto a calendar-aligned price buys first.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <c>settlement.target.periodTotalMinor</c>, which is the period this settlement
+    /// actually prices. For a calendar-aligned target those differ: the stub is scaled by the days
+    /// to the next boundary, and a yearly target's stub is priced from the monthly amount it was
+    /// linked to rather than from the annual amount at all.
+    /// </remarks>
     public long NextRenewalAmountMinor { get; init; }
 
     /// <summary>
