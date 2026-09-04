@@ -1,4 +1,4 @@
-using Utility.DomainService.PdfGenerator.Entities;
+﻿using Utility.DomainService.PdfGenerator.Entities;
 
 namespace Utility.DomainService.PdfGenerator.service
 {
@@ -11,6 +11,12 @@ namespace Utility.DomainService.PdfGenerator.service
         Task<bool> SavePdfExtractDumpAsync(PdfExtractDump extractDump, string? tenantId = null);
         Task<bool> PdfExtractDumpExistsAsync(string recordId, string? tenantId = null);
         Task<PdfExtractDump?> GetPdfExtractDumpAsync(string recordId, string? tenantId = null);
+
+        // Document conversion jobs. The status endpoint's only source of truth, so a caller that
+        // misses the completion notification can still find out what happened.
+        Task<bool> SaveDocumentConversionJobAsync(DocumentConversionJob job, string? tenantId = null);
+        Task<DocumentConversionJob?> GetDocumentConversionJobAsync(string fileId, string? tenantId = null);
+        Task<bool> UpdateDocumentConversionJobAsync(DocumentConversionJob job, string? tenantId = null);
     }
 }
 

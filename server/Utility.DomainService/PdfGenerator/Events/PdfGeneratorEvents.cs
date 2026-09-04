@@ -134,14 +134,17 @@
     }
 
     /// <summary>
-    /// Event for converting word-processing documents to PDF
+    /// Event for converting one word-processing document to PDF
     /// </summary>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
-    public record ConvertDocumentsToPdfEvent
+    public record ConvertDocumentToPdfEvent
     {
-        public string MessageCoRelationId { get; set; } = string.Empty;
-        public Dictionary<string, string>? EventReferenceData { get; set; }
-        public List<ConvertDocumentToPdfCommand> ConvertCommands { get; set; } = new();
+        /// <summary>
+        /// The file to convert, which is also the key of the conversion record the worker updates
+        /// as it goes — the record the status endpoint reads.
+        /// </summary>
+        public string FileId { get; set; } = string.Empty;
+        public string? MessageCoRelationId { get; set; }
         public string? ProjectKey { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-namespace Utility.DomainService.PdfGenerator.service
+﻿namespace Utility.DomainService.PdfGenerator.service
 {
     /// <summary>
     /// Service interface for PDF generator operations
@@ -25,9 +25,6 @@ namespace Utility.DomainService.PdfGenerator.service
         Task<StampImageToPdfResponse> StampImageToPdfAsync(StampImageToPdfRequest request);
         Task<StampTextToPdfResponse> StampTextToPdfAsync(StampTextToPdfRequest request);
         Task<StampIntoPdfResponse> StampIntoPdfAsync(StampIntoPdfRequest request);
-
-        // Document conversion operations
-        Task<ConvertDocumentsToPdfResponse> ConvertDocumentsToPdfAsync(ConvertDocumentsToPdfRequest request);
     }
 }
 

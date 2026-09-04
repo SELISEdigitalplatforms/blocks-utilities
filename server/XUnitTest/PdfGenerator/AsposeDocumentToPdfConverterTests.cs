@@ -1,9 +1,10 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Utility.DomainService.PdfGenerator;
 using Utility.DomainService.PdfGenerator.service;
+using Utility.DomainService.PdfGenerator.Entities;
 using Worker.Consumers.PdfGenerator;
 
 namespace XUnitTest.PdfGenerator
@@ -258,78 +259,83 @@ namespace XUnitTest.PdfGenerator
         }
     }
 
-    public class ConvertDocumentsToPdfContractTests
+    public class ConvertDocumentToPdfContractTests
     {
-        [Fact]
-        public void ResolveOutputFileName_ExplicitName_IsUsedVerbatim()
+        [Theory]
+        [InlineData("Q3 Report.docx", "Q3 Report.pdf")]
+        [InlineData("contract.doc", "contract.pdf")]
+        [InlineData("notes.RTF", "notes.pdf")]
+        [InlineData("archive.tar.gz", "archive.tar.pdf")]
+        public void ToPdfName_SwapsTheSourceExtension(string sourceName, string expected)
         {
-            var name = ConvertDocumentsToPdfConsumer.ResolveOutputFileName(new ConvertDocumentToPdfCommand
-            {
-                DocumentFileName = "source.docx",
-                OutputPdfFileName = "Signed Contract.pdf",
-                OutputPdfFileId = "out-1"
-            });
+            ConvertDocumentToPdfConsumer.ToPdfName(sourceName, "file-1").Should().Be(expected);
+        }
 
-            name.Should().Be("Signed Contract.pdf");
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ToPdfName_NoUsableSourceName_FallsBackToTheFileId(string? sourceName)
+        {
+            ConvertDocumentToPdfConsumer.ToPdfName(sourceName, "file-1").Should().Be("file-1.pdf");
         }
 
         [Fact]
-        public void ResolveOutputFileName_NoExplicitName_SwapsSourceExtension()
+        public void Request_NeedsNothingButTheInputFileId()
         {
-            var name = ConvertDocumentsToPdfConsumer.ResolveOutputFileName(new ConvertDocumentToPdfCommand
-            {
-                DocumentFileName = "Q3 Report.docx",
-                OutputPdfFileId = "out-1"
-            });
+            var request = new ConvertDocumentToPdfRequest { InputFileId = "doc-1" };
 
-            name.Should().Be("Q3 Report.pdf");
+            request.InputFileId.Should().Be("doc-1");
+            request.MessageCoRelationId.Should().BeNull();
         }
 
         [Fact]
-        public void ResolveOutputFileName_NoUsableSourceName_FallsBackToOutputId()
+        public void StatusResponse_OffersNoDownloadUntilTheConversionSucceeds()
         {
-            var name = ConvertDocumentsToPdfConsumer.ResolveOutputFileName(new ConvertDocumentToPdfCommand
+            // A caller polling a running conversion must not be handed a URL that still points at
+            // the unconverted document. The file ID is always present — it is the key they polled
+            // with — but the download only appears once there is a PDF behind it.
+            var running = new DocumentConversionStatusResponse
             {
-                DocumentFileName = string.Empty,
-                OutputPdfFileId = "out-1"
-            });
-
-            name.Should().Be("out-1.pdf");
-        }
-
-        [Fact]
-        public void ConvertDocumentsToPdfRequest_And_Response_ShouldStoreValues()
-        {
-            var request = new ConvertDocumentsToPdfRequest
-            {
-                ProjectKey = "p1",
-                MessageCoRelationId = "corr",
-                EventReferenceData = new Dictionary<string, string> { ["source"] = "test" },
-                ConvertCommands = new List<ConvertDocumentToPdfCommand>
-                {
-                    new()
-                    {
-                        DocumentFileId = "doc-1",
-                        DocumentFileName = "contract.docx",
-                        OutputPdfFileId = "pdf-1",
-                        PdfACompliant = true
-                    }
-                }
+                FileId = "doc-1",
+                FileName = "contract.docx",
+                Status = DocumentConversionStatus.Processing,
+                IsComplete = false
             };
 
-            request.ProjectKey.Should().Be("p1");
-            request.ConvertCommands.Should().ContainSingle()
-                .Which.DocumentFileName.Should().Be("contract.docx");
+            running.FileId.Should().Be("doc-1");
+            running.DownloadUrl.Should().BeNull();
+            running.CompletedAtUtc.Should().BeNull();
+        }
 
-            var response = new ConvertDocumentsToPdfResponse
+        [Theory]
+        [InlineData(DocumentConversionStatus.Queued, false)]
+        [InlineData(DocumentConversionStatus.Processing, false)]
+        [InlineData(DocumentConversionStatus.Succeeded, true)]
+        [InlineData(DocumentConversionStatus.Failed, true)]
+        public void Status_TerminalStatesAreTheOnesAPollerStopsOn(
+            DocumentConversionStatus status,
+            bool expectedTerminal)
+        {
+            var isTerminal = status is DocumentConversionStatus.Succeeded or DocumentConversionStatus.Failed;
+
+            isTerminal.Should().Be(expectedTerminal);
+        }
+
+        [Fact]
+        public void AcceptedResponse_CarriesWhereToPoll()
+        {
+            // The poll key is the file ID the caller already sent, not a new identifier.
+            var accepted = new ConvertDocumentToPdfAcceptedResponse
             {
-                IsSuccess = true,
-                MessageCoRelationId = "corr",
-                Message = "queued"
+                FileId = "doc-1",
+                Status = DocumentConversionStatus.Queued,
+                StatusUrl = "/document-conversions/doc-1"
             };
 
-            response.IsSuccess.Should().BeTrue();
-            response.MessageCoRelationId.Should().Be("corr");
+            accepted.FileId.Should().Be("doc-1");
+            accepted.Status.Should().Be(DocumentConversionStatus.Queued);
+            accepted.StatusUrl.Should().Be("/document-conversions/doc-1");
         }
     }
 }

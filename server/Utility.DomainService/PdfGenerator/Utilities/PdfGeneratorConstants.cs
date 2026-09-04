@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using Utility.DomainService.Messaging;
 
 namespace Utility.DomainService.PdfGenerator.Utilities
@@ -16,7 +16,7 @@ namespace Utility.DomainService.PdfGenerator.Utilities
         public const string StampImageToPdfQueue = "blocks_pdf_stamp_image_listener";
         public const string StampTextToPdfQueue = "blocks_pdf_stamp_text_listener";
         public const string StampIntoPdfQueue = "blocks_pdf_stamp_listener";
-        public const string ConvertDocumentsToPdfQueue = "blocks_pdf_convert_document_listener";
+        public const string ConvertDocumentToPdfQueue = "blocks_pdf_convert_document_listener";
 
         public static MessageConfiguration GetMessageConfiguration(string messageConnectionString)
         {
@@ -31,7 +31,7 @@ namespace Utility.DomainService.PdfGenerator.Utilities
                 StampImageToPdfQueue,
                 StampTextToPdfQueue,
                 StampIntoPdfQueue,
-                ConvertDocumentsToPdfQueue
+                ConvertDocumentToPdfQueue
             );
         }
     }
