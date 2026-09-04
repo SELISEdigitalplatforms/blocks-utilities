@@ -96,10 +96,11 @@ public sealed class PaymentWorkCommandConsumer :
             IPaymentOutboxProcessor>();
         var refundOutbox = services.GetRequiredService<
             IPaymentRefundOutboxProcessor>();
-        var processedWebhooks =
+        var webhookResult =
             await webhooks.ProcessDueAsync(
                 command.TenantId,
                 CancellationToken.None);
+        var processedWebhooks = webhookResult.ProcessedCount;
         var publishedPaymentEvents =
             await paymentOutbox.PublishDueAsync(
                 command.TenantId,
@@ -151,6 +152,15 @@ public sealed class PaymentWorkCommandConsumer :
             ISubscriptionActivationProcessor>();
         var subscriptionOutbox = services.GetRequiredService<
             ISubscriptionOutboxProcessor>();
+        // The fast path. This tick holds both the confirmation and the subscription waiting on
+        // it, so settle that exact link now rather than waiting for its deferred next-check to
+        // come round — or, failing that, the two-minute repair sweep. Runs before the sweep
+        // below so a link settled here is no longer pending and is not looked at twice.
+        var targetedSettlements =
+            await subscriptionActivation.SettleForPaymentsAsync(
+                command.TenantId,
+                webhookResult.TransitionedPaymentDetailIds,
+                CancellationToken.None);
         var activatedSubscriptions =
             await subscriptionActivation.ProcessDueAsync(
                 command.TenantId,
@@ -161,12 +171,13 @@ public sealed class PaymentWorkCommandConsumer :
                 CancellationToken.None);
 
         _logger.LogInformation(
-            "Payment work command processing completed Phase={Phase} DurationMs={DurationMs} ProcessedWebhookCount={ProcessedWebhookCount} PublishedPaymentEventCount={PublishedPaymentEventCount} PublishedRefundEventCount={PublishedRefundEventCount} ActivatedSubscriptionCount={ActivatedSubscriptionCount} PublishedSubscriptionEventCount={PublishedSubscriptionEventCount}",
+            "Payment work command processing completed Phase={Phase} DurationMs={DurationMs} ProcessedWebhookCount={ProcessedWebhookCount} PublishedPaymentEventCount={PublishedPaymentEventCount} PublishedRefundEventCount={PublishedRefundEventCount} TargetedSettlementCount={TargetedSettlementCount} ActivatedSubscriptionCount={ActivatedSubscriptionCount} PublishedSubscriptionEventCount={PublishedSubscriptionEventCount}",
             PaymentPhases.Completed,
             stopwatch.Elapsed.TotalMilliseconds,
             processedWebhooks,
             publishedPaymentEvents,
             publishedRefundEvents,
+            targetedSettlements,
             activatedSubscriptions,
             publishedSubscriptionEvents);
     }

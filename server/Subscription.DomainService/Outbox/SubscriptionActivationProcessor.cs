@@ -124,6 +124,52 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         CancellationToken cancellationToken) =>
         SettleAsync(link, _options.CurrentValue, _time.GetUtcNow().UtcDateTime, cancellationToken);
 
+    public async Task<int> SettleForPaymentsAsync(
+        string tenantId,
+        IReadOnlyCollection<string> paymentDetailIds,
+        CancellationToken cancellationToken)
+    {
+        if (paymentDetailIds is null || paymentDetailIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var settled = 0;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var paymentDetailId in paymentDetailIds)
+        {
+            if (string.IsNullOrWhiteSpace(paymentDetailId) ||
+                !seen.Add(paymentDetailId))
+            {
+                continue;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // A point read, not a scan: (TenantId, PaymentDetailId) is uniquely indexed.
+            var link = await _links.FindByPaymentAsync(
+                tenantId,
+                paymentDetailId,
+                cancellationToken);
+
+            // No link means this payment is not a subscription's — most payments are not — and a
+            // link that is no longer pending has already had its outcome carried across.
+            if (link is null ||
+                link.State != SubscriptionPaymentLinkState.Pending)
+            {
+                continue;
+            }
+
+            if (await SettleDecidedAsync(link, cancellationToken))
+            {
+                settled++;
+            }
+        }
+
+        return settled;
+    }
+
     public async Task<int> RecoverStaleAsync(
         string tenantId,
         CancellationToken cancellationToken)
@@ -211,20 +257,34 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         return recovered;
     }
 
-    private async Task<bool> SettleAsync(
+    /// <summary>What the payment behind a link says should happen to it.</summary>
+    private enum SettlementOutcome
+    {
+        /// <summary>The money is ours and a webhook said so.</summary>
+        Activate,
+
+        /// <summary>The payment will never be confirmed.</summary>
+        Abandon,
+
+        /// <summary>Still in flight. Nothing to carry across yet.</summary>
+        Undecided,
+
+        /// <summary>The payment row could not be read at all.</summary>
+        PaymentMissing
+    }
+
+    /// <summary>
+    /// Reads the payment behind a link and decides its fate, without acting on it.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the sweep and the targeted pass so the two can never disagree about what a
+    /// payment status means. Only what happens to an undecided payment differs, and that is the
+    /// callers' business rather than this method's.
+    /// </remarks>
+    private async Task<(SettlementOutcome Outcome, PaymentDetail? Payment)> ClassifyAsync(
         SubscriptionPaymentLink link,
-        SubscriptionOptions options,
-        DateTime now,
         CancellationToken cancellationToken)
     {
-        using var logScope = _logger.BeginScope(new Dictionary<string, object?>
-        {
-            ["TenantHash"] = PaymentLogValue.Hash(link.TenantId),
-            ["SubscriptionHash"] = PaymentLogValue.Hash(link.SubscriptionId),
-            ["CorrelationId"] = link.CorrelationId
-        });
-        await AuditAsync(link, "SettlementStarted", "InProgress", null, cancellationToken);
-
         var payment = await _payments.GetByIdAsync(
             link.TenantId,
             link.PaymentDetailId,
@@ -232,39 +292,142 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
 
         if (payment is null)
         {
-            await RescheduleAsync(link, options, now, "payment_not_found", cancellationToken);
-            await AuditAsync(link, "PaymentRead", "Deferred", "payment_not_found", cancellationToken);
-
-            return false;
+            return (SettlementOutcome.PaymentMissing, null);
         }
 
         if (IsConfirmed(payment))
         {
-            var activated = await ActivateAsync(link, payment, cancellationToken);
-            await AuditAsync(link, "ActivationApplied", activated ? "Succeeded" : "Deferred",
-                activated ? null : "activation_state_conflict", cancellationToken);
-            return activated;
+            return (SettlementOutcome.Activate, payment);
         }
 
         if (TerminalFailureStatuses.Contains(payment.PaymentStatus, StringComparer.Ordinal))
         {
-            var abandoned = await AbandonAsync(link, cancellationToken);
-            await AuditAsync(link, "PaymentConfirmed", "Failed",
-                payment.PaymentStatus, cancellationToken);
-            return abandoned;
+            return (SettlementOutcome.Abandon, payment);
         }
 
-        await RescheduleAsync(
-            link,
-            options,
-            now,
-            $"awaiting_confirmation:{PaymentLogValue.Label(payment.PaymentStatus)}",
-            cancellationToken);
-        await AuditAsync(link, "PaymentConfirmation", "Deferred",
+        return (SettlementOutcome.Undecided, payment);
+    }
+
+    /// <summary>
+    /// The sweep's pass over one link: settles it when the payment has decided, and defers it,
+    /// burning an attempt, when it has not.
+    /// </summary>
+    private async Task<bool> SettleAsync(
+        SubscriptionPaymentLink link,
+        SubscriptionOptions options,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        using var logScope = BeginLinkScope(link);
+        await AuditAsync(link, "SettlementStarted", "InProgress", null, cancellationToken);
+
+        var (outcome, payment) = await ClassifyAsync(link, cancellationToken);
+
+        switch (outcome)
+        {
+            case SettlementOutcome.PaymentMissing:
+                await RescheduleAsync(link, options, now, "payment_not_found", cancellationToken);
+                await AuditAsync(link, "PaymentRead", "Deferred", "payment_not_found", cancellationToken);
+
+                return false;
+
+            case SettlementOutcome.Activate:
+                return await ApplyActivationAsync(link, payment!, cancellationToken);
+
+            case SettlementOutcome.Abandon:
+                return await ApplyAbandonmentAsync(link, payment!, cancellationToken);
+
+            case SettlementOutcome.Undecided:
+                await RescheduleAsync(
+                    link,
+                    options,
+                    now,
+                    $"awaiting_confirmation:{PaymentLogValue.Label(payment!.PaymentStatus)}",
+                    cancellationToken);
+                await AuditAsync(link, "PaymentConfirmation", "Deferred",
+                    payment.PaymentStatus, cancellationToken);
+
+                return false;
+
+            // Named rather than folded into the reschedule branch above: a new outcome silently
+            // treated as "still in flight" would defer a link forever, and the branch it landed
+            // in dereferences a payment that PaymentMissing does not have.
+            default:
+                throw new InvalidOperationException(
+                    $"Unhandled settlement outcome {outcome}.");
+        }
+    }
+
+    /// <summary>
+    /// The targeted pass over one link: settles it when the payment has decided, and otherwise
+    /// leaves it exactly as it found it.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is written for an undecided payment — not <c>AttemptCount</c>, not
+    /// <c>NextCheckAtUtc</c>, not an audit row. This runs on every webhook tick, so deferring here
+    /// would burn attempts against <c>ActivationMaxAttempts</c>, push the sweep's next look
+    /// further out, and fill the trail with deferral pairs. The sweep keeps sole ownership of
+    /// retry accounting.
+    /// </remarks>
+    private async Task<bool> SettleDecidedAsync(
+        SubscriptionPaymentLink link,
+        CancellationToken cancellationToken)
+    {
+        using var logScope = BeginLinkScope(link);
+
+        // Classified before the first audit row is written, so an undecided payment leaves no
+        // trace at all.
+        var (outcome, payment) = await ClassifyAsync(link, cancellationToken);
+
+        if (outcome is SettlementOutcome.Undecided or SettlementOutcome.PaymentMissing)
+        {
+            return false;
+        }
+
+        await AuditAsync(link, "SettlementStarted", "InProgress", null, cancellationToken);
+
+        return outcome switch
+        {
+            SettlementOutcome.Activate =>
+                await ApplyActivationAsync(link, payment!, cancellationToken),
+            SettlementOutcome.Abandon =>
+                await ApplyAbandonmentAsync(link, payment!, cancellationToken),
+            _ => throw new InvalidOperationException(
+                $"Unhandled settlement outcome {outcome}.")
+        };
+    }
+
+    private async Task<bool> ApplyActivationAsync(
+        SubscriptionPaymentLink link,
+        PaymentDetail payment,
+        CancellationToken cancellationToken)
+    {
+        var activated = await ActivateAsync(link, payment, cancellationToken);
+        await AuditAsync(link, "ActivationApplied", activated ? "Succeeded" : "Deferred",
+            activated ? null : "activation_state_conflict", cancellationToken);
+
+        return activated;
+    }
+
+    private async Task<bool> ApplyAbandonmentAsync(
+        SubscriptionPaymentLink link,
+        PaymentDetail payment,
+        CancellationToken cancellationToken)
+    {
+        var abandoned = await AbandonAsync(link, cancellationToken);
+        await AuditAsync(link, "PaymentConfirmed", "Failed",
             payment.PaymentStatus, cancellationToken);
 
-        return false;
+        return abandoned;
     }
+
+    private IDisposable? BeginLinkScope(SubscriptionPaymentLink link) =>
+        _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["TenantHash"] = PaymentLogValue.Hash(link.TenantId),
+            ["SubscriptionHash"] = PaymentLogValue.Hash(link.SubscriptionId),
+            ["CorrelationId"] = link.CorrelationId
+        });
 
     private Task AuditAsync(
         SubscriptionPaymentLink link,

@@ -367,19 +367,29 @@ public sealed class SubscriptionActivationProcessorTests
                 It.IsAny<DateTime>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(
-            [
-                new SubscriptionPaymentLink
-                {
-                    ItemId = "link-1",
-                    TenantId = TenantId,
-                    OrganizationId = "org-1",
-                    SubscriptionId = "sub-1",
-                    PaymentDetailId = "pay-1",
-                    Purpose = purpose,
-                    CorrelationId = "corr-1"
-                }
-            ]);
+            .ReturnsAsync([NewLink(purpose)]);
+
+    /// <summary>
+    /// The link both settlement paths act on. Shared so the sweep and the targeted pass are
+    /// provably testing the same object rather than two literals that can drift apart.
+    /// </summary>
+    private static SubscriptionPaymentLink NewLink(
+        SubscriptionPaymentPurpose purpose = SubscriptionPaymentPurpose.InitialCharge,
+        SubscriptionPaymentLinkState state = SubscriptionPaymentLinkState.Pending,
+        DateTime? nextCheckAtUtc = null,
+        int attemptCount = 0) => new()
+    {
+        ItemId = "link-1",
+        TenantId = TenantId,
+        OrganizationId = "org-1",
+        SubscriptionId = "sub-1",
+        PaymentDetailId = "pay-1",
+        Purpose = purpose,
+        CorrelationId = "corr-1",
+        State = state,
+        AttemptCount = attemptCount,
+        NextCheckAtUtc = nextCheckAtUtc
+    };
 
     private void GivenPayment(
         string status,
@@ -833,6 +843,8 @@ public sealed class SubscriptionActivationProcessorTests
 
     private readonly Mock<ISubscriptionRenewalService> _renewals = new();
 
+    private readonly Mock<ISubscriptionAuditTrail> _audit = new();
+
     private SubscriptionActivationProcessor Processor() => new(
         _links.Object,
         _subscriptions.Object,
@@ -843,8 +855,257 @@ public sealed class SubscriptionActivationProcessorTests
         new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionActivationProcessor>.Instance,
         _time,
+        audit: _audit.Object,
         renewals: _renewals.Object,
         documents: _documents.Object);
+
+    /// <summary>
+    /// The reported bug: a paid signup sat Incomplete for 128 seconds.
+    /// </summary>
+    /// <remarks>
+    /// The first settlement pass ran before Stripe had decided, so it deferred the link 30 seconds
+    /// out. The webhook then arrived inside that window — the worker held the confirmation and the
+    /// subscription in the same tick — but the sweep only ever asks which links are <em>due</em>,
+    /// and this one was not for another 20 seconds. Nothing re-fires at the 30-second mark, so the
+    /// activation fell through to the two-minute repair sweep.
+    /// </remarks>
+    [Fact]
+    public async Task A_confirmed_payment_settles_its_link_even_before_its_next_check_is_due()
+    {
+        GivenLinkForPayment(nextCheckAtUtc: _time.GetUtcNow().UtcDateTime.AddSeconds(20));
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            ["pay-1"],
+            CancellationToken.None);
+
+        settled.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+    }
+
+    /// <summary>
+    /// The rule that keeps the fast path from making things slower: retry accounting belongs to
+    /// the sweep alone.
+    /// </summary>
+    /// <remarks>
+    /// This runs on every webhook tick, and a great many of those carry a payment that is still in
+    /// flight. Deferring here would burn attempts against <c>ActivationMaxAttempts</c>, push the
+    /// sweep's next look further out, and fill the audit trail with deferral pairs.
+    /// </remarks>
+    [Fact]
+    public async Task An_undecided_payment_leaves_its_link_completely_untouched()
+    {
+        GivenLinkForPayment(attemptCount: 1);
+        GivenPayment(PaymentStatuses.Processing, webhookConfirmed: false);
+
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            ["pay-1"],
+            CancellationToken.None);
+
+        settled.Should().Be(0);
+        _links.Verify(
+            repository => repository.RescheduleAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<int>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "deferring here would spend an attempt the sweep is counting, and move its next " +
+            "look further away");
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<SubscriptionPaymentLinkState>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _audit.Verify(
+            trail => trail.RecordAsync(
+                It.IsAny<SubscriptionAuditEvent>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a pass that decided nothing has nothing to record, and this one runs on every tick");
+    }
+
+    [Fact]
+    public async Task A_terminally_refused_payment_is_abandoned_through_the_targeted_path()
+    {
+        GivenLinkForPayment();
+        GivenPayment(PaymentStatuses.Refused, webhookConfirmed: true);
+
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            ["pay-1"],
+            CancellationToken.None);
+
+        settled.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
+    }
+
+    [Fact]
+    public async Task A_payment_no_subscription_is_waiting_on_is_a_no_op()
+    {
+        // FindByPaymentAsync unmocked: most payments are not a subscription's.
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            ["pay-1"],
+            CancellationToken.None);
+
+        settled.Should().Be(0);
+        _payments.Verify(
+            repository => repository.GetByIdAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "there is no link to settle, so there is no reason to read the payment");
+    }
+
+    [Fact]
+    public async Task A_link_whose_outcome_was_already_applied_is_a_no_op()
+    {
+        GivenLinkForPayment(state: SubscriptionPaymentLinkState.Applied);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            ["pay-1"],
+            CancellationToken.None);
+
+        settled.Should().Be(0);
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "this outcome has already been carried across");
+    }
+
+    /// <summary>
+    /// The targeted pass now races the sweep, the durable queue and other replicas.
+    /// </summary>
+    /// <remarks>
+    /// The transition is a compare-and-set, so exactly one racer wins it. A loser must leave the
+    /// link pending: settling it would erase the record the winner still needs to settle itself.
+    /// </remarks>
+    [Fact]
+    public async Task Losing_the_transition_race_through_the_targeted_path_leaves_the_link_unsettled()
+    {
+        GivenLinkForPayment();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId,
+                "sub-1",
+                It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            ["pay-1"],
+            CancellationToken.None);
+
+        settled.Should().Be(0);
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<SubscriptionPaymentLinkState>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the winner of the transition settles the link; a loser that settled it first would " +
+            "take that record away");
+    }
+
+    /// <summary>
+    /// The second dedupe on this path — the webhook processor already dedupes its own batch — and
+    /// the one that protects the point read.
+    /// </summary>
+    /// <remarks>
+    /// Pinned rather than left to inspection precisely because it looks redundant: someone
+    /// removing it as duplication would otherwise break nothing, and the link would be looked up
+    /// and settled once per event naming the same payment.
+    /// </remarks>
+    [Fact]
+    public async Task A_payment_named_twice_in_one_call_is_looked_up_and_settled_once()
+    {
+        GivenLinkForPayment();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            ["pay-1", "pay-1"],
+            CancellationToken.None);
+
+        settled.Should().Be(1);
+        _links.Verify(
+            repository => repository.FindByPaymentAsync(
+                TenantId,
+                "pay-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// Most webhook ticks confirm nothing a subscription is waiting on, so the common case must
+    /// cost no database calls at all.
+    /// </summary>
+    [Fact]
+    public async Task A_tick_that_transitioned_no_payments_touches_nothing()
+    {
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            [],
+            CancellationToken.None);
+
+        settled.Should().Be(0);
+        _links.VerifyNoOtherCalls();
+        _payments.VerifyNoOtherCalls();
+        _subscriptions.VerifyNoOtherCalls();
+    }
+
+    /// <summary>
+    /// Defensive: the parameter is non-nullable, so this guards against a caller that ignores
+    /// that rather than against anything the worker does today.
+    /// </summary>
+    [Fact]
+    public async Task A_null_collection_is_treated_as_nothing_to_settle()
+    {
+        var settled = await Processor().SettleForPaymentsAsync(
+            TenantId,
+            null!,
+            CancellationToken.None);
+
+        settled.Should().Be(0);
+        _links.VerifyNoOtherCalls();
+    }
+
+    /// <summary>The link the targeted pass finds by payment id, rather than by being due.</summary>
+    private void GivenLinkForPayment(
+        SubscriptionPaymentLinkState state = SubscriptionPaymentLinkState.Pending,
+        DateTime? nextCheckAtUtc = null,
+        int attemptCount = 0,
+        SubscriptionPaymentPurpose purpose = SubscriptionPaymentPurpose.InitialCharge) =>
+        _links
+            .Setup(repository => repository.FindByPaymentAsync(
+                TenantId,
+                "pay-1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(
+                purpose,
+                state,
+                nextCheckAtUtc ?? _time.GetUtcNow().UtcDateTime,
+                attemptCount));
 
     private static SubscriptionDetail NewSubscription() => new()
     {

@@ -73,7 +73,7 @@ public sealed class PaymentWorkCommandConsumerTests
             .Setup(processor => processor.ProcessDueAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback(() => observed = PaymentCorrelation.Current)
-            .ReturnsAsync(0);
+            .ReturnsAsync(PaymentWebhookProcessingResult.Empty);
 
         await fixture.Consumer.Consume(new ProcessPaymentWorkCommand
         {
@@ -98,7 +98,7 @@ public sealed class PaymentWorkCommandConsumerTests
             .Setup(processor => processor.ProcessDueAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback(() => observed = PaymentCorrelation.Current)
-            .ReturnsAsync(0);
+            .ReturnsAsync(PaymentWebhookProcessingResult.Empty);
 
         await fixture.Consumer.Consume(new ProcessPaymentWorkCommand
         {
@@ -146,6 +146,38 @@ public sealed class PaymentWorkCommandConsumerTests
         PaymentCorrelation.Current.Should().Be("none");
     }
 
+    /// <summary>
+    /// The fast path: this tick holds both the confirmation and the subscription waiting on it.
+    /// </summary>
+    /// <remarks>
+    /// The targeted settle must run <em>before</em> the due sweep, so a link it settles is no
+    /// longer pending and the sweep does not look at the same link twice in one tick. The sweep
+    /// still runs — it remains the backstop for everything the webhook did not name.
+    /// </remarks>
+    [Fact]
+    public async Task Consume_settles_the_confirmed_payments_links_before_running_the_sweep()
+    {
+        var fixture = new Fixture();
+
+        await fixture.Consumer.Consume(new ProcessPaymentWorkCommand
+        {
+            TenantId = TenantId
+        });
+
+        fixture.SubscriptionActivation.Verify(processor => processor.SettleForPaymentsAsync(
+                TenantId,
+                It.Is<IReadOnlyCollection<string>>(ids => ids.SequenceEqual(new[] { "pay-1" })),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the ids the webhook pass just transitioned are what makes the direct lookup possible");
+        fixture.SubscriptionActivation.Verify(processor => processor.ProcessDueAsync(
+                TenantId,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the sweep keeps its job as the backstop");
+        fixture.SubscriptionCalls.Should().Equal("settle-for-payments", "process-due");
+    }
+
     private sealed class Fixture
     {
         public Mock<IPaymentWebhookProcessor> Webhooks { get; } = new();
@@ -158,6 +190,9 @@ public sealed class PaymentWorkCommandConsumerTests
         public Mock<IPaymentCaptureRecoveryProcessor> CaptureRecovery { get; } = new();
         public Mock<ISubscriptionActivationProcessor> SubscriptionActivation { get; } = new();
         public Mock<ISubscriptionOutboxProcessor> SubscriptionOutbox { get; } = new();
+
+        /// <summary>The order the subscription passes ran in, which is the thing under test.</summary>
+        public List<string> SubscriptionCalls { get; } = [];
         public PaymentWorkCommandConsumer Consumer { get; }
 
         public Fixture()
@@ -168,7 +203,7 @@ public sealed class PaymentWorkCommandConsumerTests
             Webhooks.Setup(processor => processor.ProcessDueAsync(
                     TenantId,
                     It.IsAny<CancellationToken>()))
-                .ReturnsAsync(1);
+                .ReturnsAsync(new PaymentWebhookProcessingResult(1, ["pay-1"]));
             PaymentOutbox.Setup(processor => processor.PublishDueAsync(
                     TenantId,
                     It.IsAny<CancellationToken>()))
@@ -194,6 +229,17 @@ public sealed class PaymentWorkCommandConsumerTests
                     TenantId,
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(1);
+            SubscriptionActivation.Setup(processor => processor.SettleForPaymentsAsync(
+                    TenantId,
+                    It.IsAny<IReadOnlyCollection<string>>(),
+                    It.IsAny<CancellationToken>()))
+                .Callback(() => SubscriptionCalls.Add("settle-for-payments"))
+                .ReturnsAsync(1);
+            SubscriptionActivation.Setup(processor => processor.ProcessDueAsync(
+                    TenantId,
+                    It.IsAny<CancellationToken>()))
+                .Callback(() => SubscriptionCalls.Add("process-due"))
+                .ReturnsAsync(0);
 
             var services = new ServiceCollection();
             services.AddSingleton(contexts.Object);

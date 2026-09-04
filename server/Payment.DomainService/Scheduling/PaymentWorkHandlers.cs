@@ -51,7 +51,10 @@ public sealed class WebhookRecoveryWorkHandler : IPaymentWorkHandler
 
     public async Task<PaymentWorkOutcome> ExecuteAsync(PaymentBackgroundWork work, CancellationToken token)
     {
-        await _webhooks.ProcessDueAsync(work.TenantId, token);
+        // The transitioned payment ids go unused here on purpose: this handler lives in the
+        // payment domain and cannot reach subscriptions. The activation repair sweep still picks
+        // up anything this pass confirms.
+        _ = await _webhooks.ProcessDueAsync(work.TenantId, token);
         return PaymentWorkOutcome.Completed();
     }
 }
