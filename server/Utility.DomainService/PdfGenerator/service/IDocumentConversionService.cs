@@ -1,7 +1,7 @@
-﻿namespace Utility.DomainService.PdfGenerator.service
+namespace Utility.DomainService.PdfGenerator.service
 {
     /// <summary>
-    /// Accepts document-to-PDF conversions and reports what became of them.
+    /// Accepts batches of document-to-PDF conversions and reports what became of them.
     /// </summary>
     /// <remarks>
     /// Separate from <see cref="IPdfGeneratorService"/>, which is a thin queue dispatcher whose
@@ -12,23 +12,21 @@
     public interface IDocumentConversionService
     {
         /// <summary>
-        /// Records and queues a conversion. Returns as soon as the work is accepted, not when it is
-        /// done.
+        /// Records and queues a batch of conversions. Returns as soon as the batch is accepted, not
+        /// when any conversion is done. Each file in the batch succeeds or fails independently — one
+        /// bad ID does not stop the rest of the batch.
         /// </summary>
-        Task<DocumentConversionResult<ConvertDocumentToPdfAcceptedResponse>> RequestConversionAsync(
+        Task<DocumentConversionResult<ConvertDocumentsToPdfBatchResponse>> RequestConversionsAsync(
             ConvertDocumentToPdfRequest request,
             string correlationId,
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Reads a file's conversion state, including a download URL once it has succeeded.
+        /// Reads the current state of a batch of files, including a download URL for each one that
+        /// has succeeded.
         /// </summary>
-        /// <remarks>
-        /// Keyed by the file's own ID — the one the caller sent to start the conversion. No separate
-        /// identifier is issued for them to hold on to.
-        /// </remarks>
-        Task<DocumentConversionResult<DocumentConversionStatusResponse>> GetStatusAsync(
-            string fileId,
+        Task<DocumentConversionResult<DocumentConversionStatusBatchResponse>> GetStatusAsync(
+            GetDocumentConversionStatusRequest request,
             string correlationId,
             CancellationToken cancellationToken = default);
     }
