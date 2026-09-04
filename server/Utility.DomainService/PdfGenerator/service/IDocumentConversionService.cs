@@ -1,4 +1,4 @@
-namespace Utility.DomainService.PdfGenerator.service
+﻿namespace Utility.DomainService.PdfGenerator.service
 {
     /// <summary>
     /// Accepts document-to-PDF conversions and reports what became of them.
@@ -21,10 +21,14 @@ namespace Utility.DomainService.PdfGenerator.service
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Reads a conversion's current state, including a download URL once it has succeeded.
+        /// Reads a file's conversion state, including a download URL once it has succeeded.
         /// </summary>
+        /// <remarks>
+        /// Keyed by the file's own ID — the one the caller sent to start the conversion. No separate
+        /// identifier is issued for them to hold on to.
+        /// </remarks>
         Task<DocumentConversionResult<DocumentConversionStatusResponse>> GetStatusAsync(
-            string conversionId,
+            string fileId,
             string correlationId,
             CancellationToken cancellationToken = default);
     }

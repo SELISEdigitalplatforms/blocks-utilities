@@ -1,4 +1,4 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using System.Diagnostics.CodeAnalysis;
 using Utility.DomainService.PdfGenerator.Entities;
 using Utility.DomainService.PdfGenerator.Events;
@@ -51,20 +51,19 @@ namespace Worker.Consumers.PdfGenerator
             var tenantId = @event.ProjectKey ?? BlocksContext.GetContext()?.TenantId ?? "";
 
             _logger.LogInformation(
-                "ConvertDocumentToPdfConsumer: Processing conversion {ConversionId} for InputFileId={InputFileId}, TenantId={TenantId}",
-                LogSanitizer.Scrub(@event.ConversionId),
-                LogSanitizer.Scrub(@event.InputFileId),
+                "ConvertDocumentToPdfConsumer: Processing conversion of file {FileId}, TenantId={TenantId}",
+                LogSanitizer.Scrub(@event.FileId),
                 LogSanitizer.Scrub(tenantId));
 
-            var job = await _repository.GetDocumentConversionJobAsync(@event.ConversionId, @event.ProjectKey);
+            var job = await _repository.GetDocumentConversionJobAsync(@event.FileId, @event.ProjectKey);
 
             if (job == null)
             {
                 // Nothing to report progress against, and no caller can be polling for it. Running
                 // the conversion anyway would replace a file with no record of why.
                 _logger.LogError(
-                    "ConvertDocumentToPdfConsumer: No conversion record {ConversionId}; skipping",
-                    LogSanitizer.Scrub(@event.ConversionId));
+                    "ConvertDocumentToPdfConsumer: No conversion record for file {FileId}; skipping",
+                    LogSanitizer.Scrub(@event.FileId));
 
                 return;
             }
@@ -80,8 +79,8 @@ namespace Worker.Consumers.PdfGenerator
             {
                 _logger.LogError(
                     ex,
-                    "ConvertDocumentToPdfConsumer: Conversion {ConversionId} threw",
-                    LogSanitizer.Scrub(@event.ConversionId));
+                    "ConvertDocumentToPdfConsumer: Conversion of file {FileId} threw",
+                    LogSanitizer.Scrub(@event.FileId));
 
                 await Fail(job, @event, "conversion_error", "The conversion failed unexpectedly.");
             }
@@ -93,7 +92,7 @@ namespace Worker.Consumers.PdfGenerator
             // converted, and the directory the replacement has to stay in. Resolving it does not
             // transfer the file's bytes, so an unsupported document is rejected before anything
             // large moves.
-            var record = await _storageHelper.GetFileRecord(job.InputFileId, @event.ProjectKey);
+            var record = await _storageHelper.GetFileRecord(job.Id, @event.ProjectKey);
 
             if (record == null)
             {
@@ -102,7 +101,7 @@ namespace Worker.Consumers.PdfGenerator
             }
 
             var sourceName = record.Name ?? string.Empty;
-            job.SourceFileName = sourceName;
+            job.FileName = sourceName;
 
             if (!_converter.IsSupportedDocument(sourceName))
             {
@@ -131,11 +130,11 @@ namespace Worker.Consumers.PdfGenerator
                 return;
             }
 
-            var pdfName = ToPdfName(sourceName, job.InputFileId);
+            var pdfName = ToPdfName(sourceName, job.Id);
 
             var metadata = new Dictionary<string, string>
             {
-                { "ConversionId", job.Id },
+                { "ConvertedFileId", job.Id },
                 { "ConvertedFromName", sourceName },
                 { "ConvertedDate", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") },
                 { "FileType", "ConvertedPDF" }
@@ -146,7 +145,7 @@ namespace Worker.Consumers.PdfGenerator
             // once its bytes are a PDF.
             var saved = await _storageHelper.SavePdfToStorage(
                 pdfStream,
-                job.InputFileId,
+                job.Id,
                 pdfName,
                 metadata,
                 record.ParentDirectoryID ?? string.Empty,
@@ -159,14 +158,13 @@ namespace Worker.Consumers.PdfGenerator
             }
 
             job.Status = DocumentConversionStatus.Succeeded;
-            job.ConvertedFileName = pdfName;
+            job.FileName = pdfName;
             job.CompletedDate = DateTime.UtcNow;
             await _repository.UpdateDocumentConversionJobAsync(job, @event.ProjectKey);
 
             _logger.LogInformation(
-                "ConvertDocumentToPdfConsumer: Conversion {ConversionId} replaced InputFileId={InputFileId} with {PdfName}, size={PdfSize} bytes",
+                "ConvertDocumentToPdfConsumer: Replaced file {FileId} with {PdfName}, size={PdfSize} bytes",
                 LogSanitizer.Scrub(job.Id),
-                LogSanitizer.Scrub(job.InputFileId),
                 LogSanitizer.Scrub(pdfName),
                 pdfStream.Length);
 
@@ -180,7 +178,7 @@ namespace Worker.Consumers.PdfGenerator
             string errorMessage)
         {
             _logger.LogError(
-                "ConvertDocumentToPdfConsumer: Conversion {ConversionId} failed: {ErrorCode}",
+                "ConvertDocumentToPdfConsumer: Conversion of file {FileId} failed: {ErrorCode}",
                 LogSanitizer.Scrub(job.Id),
                 errorCode);
 
@@ -212,7 +210,7 @@ namespace Worker.Consumers.PdfGenerator
             {
                 _logger.LogWarning(
                     ex,
-                    "ConvertDocumentToPdfConsumer: Could not notify for conversion {ConversionId}; status endpoint still has the outcome",
+                    "ConvertDocumentToPdfConsumer: Could not notify for file {FileId}; status endpoint still has the outcome",
                     LogSanitizer.Scrub(job.Id));
             }
         }

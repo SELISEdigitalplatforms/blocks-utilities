@@ -1,4 +1,4 @@
-using Api.Utilities;
+﻿using Api.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -36,7 +36,9 @@ public sealed class DocumentConversionsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Returns 202 as soon as the conversion is recorded and queued — the document is not converted
-    /// yet. The response carries a <c>conversionId</c> and the <c>statusUrl</c> to poll.
+    /// yet. Polling uses the file's own ID, the one just sent in, so no second identifier is issued
+    /// for the caller to keep track of; the response repeats it as <c>fileId</c> alongside the
+    /// <c>statusUrl</c>.
     /// <para>
     /// Supplying <c>messageCoRelationId</c> also gets a completion notification. It is optional, and
     /// omitting it changes nothing about the conversion itself.
@@ -70,18 +72,20 @@ public sealed class DocumentConversionsController : ControllerBase
     /// The fallback for a completion notification that never arrived. A conversion that is still
     /// running answers 200 with <c>status</c> of <c>Queued</c> or <c>Processing</c> and
     /// <c>isComplete: false</c> — a poller stops when <c>isComplete</c> turns true, whether the
-    /// conversion succeeded or failed.
+    /// conversion succeeded or failed. <c>fileId</c> and <c>fileName</c> describe the file itself:
+    /// conversion happens in place, so the ID never changes and the name gains its .pdf extension
+    /// once the conversion succeeds.
     /// <para>
     /// A failed conversion is still a 200: the question "what happened to this conversion?" was
-    /// answered. <c>errorCode</c> carries why it failed. 404 means no such conversion, which is a
-    /// different sentence entirely.
+    /// answered. <c>errorCode</c> carries why it failed. 404 means that file was never submitted for
+    /// conversion, which is a different sentence entirely.
     /// </para>
     /// <para>
     /// <c>downloadUrl</c> is resolved on each request because storage URLs expire, and is null until
     /// the conversion succeeds.
     /// </para>
     /// </remarks>
-    [HttpGet("{conversionId}")]
+    [HttpGet("{fileId}")]
     [ProducesResponseType(
         typeof(ApiResponse<DocumentConversionStatusResponse>),
         StatusCodes.Status200OK)]
@@ -93,11 +97,11 @@ public sealed class DocumentConversionsController : ControllerBase
         typeof(ApiResponse<DocumentConversionStatusResponse>),
         StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetStatus(
-        [FromRoute] string conversionId,
+        [FromRoute] string fileId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
-        var result = await _conversions.GetStatusAsync(conversionId, correlationId, cancellationToken);
+        var result = await _conversions.GetStatusAsync(fileId, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

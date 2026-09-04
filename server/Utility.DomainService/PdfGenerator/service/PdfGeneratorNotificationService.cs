@@ -135,13 +135,13 @@ namespace Utility.DomainService.PdfGenerator.service
             });
         }
 
-        public async Task NotifyConvertDocumentToPdfEvent(bool success, string conversionId, string messageCoRelationId, string? projectKey)
+        public async Task NotifyConvertDocumentToPdfEvent(bool success, string fileId, string messageCoRelationId, string? projectKey)
         {
-            _logger.LogInformation("NotifyConvertDocumentToPdfEvent: Sending notification for conversionId={ConversionId}, success={Success}", conversionId, success);
+            _logger.LogInformation("NotifyConvertDocumentToPdfEvent: Sending notification for fileId={FileId}, success={Success}", fileId, success);
 
             await SendNotificationAsync("Convert Document to PDF", success, messageCoRelationId, new
             {
-                ConversionId = conversionId,
+                FileId = fileId,
                 MessageCoRelationId = messageCoRelationId,
                 Success = success
             });

@@ -15,7 +15,8 @@ namespace Utility.DomainService.PdfGenerator
     {
         /// <summary>
         /// Storage file ID of the document. The converted PDF is written back to this same ID under
-        /// a .pdf name, so anything already referencing the ID ends up pointing at the PDF.
+        /// a .pdf name, so anything already referencing the ID ends up pointing at the PDF — and the
+        /// same ID is what the status endpoint is polled with.
         /// </summary>
         public string InputFileId { get; set; } = string.Empty;
 
@@ -30,16 +31,14 @@ namespace Utility.DomainService.PdfGenerator
     /// <summary>
     /// The acknowledgement returned when a conversion is accepted.
     /// </summary>
-    /// <remarks>
-    /// Carries the conversion's own ID because the work has not happened yet. That ID is what the
-    /// caller polls if the completion notification never arrives.
-    /// </remarks>
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     public class ConvertDocumentToPdfAcceptedResponse
     {
-        public string ConversionId { get; set; } = string.Empty;
-
-        public string InputFileId { get; set; } = string.Empty;
+        /// <summary>
+        /// The file being converted — the same ID that was sent in, and the one to poll with. No
+        /// second identifier is issued: the caller already has this one.
+        /// </summary>
+        public string FileId { get; set; } = string.Empty;
 
         public string? MessageCoRelationId { get; set; }
 
@@ -57,9 +56,17 @@ namespace Utility.DomainService.PdfGenerator
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     public class DocumentConversionStatusResponse
     {
-        public string ConversionId { get; set; } = string.Empty;
+        /// <summary>
+        /// The file this is about. Conversion happens in place, so this is both what was sent in and
+        /// where the PDF now lives.
+        /// </summary>
+        public string FileId { get; set; } = string.Empty;
 
-        public string InputFileId { get; set; } = string.Empty;
+        /// <summary>
+        /// The file's name as it currently stands: the document's name while the conversion is
+        /// queued or running, the .pdf name once it has succeeded.
+        /// </summary>
+        public string? FileName { get; set; }
 
         public string? MessageCoRelationId { get; set; }
 
@@ -70,23 +77,10 @@ namespace Utility.DomainService.PdfGenerator
         /// </summary>
         public bool IsComplete { get; set; }
 
-        public string? SourceFileName { get; set; }
-
         /// <summary>
-        /// The converted file's name. Null until the conversion succeeds.
-        /// </summary>
-        public string? FileName { get; set; }
-
-        /// <summary>
-        /// The storage ID holding the PDF, which is the input file ID — conversion replaces the
-        /// source. Null until the conversion succeeds, so a caller cannot mistake an unconverted
-        /// document for a converted one.
-        /// </summary>
-        public string? FileId { get; set; }
-
-        /// <summary>
-        /// A time-limited URL the PDF can be downloaded from. Null until the conversion succeeds,
-        /// and resolved fresh on each request rather than stored, because it expires.
+        /// A time-limited URL the PDF can be downloaded from. Null until the conversion succeeds, so
+        /// a caller cannot mistake the still-unconverted document for the result, and resolved fresh
+        /// on each request rather than stored, because it expires.
         /// </summary>
         public string? DownloadUrl { get; set; }
 

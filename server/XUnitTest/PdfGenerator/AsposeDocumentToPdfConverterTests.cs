@@ -290,19 +290,20 @@ namespace XUnitTest.PdfGenerator
         }
 
         [Fact]
-        public void StatusResponse_ExposesNoFileUntilTheConversionSucceeds()
+        public void StatusResponse_OffersNoDownloadUntilTheConversionSucceeds()
         {
-            // A caller polling a running conversion must not be handed a file ID that still points
-            // at an unconverted document.
+            // A caller polling a running conversion must not be handed a URL that still points at
+            // the unconverted document. The file ID is always present — it is the key they polled
+            // with — but the download only appears once there is a PDF behind it.
             var running = new DocumentConversionStatusResponse
             {
-                ConversionId = "c-1",
-                InputFileId = "doc-1",
+                FileId = "doc-1",
+                FileName = "contract.docx",
                 Status = DocumentConversionStatus.Processing,
                 IsComplete = false
             };
 
-            running.FileId.Should().BeNull();
+            running.FileId.Should().Be("doc-1");
             running.DownloadUrl.Should().BeNull();
             running.CompletedAtUtc.Should().BeNull();
         }
@@ -324,16 +325,17 @@ namespace XUnitTest.PdfGenerator
         [Fact]
         public void AcceptedResponse_CarriesWhereToPoll()
         {
+            // The poll key is the file ID the caller already sent, not a new identifier.
             var accepted = new ConvertDocumentToPdfAcceptedResponse
             {
-                ConversionId = "c-1",
-                InputFileId = "doc-1",
+                FileId = "doc-1",
                 Status = DocumentConversionStatus.Queued,
-                StatusUrl = "/document-conversions/c-1"
+                StatusUrl = "/document-conversions/doc-1"
             };
 
+            accepted.FileId.Should().Be("doc-1");
             accepted.Status.Should().Be(DocumentConversionStatus.Queued);
-            accepted.StatusUrl.Should().Be("/document-conversions/c-1");
+            accepted.StatusUrl.Should().Be("/document-conversions/doc-1");
         }
     }
 }

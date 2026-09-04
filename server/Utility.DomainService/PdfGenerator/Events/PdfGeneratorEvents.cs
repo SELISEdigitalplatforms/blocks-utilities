@@ -140,12 +140,10 @@
     public record ConvertDocumentToPdfEvent
     {
         /// <summary>
-        /// The conversion record this event belongs to. The worker updates that record as it goes,
-        /// which is what the status endpoint reads.
+        /// The file to convert, which is also the key of the conversion record the worker updates
+        /// as it goes — the record the status endpoint reads.
         /// </summary>
-        public string ConversionId { get; set; } = string.Empty;
-
-        public string InputFileId { get; set; } = string.Empty;
+        public string FileId { get; set; } = string.Empty;
         public string? MessageCoRelationId { get; set; }
         public string? ProjectKey { get; set; }
     }

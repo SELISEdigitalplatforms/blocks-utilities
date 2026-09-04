@@ -49,13 +49,13 @@ namespace Utility.DomainService.PdfGenerator.service
                     });
             }
 
+            var fileId = request.InputFileId;
             var tenantId = BlocksContext.GetContext()?.TenantId ?? string.Empty;
             var now = DateTime.UtcNow;
 
             var job = new DocumentConversionJob
             {
-                Id = Guid.NewGuid().ToString(),
-                InputFileId = request.InputFileId,
+                Id = fileId,
                 MessageCoRelationId = request.MessageCoRelationId,
                 Status = DocumentConversionStatus.Queued,
                 TenantId = tenantId,
@@ -65,7 +65,7 @@ namespace Utility.DomainService.PdfGenerator.service
             };
 
             // The record is written before the event is published, deliberately. A caller that gets
-            // a conversion ID back must be able to look it up immediately; publishing first leaves a
+            // an acknowledgement back must be able to poll immediately; publishing first leaves a
             // window where the worker has already finished and the status endpoint still 404s.
             if (!await _repository.SaveDocumentConversionJobAsync(job))
             {
@@ -84,8 +84,7 @@ namespace Utility.DomainService.PdfGenerator.service
                         ConsumerName = PdfGeneratorConstants.ConvertDocumentToPdfQueue,
                         Payload = new ConvertDocumentToPdfEvent
                         {
-                            ConversionId = job.Id,
-                            InputFileId = job.InputFileId,
+                            FileId = fileId,
                             MessageCoRelationId = job.MessageCoRelationId,
                             ProjectKey = tenantId
                         }
@@ -97,8 +96,8 @@ namespace Utility.DomainService.PdfGenerator.service
                 // than left Queued forever — a poller deserves an answer, not a permanent maybe.
                 _logger.LogError(
                     ex,
-                    "RequestConversionAsync: Failed to queue conversion {ConversionId}",
-                    job.Id);
+                    "RequestConversionAsync: Failed to queue conversion of file {FileId}",
+                    LogSanitizer.Scrub(fileId));
 
                 job.Status = DocumentConversionStatus.Failed;
                 job.ErrorCode = "conversion_not_queued";
@@ -114,45 +113,43 @@ namespace Utility.DomainService.PdfGenerator.service
             }
 
             _logger.LogInformation(
-                "RequestConversionAsync: Queued conversion {ConversionId} for InputFileId={InputFileId}",
-                job.Id,
-                LogSanitizer.Scrub(job.InputFileId));
+                "RequestConversionAsync: Queued conversion of file {FileId}",
+                LogSanitizer.Scrub(fileId));
 
             return DocumentConversionResult<ConvertDocumentToPdfAcceptedResponse>.Success(
                 new ConvertDocumentToPdfAcceptedResponse
                 {
-                    ConversionId = job.Id,
-                    InputFileId = job.InputFileId,
+                    FileId = fileId,
                     MessageCoRelationId = job.MessageCoRelationId,
                     Status = job.Status,
-                    StatusUrl = $"/document-conversions/{job.Id}"
+                    StatusUrl = $"/document-conversions/{fileId}"
                 },
                 correlationId);
         }
 
         /// <inheritdoc />
         public async Task<DocumentConversionResult<DocumentConversionStatusResponse>> GetStatusAsync(
-            string conversionId,
+            string fileId,
             string correlationId,
             CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(conversionId))
+            if (string.IsNullOrWhiteSpace(fileId))
             {
                 return DocumentConversionResult<DocumentConversionStatusResponse>.Failure(
                     DocumentConversionFailureKind.Validation,
-                    "conversion_id_required",
-                    "conversionId is required.",
+                    "file_id_required",
+                    "fileId is required.",
                     correlationId);
             }
 
-            var job = await _repository.GetDocumentConversionJobAsync(conversionId);
+            var job = await _repository.GetDocumentConversionJobAsync(fileId);
 
             if (job == null)
             {
                 return DocumentConversionResult<DocumentConversionStatusResponse>.Failure(
                     DocumentConversionFailureKind.NotFound,
                     "conversion_not_found",
-                    "No conversion with that ID.",
+                    "That file has not been submitted for conversion.",
                     correlationId);
             }
 
@@ -160,12 +157,11 @@ namespace Utility.DomainService.PdfGenerator.service
 
             var response = new DocumentConversionStatusResponse
             {
-                ConversionId = job.Id,
-                InputFileId = job.InputFileId,
+                FileId = job.Id,
+                FileName = job.FileName,
                 MessageCoRelationId = job.MessageCoRelationId,
                 Status = job.Status,
                 IsComplete = isComplete,
-                SourceFileName = job.SourceFileName,
                 ErrorCode = job.ErrorCode,
                 ErrorMessage = job.ErrorMessage,
                 RequestedAtUtc = job.CreateDate,
@@ -174,17 +170,15 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (job.Status == DocumentConversionStatus.Succeeded)
             {
-                response.FileId = job.InputFileId;
-                response.FileName = job.ConvertedFileName;
-
                 // Resolved per request rather than stored: a storage URL is time-limited, so one
                 // written at conversion time would be expired by the time a poller asked for it.
-                var record = await _storageHelper.GetFileRecord(job.InputFileId);
+                var record = await _storageHelper.GetFileRecord(job.Id);
+
                 if (record == null)
                 {
                     _logger.LogWarning(
-                        "GetStatusAsync: Conversion {ConversionId} succeeded but its file could not be resolved",
-                        job.Id);
+                        "GetStatusAsync: Conversion of file {FileId} succeeded but the file could not be resolved",
+                        LogSanitizer.Scrub(job.Id));
                 }
                 else
                 {

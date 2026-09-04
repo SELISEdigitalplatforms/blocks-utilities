@@ -127,8 +127,13 @@ namespace Utility.DomainService.PdfGenerator.service
         private const string DocumentConversionJobs = "DocumentConversionJobs";
 
         /// <summary>
-        /// Records a newly accepted conversion.
+        /// Records a conversion, replacing any earlier one for the same file.
         /// </summary>
+        /// <remarks>
+        /// An upsert rather than an insert: the record is keyed by the file, and converting a file
+        /// again is a new attempt on the same file, not a second thing to track. An insert would
+        /// fail on the duplicate key and reject a perfectly reasonable retry.
+        /// </remarks>
         public async Task<bool> SaveDocumentConversionJobAsync(DocumentConversionJob job, string? tenantId = null)
         {
             try
@@ -136,37 +141,38 @@ namespace Utility.DomainService.PdfGenerator.service
                 var tid = tenantId ?? BlocksContext.GetContext()?.TenantId ?? "";
                 var database = _dbContextProvider.GetDatabase(tid);
                 var collection = database.GetCollection<DocumentConversionJob>(DocumentConversionJobs);
+                var filter = Builders<DocumentConversionJob>.Filter.Eq(j => j.Id, job.Id);
 
-                await collection.InsertOneAsync(job);
+                await collection.ReplaceOneAsync(filter, job, new ReplaceOptions { IsUpsert = true });
 
-                _logger.LogInformation("SaveDocumentConversionJobAsync: Recorded conversion {ConversionId}", job.Id);
+                _logger.LogInformation("SaveDocumentConversionJobAsync: Recorded conversion of file {FileId}", job.Id);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in SaveDocumentConversionJobAsync for conversion {ConversionId}", job.Id);
+                _logger.LogError(ex, "Error in SaveDocumentConversionJobAsync for file {FileId}", job.Id);
                 return false;
             }
         }
 
         /// <summary>
-        /// Reads a conversion by its ID. Null when there is no such conversion, which the API turns
-        /// into a 404 rather than inventing a state for a job nobody started.
+        /// Reads the conversion state of a file. Null when that file has never been submitted for
+        /// conversion, which the API turns into a 404 rather than inventing a state for it.
         /// </summary>
-        public async Task<DocumentConversionJob?> GetDocumentConversionJobAsync(string conversionId, string? tenantId = null)
+        public async Task<DocumentConversionJob?> GetDocumentConversionJobAsync(string fileId, string? tenantId = null)
         {
             try
             {
                 var tid = tenantId ?? BlocksContext.GetContext()?.TenantId ?? "";
                 var database = _dbContextProvider.GetDatabase(tid);
                 var collection = database.GetCollection<DocumentConversionJob>(DocumentConversionJobs);
-                var filter = Builders<DocumentConversionJob>.Filter.Eq(j => j.Id, conversionId);
+                var filter = Builders<DocumentConversionJob>.Filter.Eq(j => j.Id, fileId);
 
                 return await collection.Find(filter).FirstOrDefaultAsync();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in GetDocumentConversionJobAsync for conversion {ConversionId}", conversionId);
+                _logger.LogError(ex, "Error in GetDocumentConversionJobAsync for file {FileId}", fileId);
                 return null;
             }
         }
@@ -194,7 +200,7 @@ namespace Utility.DomainService.PdfGenerator.service
 
                 if (result.MatchedCount == 0)
                 {
-                    _logger.LogWarning("UpdateDocumentConversionJobAsync: No conversion {ConversionId} to update", job.Id);
+                    _logger.LogWarning("UpdateDocumentConversionJobAsync: No conversion record for file {FileId}", job.Id);
                     return false;
                 }
 
@@ -202,7 +208,7 @@ namespace Utility.DomainService.PdfGenerator.service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in UpdateDocumentConversionJobAsync for conversion {ConversionId}", job.Id);
+                _logger.LogError(ex, "Error in UpdateDocumentConversionJobAsync for file {FileId}", job.Id);
                 return false;
             }
         }

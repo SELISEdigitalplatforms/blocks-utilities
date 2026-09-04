@@ -1,4 +1,4 @@
-using Api.Utilities;
+﻿using Api.Utilities;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -15,7 +15,7 @@ namespace XUnitTest.PdfGenerator
         {
             // The document is queued, not converted. A 200 would tell a client the work is done.
             var result = DocumentConversionResult<ConvertDocumentToPdfAcceptedResponse>.Success(
-                new ConvertDocumentToPdfAcceptedResponse { ConversionId = "c-1" },
+                new ConvertDocumentToPdfAcceptedResponse { FileId = "doc-1" },
                 "trace-1");
 
             var action = result.ToActionResult("trace-1", StatusCodes.Status202Accepted) as ObjectResult;
@@ -25,7 +25,7 @@ namespace XUnitTest.PdfGenerator
 
             var body = action.Value.Should().BeOfType<ApiResponse<ConvertDocumentToPdfAcceptedResponse>>().Subject;
             body.Success.Should().BeTrue();
-            body.Data!.ConversionId.Should().Be("c-1");
+            body.Data!.FileId.Should().Be("doc-1");
             body.Error.Should().BeNull();
             body.Meta.CorrelationId.Should().Be("trace-1");
         }
@@ -34,7 +34,7 @@ namespace XUnitTest.PdfGenerator
         public void StatusRead_Is200()
         {
             var result = DocumentConversionResult<DocumentConversionStatusResponse>.Success(
-                new DocumentConversionStatusResponse { ConversionId = "c-1" },
+                new DocumentConversionStatusResponse { FileId = "doc-1" },
                 "trace-1");
 
             var action = result.ToActionResult("trace-1") as ObjectResult;

@@ -14,7 +14,7 @@
         Task NotifyStampImageToPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
         Task NotifyStampTextToPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
         Task NotifyStampIntoPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
-        Task NotifyConvertDocumentToPdfEvent(bool success, string conversionId, string messageCoRelationId, string? projectKey);
+        Task NotifyConvertDocumentToPdfEvent(bool success, string fileId, string messageCoRelationId, string? projectKey);
     }
 }
 
