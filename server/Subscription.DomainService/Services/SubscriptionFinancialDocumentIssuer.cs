@@ -1159,13 +1159,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// What the charge was made of, from the strongest source available.
     /// </summary>
     /// <remarks>
-    /// Three sources, in order of how directly they know. A renewal, settlement or overage records
-    /// its own breakdown on the payment as it charges, so that is read verbatim. The initial charge
-    /// goes out through hosted checkout, which composes no invoice and records no breakdown — but
-    /// every input is snapshotted on the subscription and the amount was frozen there, so the same
-    /// calculator that priced it can be asked again and its answer checked against the frozen figure.
-    /// Anything older than either is reported as a single gross line, which is all that can honestly
-    /// be said about it.
+    /// Four sources, in order of how directly they know. A settlement — a plan change or a paid
+    /// quantity increase — records a two-sided breakdown instead of a flat one, because its amount is
+    /// a difference between two prorated periods rather than a single priced charge; that is read
+    /// first, and read ahead of the flat fields below because every settlement payment stores a flat
+    /// net of zero beside its breakdown. A renewal or overage records its own flat breakdown on the
+    /// payment as it charges, so that is read verbatim. The initial charge goes out through hosted
+    /// checkout, which composes no invoice and records no breakdown — but every input is snapshotted
+    /// on the subscription and the amount was frozen there, so the same calculator that priced it can
+    /// be asked again and its answer checked against the frozen figure. Anything older than all three
+    /// is reported as a single gross line, which is all that can honestly be said about it.
     /// </remarks>
     private FinancialDocumentAmounts AmountsFor(
         PaymentDetail payment,
@@ -1173,6 +1176,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         SubscriptionChargeReference charge,
         DocumentTerms terms)
     {
+        if (payment.SubscriptionSettlement is { } settlement)
+        {
+            return SettlementAmounts(payment, settlement);
+        }
+
         if (payment.SubscriptionNetAmountMinor is { } net)
         {
             var (automatic, quantity) = BuiltInDiscountAttribution.Split(
@@ -1291,6 +1299,103 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             DiscountCombination = SubscriptionDiscountPresentation.Describe(subscription.Price),
             PromotionCode = charge.DiscountApplied ? subscription.Discount?.Code : null
         };
+    }
+
+    /// <summary>
+    /// A settlement's two-sided breakdown, restated as the value/tax/credit split a document renders.
+    /// </summary>
+    /// <remarks>
+    /// A settlement's amount is target-prorated-value less outgoing-prorated-value less credit, not a
+    /// price with a discount, so there is no flat gross or discount to read — see
+    /// <see cref="SubscriptionSettlementBreakdown"/>. <see cref="FinancialDocumentAmounts.TotalMinor"/>
+    /// is taken from what the provider actually took rather than from the breakdown's own arithmetic,
+    /// so it always agrees with the bank; the breakdown only decides how that total splits between
+    /// value and tax. Each side is taxed at its own rate and can straddle a tax-mode change, so the
+    /// split subtracts each side's own tax rather than recomputing one rate for the difference, which
+    /// would restate the charge.
+    /// </remarks>
+    private FinancialDocumentAmounts SettlementAmounts(
+        PaymentDetail payment,
+        SubscriptionSettlementBreakdown settlement)
+    {
+        if (!_currency.TryConvert(payment.PreciseAmount, payment.CurrencyCode, out var total))
+        {
+            total = Math.Max(0, settlement.NetSettlementMinor);
+        }
+
+        var credit = settlement.CreditConsumedMinor;
+
+        var (outgoingNet, outgoingTax) = ProratedNetAndTax(settlement.Outgoing);
+        var (targetNet, targetTax) = ProratedNetAndTax(settlement.Target);
+
+        var netDelta = targetNet - outgoingNet;
+        var taxDelta = targetTax - outgoingTax;
+
+        // An opening-stub upgrade settles two periods at once - see
+        // SubscriptionSettlementBreakdown.Annual. Credit and total are spent once against the
+        // combined figure, so only the nested side deltas are added in here.
+        if (settlement.Annual is { } annual)
+        {
+            var (annualOutgoingNet, annualOutgoingTax) = ProratedNetAndTax(annual.Outgoing);
+            var (annualTargetNet, annualTargetTax) = ProratedNetAndTax(annual.Target);
+
+            netDelta += annualTargetNet - annualOutgoingNet;
+            taxDelta += annualTargetTax - annualOutgoingTax;
+        }
+
+        // Summed before clamping, not clamped per period and then summed. CalculateOpeningStubUpgrade
+        // combines the two periods' raw deltas before it ever clamps - combinedRawDelta = stubDelta +
+        // annualDelta - so that is the sum this has to match for netWeight + taxWeight to land on
+        // exactly total + credit, which is what lets Split return the split unchanged rather than
+        // reallocating. Clamping each period first would drop a negative component and overstate the
+        // weights, quietly trading that exactness for an approximation.
+        var netWeight = Math.Max(0, netDelta);
+        var taxWeight = Math.Max(0, taxDelta);
+
+        long net;
+        long tax;
+        if (netWeight + taxWeight > 0)
+        {
+            var split = ProportionalAllocation.Split(total + credit, [netWeight, taxWeight]);
+            net = split[0];
+            tax = split[1];
+        }
+        else
+        {
+            // Nothing to apportion by - the honest answer is the same one SingleGrossLine gives for
+            // a charge with no breakdown at all: report it as untaxed net rather than inventing a split.
+            net = total + credit;
+            tax = 0;
+        }
+
+        return new FinancialDocumentAmounts
+        {
+            GrossSubtotalMinor = net,
+            NetSubtotalMinor = net,
+            TaxRateBasisPoints = payment.SubscriptionTaxRateBasisPoints,
+            TaxMode = payment.SubscriptionTaxMode,
+            TaxAmountMinor = tax,
+            CreditAppliedMinor = credit,
+            TotalMinor = total
+        };
+    }
+
+    /// <summary>
+    /// One settlement side's prorated value, split into the part that is value and the part that is
+    /// tax, in the same proportion as the side's own full period.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SubscriptionSettlementSide.ProratedValueMinor"/> is tax-inclusive — "the whole
+    /// period, tax included", counted for the part this settlement covers — so the tax share is the
+    /// same proportion of it as the side's own tax is of its own period total.
+    /// </remarks>
+    private static (long Net, long Tax) ProratedNetAndTax(SubscriptionSettlementSide side)
+    {
+        var split = ProportionalAllocation.Split(
+            side.ProratedValueMinor,
+            [side.PeriodTotalMinor - side.TaxAmountMinor, side.TaxAmountMinor]);
+
+        return (split[0], split[1]);
     }
 
     /// <summary>
