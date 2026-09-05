@@ -10,7 +10,6 @@ import {
   Ticket,
 } from "lucide-react";
 import { Link } from "react-router";
-import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import {
@@ -23,6 +22,46 @@ import {
 import type { SubscriptionPlan } from "../models/subscription-plan.model";
 import { formatInterval, formatPrice } from "../utilities/subscription-format";
 import { describeTrialDuration } from "../utilities/trial-duration-label";
+
+/**
+ * A small tinted pill with a status dot, used for Active/Archived rather than a plain solid
+ * badge — the dot carries the state at a glance, the tint keeps it legible without shouting.
+ */
+const StatusPill = ({ isArchived }: { isArchived: boolean }) => (
+  <span
+    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide ${
+      isArchived
+        ? "border-border-default bg-muted text-muted-foreground"
+        : "border-success/20 bg-success/10 text-success"
+    }`}
+  >
+    <span
+      className={`h-1.5 w-1.5 rounded-full ${
+        isArchived ? "bg-muted-foreground" : "bg-success"
+      }`}
+    />
+    {isArchived ? "Archived" : "Active"}
+  </span>
+);
+
+/** One badge shape used for every other tag on the card, so the eye reads them as one family. */
+const Pill = ({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "accent";
+}) => (
+  <span
+    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-wide ${
+      tone === "accent"
+        ? "border-blocks-secondary-200 bg-blocks-secondary-50 text-blocks-secondary-700"
+        : "border-border-default bg-muted/60 text-muted-foreground"
+    }`}
+  >
+    {children}
+  </span>
+);
 
 /**
  * One plan in the catalogue.
@@ -89,25 +128,34 @@ export const PlanCard = ({
 
   return (
     <Card
-      className={`flex h-full flex-col rounded-xl transition ${
+      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl p-5 transition-all duration-300 ease-out ${
         isArchived
           ? // Muted, not faded away: an archived plan is still read, and text at 60% opacity on a
             // muted panel fails contrast. The tint carries the state, the text keeps its colour.
             "border-dashed bg-muted/40"
-          : "hover:border-blocks-primary-300 hover:shadow-md focus-within:border-blocks-primary-300 focus-within:shadow-md"
+          : "hover:-translate-y-1 hover:border-blocks-primary-200 hover:shadow-xl hover:shadow-blocks-primary-100/60 focus-within:-translate-y-1 focus-within:border-blocks-primary-200 focus-within:shadow-xl focus-within:shadow-blocks-primary-100/60 motion-reduce:hover:translate-y-0 motion-reduce:focus-within:translate-y-0"
       }`}
     >
+      {/* A quiet accent bar along the top edge, brightened on hover — the card's own signature
+          rather than a border colour change alone. */}
+      {!isArchived && (
+        <span
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-1 origin-left scale-x-0 bg-gradient-to-r from-blocks-primary-500 to-blocks-secondary-500 transition-transform duration-300 ease-out group-hover:scale-x-100"
+        />
+      )}
+
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate font-semibold">
+          <h3 className="truncate text-[15px] font-semibold tracking-tight">
             <Link
               to={detailPath}
-              className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded outline-none transition-colors hover:text-blocks-primary-600 focus-visible:ring-2 focus-visible:ring-ring"
             >
               {plan.displayName}
             </Link>
           </h3>
-          <p className="truncate font-mono text-xs text-muted-foreground">
+          <p className="mt-0.5 truncate font-mono text-[11px] uppercase tracking-wider text-muted-foreground/80">
             {plan.code}
           </p>
         </div>
@@ -118,7 +166,7 @@ export const PlanCard = ({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0"
+                className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:bg-blocks-primary-50 hover:text-blocks-primary-700"
                 aria-label={`Actions for ${plan.displayName}`}
               >
                 <MoreVertical className="h-4 w-4" />
@@ -163,38 +211,45 @@ export const PlanCard = ({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <Badge variant={isArchived ? "secondary" : "success"} className="font-normal">
-          {isArchived ? "Archived" : "Active"}
-        </Badge>
-        <Badge variant="outline" className="font-normal">
-          {organizationLabel}
-        </Badge>
+        <StatusPill isArchived={isArchived} />
+        <Pill>{organizationLabel}</Pill>
         {plan.familyCode ? (
-          <Badge variant="outline" className="font-normal">
+          <Pill tone="accent">
             {plan.familyCode}
             {typeof plan.familyRank === "number" ? ` · level ${plan.familyRank}` : ""}
-          </Badge>
+          </Pill>
         ) : null}
         {trialLabel ? (
-          <Badge variant="info" className="font-normal">
+          <span className="inline-flex items-center rounded-full border border-blocks-primary-200 bg-blocks-primary-50 px-2.5 py-1 text-[11px] font-medium tracking-wide text-blocks-primary-700">
             {trialLabel}
-          </Badge>
+          </span>
         ) : null}
       </div>
 
       {plan.description ? (
         // Two lines, then clipped. A description is authored freely and a card that grows to fit
         // one breaks the grid for every card beside it.
-        <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
+        <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
           {plan.description}
         </p>
       ) : null}
 
-      <div className="mt-3 space-y-1">
-        <p className="text-sm font-medium">
-          {cheapestPrice
-            ? `From ${formatPrice(cheapestPrice)}`
-            : "No price configured yet"}
+      <div className="mt-4 space-y-1 border-t border-dashed border-border/70 pt-3">
+        <p className="text-xl font-bold tracking-tight">
+          {cheapestPrice ? (
+            <>
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                From{" "}
+              </span>
+              <span className="bg-gradient-to-r from-blocks-primary-600 to-blocks-secondary-600 bg-clip-text text-transparent">
+                {formatPrice(cheapestPrice)}
+              </span>
+            </>
+          ) : (
+            <span className="text-sm font-medium text-muted-foreground">
+              No price configured yet
+            </span>
+          )}
         </p>
         {cadences.length > 0 ? (
           <p className="text-xs text-muted-foreground">
@@ -211,17 +266,18 @@ export const PlanCard = ({
       </div>
 
       {counts.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-3 flex flex-wrap gap-2">
           {counts.map((entry) => (
-            <Badge
+            <span
               key={entry.label}
-              variant="secondary"
-              className="gap-1 font-normal"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 py-1 pl-1 pr-2.5 text-[11px] font-medium text-muted-foreground transition-colors group-hover:border-blocks-primary-100"
             >
-              <entry.icon className="h-3 w-3" />
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blocks-primary-50 text-blocks-primary-600">
+                <entry.icon className="h-2.5 w-2.5" />
+              </span>
               {entry.value} {entry.label}
               {entry.value === 1 ? "" : "s"}
-            </Badge>
+            </span>
           ))}
         </div>
       ) : null}
@@ -229,10 +285,19 @@ export const PlanCard = ({
       {/* Pushed to the foot so every card in a row ends with its action on the same line, however
           much description or how many badges the plans above differ by. */}
       <div className="mt-auto pt-4">
-        <Button variant="outline" size="sm" className="w-full" asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="group/cta relative w-full overflow-hidden border-blocks-primary-200 font-medium text-blocks-primary-700 transition-colors duration-300 hover:border-transparent hover:text-primary-foreground"
+          asChild
+        >
           <Link to={detailPath}>
+            <span
+              aria-hidden
+              className="absolute inset-0 -z-10 origin-left scale-x-0 bg-gradient-to-r from-blocks-primary-600 to-blocks-secondary-600 transition-transform duration-300 ease-out group-hover/cta:scale-x-100"
+            />
             View details
-            <ArrowRight className="ml-2 h-4 w-4" />
+            <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-300 group-hover/cta:translate-x-1" />
           </Link>
         </Button>
       </div>
