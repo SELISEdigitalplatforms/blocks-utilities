@@ -656,6 +656,18 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             return await RetryCardSetupAsync(subscription, existing, correlationId, cancellationToken);
         }
 
+        if (existing is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup,
+                           State: SubscriptionPaymentLinkState.Abandoned })
+        {
+            // A hosted session that expired cannot be reopened (see PaymentMethodSetupKeyFor's own
+            // remarks): falling through to StartCardSetupAsync below would derive the same
+            // idempotency key from the same unchanged attempt number and the provider would
+            // replay the original, already-dead session under it. Retrying bumps the attempt
+            // first, through the same compare-and-set two concurrent tabs already rely on, so the
+            // subscriber always gets back a session they can actually complete.
+            return await RetryCardSetupAsync(subscription, existing, correlationId, cancellationToken);
+        }
+
         return await StartCardSetupAsync(subscription, correlationId, cancellationToken);
     }
 

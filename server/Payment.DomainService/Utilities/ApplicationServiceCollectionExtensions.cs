@@ -219,6 +219,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IPaymentCaptureWebhookStateTransitionService, PaymentCaptureWebhookStateTransitionService>();
         services.AddScoped<IPaymentMethodSetupWebhookStateTransitionService, PaymentMethodSetupWebhookStateTransitionService>();
         services.AddScoped<IStoredPaymentMethodLifecycleService, StoredPaymentMethodLifecycleService>();
+        services.AddScoped<ISubscriptionPaymentReconciler, StripeCheckoutReconciliationService>();
         services.AddScoped<IPaymentWebhookProcessor, PaymentWebhookProcessor>();
         services.AddScoped<IStoredPaymentMethodQueryService, StoredPaymentMethodQueryService>();
         services.AddScoped<IStoredPaymentMethodRemovalService, StoredPaymentMethodRemovalService>();
