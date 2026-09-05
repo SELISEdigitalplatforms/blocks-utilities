@@ -19,6 +19,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<
         StoredPaymentMethodRemovalRecoveryProcessor> _logger;
+    private readonly TimeProvider _time;
 
     public StoredPaymentMethodRemovalRecoveryProcessor(
         IStoredPaymentMethodRepository methods,
@@ -28,7 +29,8 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
         IProviderTokenProtector tokenProtector,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<
-            StoredPaymentMethodRemovalRecoveryProcessor> logger)
+            StoredPaymentMethodRemovalRecoveryProcessor> logger,
+        TimeProvider? time = null)
     {
         _methods = methods;
         _payments = payments;
@@ -37,6 +39,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
         _tokenProtector = tokenProtector;
         _options = options;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<int> RecoverDueRemovalsAsync(
@@ -51,7 +54,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
         var candidates =
             await _methods.GetDueRemovalCandidatesAsync(
                 tenantId,
-                DateTime.UtcNow,
+                _time.GetUtcNow().UtcDateTime,
                 batchSize,
                 cancellationToken);
         var recovered = 0;
@@ -61,7 +64,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
             cancellationToken.ThrowIfCancellationRequested();
 
             var leaseId = Guid.NewGuid().ToString("N");
-            var leaseExpiresAtUtc = DateTime.UtcNow.AddSeconds(
+            var leaseExpiresAtUtc = _time.GetUtcNow().UtcDateTime.AddSeconds(
                 Math.Clamp(
                     options.StoredPaymentMethodRemovalLeaseSeconds,
                     10,
@@ -71,7 +74,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
                 candidate.ItemId,
                 leaseId,
                 leaseExpiresAtUtc,
-                DateTime.UtcNow,
+                _time.GetUtcNow().UtcDateTime,
                 cancellationToken);
 
             if (claimed == null)
@@ -136,7 +139,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
                         tenantId,
                         claimed.ItemId,
                         leaseId,
-                        DateTime.UtcNow,
+                        _time.GetUtcNow().UtcDateTime,
                         cancellationToken))
                 {
                     recovered++;
@@ -209,7 +212,7 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
             method.TenantId,
             method.ItemId,
             leaseId,
-            DateTime.UtcNow.AddSeconds(delaySeconds),
+            _time.GetUtcNow().UtcDateTime.AddSeconds(delaySeconds),
             errorCode,
             cancellationToken);
     }

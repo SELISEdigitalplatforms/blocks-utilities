@@ -45,6 +45,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
     private readonly IPaymentOrganizationResolver _organizationResolver;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentMethodSetupService> _logger;
+    private readonly TimeProvider _time;
 
     public PaymentMethodSetupService(
         IPaymentExecutionContextResolver contextResolver,
@@ -63,7 +64,8 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         IPaymentResponseMapper responseMapper,
         IPaymentOrganizationResolver organizationResolver,
         IOptionsMonitor<PaymentOptions> options,
-        ILogger<PaymentMethodSetupService> logger)
+        ILogger<PaymentMethodSetupService> logger,
+        TimeProvider? time = null)
     {
         _contextResolver = contextResolver;
         _distributedLock = distributedLock;
@@ -82,6 +84,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         _organizationResolver = organizationResolver;
         _options = options;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentOperationResult> CreateSetupAsync(
@@ -159,7 +162,7 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
     {
         var requestHash = PaymentHashing.CreateRequestHash(request);
         var leaseId = Guid.NewGuid().ToString("N");
-        var leaseUntilUtc = DateTime.UtcNow.AddSeconds(
+        var leaseUntilUtc = _time.GetUtcNow().UtcDateTime.AddSeconds(
             Math.Clamp(_options.CurrentValue.ProcessingLeaseSeconds, 10, 120));
 
         var payment = CreateRecord(
@@ -537,9 +540,9 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
             ProcessingLeaseId = leaseId,
             ProcessingLeaseExpiresAtUtc = leaseUntilUtc,
             InitiationAttemptCount = 1,
-            CreatedAtUtc = DateTime.UtcNow,
-            LastUpdatedDateUtc = DateTime.UtcNow,
-            PaymentDate = DateTime.UtcNow
+            CreatedAtUtc = _time.GetUtcNow().UtcDateTime,
+            LastUpdatedDateUtc = _time.GetUtcNow().UtcDateTime,
+            PaymentDate = _time.GetUtcNow().UtcDateTime
         };
 
     private Task<PaymentOperationResult> FailAsync(

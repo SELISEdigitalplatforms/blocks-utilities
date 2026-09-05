@@ -17,6 +17,7 @@ public sealed class PaymentRefundPreflightService :
     private readonly IPaymentRepository _payments;
     private readonly IPaymentProviderCache _providers;
     private readonly IPaymentFundReturnStrategyResolver _strategies;
+    private readonly TimeProvider _time;
 
     public PaymentRefundPreflightService(
         IValidator<CreatePaymentRefundRequest> validator,
@@ -25,7 +26,8 @@ public sealed class PaymentRefundPreflightService :
         IPaymentRefundRepository refunds,
         IPaymentRepository payments,
         IPaymentProviderCache providers,
-        IPaymentFundReturnStrategyResolver strategies)
+        IPaymentFundReturnStrategyResolver strategies,
+        TimeProvider? time = null)
     {
         _validator = validator;
         _minorUnits = minorUnits;
@@ -34,6 +36,7 @@ public sealed class PaymentRefundPreflightService :
         _payments = payments;
         _providers = providers;
         _strategies = strategies;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentRefundPreflightResult>
@@ -205,7 +208,7 @@ public sealed class PaymentRefundPreflightService :
         if (provider.MaxRefundDays > 0 &&
             paymentDate != default &&
             paymentDate.AddDays(provider.MaxRefundDays) <
-            DateTime.UtcNow)
+            _time.GetUtcNow().UtcDateTime)
         {
             return Failed(
                 PaymentFailureKind.Conflict,

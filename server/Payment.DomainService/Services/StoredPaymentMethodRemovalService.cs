@@ -27,6 +27,7 @@ public sealed class StoredPaymentMethodRemovalService :
     private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<StoredPaymentMethodRemovalService> _logger;
+    private readonly TimeProvider _time;
 
     public StoredPaymentMethodRemovalService(
         IPaymentExecutionContextResolver contexts,
@@ -40,7 +41,8 @@ public sealed class StoredPaymentMethodRemovalService :
         IProviderTokenProtector tokenProtector,
         IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
-        ILogger<StoredPaymentMethodRemovalService> logger)
+        ILogger<StoredPaymentMethodRemovalService> logger,
+        TimeProvider? time = null)
     {
         _contexts = contexts;
         _payments = payments;
@@ -54,6 +56,7 @@ public sealed class StoredPaymentMethodRemovalService :
         _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<StoredPaymentMethodRemovalResult>
@@ -159,7 +162,7 @@ public sealed class StoredPaymentMethodRemovalService :
                 cancellationToken);
 
         var leaseId = Guid.NewGuid().ToString("N");
-        var leaseExpiresAtUtc = DateTime.UtcNow.AddSeconds(
+        var leaseExpiresAtUtc = _time.GetUtcNow().UtcDateTime.AddSeconds(
             Math.Clamp(
                 _options.CurrentValue
                     .StoredPaymentMethodRemovalLeaseSeconds,
@@ -241,7 +244,7 @@ public sealed class StoredPaymentMethodRemovalService :
                 context.TenantId,
                 claimed.ItemId,
                 leaseId,
-                DateTime.UtcNow,
+                _time.GetUtcNow().UtcDateTime,
                 cancellationToken);
 
             return persisted
@@ -274,7 +277,7 @@ public sealed class StoredPaymentMethodRemovalService :
             context.TenantId,
             claimed.ItemId,
             leaseId,
-            DateTime.UtcNow.AddSeconds(30),
+            _time.GetUtcNow().UtcDateTime.AddSeconds(30),
             "provider_outcome_unknown",
             cancellationToken);
 
