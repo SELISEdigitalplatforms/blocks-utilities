@@ -2,15 +2,14 @@
 
 Utilities service of the SELISE `<Blocks/>` platform. It bundles the cross-cutting product capabilities that the other Blocks services and consoles rely on:
 
-- **Mail**: transactional email sending, email templates and a template editor (BeeFree SDK)
+- **Subscriptions and billing**: plans, prices, discounts and campaigns, usage meters and entitlements, renewals, plan changes, and financial documents
+- **Payments**: hosted checkout, payment methods, payment validation, provider webhooks (Adyen, Stripe) and reconciliation
 - **Template engine**: reusable server-side templates rendered on demand
-- **Notifications**: in-app notification delivery
 - **Magic links**: single-use signed links and short URLs
-- **PDF generation**: server-side PDF rendering, stamping and related events
+- **PDF generation**: server-side PDF rendering, stamping, and conversion of word-processing documents to PDF
 - **Sequences and identifiers**: ordered, unique identifier generation
 - **Geolocation**: IP geolocation lookups through a third-party provider
-- **Payments**: hosted checkout, payment methods, payment validation, provider webhooks (Adyen) and reconciliation
-- **Captcha and MFA drivers**: shared verification building blocks
+- **Mail requests**: billing email is composed here and **published to the platform's mail service** for delivery — see [Mail](#mail) below
 
 The repository ships a web console (React) for managing these utilities and an HTTP API plus a background worker (both .NET) that implement them.
 
@@ -18,12 +17,13 @@ The repository ships a web console (React) for managing these utilities and an H
 
 ```
 server/   .NET backend
-  Api/                    ASP.NET Core HTTP API; also serves the built SPA from wwwroot
-  Worker/                 background service: queue consumers, payment reconciliation, outbox
-  *.DomainService/        one project per capability (Mail, Notification, Payment, Utility, ...)
-  *.Driver/               provider integrations (Captcha, Iam, Mail, Mfa)
-  XUnitTest/              backend unit tests (xUnit)
-  Blocks.slnx             solution file
+  Api/                          ASP.NET Core HTTP API; also serves the built SPA from wwwroot
+  Worker/                       background service: queue consumers, payment reconciliation, outbox
+  Subscription.DomainService/   subscriptions, plans, discounts, billing, usage and entitlements
+  Payment.DomainService/        checkout, payment methods, providers, webhooks, reconciliation
+  Utility.DomainService/        magic links, PDF generation, template engine, sequences, geolocation
+  XUnitTest/                    backend unit tests (xUnit)
+  Blocks.slnx                   solution file
 client/   web console (React 18, TypeScript, Vite, Tailwind, Radix UI; Vitest for unit tests)
 e2e/      end-to-end tests (Playwright), see e2e/README.md
 scripts/  scan and deploy entry points
@@ -32,6 +32,23 @@ scripts/  scan and deploy entry points
 The API and Worker are built on the `SeliseBlocks.Genesis.OS` platform package, which provides configuration, secrets resolution, messaging (RabbitMQ or Azure Service Bus), logging and the authentication middleware.
 
 In production the SPA is compiled into `server/Api/wwwroot` and served by the API itself, which substitutes `__BLOCKS_*__` placeholders in `index.html` with runtime values from configuration (see `ApplyFrontendRuntimeSettings` in `server/Api/Program.cs`).
+
+## Mail
+
+This service does not deliver email. It composes a mail request and publishes it to the platform's
+mail listener, which owns the templates, the transport and the sending:
+
+- `Subscription.DomainService/Messaging/SendMail.cs` is the wire contract. It is deliberately a copy
+  of `DomainService.Dtos.SendMail` in blocks-os rather than a shared dependency, so **property names
+  and shapes here must stay compatible with that listener** — changing one side without the other
+  stops mail being delivered, silently.
+- `SubscriptionFinancialDocumentDeliveryService` publishes invoice and financial-document mail.
+- `UsageThresholdEmailService` publishes usage-threshold warnings.
+- `MailDeliveryReporter` records the outcome of each publish, including the payload, so a mail that
+  never arrives can be traced from this side.
+
+There is therefore no SMTP configuration, no mail template store and no template editor in this
+repository. How a message looks, and where it is finally sent, belongs to the mail service.
 
 ## Prerequisites
 
