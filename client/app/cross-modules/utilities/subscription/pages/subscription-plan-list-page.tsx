@@ -35,8 +35,8 @@ import type {
 import { subscriptionService } from "../services/subscription.service";
 import {
   applyCatalogueFilters,
+  clearCatalogueFilters,
   countActiveFilters,
-  DEFAULT_CATALOGUE_FILTERS,
   PLAN_SORT_LABELS,
   PLAN_STATUS_TABS,
   readCatalogueFilters,
@@ -106,16 +106,39 @@ export const SubscriptionPlanListPage = () => {
   );
   const activeFilterCount = countActiveFilters(filters);
 
+  // Family-less plans are collected into a single "standalone" section rather than one section
+  // per plan, so they share the same 3-column grid instead of stacking one full-width row each.
+  // Sections otherwise appear in the order their first plan was encountered, which — since
+  // filteredPlans is already sorted — keeps the catalogue's chosen order intact.
   const catalogueGroups = useMemo(() => {
-    const groups = new Map<string, SubscriptionPlan[]>();
+    const families = new Map<string, SubscriptionPlan[]>();
+    const standalone: SubscriptionPlan[] = [];
+    const order: Array<{ key: string; familyCode: string | null }> = [];
+
     filteredPlans.forEach((plan) => {
-      const key = plan.familyCode ? `family:${plan.familyCode}` : `plan:${plan.planId}`;
-      groups.set(key, [...(groups.get(key) ?? []), plan]);
+      if (plan.familyCode) {
+        if (!families.has(plan.familyCode)) {
+          order.push({ key: `family:${plan.familyCode}`, familyCode: plan.familyCode });
+        }
+        families.set(plan.familyCode, [...(families.get(plan.familyCode) ?? []), plan]);
+
+        return;
+      }
+
+      if (standalone.length === 0) {
+        order.push({ key: "standalone", familyCode: null });
+      }
+      standalone.push(plan);
     });
-    return [...groups.entries()].map(([key, levels]) => ({
+
+    return order.map(({ key, familyCode }) => ({
       key,
-      familyCode: key.startsWith("family:") ? key.slice(7) : null,
-      levels: levels.sort((left, right) => (left.familyRank ?? 0) - (right.familyRank ?? 0)),
+      familyCode,
+      levels: familyCode
+        ? (families.get(familyCode) ?? []).sort(
+            (left, right) => (left.familyRank ?? 0) - (right.familyRank ?? 0),
+          )
+        : standalone,
     }));
   }, [filteredPlans]);
 
@@ -311,7 +334,7 @@ export const SubscriptionPlanListPage = () => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setFilters(DEFAULT_CATALOGUE_FILTERS)}
+                  onClick={() => setFilters(clearCatalogueFilters(filters))}
                 >
                   <X className="mr-1 h-3 w-3" />
                   Clear filters
@@ -362,7 +385,7 @@ export const SubscriptionPlanListPage = () => {
                 <Button
                   variant="outline"
                   className="mt-5"
-                  onClick={() => setFilters(DEFAULT_CATALOGUE_FILTERS)}
+                  onClick={() => setFilters(clearCatalogueFilters(filters))}
                 >
                   Clear filters
                 </Button>
@@ -374,10 +397,9 @@ export const SubscriptionPlanListPage = () => {
                 <section key={group.key} className={group.familyCode ? "rounded-xl border p-4" : ""}>
                   {group.familyCode && (
                     <div className="mb-3">
-                      <h3 className="font-semibold">{group.levels[0]?.displayName}</h3>
+                      <h3 className="font-semibold">{group.familyCode}</h3>
                       <p className="text-xs text-muted-foreground">
-                        {group.familyCode} · {group.levels.length} level
-                        {group.levels.length === 1 ? "" : "s"}
+                        {group.levels.length} level{group.levels.length === 1 ? "" : "s"}
                       </p>
                     </div>
                   )}
