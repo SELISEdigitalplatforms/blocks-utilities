@@ -215,8 +215,10 @@ export const PlanCard = ({
         <Pill>{organizationLabel}</Pill>
         {plan.familyCode ? (
           <Pill tone="accent">
-            {plan.familyCode}
-            {typeof plan.familyRank === "number" ? ` · level ${plan.familyRank}` : ""}
+            <span className="break-words">
+              {plan.familyCode}
+              {typeof plan.familyRank === "number" ? ` · level ${plan.familyRank}` : ""}
+            </span>
           </Pill>
         ) : null}
         {trialLabel ? (

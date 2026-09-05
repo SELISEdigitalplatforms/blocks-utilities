@@ -300,7 +300,10 @@ export const SubscriptionPlanListPage = () => {
         })}
       </div>
 
-      <Card className="rounded-2xl p-0 shadow-sm">
+      {/* No overflow-hidden here: the sticky filter bar inside is a child of this Card, and an
+          overflow-hidden ancestor turns off position: sticky (it stops scrolling relative to the
+          page and just sits wherever this box's own — non-scrolling — layout puts it). */}
+      <Card className="min-w-0 rounded-2xl p-0 shadow-sm">
         <div className="sticky top-0 z-10 space-y-3 rounded-t-2xl border-b bg-card/85 p-4 backdrop-blur-md sm:p-5 supports-[backdrop-filter]:bg-card/70">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <Tabs
@@ -430,7 +433,7 @@ export const SubscriptionPlanListPage = () => {
           </div>
         ) : null}
 
-        <div className={`p-4 sm:p-5 ${isFetching && !isLoading ? "opacity-60" : ""}`}>
+        <div className={`min-w-0 p-4 sm:p-5 ${isFetching && !isLoading ? "opacity-60" : ""}`}>
           {isLoading ? (
             <div
               className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
@@ -482,34 +485,36 @@ export const SubscriptionPlanListPage = () => {
               ) : null}
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="min-w-0 space-y-5">
               {catalogueGroups.map((group) => (
                 <section
                   key={group.key}
                   className={
                     group.familyCode
-                      ? "rounded-2xl border border-blocks-secondary-100 bg-blocks-secondary-50/30 p-4 sm:p-5"
-                      : ""
+                      ? "min-w-0 overflow-hidden rounded-2xl border border-blocks-secondary-100 bg-blocks-secondary-50/30 p-4 sm:p-5"
+                      : "min-w-0"
                   }
                 >
                   {group.familyCode && (
-                    <div className="mb-4 flex items-center gap-2.5">
+                    <div className="mb-4 flex min-w-0 items-center gap-2.5">
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blocks-secondary-400 to-blocks-secondary-600 text-primary-foreground shadow-sm">
                         <Layers className="h-4 w-4" />
                       </span>
-                      <div>
-                        <h3 className="font-semibold tracking-tight">{group.familyCode}</h3>
+                      <div className="min-w-0">
+                        <h3 className="break-words font-semibold tracking-tight">
+                          {group.familyCode}
+                        </h3>
                         <p className="text-xs text-muted-foreground">
                           {group.levels.length} level{group.levels.length === 1 ? "" : "s"}
                         </p>
                       </div>
                     </div>
                   )}
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {group.levels.map((plan, index) => (
                       <div
                         key={plan.planId}
-                        className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-500 motion-reduce:animate-none"
+                        className="min-w-0 animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-500 motion-reduce:animate-none"
                         style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
                       >
                         <PlanCard
