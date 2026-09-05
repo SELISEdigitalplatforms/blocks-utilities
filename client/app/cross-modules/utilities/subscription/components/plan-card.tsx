@@ -94,7 +94,7 @@ export const PlanCard = ({
           ? // Muted, not faded away: an archived plan is still read, and text at 60% opacity on a
             // muted panel fails contrast. The tint carries the state, the text keeps its colour.
             "border-dashed bg-muted/40"
-          : "hover:border-blocks-primary-300 hover:shadow-md"
+          : "hover:border-blocks-primary-300 hover:shadow-md focus-within:border-blocks-primary-300 focus-within:shadow-md"
       }`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -125,9 +125,8 @@ export const PlanCard = ({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link to={detailPath}>View details</Link>
-              </DropdownMenuItem>
+              {/* View details already lives on the title and the footer button — a third
+                  identical link here would just be another way to the same place. */}
               {/* Absent rather than disabled for an archived plan: a greyed-out Edit invites a
                   second click and an explanation, where nothing at all says it is not on offer. */}
               {editPath && !isArchived ? (
