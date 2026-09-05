@@ -23,15 +23,18 @@ public sealed class PaymentKeyRingStore : IPaymentKeyRingStore
     private readonly IKeyVaultSecretGateway _gateway;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentKeyRingStore> _logger;
+    private readonly TimeProvider _time;
 
     public PaymentKeyRingStore(
         IKeyVaultSecretGateway gateway,
         IOptionsMonitor<PaymentOptions> options,
-        ILogger<PaymentKeyRingStore> logger)
+        ILogger<PaymentKeyRingStore> logger,
+        TimeProvider? time = null)
     {
         _gateway = gateway;
         _options = options;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<KeyRingProvisionOutcome> TryCreateAsync(
@@ -65,7 +68,7 @@ public sealed class PaymentKeyRingStore : IPaymentKeyRingStore
         }
 
         var keys = await SeedFromSharedRingAsync(cancellationToken);
-        var activeKeyId = NextKeyId(keys);
+        var activeKeyId = NextKeyId(keys, _time.GetUtcNow().UtcDateTime);
 
         keys[activeKeyId] = Convert.ToBase64String(
             RandomNumberGenerator.GetBytes(KeyLengthBytes));
@@ -165,13 +168,13 @@ public sealed class PaymentKeyRingStore : IPaymentKeyRingStore
         return keys;
     }
 
-    private static string NextKeyId(Dictionary<string, string> keys)
+    private static string NextKeyId(Dictionary<string, string> keys, DateTime nowUtc)
     {
         var candidate =
-            $"payment-token-key-{DateTime.UtcNow:yyyy-MM}";
+            $"payment-token-key-{nowUtc:yyyy-MM}";
 
         return keys.ContainsKey(candidate)
-            ? $"payment-token-key-{DateTime.UtcNow:yyyy-MM-dd-HHmmss}"
+            ? $"payment-token-key-{nowUtc:yyyy-MM-dd-HHmmss}"
             : candidate;
     }
 }

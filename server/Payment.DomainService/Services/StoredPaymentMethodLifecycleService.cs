@@ -20,6 +20,7 @@ public sealed class StoredPaymentMethodLifecycleService :
     private readonly IPaymentOutboxEventFactory _events;
     private readonly ILogger<
         StoredPaymentMethodLifecycleService> _logger;
+    private readonly TimeProvider _time;
 
     public StoredPaymentMethodLifecycleService(
         IStoredPaymentMethodRepository methods,
@@ -29,7 +30,8 @@ public sealed class StoredPaymentMethodLifecycleService :
         IStoredPaymentMethodProviderGatewayResolver removals,
         IPaymentProviderCache providers,
         IPaymentOutboxEventFactory events,
-        ILogger<StoredPaymentMethodLifecycleService> logger)
+        ILogger<StoredPaymentMethodLifecycleService> logger,
+        TimeProvider? time = null)
     {
         _methods = methods;
         _payments = payments;
@@ -39,6 +41,7 @@ public sealed class StoredPaymentMethodLifecycleService :
         _providers = providers;
         _events = events;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -561,7 +564,7 @@ public sealed class StoredPaymentMethodLifecycleService :
             TenantId = webhook.TenantId,
             OrganizationId = organizationId,
             EncryptionOrganizationId = encryptionScope.OrganizationId,
-            EncryptionScopeResolvedAtUtc = DateTime.UtcNow,
+            EncryptionScopeResolvedAtUtc = _time.GetUtcNow().UtcDateTime,
             ShopperReference = payload.ShopperReference!,
             ProviderPayerReference = payload.ProviderPayerReference,
             ProviderName = providerName,

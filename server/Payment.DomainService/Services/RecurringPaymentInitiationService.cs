@@ -33,6 +33,7 @@ public sealed class RecurringPaymentInitiationService :
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<RecurringPaymentInitiationService>
         _logger;
+    private readonly TimeProvider _time;
 
     public RecurringPaymentInitiationService(
         IPaymentRepository payments,
@@ -48,7 +49,8 @@ public sealed class RecurringPaymentInitiationService :
         ICurrencyMinorUnitResolver minorUnits,
         IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
-        ILogger<RecurringPaymentInitiationService> logger)
+        ILogger<RecurringPaymentInitiationService> logger,
+        TimeProvider? time = null)
     {
         _payments = payments;
         _storedPaymentMethods = storedPaymentMethods;
@@ -64,6 +66,7 @@ public sealed class RecurringPaymentInitiationService :
         _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentOperationResult> InitiateAsync(
@@ -82,7 +85,7 @@ public sealed class RecurringPaymentInitiationService :
                 storedPaymentMethod.ItemId,
                 payment.ShopperReference ?? string.Empty,
                 methodClaimId,
-                DateTime.UtcNow.AddSeconds(
+                _time.GetUtcNow().UtcDateTime.AddSeconds(
                     Math.Clamp(
                         _options.CurrentValue
                             .ProviderTimeoutSeconds * 2,
@@ -222,7 +225,7 @@ public sealed class RecurringPaymentInitiationService :
         }
 
         var leaseId = Guid.NewGuid().ToString("N");
-        var leaseUntilUtc = DateTime.UtcNow.AddSeconds(
+        var leaseUntilUtc = _time.GetUtcNow().UtcDateTime.AddSeconds(
             Math.Clamp(
                 _options.CurrentValue.ProcessingLeaseSeconds,
                 10,

@@ -17,6 +17,7 @@ public sealed class PaymentCaptureInitiationService :
     private readonly IPaymentCaptureOutboxEventFactory _events;
     private readonly IPaymentCaptureResponseMapper _responses;
     private readonly IPaymentWorkDispatcher _workDispatcher;
+    private readonly TimeProvider _time;
 
     public PaymentCaptureInitiationService(
         IPaymentCaptureProviderGatewayResolver gateways,
@@ -24,7 +25,8 @@ public sealed class PaymentCaptureInitiationService :
         IPaymentCaptureRepository captures,
         IPaymentCaptureOutboxEventFactory events,
         IPaymentCaptureResponseMapper responses,
-        IPaymentWorkDispatcher workDispatcher)
+        IPaymentWorkDispatcher workDispatcher,
+        TimeProvider? time = null)
     {
         _gateways = gateways;
         _requests = requests;
@@ -32,6 +34,7 @@ public sealed class PaymentCaptureInitiationService :
         _events = events;
         _responses = responses;
         _workDispatcher = workDispatcher;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentCaptureOperationResult> SubmitAsync(
@@ -111,7 +114,7 @@ public sealed class PaymentCaptureInitiationService :
             capture.ProviderCaptureReference =
                 providerResult.ProviderCaptureReference;
             capture.ProviderResultStatus = providerResult.ProviderStatus;
-            capture.SubmittedAtUtc = DateTime.UtcNow;
+            capture.SubmittedAtUtc = _time.GetUtcNow().UtcDateTime;
 
             return PaymentCaptureOperationResult.Success(
                 _responses.Map(payment.ItemId, capture),
@@ -213,8 +216,8 @@ public sealed class PaymentCaptureInitiationService :
         capture.Status = PaymentCaptureStatuses.Succeeded;
         capture.ProviderCaptureReference = providerResult.ProviderCaptureReference;
         capture.ProviderResultStatus = providerResult.ProviderStatus;
-        capture.SubmittedAtUtc = DateTime.UtcNow;
-        capture.CompletedAtUtc = DateTime.UtcNow;
+        capture.SubmittedAtUtc = _time.GetUtcNow().UtcDateTime;
+        capture.CompletedAtUtc = _time.GetUtcNow().UtcDateTime;
 
         return PaymentCaptureOperationResult.Success(
             _responses.Map(payment.ItemId, capture),
@@ -241,7 +244,7 @@ public sealed class PaymentCaptureInitiationService :
             capture.CaptureId,
             leaseId,
             failureCode,
-            DateTime.UtcNow.AddSeconds(30),
+            _time.GetUtcNow().UtcDateTime.AddSeconds(30),
             cancellationToken);
 
         await _workDispatcher.TryDispatchAsync(

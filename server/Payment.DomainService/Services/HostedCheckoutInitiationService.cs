@@ -25,6 +25,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
     private readonly IStoredPaymentMethodRepository _storedPaymentMethods;
     private readonly IProviderInitiationRequestFactoryResolver _requestFactories;
     private readonly IOptionsMonitor<PaymentOptions> _options;
+    private readonly TimeProvider _time;
 
     public HostedCheckoutInitiationService(
         IPaymentRepository repository,
@@ -38,7 +39,8 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         IPaymentWebhookReferenceService webhookReferenceService,
         IStoredPaymentMethodRepository storedPaymentMethods,
         IProviderInitiationRequestFactoryResolver requestFactories,
-        IOptionsMonitor<PaymentOptions> options)
+        IOptionsMonitor<PaymentOptions> options,
+        TimeProvider? time = null)
     {
         _repository = repository;
         _providerCache = providerCache;
@@ -52,6 +54,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         _storedPaymentMethods = storedPaymentMethods;
         _requestFactories = requestFactories;
         _options = options;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentOperationResult> InitiateAsync(
@@ -251,7 +254,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         if (payment.InitiationRequest == null) return;
 
         var leaseId = Guid.NewGuid().ToString("N");
-        var leaseUntil = DateTime.UtcNow.AddSeconds(
+        var leaseUntil = _time.GetUtcNow().UtcDateTime.AddSeconds(
             Math.Clamp(_options.CurrentValue.ProcessingLeaseSeconds, 10, 120));
         var claimed = await _repository.TryClaimInitiationAsync(
             payment.TenantId,

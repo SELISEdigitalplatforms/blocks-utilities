@@ -22,6 +22,7 @@ public sealed class PaymentRefundInitiationService :
     private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly ILogger<PaymentRefundInitiationService>
         _logger;
+    private readonly TimeProvider _time;
 
     public PaymentRefundInitiationService(
         IPaymentRefundProviderGatewayResolver gateways,
@@ -30,7 +31,8 @@ public sealed class PaymentRefundInitiationService :
         IPaymentRefundOutboxEventFactory events,
         IPaymentRefundResponseMapper responses,
         IPaymentWorkDispatcher workDispatcher,
-        ILogger<PaymentRefundInitiationService> logger)
+        ILogger<PaymentRefundInitiationService> logger,
+        TimeProvider? time = null)
     {
         _gateways = gateways;
         _requestFactory = requestFactory;
@@ -39,6 +41,7 @@ public sealed class PaymentRefundInitiationService :
         _responses = responses;
         _workDispatcher = workDispatcher;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentRefundOperationResult> SubmitAsync(
@@ -130,7 +133,7 @@ public sealed class PaymentRefundInitiationService :
                 providerResult.ProviderRefundReference;
             refund.ProviderResultStatus =
                 providerResult.ProviderStatus;
-            refund.SubmittedAtUtc = DateTime.UtcNow;
+            refund.SubmittedAtUtc = _time.GetUtcNow().UtcDateTime;
 
             _logger.LogInformation(
                 "Payment refund submitted TenantHash={TenantHash} PaymentHash={PaymentHash} RefundHash={RefundHash}",
@@ -223,7 +226,7 @@ public sealed class PaymentRefundInitiationService :
             ],
             PaymentRefundStatuses.Succeeded,
             providerResult.ProviderRefundReference!,
-            DateTime.UtcNow,
+            _time.GetUtcNow().UtcDateTime,
             -refund.Amount,
             0,
             PaymentStatuses.Cancelled,
@@ -246,8 +249,8 @@ public sealed class PaymentRefundInitiationService :
         refund.Status = PaymentRefundStatuses.Succeeded;
         refund.ProviderRefundReference = providerResult.ProviderRefundReference;
         refund.ProviderResultStatus = providerResult.ProviderStatus;
-        refund.SubmittedAtUtc = DateTime.UtcNow;
-        refund.CompletedAtUtc = DateTime.UtcNow;
+        refund.SubmittedAtUtc = _time.GetUtcNow().UtcDateTime;
+        refund.CompletedAtUtc = _time.GetUtcNow().UtcDateTime;
 
         _logger.LogInformation(
             "Payment reversal settled during submission TenantHash={TenantHash} PaymentHash={PaymentHash} RefundHash={RefundHash}",
@@ -282,7 +285,7 @@ public sealed class PaymentRefundInitiationService :
             refund.RefundId,
             leaseId,
             failureCode,
-            DateTime.UtcNow.AddSeconds(30),
+            _time.GetUtcNow().UtcDateTime.AddSeconds(30),
             cancellationToken);
 
         await _workDispatcher.TryDispatchAsync(

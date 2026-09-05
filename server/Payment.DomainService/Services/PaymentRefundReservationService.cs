@@ -16,17 +16,20 @@ public sealed class PaymentRefundReservationService :
         _references;
     private readonly IPaymentRefundResponseMapper _responses;
     private readonly IOptionsMonitor<PaymentOptions> _options;
+    private readonly TimeProvider _time;
 
     public PaymentRefundReservationService(
         IPaymentRefundRepository refunds,
         IPaymentRefundWebhookReferenceService references,
         IPaymentRefundResponseMapper responses,
-        IOptionsMonitor<PaymentOptions> options)
+        IOptionsMonitor<PaymentOptions> options,
+        TimeProvider? time = null)
     {
         _refunds = refunds;
         _references = references;
         _responses = responses;
         _options = options;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentRefundReservationResult>
@@ -58,7 +61,7 @@ public sealed class PaymentRefundReservationService :
                 payment.ItemId,
                 request);
         var leaseId = Guid.NewGuid().ToString("N");
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var refund = new PaymentRefund
         {
             RefundId = refundId,
@@ -174,7 +177,7 @@ public sealed class PaymentRefundReservationService :
                 existingPayment.ItemId,
                 existingRefund.RefundId,
                 recoveryLeaseId,
-                DateTime.UtcNow.Add(
+                _time.GetUtcNow().UtcDateTime.Add(
                     PaymentRefundLeasePolicy.Resolve(
                         _options.CurrentValue)),
                 cancellationToken);
