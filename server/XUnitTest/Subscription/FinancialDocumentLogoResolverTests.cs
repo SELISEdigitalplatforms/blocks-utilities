@@ -73,6 +73,11 @@ public sealed class FinancialDocumentLogoResolverTests
 
     private static FinancialDocumentLogoResolver Resolver(Mock<IStorageDriverService> storage) =>
         new(
-            new PdfStorageHelper(NullLogger<PdfStorageHelper>.Instance, storage.Object),
+            new PdfStorageHelper(
+                NullLogger<PdfStorageHelper>.Instance,
+                storage.Object,
+                // Strict: every case here fails before a URL is ever produced, so asking the
+                // factory for a client would mean the resolver had started a real download.
+                new Mock<IHttpClientFactory>(MockBehavior.Strict).Object),
             NullLogger<FinancialDocumentLogoResolver>.Instance);
 }

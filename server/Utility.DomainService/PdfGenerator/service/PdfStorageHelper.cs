@@ -17,8 +17,9 @@ namespace Utility.DomainService.PdfGenerator.service
 
         public PdfStorageHelper(
             ILogger<PdfStorageHelper> logger,
-            IStorageDriverService storageDriverService)
-            : base(logger)
+            IStorageDriverService storageDriverService,
+            IHttpClientFactory httpClientFactory)
+            : base(logger, httpClientFactory)
         {
             _storageDriverService = storageDriverService;
         }
@@ -62,7 +63,7 @@ namespace Utility.DomainService.PdfGenerator.service
 
             _logger.LogInformation("SavePdfToStorage: Got upload URL for fileId={FileId}", fileId);
 
-            using var httpClient = new HttpClient();
+            var httpClient = CreateHttpClient();
             using var request = new HttpRequestMessage(HttpMethod.Put, fileInfo.UploadUrl)
             {
                 Content = new StreamContent(stream)

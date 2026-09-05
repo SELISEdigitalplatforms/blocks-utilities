@@ -14,8 +14,9 @@ namespace Utility.DomainService.TemplateEngine.service
 
         public StorageHelper(
             ILogger<StorageHelper> logger,
-            IStorageDriverService storageDriverService)
-            : base(logger)
+            IStorageDriverService storageDriverService,
+            IHttpClientFactory httpClientFactory)
+            : base(logger, httpClientFactory)
         {
             _storageDriverService = storageDriverService;
         }
@@ -59,7 +60,7 @@ namespace Utility.DomainService.TemplateEngine.service
 
             _logger.LogInformation("SaveFileToStorage: Got upload URL for fileId={FileId}", fileId);
 
-            using var httpClient = new HttpClient();
+            var httpClient = CreateHttpClient();
             using var request = new HttpRequestMessage(HttpMethod.Put, fileInfo.UploadUrl)
             {
                 Content = new StreamContent(stream)
