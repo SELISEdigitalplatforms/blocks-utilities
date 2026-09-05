@@ -74,6 +74,19 @@ public sealed class SubscriptionOptions
     public int ActivationMaxAttempts { get; set; } = 10;
     public int ActivationRetrySeconds { get; set; } = 30;
 
+    /// <summary>
+    /// How long the activation sweep waits between checks once its ordinary retry budget is
+    /// spent and a provider read still could not decide the payment one way or the other.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately much wider than <see cref="ActivationRetrySeconds"/>: that budget is tuned for
+    /// a webhook that usually lands in seconds, while this cadence is for polling a provider
+    /// directly, which is worth doing far less often. Never causes an abandonment on its own --
+    /// see <see cref="Outbox.SubscriptionActivationProcessor"/>'s own remarks on why elapsed
+    /// attempts stopped meaning "declare failure" once a provider read was available.
+    /// </remarks>
+    public int ActivationProviderConfirmationRetrySeconds { get; set; } = 300;
+
     public int RenewalBatchSize { get; set; } = 50;
 
     public int CancellationBatchSize { get; set; } = 50;

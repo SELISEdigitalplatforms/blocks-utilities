@@ -5,6 +5,7 @@ using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
+using Payment.DomainService.Services;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
@@ -845,19 +846,22 @@ public sealed class SubscriptionActivationProcessorTests
 
     private readonly Mock<ISubscriptionAuditTrail> _audit = new();
 
-    private SubscriptionActivationProcessor Processor() => new(
+    private SubscriptionActivationProcessor Processor(
+        SubscriptionOptions? options = null,
+        ISubscriptionPaymentReconciler? reconciler = null) => new(
         _links.Object,
         _subscriptions.Object,
         _accounts.Object,
         new SubscriptionOutboxEventFactory(),
         _payments.Object,
         _storedMethods.Object,
-        new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
+        new SubscriptionOptionsMonitorStub(options ?? new SubscriptionOptions()),
         NullLogger<SubscriptionActivationProcessor>.Instance,
         _time,
         audit: _audit.Object,
         renewals: _renewals.Object,
-        documents: _documents.Object);
+        documents: _documents.Object,
+        reconciler: reconciler);
 
     /// <summary>
     /// The reported bug: a paid signup sat Incomplete for 128 seconds.
@@ -1120,4 +1124,230 @@ public sealed class SubscriptionActivationProcessorTests
         Plan = new PlanSnapshot { Code = "professional" }
     };
 
+    /// <summary>
+    /// Regression guard for the enum comment's own promise: <c>Abandoned</c> means "failed or
+    /// never completed", and an expired payment is neither still in flight nor a mystery -- it is
+    /// PaymentMethodSetupExpiryProcessor's own sweep saying, deliberately, that this is over.
+    /// Missing from <c>TerminalFailureStatuses</c>, this classified as Undecided forever.
+    /// </summary>
+    [Fact]
+    public async Task An_expired_payment_is_a_decided_failure_not_an_undecided_one()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Expired, webhookConfirmed: false);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, "link-1", SubscriptionPaymentLinkState.Abandoned, It.IsAny<CancellationToken>()),
+            Times.Once);
+        _links.Verify(
+            repository => repository.RescheduleAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a decided outcome settles the link; it does not defer it again");
+    }
+
+    /// <summary>
+    /// The regression this whole feature exists to fix: a completed Stripe session whose webhook
+    /// never arrived used to be abandoned on elapsed attempts alone. Once the retry budget is
+    /// spent, a provider read that reports the payment confirmed must still activate the
+    /// subscription -- exactly as if the webhook had landed on time.
+    /// </summary>
+    [Fact]
+    public async Task Budget_exhausted_with_a_provider_confirmed_payment_activates_instead_of_abandoning()
+    {
+        GivenPayment(PaymentStatuses.Processing, webhookConfirmed: false);
+        _links
+            .Setup(repository => repository.ListDueAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewLink(attemptCount: 0)]);
+
+        var reconciler = new Mock<ISubscriptionPaymentReconciler>();
+        reconciler
+            .Setup(r => r.TryReconcileAsync(TenantId, "pay-1", It.IsAny<CancellationToken>()))
+            .Callback(() => GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true))
+            .ReturnsAsync(true);
+
+        var settled = await Processor(
+                new SubscriptionOptions { ActivationMaxAttempts = 1 },
+                reconciler.Object)
+            .ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, "link-1", SubscriptionPaymentLinkState.Abandoned, It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the provider confirmed the money moved; abandoning it would strand a paying customer");
+    }
+
+    /// <summary>
+    /// The other decided outcome a provider read can produce: the session genuinely expired or
+    /// the charge was genuinely refused. That is still a real decision, not silence, so it
+    /// abandons exactly as an on-time webhook reporting the same status would.
+    /// </summary>
+    [Fact]
+    public async Task Budget_exhausted_with_a_provider_confirmed_failure_still_abandons()
+    {
+        GivenPayment(PaymentStatuses.Processing, webhookConfirmed: false);
+        _links
+            .Setup(repository => repository.ListDueAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewLink(attemptCount: 0)]);
+
+        var reconciler = new Mock<ISubscriptionPaymentReconciler>();
+        reconciler
+            .Setup(r => r.TryReconcileAsync(TenantId, "pay-1", It.IsAny<CancellationToken>()))
+            .Callback(() => GivenPayment(PaymentStatuses.Refused, webhookConfirmed: true))
+            .ReturnsAsync(true);
+
+        await Processor(new SubscriptionOptions { ActivationMaxAttempts = 1 }, reconciler.Object)
+            .ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, "link-1", SubscriptionPaymentLinkState.Abandoned, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// Silence must never be read as failure. Whether nobody registered a reconciler, or one is
+    /// registered but the provider itself could not decide (unreachable, or the session is still
+    /// open), the link stays exactly as open as it was -- never abandoned, and never left on the
+    /// tight webhook-speed cadence either.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Budget_exhausted_with_no_decided_answer_holds_the_link_open(bool reconcilerRegistered)
+    {
+        GivenPayment(PaymentStatuses.Processing, webhookConfirmed: false);
+        _links
+            .Setup(repository => repository.ListDueAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewLink(attemptCount: 0)]);
+
+        ISubscriptionPaymentReconciler? reconciler = null;
+
+        if (reconcilerRegistered)
+        {
+            var mock = new Mock<ISubscriptionPaymentReconciler>();
+            mock.Setup(r => r.TryReconcileAsync(TenantId, "pay-1", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(false);
+            reconciler = mock.Object;
+        }
+
+        var options = new SubscriptionOptions
+        {
+            ActivationMaxAttempts = 1,
+            ActivationProviderConfirmationRetrySeconds = 600
+        };
+
+        var settled = await Processor(options, reconciler)
+            .ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(0);
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, "link-1", SubscriptionPaymentLinkState.Abandoned, It.IsAny<CancellationToken>()),
+            Times.Never,
+            "elapsed attempts alone are not evidence of failure");
+        _links.Verify(
+            repository => repository.RescheduleAsync(
+                TenantId,
+                "link-1",
+                1,
+                _time.GetUtcNow().UtcDateTime.AddSeconds(600),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "held open on the wider provider-confirmation cadence rather than the webhook-speed one");
+    }
+
+    /// <summary>
+    /// <c>AbandonAsync</c> deliberately leaves a card setup's subscription Incomplete on the
+    /// promise that this sweep -- not the one owning the link -- would eventually finish it or end
+    /// it. A late confirmation reaching this sweep must still activate the subscription.
+    /// </summary>
+    [Fact]
+    public async Task An_abandoned_setup_link_with_a_now_confirmed_payment_still_activates()
+    {
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenStaleSubscription();
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(
+                SubscriptionPaymentPurpose.PaymentMethodSetup,
+                SubscriptionPaymentLinkState.Abandoned));
+
+        var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        recovered.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+    }
+
+    /// <summary>
+    /// The other half of that promise: nothing ever confirmed the abandoned setup, and the
+    /// subscription has now sat Incomplete past its own grace period. This sweep is what
+    /// <c>AbandonAsync</c> named as the one that ends it, rather than leaving it Incomplete
+    /// indefinitely.
+    /// </summary>
+    [Fact]
+    public async Task An_abandoned_setup_link_with_no_confirmation_expires_the_subscription()
+    {
+        GivenPayment(PaymentStatuses.Processing, webhookConfirmed: false);
+        GivenStaleSubscription();
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(
+                SubscriptionPaymentPurpose.PaymentMethodSetup,
+                SubscriptionPaymentLinkState.Abandoned));
+
+        var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        recovered.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
+    }
+
+    /// <summary>
+    /// A link still <c>Pending</c> belongs to the settlement sweep, which is still retrying it on
+    /// its own cadence -- this age-based sweep must leave it alone, exactly as it always has.
+    /// </summary>
+    [Fact]
+    public async Task A_pending_link_is_still_left_to_the_settlement_sweep()
+    {
+        GivenStaleSubscription();
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(state: SubscriptionPaymentLinkState.Pending));
+
+        var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        recovered.Should().Be(0);
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    private void GivenStaleSubscription() =>
+        _subscriptions
+            .Setup(repository => repository.ListStaleAsync(
+                TenantId,
+                SubscriptionStatus.Incomplete,
+                It.IsAny<DateTime>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewSubscription()]);
 }
