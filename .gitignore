@@ -145,6 +145,11 @@ vite.config.ts.timestamp-*
 # .NET build artifacts
 **/bin/
 **/obj/
+
+# Test run output. `dotnet test --collect:"XPlat Code Coverage"` writes a per-run GUID directory
+# here; one was committed and went stale, still naming projects that no longer exist.
+**/TestResults/
+
 .DS_Store
 # Visual Studio files
 .vs/
