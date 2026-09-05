@@ -5,7 +5,7 @@ using Payment.DomainService.Requests;
 
 namespace Payment.DomainService.Utilities;
 
-public static class PaymentHashing
+internal static class PaymentHashing
 {
     public static string CreateRequestHash(MakePaymentRequest request)
     {
