@@ -18,7 +18,6 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@beefree.io/sdk": "^11.4.0",
     "@hcaptcha/react-hcaptcha": "^1.12.0",
     "@hookform/resolvers": "^3.9.0",
     "@microsoft/signalr": "^10.0.0",
