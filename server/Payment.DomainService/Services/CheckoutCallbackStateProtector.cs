@@ -8,6 +8,13 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    private readonly TimeProvider _time;
+
+    public CheckoutCallbackStateProtector(TimeProvider? time = null)
+    {
+        _time = time ?? TimeProvider.System;
+    }
+
     public ProtectedCheckoutCallbackState Create(
         string tenantId,
         string? organizationId,
@@ -16,7 +23,7 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
         TimeSpan lifetime,
         string key)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var state = new CheckoutCallbackState(
             tenantId,
             paymentId,
@@ -57,7 +64,7 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
         if (!TryDecodeBase64Url(parts[0], out var payload) || !TryDecodeBase64Url(parts[1], out var supplied)) return false;
         var valid = Verify(payload, supplied, activeKey) ||
                     !string.IsNullOrWhiteSpace(previousKey) && Verify(payload, supplied, previousKey);
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         return valid && state.ExpiresAtUtc >= now && state.IssuedAtUtc <= now.AddMinutes(5) && state.ExpiresAtUtc > state.IssuedAtUtc;
     }
 

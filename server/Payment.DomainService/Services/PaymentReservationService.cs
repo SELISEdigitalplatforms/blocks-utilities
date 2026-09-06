@@ -15,19 +15,22 @@ public sealed class PaymentReservationService : IPaymentReservationService
     private readonly IPaymentResponseMapper _responseMapper;
     private readonly IPaymentOrganizationResolver _organizationResolver;
     private readonly IOptionsMonitor<PaymentOptions> _options;
+    private readonly TimeProvider _time;
 
     public PaymentReservationService(
         IPaymentRepository repository,
         IPaymentIdempotencyCache idempotencyCache,
         IPaymentResponseMapper responseMapper,
         IPaymentOrganizationResolver organizationResolver,
-        IOptionsMonitor<PaymentOptions> options)
+        IOptionsMonitor<PaymentOptions> options,
+        TimeProvider? time = null)
     {
         _repository = repository;
         _idempotencyCache = idempotencyCache;
         _responseMapper = responseMapper;
         _organizationResolver = organizationResolver;
         _options = options;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentReservationResult> ReserveAsync(
@@ -39,7 +42,7 @@ public sealed class PaymentReservationService : IPaymentReservationService
     {
         var requestHash = PaymentHashing.CreateRequestHash(request);
         var leaseId = Guid.NewGuid().ToString("N");
-        var leaseUntil = DateTime.UtcNow.AddSeconds(
+        var leaseUntil = _time.GetUtcNow().UtcDateTime.AddSeconds(
             Math.Clamp(_options.CurrentValue.ProcessingLeaseSeconds, 10, 120));
         // Which organization the payment belongs to decides which merchant account takes the
         // money, because provider lookup keys off the payment's organization rather than the
@@ -82,7 +85,8 @@ public sealed class PaymentReservationService : IPaymentReservationService
             correlationId,
             requestHash,
             leaseId,
-            leaseUntil);
+            leaseUntil,
+            _time.GetUtcNow().UtcDateTime);
 
         if (await _repository.TryCreateAsync(payment, cancellationToken))
         {
@@ -177,7 +181,8 @@ public sealed class PaymentReservationService : IPaymentReservationService
         string correlationId,
         string requestHash,
         string leaseId,
-        DateTime leaseUntil) => new()
+        DateTime leaseUntil,
+        DateTime nowUtc) => new()
         {
             TenantId = context.TenantId,
             ProviderName = request.ProviderName.ToUpperInvariant(),
@@ -202,9 +207,9 @@ public sealed class PaymentReservationService : IPaymentReservationService
             ProcessingLeaseId = leaseId,
             ProcessingLeaseExpiresAtUtc = leaseUntil,
             InitiationAttemptCount = 1,
-            CreatedAtUtc = DateTime.UtcNow,
-            LastUpdatedDateUtc = DateTime.UtcNow,
-            PaymentDate = DateTime.UtcNow
+            CreatedAtUtc = nowUtc,
+            LastUpdatedDateUtc = nowUtc,
+            PaymentDate = nowUtc
         };
 
     private static PaymentReservationResult Terminal(PaymentOperationResult result) => new(null, null, result);
