@@ -8,6 +8,13 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    private readonly TimeProvider _time;
+
+    public CheckoutCallbackStateProtector(TimeProvider? time = null)
+    {
+        _time = time ?? TimeProvider.System;
+    }
+
     public ProtectedCheckoutCallbackState Create(
         string tenantId,
         string? organizationId,
@@ -16,7 +23,7 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
         TimeSpan lifetime,
         string key)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var state = new CheckoutCallbackState(
             tenantId,
             paymentId,
@@ -57,7 +64,7 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
         if (!TryDecodeBase64Url(parts[0], out var payload) || !TryDecodeBase64Url(parts[1], out var supplied)) return false;
         var valid = Verify(payload, supplied, activeKey) ||
                     !string.IsNullOrWhiteSpace(previousKey) && Verify(payload, supplied, previousKey);
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         return valid && state.ExpiresAtUtc >= now && state.IssuedAtUtc <= now.AddMinutes(5) && state.ExpiresAtUtc > state.IssuedAtUtc;
     }
 
@@ -71,6 +78,17 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
         catch (FormatException) { return false; }
     }
 
+    /// <summary>
+    /// Reads a configured HMAC key, which may be written as base64, as hex, or as raw text.
+    /// </summary>
+    /// <remarks>
+    /// The three are tried in that order and the first that yields at least 256 bits wins. The
+    /// order is not cosmetic: a value that is legible as more than one encoding decodes to
+    /// different bytes under each, and the bytes are the key. A 64-character hex string is also
+    /// valid base64, for instance, and is read as base64 here. Reordering these branches would
+    /// silently re-key every deployment that configured such a value, invalidating every callback
+    /// token already in flight.
+    /// </remarks>
     private static byte[] DecodeKey(string value)
     {
         if (string.IsNullOrWhiteSpace(value)) throw new FormatException("Missing key.");
@@ -79,7 +97,13 @@ public sealed class CheckoutCallbackStateProtector : ICheckoutCallbackStateProte
             var bytes = Convert.FromBase64String(value);
             if (bytes.Length >= 32) return bytes;
         }
-        catch (FormatException) { }
+        catch (FormatException)
+        {
+            // Not base64. That is an ordinary outcome for a key written as hex or as raw text,
+            // not an error: the next branch gets its turn. Nothing is lost by staying quiet,
+            // because a value that matches none of the three still ends in a throw below.
+        }
+
         if (value.Length % 2 == 0 && value.All(Uri.IsHexDigit))
         {
             var bytes = Convert.FromHexString(value);

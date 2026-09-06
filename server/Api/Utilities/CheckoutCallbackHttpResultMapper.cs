@@ -32,6 +32,8 @@ public static class CheckoutCallbackHttpResultMapper
             PaymentFailureKind.NotFound => controller.NotFound(response),
             PaymentFailureKind.RateLimited =>
                 controller.StatusCode(StatusCodes.Status429TooManyRequests, response),
+            PaymentFailureKind.Unauthenticated =>
+                controller.StatusCode(StatusCodes.Status401Unauthorized, response),
             PaymentFailureKind.Unavailable =>
                 controller.StatusCode(StatusCodes.Status503ServiceUnavailable, response),
             _ => controller.BadRequest(response)

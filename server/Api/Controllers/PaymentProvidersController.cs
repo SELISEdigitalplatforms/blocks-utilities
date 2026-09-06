@@ -233,6 +233,9 @@ public sealed class PaymentProvidersController : ControllerBase
             PaymentFailureKind.Validation => BadRequest(response),
             PaymentFailureKind.NotFound => NotFound(response),
             PaymentFailureKind.Conflict => Conflict(response),
+            PaymentFailureKind.Unauthenticated => StatusCode(
+                StatusCodes.Status401Unauthorized,
+                response),
             PaymentFailureKind.Unavailable => StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 response),
@@ -269,6 +272,9 @@ public sealed class PaymentProvidersController : ControllerBase
             PaymentFailureKind.Validation => BadRequest(response),
             PaymentFailureKind.NotFound => NotFound(response),
             PaymentFailureKind.Conflict => Conflict(response),
+            PaymentFailureKind.Unauthenticated => StatusCode(
+                StatusCodes.Status401Unauthorized,
+                response),
             PaymentFailureKind.Unavailable => StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 response),
@@ -292,6 +298,9 @@ public sealed class PaymentProvidersController : ControllerBase
 
         return failureKind switch
         {
+            PaymentFailureKind.Unauthenticated => StatusCode(
+                StatusCodes.Status401Unauthorized,
+                response),
             PaymentFailureKind.Unavailable => StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 response),

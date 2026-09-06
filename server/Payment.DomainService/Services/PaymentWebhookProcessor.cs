@@ -16,19 +16,22 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
     private readonly IPaymentWorkDispatcher _workDispatcher;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<PaymentWebhookProcessor> _logger;
+    private readonly TimeProvider _time;
 
     public PaymentWebhookProcessor(
         IPaymentWebhookInboxRepository inbox,
         IPaymentWebhookStateTransitionService transitions,
         IPaymentWorkDispatcher workDispatcher,
         IOptionsMonitor<PaymentOptions> options,
-        ILogger<PaymentWebhookProcessor> logger)
+        ILogger<PaymentWebhookProcessor> logger,
+        TimeProvider? time = null)
     {
         _inbox = inbox;
         _transitions = transitions;
         _workDispatcher = workDispatcher;
         _options = options;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentWebhookProcessingResult> ProcessDueAsync(string tenantId, CancellationToken cancellationToken)
@@ -45,7 +48,7 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
 
         var due = await _inbox.GetDueAsync(
             tenantId,
-            DateTime.UtcNow,
+            _time.GetUtcNow().UtcDateTime,
             batchSize,
             cancellationToken);
 
@@ -110,7 +113,7 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
                 tenantId,
                 candidate.WebhookId,
                 leaseId,
-                DateTime.UtcNow.AddSeconds(leaseSeconds),
+                _time.GetUtcNow().UtcDateTime.AddSeconds(leaseSeconds),
                 cancellationToken);
 
             if (claimed == null)
@@ -162,7 +165,7 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
                     ? PaymentWebhookStatus.DeadLettered
                     : PaymentWebhookStatus.RetryScheduled;
                 var delay = Math.Min(300, (int)Math.Pow(2, Math.Min(attempts, 8)) + Random.Shared.Next(0, 5));
-                var nextAttemptAtUtc = DateTime.UtcNow.AddSeconds(delay);
+                var nextAttemptAtUtc = _time.GetUtcNow().UtcDateTime.AddSeconds(delay);
 
                 await _inbox.MarkFailedAsync(
                     tenantId,

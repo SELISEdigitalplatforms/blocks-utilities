@@ -1,6 +1,7 @@
 ﻿using Blocks.Genesis;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Responses;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Services;
 
@@ -15,7 +16,16 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
         // null-coalescing fallback to the email never fired and such callers were rejected
         // outright. Treating blank as absent is what makes the fallback work as intended.
         var userId = Present(blocksContext?.UserId);
-        var actorId = userId ?? Present(blocksContext?.Email) ?? string.Empty;
+
+        // A client-credentials caller is named by none of these: it authenticates as an
+        // application, so the context reports no user id and no email and the ladder used to run
+        // out with nothing. Its identifier is in the token it presented, which is the last place
+        // left to look — see PaymentTokenActor for why reading it there is sound and why it is
+        // never allowed to decide anything but the actor.
+        var actorId = userId
+            ?? Present(blocksContext?.Email)
+            ?? Present(PaymentTokenActor.ClientId(blocksContext?.OAuthToken))
+            ?? string.Empty;
 
         if (!string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(actorId))
         {
@@ -36,7 +46,7 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
         return new PaymentContextResolution(
             null,
             PaymentOperationResult.Failure(
-                PaymentFailureKind.Unavailable,
+                PaymentFailureKind.Unauthenticated,
                 "payment_context_missing",
                 "Authenticated tenant context is unavailable.",
                 correlationId));

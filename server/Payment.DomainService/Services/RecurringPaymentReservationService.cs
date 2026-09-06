@@ -14,15 +14,18 @@ public sealed class RecurringPaymentReservationService :
     private readonly IPaymentRepository _payments;
     private readonly IPaymentResponseMapper _responseMapper;
     private readonly IOptionsMonitor<PaymentOptions> _options;
+    private readonly TimeProvider _time;
 
     public RecurringPaymentReservationService(
         IPaymentRepository payments,
         IPaymentResponseMapper responseMapper,
-        IOptionsMonitor<PaymentOptions> options)
+        IOptionsMonitor<PaymentOptions> options,
+        TimeProvider? time = null)
     {
         _payments = payments;
         _responseMapper = responseMapper;
         _options = options;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentReservationResult> ReserveAsync(
@@ -36,7 +39,7 @@ public sealed class RecurringPaymentReservationService :
         var requestHash =
             PaymentHashing.CreateRequestHash(request);
         var leaseId = Guid.NewGuid().ToString("N");
-        var leaseUntilUtc = DateTime.UtcNow.AddSeconds(
+        var leaseUntilUtc = _time.GetUtcNow().UtcDateTime.AddSeconds(
             Math.Clamp(
                 _options.CurrentValue.ProcessingLeaseSeconds,
                 10,
@@ -49,7 +52,8 @@ public sealed class RecurringPaymentReservationService :
             correlationId,
             requestHash,
             leaseId,
-            leaseUntilUtc);
+            leaseUntilUtc,
+            _time.GetUtcNow().UtcDateTime);
 
         if (await _payments.TryCreateAsync(
                 payment,
@@ -153,7 +157,8 @@ public sealed class RecurringPaymentReservationService :
         string correlationId,
         string requestHash,
         string leaseId,
-        DateTime leaseUntilUtc)
+        DateTime leaseUntilUtc,
+        DateTime nowUtc)
     {
         var breakdown = request.SubscriptionInvoiceBreakdown;
 
@@ -186,9 +191,9 @@ public sealed class RecurringPaymentReservationService :
             ProcessingLeaseExpiresAtUtc =
                 leaseUntilUtc,
             InitiationAttemptCount = 1,
-            CreatedAtUtc = DateTime.UtcNow,
-            LastUpdatedDateUtc = DateTime.UtcNow,
-            PaymentDate = DateTime.UtcNow,
+            CreatedAtUtc = nowUtc,
+            LastUpdatedDateUtc = nowUtc,
+            PaymentDate = nowUtc,
             // Recorded whenever the caller composed one -- every subscription renewal, dunning
             // retry, settlement and usage invoice charged through this provider-neutral path.
             // Null on a plain unscheduled-card-on-file charge, which never sets it.
