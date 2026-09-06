@@ -8,20 +8,52 @@ Until these rows exist, every `[ProtectedEndPoint("blocks-utilities::...")]` end
 
 ## Run it
 
-Dry run first — the script ships with `DRY_RUN = true`, so this writes nothing:
+The connection string is mongosh's first argument — the same one the other Blocks maintenance
+scripts take. Point it at the cluster whose tenant databases you want seeded; the script finds the
+databases itself from `BlocksRootDb.Tenants`, so the connection needs read access to the root
+database and write access to the tenant databases, but no database is named on the command line.
+
+Dry run first. The script ships with `DRY_RUN = true`, so this writes nothing:
 
 ```bash
-mongosh "mongodb://<user>:<password>@<host>:27017/?authSource=admin&socketTimeoutMS=0" --quiet --file seed-permissions.js
+mongosh "$BLOCKS_MONGO_URI" --quiet --file seed-permissions.js
 ```
 
-Read the per-database plan it prints. Then set `DRY_RUN = false` at the top of
-`seed-permissions.js` and run the same command again.
+Read the per-database plan and the sample document it prints. Then set `DRY_RUN = false` at the top
+of `seed-permissions.js` and run the same command again.
 
-To pilot on one tenant first, set `ONLY_DBS` near the top:
+Keep the credential out of shell history by exporting it first rather than pasting it inline:
+
+```bash
+export BLOCKS_MONGO_URI='mongodb://<user>:<password>@<host>:27017/?authSource=admin&socketTimeoutMS=0'
+```
+
+### Without installing mongosh
+
+Any `mongo:6`+ image carries mongosh, so Docker will do:
+
+```bash
+docker run --rm -v "$PWD:/scripts" mongo:7 mongosh "$BLOCKS_MONGO_URI" --quiet --file /scripts/seed-permissions.js
+```
+
+On Windows PowerShell, mount by absolute path:
+
+```powershell
+docker run --rm -v "${PWD}:/scripts" mongo:7 mongosh "$env:BLOCKS_MONGO_URI" --quiet --file /scripts/seed-permissions.js
+```
+
+The container reaches a private-network Mongo host normally. `localhost` is the exception — from
+inside a container that means the container, so use `host.docker.internal` for a Mongo running on
+your own machine.
+
+### Pilot one tenant first
 
 ```js
 const ONLY_DBS = new Set(["<some-tenant-db>"]);
 ```
+
+Run it with `DRY_RUN = false` against that one database, confirm the rows look right in Blocks OS,
+then clear `ONLY_DBS` and run the rest.
 
 ## What it does
 
