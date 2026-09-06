@@ -1,5 +1,5 @@
 using Api.Utilities;
-using Microsoft.AspNetCore.Authorization;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
@@ -10,7 +10,7 @@ using Subscription.DomainService.Services;
 namespace Api.Controllers;
 
 /// <summary>Buyer-facing, read-only validation and pricing of a discount code.</summary>
-[ApiController, Authorize, Route("subscription-discounts")]
+[ApiController, Route("subscription-discounts")]
 public sealed class SubscriptionDiscountPreviewController : ControllerBase
 {
     private readonly ISubscriptionCreationService _creation;
@@ -26,6 +26,7 @@ public sealed class SubscriptionDiscountPreviewController : ControllerBase
 
     [HttpPost("preview")]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionDiscountPreviewResponse>), StatusCodes.Status200OK)]
+    [ProtectedEndPoint("blocks-utilities::subscription-discount::read")]
     public async Task<IActionResult> Preview(
         [FromBody] CreateSubscriptionRequest request,
         CancellationToken cancellationToken)

@@ -219,7 +219,7 @@ public sealed class SubscriptionSimulationDataConsoleService : ISubscriptionSimu
         var caller = BlocksContext.GetContext();
 
         if (!SubscriptionSimulationGuard.IsAuthorized(
-                caller?.OrganizationId, _paymentOptions.CurrentValue, caller?.Permissions))
+                caller?.OrganizationId, _paymentOptions.CurrentValue))
         {
             return (null, SubscriptionOperationResult<T>.Failure(
                 PaymentFailureKind.Unavailable,

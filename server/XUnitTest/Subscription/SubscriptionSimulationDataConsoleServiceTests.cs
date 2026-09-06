@@ -41,7 +41,7 @@ public sealed class SubscriptionSimulationDataConsoleServiceTests : IDisposable
     [Fact]
     public async Task Find_refuses_a_caller_who_is_not_the_console()
     {
-        SetCaller(organizationId: "some-other-org", permissions: [SubscriptionSimulationGuard.SimulationAdministratorPermission]);
+        SetCaller(organizationId: "some-other-org", permissions: []);
 
         var result = await CreateService().FindAsync(
             "subscriptions",
@@ -55,21 +55,6 @@ public sealed class SubscriptionSimulationDataConsoleServiceTests : IDisposable
             resolver => resolver.ResolveAsync(
                 It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Never);
-    }
-
-    [Fact]
-    public async Task Find_refuses_the_console_without_the_simulation_permission()
-    {
-        SetCaller(organizationId: ConsoleOrganizationId, permissions: []);
-
-        var result = await CreateService().FindAsync(
-            "subscriptions",
-            new FindDataRequest { OrganizationId = "target-org", SubscriptionId = SubscriptionId },
-            CorrelationId,
-            CancellationToken.None);
-
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be("subscription_simulation_forbidden");
     }
 
     [Fact]
@@ -236,7 +221,7 @@ public sealed class SubscriptionSimulationDataConsoleServiceTests : IDisposable
     }
 
     private void SetAuthorizedCaller() =>
-        SetCaller(ConsoleOrganizationId, [SubscriptionSimulationGuard.SimulationAdministratorPermission]);
+        SetCaller(ConsoleOrganizationId, []);
 
     private static void SetCaller(string? organizationId, IEnumerable<string> permissions) =>
         BlocksContext.SetContext(BlocksContext.Create(

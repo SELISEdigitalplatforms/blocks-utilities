@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Responses;
@@ -7,7 +7,6 @@ using Payment.DomainService.Services;
 namespace Api.Controllers;
 
 [ApiController]
-[Authorize]
 [Route("payments/payment-methods")]
 public sealed class PaymentMethodsController : ControllerBase
 {
@@ -30,6 +29,7 @@ public sealed class PaymentMethodsController : ControllerBase
     /// by the payments it took for another organization.
     /// </param>
     [HttpGet]
+    [ProtectedEndPoint("blocks-utilities::payment-method::read")]
     public async Task<IActionResult> GetStoredPaymentMethods(
         [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
@@ -70,6 +70,7 @@ public sealed class PaymentMethodsController : ControllerBase
     }
 
     [HttpDelete("{paymentMethodId}")]
+    [ProtectedEndPoint("blocks-utilities::payment-method::manage")]
     public async Task<IActionResult> RemoveStoredPaymentMethod(
         string paymentMethodId,
         CancellationToken cancellationToken)
