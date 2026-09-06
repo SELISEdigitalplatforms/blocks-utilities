@@ -48,6 +48,7 @@ public static class SubscriptionApiResults
         PaymentFailureKind.RateLimited => StatusCodes.Status429TooManyRequests,
         PaymentFailureKind.ProviderRejected => StatusCodes.Status422UnprocessableEntity,
         PaymentFailureKind.ProviderFailure => StatusCodes.Status502BadGateway,
+        PaymentFailureKind.Unauthenticated => StatusCodes.Status401Unauthorized,
         PaymentFailureKind.Unavailable => StatusCodes.Status503ServiceUnavailable,
         PaymentFailureKind.Timeout => StatusCodes.Status504GatewayTimeout,
         _ => StatusCodes.Status500InternalServerError
