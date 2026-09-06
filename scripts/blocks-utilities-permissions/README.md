@@ -6,6 +6,38 @@ payment endpoints with, into the `Permissions` collection of every tenant databa
 
 Until these rows exist, every `[ProtectedEndPoint("blocks-utilities::...")]` endpoint answers 403.
 
+## Seeding one database by hand
+
+For a single database, `permissions.json` and `permissions-mongosh.js` hold the same 30 documents
+ready to insert. `Name` is the plain label (`Read Payments`) — no database prefix, unlike what the
+seeder generates.
+
+**Which file depends on how you are inserting**, and picking the wrong one corrupts the dates:
+
+| Doing this | Use | Why |
+| --- | --- | --- |
+| Compass → *Import JSON*, or `mongoimport` | `permissions.json` | Extended JSON `{"$date": ...}` is parsed into a real BSON date |
+| Pasting into mongosh, or `load()` | `permissions-mongosh.js` | Uses `ISODate(...)`, which mongosh evaluates |
+
+Pasting `permissions.json` into a mongosh `insertMany` stores `CreatedDate` as the literal
+sub-document `{ "$date": "..." }` instead of a date. It inserts without complaint, so nothing tells
+you it went wrong.
+
+```bash
+mongoimport --uri "$BLOCKS_MONGO_URI" --db <tenant-db> --collection Permissions --file permissions.json --jsonArray
+```
+
+```js
+// mongosh
+use <tenant-db>
+load("permissions-mongosh.js")
+```
+
+The mongosh file inserts only what is missing and reports what it skipped, so it is safe to re-run.
+`mongoimport` has no such check — it will insert a second copy if the rows are already there.
+
+Neither file backs anything up. For more than one database, use the seeder below, which does.
+
 ## Run it
 
 The connection string is mongosh's first argument — the same one the other Blocks maintenance
