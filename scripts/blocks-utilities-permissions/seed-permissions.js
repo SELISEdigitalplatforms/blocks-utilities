@@ -21,20 +21,33 @@
 
 // =============================================================================
 // CONFIGURATION
+//
+// Every setting here can be supplied from outside instead of edited, so this
+// file does not have to be changed to run it. run.ps1 / run.sh pass them:
+//
+//   mongosh "<uri>" --eval "SEED_APPLY=true" --file seed-permissions.js
+//
+// The values below are the defaults used when nothing is passed.
 // =============================================================================
 
-// Nothing is written while this is true. Read the plan it prints, then set to
-// false and run again.
-const DRY_RUN = true;
+function setting(name, fallback) {
+    return (typeof globalThis[name] !== "undefined" && globalThis[name] !== null)
+        ? globalThis[name]
+        : fallback;
+}
+
+// Nothing is written unless SEED_APPLY is true. Dry run is the default in every
+// direction: forgetting the flag prints a plan, it does not write.
+const DRY_RUN = setting("SEED_APPLY", false) !== true;
 
 const ROOT_DB    = "BlocksRootDb";
 const TENANT_COL = "Tenants";
 const PERM_COL   = "Permissions";
 const SKIP_DBS   = new Set(["admin", "config", "local", ROOT_DB]);
 
-// Restrict the run to specific tenant databases. Leave empty for every tenant.
-// Pilot on one database first: ONLY_DBS = new Set(["<some-tenant-db>"]);
-const ONLY_DBS = new Set([]);
+// Restrict the run to specific tenant databases. Empty means every tenant.
+// Pass SEED_ONLY_DBS=["db-a","db-b"] to pilot.
+const ONLY_DBS = new Set(setting("SEED_ONLY_DBS", []));
 
 // A tenant database with no Permissions collection is not using IAM
 // permissions. Left alone by default rather than having one created for it.
@@ -44,24 +57,24 @@ const CREATE_COLLECTION_IF_MISSING = false;
 // looks up permissions by the caller's OrganizationId, falling back to
 // "default" when the caller's context carries none - so "default" is what makes
 // a permission apply tenant-wide.
-const ORGANIZATION_ID = "default";
+const ORGANIZATION_ID = setting("SEED_ORGANIZATION_ID", "default");
 
 // Roles granted at insert time. Empty on purpose: granting is a decision for
 // whoever owns the tenant's roles, and is made in Blocks OS afterwards. Every
 // permission is inserted with no roles, so running this grants nobody anything.
-const ROLES = [];
+const ROLES = setting("SEED_ROLES", []);
 
 // Existing rows carry the Blocks OS user id of whoever created them. Set this to
 // the operator's user id to attribute the seed; null leaves it unattributed,
 // which is what the audit trail shows for anything not created by a person.
-const CREATED_BY = null;
+const CREATED_BY = setting("SEED_CREATED_BY", null);
 
 // Existing rows carry null here, not a language code.
 const LANGUAGE = null;
 
 // Name is per database. {db} is the tenant database, {tenant} its display name,
 // {name} the label from the table below, {resource} the full resource string.
-const NAME_TEMPLATE = "{db} - {name}";
+const NAME_TEMPLATE = setting("SEED_NAME_TEMPLATE", "{db} - {name}");
 
 // ResourceType: None=0, Endpoint=1, FrontendAction=2, DataProtection=3
 const TYPE_ENDPOINT = 1;
@@ -390,7 +403,7 @@ if (DRY_RUN) {
         .split("\n").map(l => `    ${l}`).join("\n"));
     print(``);
     print(`  DRY RUN - nothing was written.`);
-    print(`  Set DRY_RUN = false at the top of this file to apply.`);
+    print(`  Re-run with the apply switch to commit these inserts.`);
 } else {
     print(``);
     print(`  Backups written to "${BACKUP_COL}" in every database that had`);
