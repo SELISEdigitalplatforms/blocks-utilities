@@ -1,6 +1,6 @@
 using System.Globalization;
 using Api.Utilities;
-using Blocks.Genesis;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
@@ -15,6 +15,7 @@ namespace Api.Controllers;
 /// Metered usage. Served under <c>/api/subscription-usage</c>.
 /// </summary>
 [ApiController]
+[Authorize]
 [Route("subscription-usage")]
 public sealed class SubscriptionUsageController : ControllerBase
 {
@@ -42,7 +43,6 @@ public sealed class SubscriptionUsageController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<UsageResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<UsageResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-usage::manage")]
     public async Task<IActionResult> Record(
         [FromBody] RecordUsageRequest request,
         CancellationToken cancellationToken)
@@ -77,7 +77,6 @@ public sealed class SubscriptionUsageController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UsageResponse>>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UsageResponse>>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-usage::read")]
     public async Task<IActionResult> GetCurrent(
         [FromQuery] string? organizationId,
         [FromQuery] string? readMode,
@@ -189,7 +188,6 @@ public sealed class SubscriptionUsageController : ControllerBase
         typeof(ApiResponse<SubscriptionUsageOveragePreviewResponse>),
         StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-usage::read")]
     public async Task<IActionResult> PreviewOverage(
         [FromBody] PreviewUsageOverageRequest request,
         CancellationToken cancellationToken)

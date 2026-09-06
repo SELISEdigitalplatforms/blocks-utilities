@@ -1,14 +1,14 @@
-using Api.Utilities;
-using Blocks.Genesis;
+﻿using Api.Utilities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Responses;
-using Subscription.DomainService.Entities;
-using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Entities;
+using Subscription.DomainService.Repositories;
 
 namespace Api.Controllers;
 
@@ -22,6 +22,7 @@ namespace Api.Controllers;
 /// something anyone can change.
 /// </remarks>
 [ApiController]
+[Authorize]
 [Route("subscriptions")]
 public sealed class SubscriptionsController : ControllerBase
 {
@@ -81,7 +82,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionPreviewResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionPreviewResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::read")]
     public async Task<IActionResult> PreviewSubscription(
         [FromBody] CreateSubscriptionRequest request,
         CancellationToken cancellationToken)
@@ -116,7 +116,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> Subscribe(
         [FromBody] CreateSubscriptionRequest request,
         CancellationToken cancellationToken)
@@ -154,7 +153,6 @@ public sealed class SubscriptionsController : ControllerBase
     [HttpGet("current")]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::read")]
     public async Task<IActionResult> GetCurrent(
         [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
@@ -183,7 +181,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> Cancel(
         string subscriptionId,
         [FromQuery] bool immediately,
@@ -230,7 +227,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionPlanChangePreviewResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::read")]
     public async Task<IActionResult> PreviewPlanChange(
         string subscriptionId,
         [FromBody] ChangeSubscriptionPlanRequest request,
@@ -265,7 +261,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> ChangePlan(
         string subscriptionId,
         [FromBody] ChangeSubscriptionPlanRequest request,
@@ -300,7 +295,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> CancelPendingPlanChange(
         string subscriptionId,
         [FromQuery] string? organizationId,
@@ -335,7 +329,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::read")]
     public async Task<IActionResult> PreviewQuantityChange(
         string subscriptionId,
         [FromBody] ChangeQuantityRequest request,
@@ -379,7 +372,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> ChangeQuantity(
         string subscriptionId,
         [FromBody] ChangeQuantityRequest request,
@@ -409,7 +401,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<QuantityChangeResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> CancelPendingQuantityChange(
         string subscriptionId,
         [FromQuery] string? organizationId,
@@ -447,7 +438,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> StartPaymentMethodSetup(
         string subscriptionId,
         [FromQuery] string? organizationId,
@@ -476,7 +466,6 @@ public sealed class SubscriptionsController : ControllerBase
     [HttpGet("{subscriptionId}/audit")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionAuditEventResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::read")]
     public async Task<IActionResult> GetAuditTrail(
         string subscriptionId,
         [FromQuery] string? organizationId,
@@ -595,7 +584,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage-invoice")]
     public async Task<IActionResult> ResendInvoice(
         string documentId,
         CancellationToken cancellationToken)
@@ -612,7 +600,6 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::read-invoice")]
     public async Task<IActionResult> GetInvoicePdf(
         string documentId,
         [FromQuery] string? organizationId,
@@ -667,7 +654,6 @@ public sealed class SubscriptionsController : ControllerBase
         typeof(ApiResponse<SubscriptionFinancialDocumentHistoryResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription::read-invoice")]
     public async Task<IActionResult> GetInvoiceHistory(
         [FromQuery] GetFinancialDocumentsRequest request,
         CancellationToken cancellationToken)
