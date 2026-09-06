@@ -1,5 +1,5 @@
 using Api.Utilities;
-using Blocks.Genesis;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
@@ -22,6 +22,7 @@ namespace Api.Controllers;
 /// </para>
 /// </remarks>
 [ApiController]
+[Authorize]
 [Route("subscription-merchant-profile")]
 public sealed class SubscriptionMerchantProfileController : ControllerBase
 {
@@ -43,7 +44,6 @@ public sealed class SubscriptionMerchantProfileController : ControllerBase
         typeof(ApiResponse<SubscriptionMerchantProfileResponse>),
         StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-merchant-profile::read")]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -63,7 +63,6 @@ public sealed class SubscriptionMerchantProfileController : ControllerBase
         typeof(ApiResponse<SubscriptionMerchantProfileResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-merchant-profile::manage")]
     public async Task<IActionResult> Update(
         [FromBody] UpdateMerchantProfileRequest request,
         CancellationToken cancellationToken)

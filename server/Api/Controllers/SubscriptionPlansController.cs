@@ -1,5 +1,5 @@
 using Api.Utilities;
-using Blocks.Genesis;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
@@ -14,6 +14,7 @@ namespace Api.Controllers;
 /// What a tenant sells. Served under <c>/api/subscription-plans</c>.
 /// </summary>
 [ApiController]
+[Authorize]
 [Route("subscription-plans")]
 public sealed class SubscriptionPlansController : ControllerBase
 {
@@ -26,7 +27,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<PlanResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<PlanResponse>>), StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::read")]
     public async Task<IActionResult> ListPlans(
         [FromQuery] string? organizationId,
         [FromQuery] string? status,
@@ -110,7 +110,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::read")]
     public async Task<IActionResult> GetPlan(
         string planId,
         [FromQuery] string? organizationId,
@@ -132,7 +131,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::manage")]
     public async Task<IActionResult> CreatePlan(
         [FromBody] CreatePlanRequest request,
         CancellationToken cancellationToken)
@@ -157,7 +155,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::manage")]
     public async Task<IActionResult> UpdatePlan(
         string planId,
         [FromBody] UpdatePlanRequest request,
@@ -179,7 +176,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::manage")]
     public async Task<IActionResult> CreatePrice(
         [FromBody] CreatePriceRequest? request,
         CancellationToken cancellationToken)
@@ -212,7 +208,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::manage")]
     public async Task<IActionResult> UpdatePriceDiscount(
         string priceId,
         [FromBody] UpdatePriceDiscountRequest request,
@@ -234,7 +229,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::manage")]
     public async Task<IActionResult> UpdatePriceTax(
         string priceId,
         [FromBody] UpdatePriceTaxRequest request,
@@ -269,7 +263,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::manage")]
     public async Task<IActionResult> ArchivePlan(
         string planId,
         [FromQuery] string? organizationId,
@@ -304,7 +297,6 @@ public sealed class SubscriptionPlansController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("blocks-utilities::subscription-plan::manage")]
     public async Task<IActionResult> ArchivePrice(
         string priceId,
         [FromQuery] string? organizationId,

@@ -72,7 +72,7 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
     [Fact]
     public async Task Refuses_a_caller_who_is_not_the_console()
     {
-        SetCaller(organizationId: "some-other-org", permissions: []);
+        SetCaller(organizationId: "some-other-org", permissions: [SubscriptionSimulationGuard.SimulationAdministratorPermission]);
 
         var result = await GetStateAsync(organizationId: "target-org");
 
@@ -83,6 +83,17 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
                 It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Never,
             "an unauthorized caller must never reach a repository round trip");
+    }
+
+    [Fact]
+    public async Task Refuses_the_console_without_the_simulation_permission()
+    {
+        SetCaller(organizationId: ConsoleOrganizationId, permissions: []);
+
+        var result = await GetStateAsync(organizationId: "target-org");
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_simulation_forbidden");
     }
 
     /// <summary>
@@ -244,7 +255,7 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
     }
 
     private void SetAuthorizedCaller() =>
-        SetCaller(ConsoleOrganizationId, []);
+        SetCaller(ConsoleOrganizationId, [SubscriptionSimulationGuard.SimulationAdministratorPermission]);
 
     private static void SetCaller(string? organizationId, IEnumerable<string> permissions) =>
         BlocksContext.SetContext(BlocksContext.Create(

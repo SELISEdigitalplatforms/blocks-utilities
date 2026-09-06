@@ -1,5 +1,5 @@
 using Api.Utilities;
-using Blocks.Genesis;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
@@ -22,6 +22,7 @@ namespace Api.Controllers;
 /// </para>
 /// </remarks>
 [ApiController]
+[Authorize(Policy = "SubscriptionBackgroundWorkOperator")]
 [Route("subscription-background-work")]
 public sealed class SubscriptionBackgroundWorkController : ControllerBase
 {
@@ -48,7 +49,6 @@ public sealed class SubscriptionBackgroundWorkController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<IReadOnlyList<DeadLetteredWorkResponse>>),
         StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("blocks-utilities::subscription-background-work::manage")]
     public async Task<IActionResult> ListDeadLetters(
         [FromQuery] int? limit,
         CancellationToken cancellationToken)
@@ -77,7 +77,6 @@ public sealed class SubscriptionBackgroundWorkController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status409Conflict)]
-    [ProtectedEndPoint("blocks-utilities::subscription-background-work::manage")]
     public async Task<IActionResult> Requeue(
         string workItemId,
         [FromBody] WorkRecoveryDecisionRequest request,
@@ -107,7 +106,6 @@ public sealed class SubscriptionBackgroundWorkController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status409Conflict)]
-    [ProtectedEndPoint("blocks-utilities::subscription-background-work::manage")]
     public async Task<IActionResult> Abandon(
         string workItemId,
         [FromBody] WorkRecoveryDecisionRequest request,
