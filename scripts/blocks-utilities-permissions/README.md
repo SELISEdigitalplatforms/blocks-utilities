@@ -56,8 +56,11 @@ db.Permissions_backup_20260906_093701.aggregate([{ $out: "Permissions" }])
 Or, to remove just what this run added without disturbing anything else:
 
 ```js
-db.Permissions.deleteMany({ ResourceGroup: "blocks-utilities", CreatedBy: "seed-permissions.js" })
+db.Permissions.deleteMany({ ResourceGroup: "blocks-utilities", Roles: { $size: 0 } })
 ```
+
+Check what that matches before running it — it will also match a `blocks-utilities` permission
+someone created by hand and has not yet assigned to a role.
 
 ## Document shape
 
@@ -67,28 +70,50 @@ which is PascalCase, with `ItemId` carrying `[BsonId]` so it is stored as `_id`.
 documents would leave them invisible to `ProtectedEndpointAccessHandler`, which queries `Resource`,
 `OrganizationId` and `Roles`.
 
+Field order matches an existing row so exports and diffs line up:
+
 ```json
 {
   "_id": "2e142c74-4fc8-44ba-ab7f-3347492fbefa",
-  "Name": "Read Payments",
+  "CreatedDate": { "$date": "..." },
+  "LastUpdatedDate": { "$date": "..." },
+  "CreatedBy": null,
+  "Language": null,
+  "LastUpdatedBy": null,
+  "Tags": [],
+  "Name": "acme_db - Read Payments",
   "Type": 1,
+  "PermissionSeverity": 2,
   "Description": "List and read payments.",
   "Resource": "blocks-utilities::payment::read",
   "ResourceGroup": "blocks-utilities",
   "IsBuiltIn": false,
   "IsArchived": false,
-  "PermissionSeverity": 2,
   "DependentPermissions": [],
   "Roles": [],
-  "OrganizationId": "default",
-  "Tags": [],
-  "Language": "en",
-  "CreatedDate": "...",
-  "LastUpdatedDate": "...",
-  "CreatedBy": "seed-permissions.js",
-  "LastUpdatedBy": "seed-permissions.js"
+  "OrganizationId": "default"
 }
 ```
+
+`Name` carries the tenant database, so the same resource is distinguishable per tenant when rows are
+exported or audited across databases. The format is `NAME_TEMPLATE` at the top of the script —
+`{db}`, `{tenant}`, `{name}` and `{resource}` are substituted:
+
+```js
+const NAME_TEMPLATE = "{db} - {name}";   // "acme_db - Read Payments"
+```
+
+`Name` is only a label. The framework matches on `Resource`, so changing the template never affects
+authorization, and the "already present" check keys on `Resource` too — renaming the template and
+re-running will not produce duplicates.
+
+`CreatedBy` and `LastUpdatedBy` are `null` by default. Existing rows carry the Blocks OS user id of
+whoever created them; set `CREATED_BY` to the operator's user id if you want the seed attributed.
+`Language` is `null`, matching existing rows.
+
+`IsBuiltIn` is `false` — the same as a permission created through the Blocks OS form. Built-in
+permissions are the ones a service ships with in its own resource group (`blocks-iam::auth::*` and
+the like); set it to `true` only if your tenants treat these as undeletable platform rows.
 
 `Type` is `ResourceType`: `None=0, Endpoint=1, FrontendAction=2, DataProtection=3`.
 `PermissionSeverity` is `None=0, Critical=1, High=2, Medium=3, Low=4` — severities assigned in the

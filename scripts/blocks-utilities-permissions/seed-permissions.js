@@ -51,8 +51,17 @@ const ORGANIZATION_ID = "default";
 // permission is inserted with no roles, so running this grants nobody anything.
 const ROLES = [];
 
-const CREATED_BY = "seed-permissions.js";
-const LANGUAGE   = "en";
+// Existing rows carry the Blocks OS user id of whoever created them. Set this to
+// the operator's user id to attribute the seed; null leaves it unattributed,
+// which is what the audit trail shows for anything not created by a person.
+const CREATED_BY = null;
+
+// Existing rows carry null here, not a language code.
+const LANGUAGE = null;
+
+// Name is per database. {db} is the tenant database, {tenant} its display name,
+// {name} the label from the table below, {resource} the full resource string.
+const NAME_TEMPLATE = "{db} - {name}";
 
 // ResourceType: None=0, Endpoint=1, FrontendAction=2, DataProtection=3
 const TYPE_ENDPOINT = 1;
@@ -146,30 +155,39 @@ function newGuid() {
     return s;
 }
 
+function buildName(name, resource, dbName, tenantName) {
+    return NAME_TEMPLATE
+        .replace("{db}", dbName)
+        .replace("{tenant}", tenantName || dbName)
+        .replace("{name}", name)
+        .replace("{resource}", resource);
+}
+
 // The stored shape is Iam.DomainService.Entities.Permission : BuiltInPermission
 // : Blocks.Genesis.BaseEntity - PascalCase, with ItemId carrying [BsonId] so it
 // is written as _id. The camelCase JSON the Blocks OS form posts is the API
-// contract, not what lands in Mongo.
-function buildPermission(resource, name, severity, description) {
+// contract, not what lands in Mongo. Field order matches an existing row so
+// exports and diffs line up.
+function buildPermission(resource, name, severity, description, dbName, tenantName) {
     return {
         _id:                  newGuid(),
-        Name:                 name,
+        CreatedDate:          now,
+        LastUpdatedDate:      now,
+        CreatedBy:            CREATED_BY,
+        Language:             LANGUAGE,
+        LastUpdatedBy:        CREATED_BY,
+        Tags:                 [],
+        Name:                 buildName(name, resource, dbName, tenantName),
         Type:                 TYPE_ENDPOINT,
+        PermissionSeverity:   severity,
         Description:          description,
         Resource:             resource,
         ResourceGroup:        RESOURCE_GROUP,
         IsBuiltIn:            false,
         IsArchived:           false,
-        PermissionSeverity:   severity,
         DependentPermissions: [],
         Roles:                ROLES.slice(),
-        OrganizationId:       ORGANIZATION_ID,
-        Tags:                 [],
-        Language:             LANGUAGE,
-        CreatedDate:          now,
-        LastUpdatedDate:      now,
-        CreatedBy:            CREATED_BY,
-        LastUpdatedBy:        CREATED_BY
+        OrganizationId:       ORGANIZATION_ID
     };
 }
 
@@ -187,6 +205,7 @@ print(`  Permissions     : ${PERMISSIONS.length}`);
 print(`  Resource group  : ${RESOURCE_GROUP}`);
 print(`  OrganizationId  : ${ORGANIZATION_ID}`);
 print(`  Roles granted   : ${ROLES.length === 0 ? "(none - assign in Blocks OS)" : ROLES.join(", ")}`);
+print(`  Name format     : ${NAME_TEMPLATE}`);
 print(`  Backup name     : ${BACKUP_COL}`);
 print(``);
 
@@ -319,7 +338,8 @@ for (const dbName of allDbs) {
 
         // --- insert ---------------------------------------------------------
         const docs   = missing.map(([resource, name, severity, description]) =>
-                           buildPermission(resource, name, severity, description));
+                           buildPermission(resource, name, severity, description,
+                                           dbName, dbToTenant[dbName].name));
         const result = target.getCollection(PERM_COL).insertMany(docs, { ordered: false });
 
         line.inserted = Object.keys(result.insertedIds).length;
@@ -361,6 +381,13 @@ print(`  Errors              : ${errorCount}`);
 print(`==========================================`);
 
 if (DRY_RUN) {
+    const firstDb = allDbs[0];
+    const [r, n, s, d] = PERMISSIONS[0];
+    print(``);
+    print(`  Sample document (for ${firstDb}):`);
+    print(JSON.stringify(
+        buildPermission(r, n, s, d, firstDb, dbToTenant[firstDb].name), null, 2)
+        .split("\n").map(l => `    ${l}`).join("\n"));
     print(``);
     print(`  DRY RUN - nothing was written.`);
     print(`  Set DRY_RUN = false at the top of this file to apply.`);
