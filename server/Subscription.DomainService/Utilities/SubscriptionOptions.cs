@@ -87,6 +87,21 @@ public sealed class SubscriptionOptions
     /// </remarks>
     public int ActivationProviderConfirmationRetrySeconds { get; set; } = 300;
 
+    /// <summary>
+    /// How long a budget-exhausted activation link may stay <c>Pending</c> with no provider-decided
+    /// outcome before the age-based recovery sweep ends it.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately far longer than <see cref="InitialChargeGraceMinutes"/>: a hosted checkout
+    /// session outlives that grace period by design (a Stripe session lives roughly 24 hours), and
+    /// expiring a subscriber who is still legitimately inside their provider's own session window
+    /// is the defect this exists to prevent, not to cause. This is a ceiling for the pathological
+    /// case -- a provider this installation cannot observe at all, or one that genuinely never
+    /// decides -- not a normal-path timer; see <see cref="Outbox.SubscriptionActivationProcessor"/>'s
+    /// own remarks on why a link must never be abandoned on silence alone before reaching it.
+    /// </remarks>
+    public int ActivationUnresolvedCeilingHours { get; set; } = 48;
+
     public int RenewalBatchSize { get; set; } = 50;
 
     public int CancellationBatchSize { get; set; } = 50;

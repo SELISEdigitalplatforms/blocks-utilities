@@ -1341,6 +1341,133 @@ public sealed class SubscriptionActivationProcessorTests
             Times.Never);
     }
 
+    /// <summary>
+    /// An already-settled link is not this sweep's business regardless of age: the subscription's
+    /// own status already reflects whatever the link decided.
+    /// </summary>
+    [Fact]
+    public async Task An_applied_link_is_left_alone_by_the_age_based_sweep()
+    {
+        GivenStaleSubscription();
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(state: SubscriptionPaymentLinkState.Applied));
+
+        var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        recovered.Should().Be(0);
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// The regression guard this whole follow-up exists for: a subscriber still inside their
+    /// provider's own session lifetime (Stripe's checkout session lives roughly 24 hours) must
+    /// never be expired merely because the activation retry budget ran out -- that is exactly the
+    /// incident this feature fixed, reintroduced from the age-based sweep's side instead of the
+    /// settlement sweep's.
+    /// </summary>
+    [Fact]
+    public async Task A_budget_exhausted_pending_link_inside_the_ceiling_is_still_left_alone()
+    {
+        _subscriptions
+            .Setup(repository => repository.ListStaleAsync(
+                TenantId, SubscriptionStatus.Incomplete, It.IsAny<DateTime>(), It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([StaleSubscription(_time.GetUtcNow().UtcDateTime.AddHours(-47))]);
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(state: SubscriptionPaymentLinkState.Pending, attemptCount: 10));
+
+        var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        recovered.Should().Be(0);
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "still inside the provider's own session window; not a decision this sweep may make yet");
+    }
+
+    /// <summary>
+    /// Past the ceiling and the provider still cannot say either way -- the Adyen-shaped case,
+    /// with no <see cref="ISubscriptionPaymentReconciler"/> registered at all -- this sweep finally
+    /// gives the link and the subscription a terminal state, rather than holding both open forever.
+    /// </summary>
+    [Fact]
+    public async Task A_budget_exhausted_pending_link_past_the_ceiling_with_no_decided_answer_is_ended()
+    {
+        GivenPayment(PaymentStatuses.Processing, webhookConfirmed: false);
+        _subscriptions
+            .Setup(repository => repository.ListStaleAsync(
+                TenantId, SubscriptionStatus.Incomplete, It.IsAny<DateTime>(), It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([StaleSubscription(_time.GetUtcNow().UtcDateTime.AddHours(-49))]);
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(state: SubscriptionPaymentLinkState.Pending, attemptCount: 10));
+
+        var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        recovered.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.IncompleteExpired);
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, "link-1", SubscriptionPaymentLinkState.Abandoned, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// Even past the ceiling, a provider that can still answer gets the final word: a late
+    /// confirmation activates the subscription rather than the ceiling ending it regardless.
+    /// </summary>
+    [Fact]
+    public async Task A_budget_exhausted_pending_link_past_the_ceiling_still_activates_on_a_late_confirmation()
+    {
+        GivenPayment(PaymentStatuses.Processing, webhookConfirmed: false);
+        _subscriptions
+            .Setup(repository => repository.ListStaleAsync(
+                TenantId, SubscriptionStatus.Incomplete, It.IsAny<DateTime>(), It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([StaleSubscription(_time.GetUtcNow().UtcDateTime.AddHours(-49))]);
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(state: SubscriptionPaymentLinkState.Pending, attemptCount: 10));
+
+        var reconciler = new Mock<ISubscriptionPaymentReconciler>();
+        reconciler
+            .Setup(r => r.TryReconcileAsync(TenantId, "pay-1", It.IsAny<CancellationToken>()))
+            .Callback(() => GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true))
+            .ReturnsAsync(true);
+
+        var recovered = await Processor(reconciler: reconciler.Object)
+            .RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        recovered.Should().Be(1);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, "link-1", SubscriptionPaymentLinkState.Abandoned, It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the provider confirmed the money moved; the link activates rather than being ended");
+    }
+
+    private static SubscriptionDetail StaleSubscription(DateTime createdAtUtc)
+    {
+        var subscription = NewSubscription();
+        subscription.CreatedAtUtc = createdAtUtc;
+
+        return subscription;
+    }
+
     private void GivenStaleSubscription() =>
         _subscriptions
             .Setup(repository => repository.ListStaleAsync(
