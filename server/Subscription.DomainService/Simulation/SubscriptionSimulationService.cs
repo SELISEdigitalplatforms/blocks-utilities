@@ -93,7 +93,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         var caller = BlocksContext.GetContext();
 
         if (!SubscriptionSimulationGuard.IsAuthorized(
-                caller?.OrganizationId, _paymentOptions.CurrentValue, caller?.Permissions))
+                caller?.OrganizationId, _paymentOptions.CurrentValue))
         {
             return SubscriptionOperationResult<SubscriptionSimulationStateResponse>.Failure(
                 PaymentFailureKind.Unavailable,
@@ -636,7 +636,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         var caller = BlocksContext.GetContext();
 
         if (!SubscriptionSimulationGuard.IsAuthorized(
-                caller?.OrganizationId, _paymentOptions.CurrentValue, caller?.Permissions))
+                caller?.OrganizationId, _paymentOptions.CurrentValue))
         {
             return (null, null, SubscriptionOperationResult<T>.Failure(
                 PaymentFailureKind.Unavailable,

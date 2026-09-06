@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Requests;
@@ -8,7 +8,6 @@ using Payment.DomainService.Services;
 namespace Api.Controllers;
 
 [ApiController]
-[Authorize]
 [Route("payments/providers")]
 public sealed class PaymentProvidersController : ControllerBase
 {
@@ -42,6 +41,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<object>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("payment.providers.read")]
     public async Task<IActionResult> GetPaymentProviders(
         CancellationToken cancellationToken)
     {
@@ -83,6 +83,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentProviderResponse>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("payment.providers.manage")]
     public async Task<IActionResult> UpdatePaymentProvider(
         string paymentProviderId,
         [FromBody] UpdatePaymentProviderRequest request,
@@ -123,6 +124,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentProviderResponse>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("payment.providers.manage")]
     public async Task<IActionResult> RotatePaymentProviderCredentials(
         string paymentProviderId,
         [FromBody] RotatePaymentProviderCredentialsRequest request,
@@ -158,6 +160,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentEncryptionHealthResponse>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("payment.encryption.read")]
     public async Task<IActionResult> GetEncryptionHealth(
         CancellationToken cancellationToken)
     {
@@ -194,6 +197,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentEncryptionReEncryptionResponse>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("payment.encryption.manage")]
     public async Task<IActionResult> ReEncryptPaymentSecrets(
         CancellationToken cancellationToken)
     {

@@ -1,5 +1,5 @@
 using Api.Utilities;
-using Microsoft.AspNetCore.Authorization;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Requests;
@@ -36,7 +36,6 @@ public sealed class PaymentsController : ControllerBase
         _providerRegistrationService = providerRegistrationService;
     }
 
-    [Authorize]
     [HttpGet]
     [ProducesResponseType(
         typeof(ApiResponse<PaymentListResponse>),
@@ -51,6 +50,7 @@ public sealed class PaymentsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentListResponse>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("payment.payments.read")]
     public async Task<IActionResult> GetPayments(
         [FromQuery] GetPaymentsRequest request,
         CancellationToken cancellationToken)
@@ -80,7 +80,6 @@ public sealed class PaymentsController : ControllerBase
     /// did not all succeed: the organizations are independent, so reporting a single verdict
     /// would have to either discard the successes or hide the failures.
     /// </remarks>
-    [Authorize]
     [HttpPost("providers")]
     [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<PaymentResponse>), StatusCodes.Status400BadRequest)]
@@ -89,6 +88,7 @@ public sealed class PaymentsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentProviderRegistrationResponse>),
         StatusCodes.Status207MultiStatus)]
+    [ProtectedEndPoint("payment.providers.manage")]
     public async Task<IActionResult> RegisterProvider(
         [FromBody] RegisterPaymentProviderRequest request,
         CancellationToken cancellationToken)
@@ -142,8 +142,8 @@ public sealed class PaymentsController : ControllerBase
             : StatusCode(StatusCodes.Status207MultiStatus, body);
     }
 
-    [Authorize]
     [HttpPost("create")]
+    [ProtectedEndPoint("payment.payments.manage")]
     public async Task<IActionResult> CreatePayment(
         [FromBody] MakePaymentRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -160,8 +160,8 @@ public sealed class PaymentsController : ControllerBase
             : CreatedAtAction(nameof(GetPayment), new { paymentDetailId = result.Payment!.PaymentDetailId }, response);
     }
 
-    [Authorize]
     [HttpPost("recurring-payments")]
+    [ProtectedEndPoint("payment.payments.manage")]
     public async Task<IActionResult> CreateRecurringPayment(
         [FromBody] CreateRecurringPaymentRequest request,
         [FromHeader(Name = "Idempotency-Key")]
@@ -201,8 +201,8 @@ public sealed class PaymentsController : ControllerBase
                 response);
     }
 
-    [Authorize]
     [HttpGet("{paymentDetailId}")]
+    [ProtectedEndPoint("payment.payments.read")]
     public async Task<IActionResult> GetPayment(string paymentDetailId, CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -211,8 +211,8 @@ public sealed class PaymentsController : ControllerBase
         return Ok(ApiResponse<PaymentResponse>.Ok(result.Payment!, correlationId));
     }
 
-    [Authorize]
     [HttpPost("{paymentDetailId}/refunds")]
+    [ProtectedEndPoint("payment.refunds.manage")]
     public async Task<IActionResult> CreatePaymentRefund(
         string paymentDetailId,
         [FromBody] CreatePaymentRefundRequest request,
@@ -253,8 +253,8 @@ public sealed class PaymentsController : ControllerBase
                 response);
     }
 
-    [Authorize]
     [HttpPost("{paymentDetailId}/captures")]
+    [ProtectedEndPoint("payment.captures.manage")]
     public async Task<IActionResult> CreatePaymentCapture(
         string paymentDetailId,
         [FromBody] CreatePaymentCaptureRequest request,
@@ -294,8 +294,8 @@ public sealed class PaymentsController : ControllerBase
                 response);
     }
 
-    [Authorize]
     [HttpGet("{paymentDetailId}/captures/{captureId}")]
+    [ProtectedEndPoint("payment.captures.read")]
     public async Task<IActionResult> GetPaymentCapture(
         string paymentDetailId,
         string captureId,
@@ -315,8 +315,8 @@ public sealed class PaymentsController : ControllerBase
             : CaptureFailure(result);
     }
 
-    [Authorize]
     [HttpGet("{paymentDetailId}/refunds/{refundId}")]
+    [ProtectedEndPoint("payment.refunds.read")]
     public async Task<IActionResult> GetPaymentRefund(
         string paymentDetailId,
         string refundId,
@@ -337,8 +337,8 @@ public sealed class PaymentsController : ControllerBase
             : RefundFailure(result);
     }
 
-    [Authorize]
     [HttpGet("{paymentDetailId}/refunds")]
+    [ProtectedEndPoint("payment.refunds.read")]
     public async Task<IActionResult> GetPaymentRefunds(
         string paymentDetailId,
         CancellationToken cancellationToken)
