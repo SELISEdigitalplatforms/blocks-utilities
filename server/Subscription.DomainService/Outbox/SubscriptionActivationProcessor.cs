@@ -217,7 +217,18 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             if (link is { State: SubscriptionPaymentLinkState.Pending })
             {
                 var withinBudget = link.AttemptCount < Math.Max(1, options.ActivationMaxAttempts);
-                var withinCeiling = subscription.CreatedAtUtc > now.AddHours(
+
+                // The link's own age, never the subscription's. A retry does not reuse a link:
+                // RetryCardSetupAsync settles the old one Abandoned and StartCardSetupAsync opens
+                // a new one with its attempt count back at zero. Reading the subscription here
+                // meant a subscriber returning to a days-old subscription got a genuinely fresh
+                // session that was already past the ceiling before they had entered a card, and
+                // roughly one budget later this sweep ended the session they were using and
+                // expired the subscription out from under them -- leaving them unable even to
+                // retry, since StartPaymentMethodSetupAsync refuses an IncompleteExpired one. The
+                // ceiling asks how long *this session* has gone undecided, and those two clocks
+                // diverge the moment anybody retries.
+                var withinCeiling = link.CreatedAtUtc > now.AddHours(
                     -Math.Max(1, options.ActivationUnresolvedCeilingHours));
 
                 if (withinBudget || withinCeiling)
@@ -364,11 +375,17 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             return true;
         }
 
+        // Both ages, because they answer different questions: the link's is what the ceiling
+        // actually measured, and the subscription's is how long this subscriber has been trying.
+        var nowUtc = _time.GetUtcNow().UtcDateTime;
+
         _logger.LogWarning(
             "Activation link past its unresolved ceiling with no provider-decided outcome; " +
-            "ending it without one AttemptCount={AttemptCount} SubscriptionAgeHours={SubscriptionAgeHours}",
+            "ending it without one AttemptCount={AttemptCount} LinkAgeHours={LinkAgeHours} " +
+            "SubscriptionAgeHours={SubscriptionAgeHours}",
             link.AttemptCount,
-            (_time.GetUtcNow().UtcDateTime - subscription.CreatedAtUtc).TotalHours);
+            (nowUtc - link.CreatedAtUtc).TotalHours,
+            (nowUtc - subscription.CreatedAtUtc).TotalHours);
 
         await _links.TrySettleAsync(
             link.TenantId,

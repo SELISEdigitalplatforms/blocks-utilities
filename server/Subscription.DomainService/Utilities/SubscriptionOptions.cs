@@ -99,6 +99,11 @@ public sealed class SubscriptionOptions
     /// case -- a provider this installation cannot observe at all, or one that genuinely never
     /// decides -- not a normal-path timer; see <see cref="Outbox.SubscriptionActivationProcessor"/>'s
     /// own remarks on why a link must never be abandoned on silence alone before reaching it.
+    /// <para>
+    /// Measured from the <em>link's</em> own creation, never the subscription's: a retry opens a
+    /// new link, so a subscriber returning to a long-lived subscription starts a fresh window
+    /// rather than inheriting an already-spent one.
+    /// </para>
     /// </remarks>
     public int ActivationUnresolvedCeilingHours { get; set; } = 48;
 

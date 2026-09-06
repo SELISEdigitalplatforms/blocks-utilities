@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -378,19 +378,32 @@ public sealed class SubscriptionActivationProcessorTests
         SubscriptionPaymentPurpose purpose = SubscriptionPaymentPurpose.InitialCharge,
         SubscriptionPaymentLinkState state = SubscriptionPaymentLinkState.Pending,
         DateTime? nextCheckAtUtc = null,
-        int attemptCount = 0) => new()
+        int attemptCount = 0,
+        // The unresolved ceiling measures this, not the subscription's age, so a test about the
+        // ceiling has to be able to say how old the link itself is.
+        DateTime? createdAtUtc = null)
     {
-        ItemId = "link-1",
-        TenantId = TenantId,
-        OrganizationId = "org-1",
-        SubscriptionId = "sub-1",
-        PaymentDetailId = "pay-1",
-        Purpose = purpose,
-        CorrelationId = "corr-1",
-        State = state,
-        AttemptCount = attemptCount,
-        NextCheckAtUtc = nextCheckAtUtc
-    };
+        var link = new SubscriptionPaymentLink
+        {
+            ItemId = "link-1",
+            TenantId = TenantId,
+            OrganizationId = "org-1",
+            SubscriptionId = "sub-1",
+            PaymentDetailId = "pay-1",
+            Purpose = purpose,
+            CorrelationId = "corr-1",
+            State = state,
+            AttemptCount = attemptCount,
+            NextCheckAtUtc = nextCheckAtUtc
+        };
+
+        if (createdAtUtc is { } created)
+        {
+            link.CreatedAtUtc = created;
+        }
+
+        return link;
+    }
 
     private void GivenPayment(
         string status,
@@ -1382,7 +1395,10 @@ public sealed class SubscriptionActivationProcessorTests
         _links
             .Setup(repository => repository.FindBySubscriptionAsync(
                 TenantId, "sub-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(NewLink(state: SubscriptionPaymentLinkState.Pending, attemptCount: 10));
+            .ReturnsAsync(NewLink(
+                state: SubscriptionPaymentLinkState.Pending,
+                attemptCount: 10,
+                createdAtUtc: _time.GetUtcNow().UtcDateTime.AddHours(-47)));
 
         var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
 
@@ -1412,7 +1428,10 @@ public sealed class SubscriptionActivationProcessorTests
         _links
             .Setup(repository => repository.FindBySubscriptionAsync(
                 TenantId, "sub-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(NewLink(state: SubscriptionPaymentLinkState.Pending, attemptCount: 10));
+            .ReturnsAsync(NewLink(
+                state: SubscriptionPaymentLinkState.Pending,
+                attemptCount: 10,
+                createdAtUtc: _time.GetUtcNow().UtcDateTime.AddHours(-49)));
 
         var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
 
@@ -1440,7 +1459,10 @@ public sealed class SubscriptionActivationProcessorTests
         _links
             .Setup(repository => repository.FindBySubscriptionAsync(
                 TenantId, "sub-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(NewLink(state: SubscriptionPaymentLinkState.Pending, attemptCount: 10));
+            .ReturnsAsync(NewLink(
+                state: SubscriptionPaymentLinkState.Pending,
+                attemptCount: 10,
+                createdAtUtc: _time.GetUtcNow().UtcDateTime.AddHours(-49)));
 
         var reconciler = new Mock<ISubscriptionPaymentReconciler>();
         reconciler
@@ -1458,6 +1480,52 @@ public sealed class SubscriptionActivationProcessorTests
                 TenantId, "link-1", SubscriptionPaymentLinkState.Abandoned, It.IsAny<CancellationToken>()),
             Times.Never,
             "the provider confirmed the money moved; the link activates rather than being ended");
+    }
+
+    /// <summary>
+    /// The returning subscriber. A retry does not reuse a link -- RetryCardSetupAsync settles the
+    /// old one and StartCardSetupAsync opens a new one -- so somebody coming back to a days-old
+    /// subscription is starting a fresh session, and the ceiling has to be measured from that
+    /// session rather than from the subscription that outlived the previous one.
+    /// </summary>
+    /// <remarks>
+    /// Reading the subscription's age here instead expired this subscriber roughly one retry
+    /// budget after they returned: the sweep ended the session they were part-way through and
+    /// transitioned the subscription to IncompleteExpired, which StartPaymentMethodSetupAsync then
+    /// refuses outright -- so they could not even start again.
+    /// </remarks>
+    [Fact]
+    public async Task A_fresh_link_on_a_long_lived_subscription_is_inside_the_ceiling()
+    {
+        GivenPayment(PaymentStatuses.Processing, webhookConfirmed: false);
+        _subscriptions
+            .Setup(repository => repository.ListStaleAsync(
+                TenantId, SubscriptionStatus.Incomplete, It.IsAny<DateTime>(), It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([StaleSubscription(_time.GetUtcNow().UtcDateTime.AddHours(-72))]);
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewLink(
+                state: SubscriptionPaymentLinkState.Pending,
+                attemptCount: 10,
+                createdAtUtc: _time.GetUtcNow().UtcDateTime.AddMinutes(-5)));
+
+        var recovered = await Processor().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        recovered.Should().Be(0);
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the subscription is old but this session is minutes old; ending it would expire a " +
+            "subscriber who is still part-way through entering a card");
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, "link-1", SubscriptionPaymentLinkState.Abandoned,
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     private static SubscriptionDetail StaleSubscription(DateTime createdAtUtc)
