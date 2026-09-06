@@ -13,7 +13,7 @@ namespace Payment.DomainService.Utilities;
 /// short hash of the original value is appended so distinct inputs always produce distinct
 /// slugs, while the readable part still tells an operator which merchant they are looking at.
 /// </remarks>
-public static class PaymentSlug
+internal static class PaymentSlug
 {
     private const int MaximumReadableLength = 40;
     private const int HashCharacters = 8;
