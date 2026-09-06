@@ -25,6 +25,12 @@ namespace DomainService.Utilities
 
         public static void RegisterUtilityServices(this IServiceCollection services)
         {
+            // Backs StorageHelperBase.CreateHttpClient for every storage helper below. Registered
+            // here rather than left to the host so the Api and the Worker cannot disagree about
+            // whether storage traffic is pooled; AddHttpClient is idempotent, so a host that also
+            // calls it adds nothing.
+            services.AddHttpClient(Utility.DomainService.Storage.StorageHelperBase.StorageHttpClientName);
+
             // Sequence Services
             services.AddSingleton<ISequenceService, SequenceService>();
             services.AddSingleton<ISequenceRepository, SequenceRepository>();

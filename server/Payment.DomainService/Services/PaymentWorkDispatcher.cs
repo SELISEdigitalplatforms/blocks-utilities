@@ -10,15 +10,18 @@ public sealed class PaymentWorkDispatcher : IPaymentWorkDispatcher
     private readonly IMessageClient _messageClient;
     private readonly IPaymentTenantContextScopeFactory _contexts;
     private readonly ILogger<PaymentWorkDispatcher> _logger;
+    private readonly TimeProvider _time;
 
     public PaymentWorkDispatcher(
         IMessageClient messageClient,
         IPaymentTenantContextScopeFactory contexts,
-        ILogger<PaymentWorkDispatcher> logger)
+        ILogger<PaymentWorkDispatcher> logger,
+        TimeProvider? time = null)
     {
         _messageClient = messageClient;
         _contexts = contexts;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task DispatchAsync(
@@ -46,7 +49,7 @@ public sealed class PaymentWorkDispatcher : IPaymentWorkDispatcher
                     TenantId = tenantId,
                     IncludeRecovery = includeRecovery,
                     CorrelationId = correlationId,
-                    DispatchedAtUtc = DateTime.UtcNow
+                    DispatchedAtUtc = _time.GetUtcNow().UtcDateTime
                 },
                 ScheduledEnqueueTimeUtc = scheduledAtUtc
             });
