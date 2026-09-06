@@ -285,7 +285,11 @@ export const StepPricingModel = ({
                     <FormLabel className="text-xs">
                       {meterValues?.[index]?.resetPolicy === 1
                         ? "Included for subscription lifetime"
-                        : "Included per period"}
+                        : `Included per period${
+                            meterValues?.[index]?.unitLabel
+                              ? ` (${meterValues[index].unitLabel})`
+                              : ""
+                          }`}
                     </FormLabel>
                     <FormControl>
                       {/* Stepped to the meter's own granularity. Without it the browser's own
@@ -306,7 +310,7 @@ export const StepPricingModel = ({
                 name={`meters.${index}.resetPolicy`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Allowance resets</FormLabel>
+                    <FormLabel className="text-xs">Unused allowance</FormLabel>
                     <Select
                       value={String(inputField.value)}
                       onValueChange={(value) => {
@@ -337,8 +341,8 @@ export const StepPricingModel = ({
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Choose Never for capacity that must remain consumed after renewal, or Carry
-                      forward to let an unused allowance roll into the next period.
+                      Choose &ldquo;Does not apply&rdquo; for capacity that must remain consumed
+                      after renewal, or let it roll into the next period instead.
                     </p>
                     <FormMessage />
                   </FormItem>
@@ -350,7 +354,9 @@ export const StepPricingModel = ({
                   name={`meters.${index}.carryForwardCap`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Most one period may carry in</FormLabel>
+                      <FormLabel className="text-xs">
+                        Most {meterValues?.[index]?.unitLabel || "units"} one period may carry in
+                      </FormLabel>
                       <FormControl>
                         <Input
                           {...inputField}
@@ -363,7 +369,8 @@ export const StepPricingModel = ({
                       <p className="text-xs text-muted-foreground">
                         Caps what rolls in, not the total — the included amount is always
                         available on top. Required, because without a ceiling a dormant
-                        subscription banks allowance indefinitely.
+                        subscription banks allowance indefinitely. The most a subscriber can ever
+                        hold in one period is the included amount plus this cap.
                       </p>
                       <FormMessage />
                     </FormItem>
@@ -375,7 +382,7 @@ export const StepPricingModel = ({
                 name={`meters.${index}.aggregation`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">How usage is measured</FormLabel>
+                    <FormLabel className="text-xs">How recordings are combined</FormLabel>
                     <Select
                       value={String(inputField.value)}
                       onValueChange={(value) => inputField.onChange(Number(value))}
@@ -457,7 +464,7 @@ export const StepPricingModel = ({
               name="usageInterval"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">Allowance resets every</FormLabel>
+                  <FormLabel className="text-xs">Allowance period</FormLabel>
                   <Select
                     value={String(field.value)}
                     onValueChange={(value) => field.onChange(Number(value))}
@@ -475,6 +482,10 @@ export const StepPricingModel = ({
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">
+                    How long one allowance lasts. Independent of how often you bill — a yearly
+                    price can still grant a monthly allowance, and usually should.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

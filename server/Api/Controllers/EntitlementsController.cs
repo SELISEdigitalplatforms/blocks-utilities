@@ -1,5 +1,5 @@
 using Api.Utilities;
-using Microsoft.AspNetCore.Authorization;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
@@ -20,7 +20,6 @@ namespace Api.Controllers;
 /// </para>
 /// </remarks>
 [ApiController]
-[Authorize]
 [Route("entitlements")]
 public sealed class EntitlementsController : ControllerBase
 {
@@ -33,6 +32,7 @@ public sealed class EntitlementsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<EntitlementSnapshotResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<EntitlementSnapshotResponse>), StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("blocks-utilities::entitlement::read")]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool fresh,
         [FromQuery] string? organizationId,
@@ -52,6 +52,7 @@ public sealed class EntitlementsController : ControllerBase
     [HttpGet("{entitlementKey}")]
     [ProducesResponseType(typeof(ApiResponse<EntitlementResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::entitlement::read")]
     public async Task<IActionResult> Get(
         string entitlementKey,
         [FromQuery] bool fresh,

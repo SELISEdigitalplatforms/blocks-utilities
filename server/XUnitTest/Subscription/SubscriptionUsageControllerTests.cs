@@ -1,8 +1,9 @@
 using System.Reflection;
 using Api.Controllers;
+using Blocks.Genesis;
 using FluentAssertions;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Payment.DomainService.Enums;
@@ -17,12 +18,17 @@ namespace XUnitTest.Subscription;
 public sealed class SubscriptionUsageControllerTests
 {
     [Fact]
-    public void The_controller_requires_authentication()
+    public void Every_endpoint_is_a_protected_endpoint()
     {
-        typeof(SubscriptionUsageController)
-            .GetCustomAttribute<AuthorizeAttribute>()
-            .Should().NotBeNull("every subscription-usage endpoint, including the preview, must " +
-                "be reached only by an authenticated caller");
+        var actions = typeof(SubscriptionUsageController)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(method => method.GetCustomAttributes<HttpMethodAttribute>().Any());
+
+        actions.Should().NotBeEmpty();
+        actions.Should().OnlyContain(
+            method => method.GetCustomAttribute<ProtectedEndPointAttribute>() != null,
+            "every subscription-usage endpoint, including the preview, is authorised by the " +
+            "framework against a named resource rather than by authentication alone");
     }
 
     [Fact]
