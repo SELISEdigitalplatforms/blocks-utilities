@@ -101,9 +101,9 @@ export const METER_AGGREGATION_OPTIONS = [
 ] as const;
 
 export const METER_RESET_POLICY_OPTIONS = [
-  { value: 0, label: "Every allowance period — tokens, requests, generations" },
-  { value: 1, label: "Never — persistent capacity such as storage" },
-  { value: 2, label: "Carry forward — unused allowance rolls into the next period" },
+  { value: 0, label: "Expires at the end of each period — tokens, requests, generations" },
+  { value: 1, label: "Does not apply — one lifetime balance, such as storage" },
+  { value: 2, label: "Rolls into the next period, up to a cap" },
 ] as const;
 
 export const ENTITLEMENT_LIMIT_KIND_OPTIONS = [

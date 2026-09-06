@@ -1251,6 +1251,62 @@ public sealed class SubscriptionCheckoutServiceTests
         result.ErrorCode.Should().Be("payment_method_already_stored");
     }
 
+    /// <summary>
+    /// The regression this guards: an abandoned setup fell through to <c>StartCardSetupAsync</c>,
+    /// which derives its idempotency key from the unchanged attempt number -- so the provider
+    /// replayed the original, already-dead session under the same key instead of opening a new
+    /// one. Live case: a subscriber who abandoned one setup and asked for another kept getting
+    /// back the same expired <c>cs_test_…</c> id.
+    /// </summary>
+    [Fact]
+    public async Task An_abandoned_setup_session_is_retried_rather_than_replayed_under_the_same_key()
+    {
+        _subscription.Status = SubscriptionStatus.Trialing;
+        GivenSubscriptionById(_subscription);
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
+        _links
+            .Setup(repository => repository.FindBySubscriptionAsync(
+                TenantId, _subscription.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionPaymentLink
+            {
+                SubscriptionId = _subscription.ItemId,
+                PaymentDetailId = "pay-abandoned",
+                Purpose = SubscriptionPaymentPurpose.PaymentMethodSetup,
+                State = SubscriptionPaymentLinkState.Abandoned
+            });
+        _subscriptions
+            .Setup(repository => repository.TryBumpPaymentMethodSetupAttemptAsync(
+                TenantId,
+                _subscription.ItemId,
+                _subscription.PaymentMethodSetupAttempt,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        GivenSetupSessionOpens();
+
+        var result = await Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscriptions.Verify(
+            repository => repository.TryBumpPaymentMethodSetupAttemptAsync(
+                TenantId,
+                _subscription.ItemId,
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "only RetryCardSetupAsync bumps the attempt; reaching it is the proof an abandoned " +
+            "link was retried rather than replayed under StartCardSetupAsync's unchanged key");
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, It.IsAny<string>(), SubscriptionPaymentLinkState.Abandoned,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the stale link is settled once the replacement is under way");
+    }
+
     private static SubscriptionDetail NewSubscription()
     {
         var id = Guid.NewGuid().ToString();

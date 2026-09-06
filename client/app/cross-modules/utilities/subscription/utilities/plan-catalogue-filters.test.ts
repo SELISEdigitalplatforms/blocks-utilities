@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SubscriptionPlan } from "../models/subscription-plan.model";
 import {
   applyCatalogueFilters,
+  clearCatalogueFilters,
   countActiveFilters,
   readCatalogueFilters,
   startingPrice,
@@ -88,7 +89,32 @@ describe("reading catalogue filters from a URL", () => {
 
   it("counts only the controls that are away from their default", () => {
     expect(countActiveFilters({ status: "Active", search: "", sort: "name" })).toBe(0);
-    expect(countActiveFilters({ status: "Archived", search: "a", sort: "price" })).toBe(3);
+    expect(countActiveFilters({ status: "Archived", search: "a", sort: "price" })).toBe(2);
+  });
+
+  /**
+   * Sort changes the order of what's on screen, not which plans are on it. Counting it as a
+   * filter (and resetting it from Clear filters) would misrepresent an ordering choice as a
+   * narrowing one.
+   */
+  it("does not count sort as a filter", () => {
+    expect(countActiveFilters({ status: "Active", search: "", sort: "price" })).toBe(0);
+  });
+
+  /**
+   * The search box is fully controlled from this value. Trimming on read would strip a trailing
+   * space the instant it was typed, making the cursor look stuck after "pro ".
+   */
+  it("keeps a trailing space in the search value instead of trimming it away", () => {
+    const filters = readCatalogueFilters(new URLSearchParams({ q: "pro " }));
+
+    expect(filters.search).toBe("pro ");
+  });
+
+  it("clears status and search but leaves the current sort alone", () => {
+    expect(
+      clearCatalogueFilters({ status: "Archived", search: "pro", sort: "price" }),
+    ).toEqual({ status: "Active", search: "", sort: "price" });
   });
 });
 
@@ -156,6 +182,41 @@ describe("filtering and ordering the catalogue", () => {
     expect(result.map((entry) => entry.planId)).toEqual(["b"]);
   });
 
+  /**
+   * The family badge and the description are both visible on the card, so a term the user can
+   * see on screen must be able to find the plan, not just its name and code.
+   */
+  it("also searches family code and description", () => {
+    const familyPlan = plan({
+      planId: "d",
+      displayName: "Delta",
+      familyCode: "growth",
+      status: "Active",
+    });
+    const describedPlan = plan({
+      planId: "e",
+      displayName: "Echo",
+      description: "Built for teams scaling fast",
+      status: "Active",
+    });
+
+    expect(
+      applyCatalogueFilters([active, familyPlan, describedPlan], {
+        status: "All",
+        search: "growth",
+        sort: "name",
+      }).map((entry) => entry.planId),
+    ).toEqual(["d"]);
+
+    expect(
+      applyCatalogueFilters([active, familyPlan, describedPlan], {
+        status: "All",
+        search: "scaling",
+        sort: "name",
+      }).map((entry) => entry.planId),
+    ).toEqual(["e"]);
+  });
+
   it("orders by most recently updated, putting undated plans last", () => {
     const older = plan({
       planId: "older",
@@ -221,6 +282,6 @@ describe("summary counts", () => {
       plan({ planId: "e" }),
     ]);
 
-    expect(summary).toEqual({ active: 3, archived: 2, families: 2 });
+    expect(summary).toEqual({ active: 3, archived: 2, all: 5, families: 2 });
   });
 });

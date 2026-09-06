@@ -1,5 +1,5 @@
 using Api.Utilities;
-using Microsoft.AspNetCore.Authorization;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
@@ -23,7 +23,6 @@ namespace Api.Controllers;
 /// </para>
 /// </remarks>
 [ApiController]
-[Authorize]
 [Route("subscription-billing-profile")]
 public sealed class SubscriptionBillingProfileController : ControllerBase
 {
@@ -45,6 +44,7 @@ public sealed class SubscriptionBillingProfileController : ControllerBase
         typeof(ApiResponse<SubscriptionBillingProfileResponse>),
         StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-billing-profile::read")]
     public async Task<IActionResult> Get(
         [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
@@ -70,6 +70,7 @@ public sealed class SubscriptionBillingProfileController : ControllerBase
         typeof(ApiResponse<SubscriptionBillingProfileResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-billing-profile::manage")]
     public async Task<IActionResult> Update(
         [FromBody] UpdateBillingProfileRequest request,
         CancellationToken cancellationToken)

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -36,7 +37,14 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     [
         PaymentStatuses.Refused,
         PaymentStatuses.Cancelled,
-        PaymentStatuses.MakePaymentFailed
+        PaymentStatuses.MakePaymentFailed,
+
+        // Set by PaymentMethodSetupExpiryProcessor's own sweep when a card setup sits Processing
+        // past its timeout with a signal still missing -- a decided outcome by the time this
+        // reads it, not a payment still in flight. Missing here left an expired setup classified
+        // Undecided forever: this sweep would keep deferring it, never reaching the point where
+        // ClassifyAsync could call it what it now is.
+        PaymentStatuses.Expired
     ];
 
     private readonly ISubscriptionPaymentLinkRepository _links;
@@ -52,6 +60,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private readonly ICampaignRedemptionRepository? _redemptions;
     private readonly ISubscriptionRenewalService? _renewals;
     private readonly IUsageProjectionReconciler? _usageProjections;
+    private readonly ISubscriptionPaymentReconciler? _reconciler;
 
     public SubscriptionActivationProcessor(
         ISubscriptionPaymentLinkRepository links,
@@ -69,7 +78,11 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         ISubscriptionRenewalService? renewals = null,
         // Optional, like every collaborator threaded through this class: it publishes a read
         // model, and a caller or test unaware that model exists must keep working unchanged.
-        IUsageProjectionReconciler? usageProjections = null)
+        IUsageProjectionReconciler? usageProjections = null,
+        // Optional for the same reason, and absent entirely for a provider this cannot observe
+        // (see StripeCheckoutReconciliationService's own remarks): a missing reconciler must
+        // never turn into a decision this class could not otherwise make on its own.
+        ISubscriptionPaymentReconciler? reconciler = null)
     {
         _links = links;
         _subscriptions = subscriptions;
@@ -85,6 +98,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _redemptions = redemptions;
         _renewals = renewals;
         _usageProjections = usageProjections;
+        _reconciler = reconciler;
     }
 
     /// <summary>
@@ -194,8 +208,61 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 subscription.ItemId,
                 cancellationToken);
 
-            if (link is not null)
+            if (link is { State: SubscriptionPaymentLinkState.Applied })
             {
+                // It already settled and the subscription's own status reflects the outcome.
+                continue;
+            }
+
+            if (link is { State: SubscriptionPaymentLinkState.Pending })
+            {
+                var withinBudget = link.AttemptCount < Math.Max(1, options.ActivationMaxAttempts);
+
+                // The link's own age, never the subscription's. A retry does not reuse a link:
+                // RetryCardSetupAsync settles the old one Abandoned and StartCardSetupAsync opens
+                // a new one with its attempt count back at zero. Reading the subscription here
+                // meant a subscriber returning to a days-old subscription got a genuinely fresh
+                // session that was already past the ceiling before they had entered a card, and
+                // roughly one budget later this sweep ended the session they were using and
+                // expired the subscription out from under them -- leaving them unable even to
+                // retry, since StartPaymentMethodSetupAsync refuses an IncompleteExpired one. The
+                // ceiling asks how long *this session* has gone undecided, and those two clocks
+                // diverge the moment anybody retries.
+                var withinCeiling = link.CreatedAtUtc > now.AddHours(
+                    -Math.Max(1, options.ActivationUnresolvedCeilingHours));
+
+                if (withinBudget || withinCeiling)
+                {
+                    // Still inside its retry budget, the settlement sweep owns it and is retrying
+                    // on its own cadence. Past budget but still inside the ceiling, RescheduleAsync's
+                    // own provider-confirmation cadence is still polling and may yet get a decided
+                    // answer -- a hosted session outlives InitialChargeGraceMinutes by design, and
+                    // ending it here would be the exact incident this sweep exists to prevent, just
+                    // triggered from this side instead.
+                    continue;
+                }
+
+                if (await TryEndUnresolvedPendingLinkAsync(subscription, link, cancellationToken))
+                {
+                    recovered++;
+                }
+
+                continue;
+            }
+
+            if (link is { State: SubscriptionPaymentLinkState.Abandoned })
+            {
+                // AbandonAsync deliberately leaves a card setup's subscription Incomplete rather
+                // than expiring it, on the promise that this age-based sweep -- not the
+                // link-owning one -- would either finish it or end it. An abandoned link is
+                // still a link, and skipping it here (as this used to do unconditionally) is
+                // exactly what broke that promise: nothing else ever looks at an Abandoned link
+                // again.
+                if (await RecoverAbandonedLinkAsync(subscription, link, cancellationToken))
+                {
+                    recovered++;
+                }
+
                 continue;
             }
 
@@ -255,6 +322,80 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         }
 
         return recovered;
+    }
+
+    /// <summary>
+    /// Gives an abandoned card-setup link the decided outcome <see cref="AbandonAsync"/> left for
+    /// this sweep to reach: a late confirmation finishes it, and nothing ever arriving ends it.
+    /// </summary>
+    private async Task<bool> RecoverAbandonedLinkAsync(
+        SubscriptionDetail subscription,
+        SubscriptionPaymentLink link,
+        CancellationToken cancellationToken)
+    {
+        var (outcome, payment) = await ClassifyAsync(link, cancellationToken);
+
+        if (outcome == SettlementOutcome.Activate)
+        {
+            await ActivateAsync(link, payment!, cancellationToken);
+
+            return true;
+        }
+
+        // A genuine decline, a payment that was never found, or one still undecided this long
+        // after the subscription's own grace period expired: none of those is coming back, and
+        // AbandonAsync's own remarks name this sweep as the one that ends it.
+        await ExpireAsync(subscription, cancellationToken);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Gives a budget-exhausted <c>Pending</c> link -- one <see cref="RescheduleAsync"/> has been
+    /// holding open past its own retry budget because no provider read has ever decided it -- a
+    /// terminal state once it is also past <see cref="SubscriptionOptions.ActivationUnresolvedCeilingHours"/>.
+    /// </summary>
+    /// <remarks>
+    /// Without this, a provider this class cannot observe (no <see cref="ISubscriptionPaymentReconciler"/>
+    /// registered, or one that always reports "cannot decide") leaves a link <c>Pending</c> forever
+    /// and the subscription <c>Incomplete</c> forever -- exactly the outcome <see cref="AbandonAsync"/>'s
+    /// own remarks warn against, just reached from the sweep side instead of the settlement side.
+    /// The ceiling is deliberately far past <see cref="SubscriptionOptions.InitialChargeGraceMinutes"/>,
+    /// so this never fires for a subscriber still inside their provider's own session lifetime.
+    /// </remarks>
+    private async Task<bool> TryEndUnresolvedPendingLinkAsync(
+        SubscriptionDetail subscription,
+        SubscriptionPaymentLink link,
+        CancellationToken cancellationToken)
+    {
+        // One last chance: a provider read may still decide it, in which case the subscription
+        // activates or abandons through the ordinary path and nothing further happens here.
+        if (await TryDecideViaProviderAsync(link, cancellationToken))
+        {
+            return true;
+        }
+
+        // Both ages, because they answer different questions: the link's is what the ceiling
+        // actually measured, and the subscription's is how long this subscriber has been trying.
+        var nowUtc = _time.GetUtcNow().UtcDateTime;
+
+        _logger.LogWarning(
+            "Activation link past its unresolved ceiling with no provider-decided outcome; " +
+            "ending it without one AttemptCount={AttemptCount} LinkAgeHours={LinkAgeHours} " +
+            "SubscriptionAgeHours={SubscriptionAgeHours}",
+            link.AttemptCount,
+            (nowUtc - link.CreatedAtUtc).TotalHours,
+            (nowUtc - subscription.CreatedAtUtc).TotalHours);
+
+        await _links.TrySettleAsync(
+            link.TenantId,
+            link.ItemId,
+            SubscriptionPaymentLinkState.Abandoned,
+            cancellationToken);
+
+        await ExpireAsync(subscription, cancellationToken);
+
+        return true;
     }
 
     /// <summary>What the payment behind a link says should happen to it.</summary>
@@ -326,10 +467,22 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         switch (outcome)
         {
             case SettlementOutcome.PaymentMissing:
-                await RescheduleAsync(link, options, now, "payment_not_found", cancellationToken);
-                await AuditAsync(link, "PaymentRead", "Deferred", "payment_not_found", cancellationToken);
+            {
+                // A budget-exhausted reschedule can itself settle the link -- a provider read may
+                // decide what repeated payment-not-found reads never could -- so what actually
+                // happened, not merely "deferred", is what both the return value and the audit
+                // row must reflect.
+                var settledByProvider = await RescheduleAsync(
+                    link, options, now, "payment_not_found", cancellationToken);
+                await AuditAsync(
+                    link,
+                    "PaymentRead",
+                    settledByProvider ? "Succeeded" : "Deferred",
+                    settledByProvider ? null : "payment_not_found",
+                    cancellationToken);
 
-                return false;
+                return settledByProvider;
+            }
 
             case SettlementOutcome.Activate:
                 return await ApplyActivationAsync(link, payment!, cancellationToken);
@@ -338,16 +491,22 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 return await ApplyAbandonmentAsync(link, payment!, cancellationToken);
 
             case SettlementOutcome.Undecided:
-                await RescheduleAsync(
+            {
+                var settledByProvider = await RescheduleAsync(
                     link,
                     options,
                     now,
                     $"awaiting_confirmation:{PaymentLogValue.Label(payment!.PaymentStatus)}",
                     cancellationToken);
-                await AuditAsync(link, "PaymentConfirmation", "Deferred",
-                    payment.PaymentStatus, cancellationToken);
+                await AuditAsync(
+                    link,
+                    "PaymentConfirmation",
+                    settledByProvider ? "Succeeded" : "Deferred",
+                    settledByProvider ? null : payment.PaymentStatus,
+                    cancellationToken);
 
-                return false;
+                return settledByProvider;
+            }
 
             // Named rather than folded into the reschedule branch above: a new outcome silently
             // treated as "still in flight" would defer a link forever, and the branch it landed
@@ -842,7 +1001,11 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         }
     }
 
-    private async Task RescheduleAsync(
+    /// <returns>
+    /// <see langword="true"/> when a provider read decided the link's fate and it was settled;
+    /// <see langword="false"/> when it was merely rescheduled, on whichever cadence applied.
+    /// </returns>
+    private async Task<bool> RescheduleAsync(
         SubscriptionPaymentLink link,
         SubscriptionOptions options,
         DateTime now,
@@ -853,9 +1016,34 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
 
         if (attempt >= Math.Max(1, options.ActivationMaxAttempts))
         {
-            await AbandonAsync(link, cancellationToken);
+            if (await TryDecideViaProviderAsync(link, cancellationToken))
+            {
+                return true;
+            }
 
-            return;
+            // Elapsed attempts are a reason to stop polling this often, never a reason to
+            // declare failure: an undecided payment is not evidence that it failed, only that
+            // nobody has said yet. The provider either could not be reached, has not decided
+            // either, or this link's provider cannot be observed at all -- in every case the
+            // link stays Pending, on a much wider cadence, and this becomes the age-based
+            // recovery sweep's problem instead (see RecoverStaleAsync and
+            // ISubscriptionPaymentReconciler's own remarks). Logged at this level specifically
+            // because the old behaviour here was to abandon unconditionally: a regression back
+            // to that must be visible, not silent.
+            _logger.LogWarning(
+                "Subscription activation budget exhausted without a provider-confirmed outcome; " +
+                "holding the link open rather than abandoning it on silence AttemptCount={AttemptCount}",
+                attempt);
+
+            await _links.RescheduleAsync(
+                link.TenantId,
+                link.ItemId,
+                attempt,
+                now.AddSeconds(Math.Max(1, options.ActivationProviderConfirmationRetrySeconds)),
+                reason,
+                cancellationToken);
+
+            return false;
         }
 
         // Backs off linearly rather than exponentially: this is waiting on a webhook that
@@ -871,5 +1059,49 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             now.Add(delay),
             reason,
             cancellationToken);
+
+        return false;
+    }
+
+    /// <summary>
+    /// Asks the provider what actually happened to an undecided payment whose retry budget is
+    /// spent, and settles the link when the provider has a decided answer.
+    /// </summary>
+    /// <remarks>
+    /// Re-classifies from what was actually persisted rather than trusting the reconciler's own
+    /// report: a card setup needs two independent signals before it is genuinely settled (see
+    /// <c>PaymentMethodSetupCompletion</c>), and the reconciler may have recorded only one of
+    /// them. What decides here is <see cref="ClassifyAsync"/> reading the payment back, exactly
+    /// as it does everywhere else in this class.
+    /// </remarks>
+    private async Task<bool> TryDecideViaProviderAsync(
+        SubscriptionPaymentLink link,
+        CancellationToken cancellationToken)
+    {
+        if (_reconciler is null)
+        {
+            return false;
+        }
+
+        await _reconciler.TryReconcileAsync(
+            link.TenantId,
+            link.PaymentDetailId,
+            cancellationToken);
+
+        var (outcome, payment) = await ClassifyAsync(link, cancellationToken);
+
+        switch (outcome)
+        {
+            case SettlementOutcome.Activate:
+                await ApplyActivationAsync(link, payment!, cancellationToken);
+                return true;
+
+            case SettlementOutcome.Abandon:
+                await ApplyAbandonmentAsync(link, payment!, cancellationToken);
+                return true;
+
+            default:
+                return false;
+        }
     }
 }

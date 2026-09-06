@@ -909,6 +909,10 @@ export const PlanPriceFields = ({
                         ))}
                     </SelectContent>
                   </Select>
+                  <FormDescription className="text-xs">
+                    Flat fee charges the same whatever the quantity. Per unit multiplies the
+                    amount above by the units held.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

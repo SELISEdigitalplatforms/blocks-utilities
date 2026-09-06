@@ -58,7 +58,10 @@ export const readCatalogueFilters = (
 
   return {
     status: PLAN_STATUS_TABS.find((tab) => tab === status) ?? "Active",
-    search: parameters.get(CATALOGUE_QUERY_PARAMS.search)?.trim() ?? "",
+    // Not trimmed here: the input is fully controlled from this value, so trimming on read would
+    // strip a trailing space the instant it is typed and make the cursor look stuck. Trimming for
+    // matching purposes happens in applyCatalogueFilters instead.
+    search: parameters.get(CATALOGUE_QUERY_PARAMS.search) ?? "",
     sort:
       sort === "updated" || sort === "price" || sort === "name" ? sort : "name",
   };
@@ -94,11 +97,26 @@ export const writeCatalogueFilters = (
   return next;
 };
 
-/** How many filters are away from their default, for the "N active" badge and Clear. */
+/**
+ * How many filters are away from their default, for the "N active" badge and Clear.
+ *
+ * Sort is deliberately excluded: it changes the order of what's on screen, not which plans are on
+ * it, so choosing a different order should not read as "a filter is active" or get reset by
+ * Clear filters.
+ */
 export const countActiveFilters = (filters: PlanCatalogueFilters): number =>
-  (filters.status === "Active" ? 0 : 1) +
-  (filters.search === "" ? 0 : 1) +
-  (filters.sort === "name" ? 0 : 1);
+  (filters.status === "Active" ? 0 : 1) + (filters.search === "" ? 0 : 1);
+
+/**
+ * Resets status and search to their defaults while leaving the current sort untouched — Clear
+ * filters clears what was narrowed, not how the (still full) result is ordered.
+ */
+export const clearCatalogueFilters = (
+  filters: PlanCatalogueFilters,
+): PlanCatalogueFilters => ({
+  ...DEFAULT_CATALOGUE_FILTERS,
+  sort: filters.sort,
+});
 
 const isArchived = (plan: SubscriptionPlan) => plan.status === "Archived";
 
@@ -157,7 +175,9 @@ export const applyCatalogueFilters = (
       matchesStatus(plan, filters.status) &&
       (term === "" ||
         plan.displayName.toLowerCase().includes(term) ||
-        plan.code.toLowerCase().includes(term)),
+        plan.code.toLowerCase().includes(term) ||
+        (plan.familyCode?.toLowerCase().includes(term) ?? false) ||
+        (plan.description?.toLowerCase().includes(term) ?? false)),
   );
 
   const sorted = [...matching];
@@ -202,6 +222,7 @@ export const applyCatalogueFilters = (
 export const summariseCatalogue = (plans: SubscriptionPlan[]) => ({
   active: plans.filter((plan) => !isArchived(plan)).length,
   archived: plans.filter(isArchived).length,
+  all: plans.length,
   families: new Set(
     plans
       .map((plan) => plan.familyCode)
