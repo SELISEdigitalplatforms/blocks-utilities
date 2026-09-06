@@ -32,7 +32,7 @@ public sealed class EntitlementsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<EntitlementSnapshotResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<EntitlementSnapshotResponse>), StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("subscription.entitlements.read")]
+    [ProtectedEndPoint("blocks-utilities::entitlement::read")]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool fresh,
         [FromQuery] string? organizationId,
@@ -52,7 +52,7 @@ public sealed class EntitlementsController : ControllerBase
     [HttpGet("{entitlementKey}")]
     [ProducesResponseType(typeof(ApiResponse<EntitlementResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("subscription.entitlements.read")]
+    [ProtectedEndPoint("blocks-utilities::entitlement::read")]
     public async Task<IActionResult> Get(
         string entitlementKey,
         [FromQuery] bool fresh,

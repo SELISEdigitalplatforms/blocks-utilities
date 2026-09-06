@@ -42,7 +42,7 @@ public sealed class SubscriptionUsageController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<UsageResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<UsageResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("subscription.usage.manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription-usage::manage")]
     public async Task<IActionResult> Record(
         [FromBody] RecordUsageRequest request,
         CancellationToken cancellationToken)
@@ -77,7 +77,7 @@ public sealed class SubscriptionUsageController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UsageResponse>>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UsageResponse>>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("subscription.usage.read")]
+    [ProtectedEndPoint("blocks-utilities::subscription-usage::read")]
     public async Task<IActionResult> GetCurrent(
         [FromQuery] string? organizationId,
         [FromQuery] string? readMode,
@@ -189,7 +189,7 @@ public sealed class SubscriptionUsageController : ControllerBase
         typeof(ApiResponse<SubscriptionUsageOveragePreviewResponse>),
         StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("subscription.usage.read")]
+    [ProtectedEndPoint("blocks-utilities::subscription-usage::read")]
     public async Task<IActionResult> PreviewOverage(
         [FromBody] PreviewUsageOverageRequest request,
         CancellationToken cancellationToken)

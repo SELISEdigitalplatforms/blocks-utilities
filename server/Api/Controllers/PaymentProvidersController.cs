@@ -41,7 +41,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<object>),
         StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("payment.providers.read")]
+    [ProtectedEndPoint("blocks-utilities::payment-provider::read")]
     public async Task<IActionResult> GetPaymentProviders(
         CancellationToken cancellationToken)
     {
@@ -83,7 +83,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentProviderResponse>),
         StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("payment.providers.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment-provider::manage")]
     public async Task<IActionResult> UpdatePaymentProvider(
         string paymentProviderId,
         [FromBody] UpdatePaymentProviderRequest request,
@@ -124,7 +124,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentProviderResponse>),
         StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("payment.providers.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment-provider::manage")]
     public async Task<IActionResult> RotatePaymentProviderCredentials(
         string paymentProviderId,
         [FromBody] RotatePaymentProviderCredentialsRequest request,
@@ -160,7 +160,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentEncryptionHealthResponse>),
         StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("payment.encryption.read")]
+    [ProtectedEndPoint("blocks-utilities::payment-provider::read-encryption")]
     public async Task<IActionResult> GetEncryptionHealth(
         CancellationToken cancellationToken)
     {
@@ -197,7 +197,7 @@ public sealed class PaymentProvidersController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentEncryptionReEncryptionResponse>),
         StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("payment.encryption.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment-provider::manage-encryption")]
     public async Task<IActionResult> ReEncryptPaymentSecrets(
         CancellationToken cancellationToken)
     {

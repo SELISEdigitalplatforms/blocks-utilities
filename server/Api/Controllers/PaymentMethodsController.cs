@@ -29,7 +29,7 @@ public sealed class PaymentMethodsController : ControllerBase
     /// by the payments it took for another organization.
     /// </param>
     [HttpGet]
-    [ProtectedEndPoint("payment.payment-methods.read")]
+    [ProtectedEndPoint("blocks-utilities::payment-method::read")]
     public async Task<IActionResult> GetStoredPaymentMethods(
         [FromQuery] string? organizationId,
         CancellationToken cancellationToken)
@@ -70,7 +70,7 @@ public sealed class PaymentMethodsController : ControllerBase
     }
 
     [HttpDelete("{paymentMethodId}")]
-    [ProtectedEndPoint("payment.payment-methods.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment-method::manage")]
     public async Task<IActionResult> RemoveStoredPaymentMethod(
         string paymentMethodId,
         CancellationToken cancellationToken)

@@ -20,7 +20,7 @@ public sealed class SubscriptionDiscountsController : ControllerBase
     public SubscriptionDiscountsController(IDiscountCatalogueService catalogue) => _catalogue = catalogue;
 
     [HttpGet]
-    [ProtectedEndPoint("subscription.discounts.read")]
+    [ProtectedEndPoint("blocks-utilities::subscription-discount::read")]
     public async Task<IActionResult> List([FromQuery] string? organizationId, CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -28,7 +28,7 @@ public sealed class SubscriptionDiscountsController : ControllerBase
     }
 
     [HttpGet("{discountId}")]
-    [ProtectedEndPoint("subscription.discounts.read")]
+    [ProtectedEndPoint("blocks-utilities::subscription-discount::read")]
     public async Task<IActionResult> Get(string discountId, [FromQuery] string? organizationId, CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -36,7 +36,7 @@ public sealed class SubscriptionDiscountsController : ControllerBase
     }
 
     [HttpPost]
-    [ProtectedEndPoint("subscription.discounts.manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription-discount::manage")]
     public async Task<IActionResult> Create([FromBody] CreateDiscountRequest request, CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -44,7 +44,7 @@ public sealed class SubscriptionDiscountsController : ControllerBase
     }
 
     [HttpPut("{discountId}")]
-    [ProtectedEndPoint("subscription.discounts.manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription-discount::manage")]
     public async Task<IActionResult> Update(
         string discountId,
         [FromBody] UpdateDiscountRequest request,
@@ -57,7 +57,7 @@ public sealed class SubscriptionDiscountsController : ControllerBase
     }
 
     [HttpPut("{discountId}/archive")]
-    [ProtectedEndPoint("subscription.discounts.manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription-discount::manage")]
     public async Task<IActionResult> Archive(string discountId, [FromQuery] string? organizationId, CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;

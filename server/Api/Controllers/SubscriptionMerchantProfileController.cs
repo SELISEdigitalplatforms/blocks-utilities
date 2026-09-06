@@ -43,7 +43,7 @@ public sealed class SubscriptionMerchantProfileController : ControllerBase
         typeof(ApiResponse<SubscriptionMerchantProfileResponse>),
         StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("subscription.merchant-profile.read")]
+    [ProtectedEndPoint("blocks-utilities::subscription-merchant-profile::read")]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -63,7 +63,7 @@ public sealed class SubscriptionMerchantProfileController : ControllerBase
         typeof(ApiResponse<SubscriptionMerchantProfileResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProtectedEndPoint("subscription.merchant-profile.manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription-merchant-profile::manage")]
     public async Task<IActionResult> Update(
         [FromBody] UpdateMerchantProfileRequest request,
         CancellationToken cancellationToken)

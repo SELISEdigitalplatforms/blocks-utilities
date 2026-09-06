@@ -11,7 +11,7 @@ namespace Subscription.DomainService.Simulation;
 /// <para>
 /// Scope only. Whether the caller carries the permission the harness requires is not decided
 /// here and never was: every simulation endpoint is a
-/// <c>[ProtectedEndPoint("subscription.simulation.*")]</c>, so the framework has already refused
+/// <c>[ProtectedEndPoint("blocks-utilities::subscription-simulation::*")]</c>, so the framework has already refused
 /// a caller without it before any of this runs. What remains is the part the framework cannot
 /// know — that the harness must never be reachable by a wider audience than the platform-console
 /// override already is, so that an ordinary organization's own token can never unlock this

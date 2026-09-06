@@ -48,7 +48,7 @@ public sealed class SubscriptionBackgroundWorkController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<IReadOnlyList<DeadLetteredWorkResponse>>),
         StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("subscription.background-work.manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription-background-work::manage")]
     public async Task<IActionResult> ListDeadLetters(
         [FromQuery] int? limit,
         CancellationToken cancellationToken)
@@ -77,7 +77,7 @@ public sealed class SubscriptionBackgroundWorkController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status409Conflict)]
-    [ProtectedEndPoint("subscription.background-work.manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription-background-work::manage")]
     public async Task<IActionResult> Requeue(
         string workItemId,
         [FromBody] WorkRecoveryDecisionRequest request,
@@ -107,7 +107,7 @@ public sealed class SubscriptionBackgroundWorkController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ApiResponse<DeadLetteredWorkResponse>), StatusCodes.Status409Conflict)]
-    [ProtectedEndPoint("subscription.background-work.manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription-background-work::manage")]
     public async Task<IActionResult> Abandon(
         string workItemId,
         [FromBody] WorkRecoveryDecisionRequest request,

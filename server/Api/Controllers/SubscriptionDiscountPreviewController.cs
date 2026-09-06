@@ -26,7 +26,7 @@ public sealed class SubscriptionDiscountPreviewController : ControllerBase
 
     [HttpPost("preview")]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionDiscountPreviewResponse>), StatusCodes.Status200OK)]
-    [ProtectedEndPoint("subscription.discounts.read")]
+    [ProtectedEndPoint("blocks-utilities::subscription-discount::read")]
     public async Task<IActionResult> Preview(
         [FromBody] CreateSubscriptionRequest request,
         CancellationToken cancellationToken)

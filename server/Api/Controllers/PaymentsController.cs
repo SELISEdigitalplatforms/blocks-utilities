@@ -50,7 +50,7 @@ public sealed class PaymentsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentListResponse>),
         StatusCodes.Status503ServiceUnavailable)]
-    [ProtectedEndPoint("payment.payments.read")]
+    [ProtectedEndPoint("blocks-utilities::payment::read")]
     public async Task<IActionResult> GetPayments(
         [FromQuery] GetPaymentsRequest request,
         CancellationToken cancellationToken)
@@ -88,7 +88,7 @@ public sealed class PaymentsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<PaymentProviderRegistrationResponse>),
         StatusCodes.Status207MultiStatus)]
-    [ProtectedEndPoint("payment.providers.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment-provider::manage")]
     public async Task<IActionResult> RegisterProvider(
         [FromBody] RegisterPaymentProviderRequest request,
         CancellationToken cancellationToken)
@@ -143,7 +143,7 @@ public sealed class PaymentsController : ControllerBase
     }
 
     [HttpPost("create")]
-    [ProtectedEndPoint("payment.payments.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment::manage")]
     public async Task<IActionResult> CreatePayment(
         [FromBody] MakePaymentRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -161,7 +161,7 @@ public sealed class PaymentsController : ControllerBase
     }
 
     [HttpPost("recurring-payments")]
-    [ProtectedEndPoint("payment.payments.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment::manage")]
     public async Task<IActionResult> CreateRecurringPayment(
         [FromBody] CreateRecurringPaymentRequest request,
         [FromHeader(Name = "Idempotency-Key")]
@@ -202,7 +202,7 @@ public sealed class PaymentsController : ControllerBase
     }
 
     [HttpGet("{paymentDetailId}")]
-    [ProtectedEndPoint("payment.payments.read")]
+    [ProtectedEndPoint("blocks-utilities::payment::read")]
     public async Task<IActionResult> GetPayment(string paymentDetailId, CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
@@ -212,7 +212,7 @@ public sealed class PaymentsController : ControllerBase
     }
 
     [HttpPost("{paymentDetailId}/refunds")]
-    [ProtectedEndPoint("payment.refunds.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment::manage-refund")]
     public async Task<IActionResult> CreatePaymentRefund(
         string paymentDetailId,
         [FromBody] CreatePaymentRefundRequest request,
@@ -254,7 +254,7 @@ public sealed class PaymentsController : ControllerBase
     }
 
     [HttpPost("{paymentDetailId}/captures")]
-    [ProtectedEndPoint("payment.captures.manage")]
+    [ProtectedEndPoint("blocks-utilities::payment::manage-capture")]
     public async Task<IActionResult> CreatePaymentCapture(
         string paymentDetailId,
         [FromBody] CreatePaymentCaptureRequest request,
@@ -295,7 +295,7 @@ public sealed class PaymentsController : ControllerBase
     }
 
     [HttpGet("{paymentDetailId}/captures/{captureId}")]
-    [ProtectedEndPoint("payment.captures.read")]
+    [ProtectedEndPoint("blocks-utilities::payment::read-capture")]
     public async Task<IActionResult> GetPaymentCapture(
         string paymentDetailId,
         string captureId,
@@ -316,7 +316,7 @@ public sealed class PaymentsController : ControllerBase
     }
 
     [HttpGet("{paymentDetailId}/refunds/{refundId}")]
-    [ProtectedEndPoint("payment.refunds.read")]
+    [ProtectedEndPoint("blocks-utilities::payment::read-refund")]
     public async Task<IActionResult> GetPaymentRefund(
         string paymentDetailId,
         string refundId,
@@ -338,7 +338,7 @@ public sealed class PaymentsController : ControllerBase
     }
 
     [HttpGet("{paymentDetailId}/refunds")]
-    [ProtectedEndPoint("payment.refunds.read")]
+    [ProtectedEndPoint("blocks-utilities::payment::read-refund")]
     public async Task<IActionResult> GetPaymentRefunds(
         string paymentDetailId,
         CancellationToken cancellationToken)
