@@ -11,9 +11,21 @@ export type SubscriptionStatus =
 
 export interface SubscriptionQuantity {
   itemKey: string;
+  /** How many units are held today. */
   quantity: number;
   /** Present on reads, absent on writes: the server owns the label. */
   unitLabel?: string;
+  /**
+   * The bounds and starting point the plan sells this item in, as the subscription's own plan
+   * snapshot states them.
+   *
+   * Optional because only the reads that carry a plan report them — a write echoes the quantity
+   * back and nothing else — and because a subscription snapshotted before the plan carried
+   * bounds has none to give. A client that needs them must still cope with their absence.
+   */
+  minQuantity?: number;
+  maxQuantity?: number | null;
+  defaultQuantity?: number;
 }
 
 /**
