@@ -71,12 +71,21 @@ export const ChangeQuantityDialog = ({
           (candidate) => candidate.itemKey === held.itemKey,
         );
 
+        // The subscription's own quantities carry the bounds of the plan snapshot it is priced
+        // against, so they win over the live plan, which may have been edited since signup. Read
+        // as a pair off minQuantity: a null maxQuantity from the server means no ceiling, not a
+        // missing answer to look up elsewhere.
+        const bounds =
+          held.minQuantity === undefined
+            ? { min: defined?.minQuantity ?? 1, max: defined?.maxQuantity ?? null }
+            : { min: held.minQuantity, max: held.maxQuantity ?? null };
+
         return {
           itemKey: held.itemKey,
           unitLabel: held.unitLabel ?? defined?.unitLabel ?? held.itemKey,
           held: held.quantity,
-          minQuantity: defined?.minQuantity ?? 1,
-          maxQuantity: defined?.maxQuantity ?? null,
+          minQuantity: bounds.min,
+          maxQuantity: bounds.max,
         };
       }),
     [subscription.quantities, currentPlan],

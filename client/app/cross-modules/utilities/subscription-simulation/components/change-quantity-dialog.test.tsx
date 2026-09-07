@@ -166,6 +166,45 @@ describe("ChangeQuantityDialog", () => {
     });
   });
 
+  it("holds the subscriber to the bounds their own subscription reports, not the live plan's", () => {
+    // The plan can be edited after signup. What this subscription was sold under is what its
+    // snapshot says, and that is what the response now carries alongside the held quantity.
+    renderDialog({
+      ...subscription,
+      quantities: [
+        {
+          itemKey: "user",
+          quantity: 4,
+          unitLabel: "user",
+          minQuantity: 2,
+          maxQuantity: 6,
+          defaultQuantity: 2,
+        },
+      ],
+    });
+
+    setQuantity("7");
+    click(/^Preview$/);
+    expect(screen.getByText(/allows at most 6 users/)).toBeInTheDocument();
+
+    setQuantity("1");
+    click(/^Preview$/);
+    expect(screen.getByText(/needs at least 2 users/)).toBeInTheDocument();
+
+    // Refused locally: nothing was quoted at a quantity the plan does not sell.
+    expect(previewQuantityChange).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the plan when a subscription reports no bounds of its own", () => {
+    renderDialog();
+
+    // plan.quantityItems says min 1, and the subscription (min absent) has nothing to say.
+    setQuantity("0");
+    click(/^Preview$/);
+
+    expect(screen.getByText(/needs at least 1 user/)).toBeInTheDocument();
+  });
+
   it("cannot confirm before a preview", () => {
     renderDialog();
     setQuantity("5");

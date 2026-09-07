@@ -126,6 +126,46 @@ Entitlement is then one document read with no join, and editing the catalogue st
 retroactive: a subscriber keeps the terms they were sold until something deliberately migrates
 them. That is the correct billing semantic as well as the faster read.
 
+### Quantity bounds are read from the snapshot, not the catalogue
+
+Because of that rule, a subscription's quantities describe themselves. `GET /subscriptions/current`
+carries the plan's bounds beside the quantity actually held:
+
+```json
+"quantities": [
+  {
+    "itemKey": "User",
+    "unitLabel": "user",
+    "quantity": 4,
+    "minQuantity": 1,
+    "maxQuantity": 40,
+    "defaultQuantity": 1
+  }
+]
+```
+
+`quantity` is **what this subscription holds today**; `defaultQuantity` is what the plan starts a
+subscriber on. They agree until somebody changes the quantity and then they do not, which is why
+both are stated rather than one standing in for the other. `maxQuantity` is null when the item is
+uncapped.
+
+The bounds come from `SubscriptionDetail.Plan`, the subscription's own copy — not from the
+catalogue. A client that fetched the live plan instead would police a change against terms this
+subscriber was never sold under, and the change-quantity flow itself validates against the
+snapshot, so the two would disagree about what is allowed.
+
+The same three fields are filled in wherever quantities are reported against a plan.
+`pendingPlanChange` and the plan-change preview take theirs from the **target** plan, since those
+quantities answer to the plan coming into force rather than the one being left.
+
+An item the snapshot does not describe — written before the plan carried bounds for it — reports
+`minQuantity: 1`, no ceiling, and its own held quantity as the default. Inventing bounds there
+would have a client refuse a quantity the subscription is already sitting on.
+
+`QuantityResponseMapper.Subscription` is the one place this mapping lives, for the same reason the
+rest of that type exists: two surfaces describing the same quantities differently is how a client
+comes to enforce one rule on the read and another on the write.
+
 ## Editing a plan ends when the first subscriber arrives
 
 `PUT /subscription-plans/{planId}` rewrites what a plan sells. It refuses with

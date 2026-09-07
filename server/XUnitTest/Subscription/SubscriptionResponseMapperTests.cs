@@ -45,6 +45,51 @@ public sealed class SubscriptionResponseMapperTests
     }
 
     [Fact]
+    public void A_held_quantity_is_read_back_with_the_bounds_the_plan_sells_it_in()
+    {
+        var subscription = NewSubscription(10);
+        var planItem = subscription.Plan.QuantityItems.Single();
+        planItem.MinQuantity = 2;
+        planItem.MaxQuantity = 50;
+        planItem.DefaultQuantity = 3;
+
+        var response = _mapper.ToResponse(subscription);
+
+        var quantity = response.Quantities.Single();
+        quantity.Quantity.Should().Be(10, "the held quantity is not the plan's default");
+        quantity.MinQuantity.Should().Be(2);
+        quantity.MaxQuantity.Should().Be(50);
+        quantity.DefaultQuantity.Should().Be(3);
+    }
+
+    [Fact]
+    public void An_uncapped_item_reports_no_ceiling_rather_than_a_made_up_one()
+    {
+        var subscription = NewSubscription(10);
+        subscription.Plan.QuantityItems.Single().MaxQuantity = null;
+
+        var response = _mapper.ToResponse(subscription);
+
+        response.Quantities.Single().MaxQuantity.Should().BeNull();
+    }
+
+    [Fact]
+    public void An_item_the_plan_snapshot_never_described_says_only_what_it_holds()
+    {
+        // Written before the plan carried this item. Inventing bounds here would have a client
+        // refuse a quantity the subscription is already sitting on.
+        var subscription = NewSubscription(10);
+        subscription.Plan.QuantityItems.Clear();
+
+        var quantity = _mapper.ToResponse(subscription).Quantities.Single();
+
+        quantity.Quantity.Should().Be(10);
+        quantity.MinQuantity.Should().Be(1);
+        quantity.MaxQuantity.Should().BeNull();
+        quantity.DefaultQuantity.Should().Be(10);
+    }
+
+    [Fact]
     public void A_subscription_with_nothing_scheduled_says_so()
     {
         var response = _mapper.ToResponse(NewSubscription(10));

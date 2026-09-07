@@ -254,6 +254,13 @@ Two guarantees in the flow:
 
 An increase also re-evaluates the volume band, so the unit price can fall at the same time.
 
+**What a client needs to render the screen is already on the read.** Each entry in the
+subscription's `quantities` carries `minQuantity`, `maxQuantity` (null = uncapped) and
+`defaultQuantity` alongside `quantity`, which is what is held today. They come from the
+subscription's own plan snapshot, so the bounds a client enforces are the ones this subscriber was
+sold and the ones the server will validate the change against — fetching the live plan instead
+risks policing terms that were authored after signup.
+
 > ### Test 5.1 — both directions
 > Held 4, band `5–10 → 10%`. Increase to 7 → applied now, prorated charge > 0, next renewal reflects
 > the band. Decrease to 4 → scheduled, **charge 0**, still holding 7 today. Cancel the pending
