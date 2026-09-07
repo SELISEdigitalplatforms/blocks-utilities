@@ -1,8 +1,9 @@
-using Blocks.Genesis;
+﻿using Blocks.Genesis;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using StackExchange.Redis;
@@ -113,15 +114,15 @@ public sealed class PaymentRateLimitingAndCacheTests
     /// The shape of a client-credentials caller: a tenant and an organization it proved, an
     /// application id, and no person anywhere.
     /// </summary>
-    private static void MachineCaller(string? clientId, string? oauthToken = null) =>
+    private static void MachineCaller(string? clientId) =>
         BlocksContext.SetContext(BlocksContext.Create(
             "tenant-1", null, null, true, null, "org-1",
             DateTime.UtcNow.AddHours(1), null, null, null, null, null,
-            oauthToken, "tenant-1", clientId: clientId));
+            null, "tenant-1", clientId: clientId));
 
     /// <summary>
     /// An application authenticates as itself, so the context names no user and no email. It is
-    /// named by what it is instead of being refused for not being a person.
+    /// named by what it is rather than refused for not being a person.
     /// </summary>
     [Fact]
     public void Resolver_names_a_machine_caller_by_its_client_id()
@@ -183,31 +184,19 @@ public sealed class PaymentRateLimitingAndCacheTests
     }
 
     /// <summary>
-    /// An application named identically whichever rung supplied it, so one caller cannot read as
-    /// two actors in an audit trail.
+    /// A caller the context names as nobody at all is still refused, and as an identity failure
+    /// rather than a transient one.
     /// </summary>
     [Fact]
-    public void Both_client_id_rungs_spell_the_actor_the_same_way()
+    public void Resolver_refuses_a_caller_with_no_identity_at_all()
     {
-        // "app-1" as the client_id claim of a signed token, for the rung below.
-        const string Token = "header.eyJjbGllbnRfaWQiOiJhcHAtMSJ9.signature";
-
-        MachineCaller(clientId: null, oauthToken: Token);
-        string? fromToken;
+        MachineCaller(clientId: null);
         try
         {
-            fromToken = new PaymentExecutionContextResolver().Resolve("corr-7").Context?.ActorId;
-        }
-        finally
-        {
-            BlocksContext.ClearContext();
-        }
+            var resolution = new PaymentExecutionContextResolver().Resolve("corr-7");
 
-        MachineCaller("app-1");
-        try
-        {
-            new PaymentExecutionContextResolver().Resolve("corr-8")
-                .Context!.ActorId.Should().Be(fromToken);
+            resolution.IsSuccess.Should().BeFalse();
+            resolution.Failure!.FailureKind.Should().Be(PaymentFailureKind.Unauthenticated);
         }
         finally
         {
