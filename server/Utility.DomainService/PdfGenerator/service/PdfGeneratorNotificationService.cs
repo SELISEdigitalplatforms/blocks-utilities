@@ -172,13 +172,21 @@ namespace Utility.DomainService.PdfGenerator.service
         /// </remarks>
         private async Task SendUserNotificationAsync(bool success, string? messageCoRelationId, object payload)
         {
+            // Read once and kept in scope for the catch block too, so a failure log can still say
+            // who the notification was for even when the exception happens after this point (e.g.
+            // serializing the payload, hashing the secret, or the HTTP call itself).
+            var userId = BlocksContext.GetContext()?.UserId;
+
             try
             {
-                var userId = BlocksContext.GetContext()?.UserId;
                 if (string.IsNullOrEmpty(userId))
                 {
-                    _logger.LogInformation(
-                        "SendUserNotificationAsync: No authenticated user in context, skipping notification");
+                    // Not a transport failure - there is simply no authenticated identity to
+                    // target - but it does mean the notification was silently not sent, which is
+                    // worth a Warning rather than an Information a reader would skim past.
+                    _logger.LogWarning(
+                        "SendUserNotificationAsync: No authenticated user in context; notification not sent. ResponseKey={ResponseKey}",
+                        LogSanitizer.Scrub(messageCoRelationId ?? string.Empty));
                     return;
                 }
 
@@ -193,6 +201,13 @@ namespace Utility.DomainService.PdfGenerator.service
                     ResponseValue = success.ToString()
                 };
 
+                _logger.LogInformation(
+                    "SendUserNotificationAsync: Sending notification to userId={UserId}, configurationName={ConfigurationName}, responseKey={ResponseKey}, success={Success}",
+                    LogSanitizer.Scrub(userId),
+                    requestData.ConfigurationName,
+                    LogSanitizer.Scrub(requestData.ResponseKey ?? string.Empty),
+                    success);
+
                 var rootTenantId = _configuration["RootTenantId"];
                 var salt = _tenants.GetTenantByID(rootTenantId)?.TenantSalt;
                 var actualSecret = _cryptoService.Hash(rootTenantId, salt);
@@ -204,21 +219,36 @@ namespace Utility.DomainService.PdfGenerator.service
                     { "Secret", actualSecret }
                 };
 
-                var (result, _) = await _httpHelperServices.MakeHttpPostRequest<NotificationResponse>(
+                var (result, rawResponse) = await _httpHelperServices.MakeHttpPostRequest<NotificationResponse>(
                     requestData, url, headers);
 
                 if (result != null && result.isSuccess)
                 {
-                    _logger.LogInformation("SendUserNotificationAsync: Notification sent successfully for userId={UserId}", LogSanitizer.Scrub(userId));
+                    _logger.LogInformation(
+                        "SendUserNotificationAsync: Notification sent successfully to userId={UserId}",
+                        LogSanitizer.Scrub(userId));
                 }
                 else
                 {
-                    _logger.LogWarning("SendUserNotificationAsync: Failed to send notification. Error: {Errors}", result?.errors);
+                    // Both possible failure shapes are logged: a well-formed but unsuccessful
+                    // response (result.errors) and a request that never produced one at all
+                    // (MakeHttpPostRequest returns a null result plus its own explanatory message
+                    // as rawResponse when the HTTP call itself throws) - the previous version only
+                    // logged result?.errors, which is null in exactly that second case and left the
+                    // log saying "Error: " with no reason at all.
+                    _logger.LogError(
+                        "SendUserNotificationAsync: Failed to send notification to userId={UserId}. Errors={Errors}, Response={RawResponse}",
+                        LogSanitizer.Scrub(userId),
+                        LogSanitizer.Scrub(result?.errors ?? string.Empty),
+                        LogSanitizer.Scrub(rawResponse ?? string.Empty));
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "SendUserNotificationAsync: Error sending notification");
+                _logger.LogError(
+                    ex,
+                    "SendUserNotificationAsync: Error sending notification to userId={UserId}",
+                    LogSanitizer.Scrub(userId ?? string.Empty));
             }
         }
 
