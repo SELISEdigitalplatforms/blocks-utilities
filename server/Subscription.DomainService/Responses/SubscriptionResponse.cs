@@ -306,5 +306,26 @@ public sealed class SubscriptionQuantityResponse
 
     public string UnitLabel { get; init; } = string.Empty;
 
+    /// <summary>How many of this item the subscription holds today.</summary>
     public long Quantity { get; init; }
+
+    /// <summary>
+    /// The smallest quantity the plan sells this item in, from the plan the subscription is on.
+    /// </summary>
+    /// <remarks>
+    /// The bounds travel with the held quantity because every client that shows the quantity also
+    /// has to police a change to it. Reading them from the plan endpoint instead means a second
+    /// call, and the plan a subscription is priced against is its own snapshot -- so a plan edited
+    /// after signup would hand back bounds this subscription was never sold under.
+    /// </remarks>
+    public long MinQuantity { get; init; }
+
+    /// <summary>The largest quantity the plan sells this item in. Null means no ceiling.</summary>
+    public long? MaxQuantity { get; init; }
+
+    /// <summary>
+    /// What the plan starts a subscriber on. Distinct from <see cref="Quantity"/>, which is what
+    /// this subscription actually holds after any change since signup.
+    /// </summary>
+    public long DefaultQuantity { get; init; }
 }
