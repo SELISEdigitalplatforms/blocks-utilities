@@ -393,12 +393,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 TargetPriceId = r.NewPrice.PriceId,
                 Interval = r.NewPrice.Interval.ToString(),
                 IntervalCount = r.NewPrice.IntervalCount,
-                Quantities = [.. r.Quantities.Select(item => new SubscriptionQuantityResponse
-                {
-                    ItemKey = item.ItemKey,
-                    UnitLabel = item.UnitLabel,
-                    Quantity = item.Quantity
-                })],
+                Quantities = [.. r.Quantities.Select(item => QuantityResponseMapper.Subscription(
+                    item,
+                    r.NewPlan.QuantityItems))],
                 ChargeMinor = chargeMinor,
                 Timing = timing.ToString(),
                 EffectiveAtUtc = effectiveAtUtc,

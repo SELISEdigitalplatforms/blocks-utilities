@@ -20,6 +20,33 @@ internal static class QuantityResponseMapper
         Quantity = item.Quantity
     };
 
+    /// <summary>
+    /// A held quantity described alongside the bounds the plan sells it in.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="planItems"/> comes from the plan the quantity is priced against -- the
+    /// subscription's own snapshot for what it holds today, the target plan for a change being
+    /// previewed or scheduled. An item with no match there is a snapshot written before the plan
+    /// carried bounds for it; all such an item can honestly say is what it holds.
+    /// </remarks>
+    public static SubscriptionQuantityResponse Subscription(
+        SubscriptionQuantityItem item,
+        IReadOnlyCollection<PlanQuantityItem>? planItems)
+    {
+        var planItem = planItems?.FirstOrDefault(
+            p => string.Equals(p.ItemKey, item.ItemKey, StringComparison.OrdinalIgnoreCase));
+
+        return new SubscriptionQuantityResponse
+        {
+            ItemKey = item.ItemKey,
+            UnitLabel = item.UnitLabel,
+            Quantity = item.Quantity,
+            MinQuantity = planItem?.MinQuantity ?? 1,
+            MaxQuantity = planItem?.MaxQuantity,
+            DefaultQuantity = planItem?.DefaultQuantity ?? item.Quantity
+        };
+    }
+
     public static QuantityDiscountTierResponse? Tier(QuantityDiscountTier? tier) =>
         tier is null
             ? null
