@@ -109,6 +109,112 @@ public sealed class PaymentRateLimitingAndCacheTests
         resolution.Failure!.ErrorCode.Should().Be("payment_context_missing");
     }
 
+    /// <summary>
+    /// The shape of a client-credentials caller: a tenant and an organization it proved, an
+    /// application id, and no person anywhere.
+    /// </summary>
+    private static void MachineCaller(string? clientId, string? oauthToken = null) =>
+        BlocksContext.SetContext(BlocksContext.Create(
+            "tenant-1", null, null, true, null, "org-1",
+            DateTime.UtcNow.AddHours(1), null, null, null, null, null,
+            oauthToken, "tenant-1", clientId: clientId));
+
+    /// <summary>
+    /// An application authenticates as itself, so the context names no user and no email. It is
+    /// named by what it is instead of being refused for not being a person.
+    /// </summary>
+    [Fact]
+    public void Resolver_names_a_machine_caller_by_its_client_id()
+    {
+        MachineCaller("app-1");
+        try
+        {
+            var resolution = new PaymentExecutionContextResolver().Resolve("corr-4");
+
+            resolution.IsSuccess.Should().BeTrue();
+            resolution.Context!.ActorId.Should().Be("client:app-1");
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+        }
+    }
+
+    /// <summary>
+    /// The same rule that keeps an email out of the user id: a fallback names the caller without
+    /// passing itself off as the thing it stood in for.
+    /// </summary>
+    [Fact]
+    public void Resolver_does_not_record_a_client_id_as_the_user_id()
+    {
+        MachineCaller("app-1");
+        try
+        {
+            new PaymentExecutionContextResolver().Resolve("corr-5")
+                .Context!.UserId.Should().BeNull();
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+        }
+    }
+
+    /// <summary>
+    /// The client id sits below the person, not in front of one. A caller the context already
+    /// names is named by the context, or the same request would be attributed differently
+    /// depending on which rung happened to be consulted.
+    /// </summary>
+    [Fact]
+    public void A_caller_the_context_names_outranks_its_client_id()
+    {
+        BlocksContext.SetContext(BlocksContext.Create(
+            "tenant-1", null, "user-1", true, null, "org-1",
+            DateTime.UtcNow.AddHours(1), null, null, null, null, null,
+            null, "tenant-1", clientId: "app-1"));
+        try
+        {
+            new PaymentExecutionContextResolver().Resolve("corr-6")
+                .Context!.ActorId.Should().Be("user-1");
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+        }
+    }
+
+    /// <summary>
+    /// An application named identically whichever rung supplied it, so one caller cannot read as
+    /// two actors in an audit trail.
+    /// </summary>
+    [Fact]
+    public void Both_client_id_rungs_spell_the_actor_the_same_way()
+    {
+        // "app-1" as the client_id claim of a signed token, for the rung below.
+        const string Token = "header.eyJjbGllbnRfaWQiOiJhcHAtMSJ9.signature";
+
+        MachineCaller(clientId: null, oauthToken: Token);
+        string? fromToken;
+        try
+        {
+            fromToken = new PaymentExecutionContextResolver().Resolve("corr-7").Context?.ActorId;
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+        }
+
+        MachineCaller("app-1");
+        try
+        {
+            new PaymentExecutionContextResolver().Resolve("corr-8")
+                .Context!.ActorId.Should().Be(fromToken);
+        }
+        finally
+        {
+            BlocksContext.ClearContext();
+        }
+    }
+
     // ---- PaymentIdempotencyCache ----
 
     private static PaymentIdempotencyCache IdempotencyCache(ICacheClient cache) =>
