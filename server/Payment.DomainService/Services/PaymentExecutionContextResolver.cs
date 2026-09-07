@@ -17,14 +17,13 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
         // outright. Treating blank as absent is what makes the fallback work as intended.
         var userId = Present(blocksContext?.UserId);
 
-        // A client-credentials caller is named by none of these: it authenticates as an
-        // application, so the context reports no user id and no email and the ladder used to run
-        // out with nothing. Its identifier is in the token it presented, which is the last place
-        // left to look — see PaymentTokenActor for why reading it there is sound and why it is
-        // never allowed to decide anything but the actor.
+        // A client-credentials caller is named by neither of the first two: it authenticates as
+        // an application, so the context reports no user id and no email and the ladder used to
+        // run out with nothing. The platform carries that application's own identifier, which is
+        // what names it instead of the request being refused for not coming from a person.
         var actorId = userId
             ?? Present(blocksContext?.Email)
-            ?? Present(PaymentTokenActor.ClientId(blocksContext?.OAuthToken))
+            ?? Application(blocksContext?.ClientId)
             ?? string.Empty;
 
         if (!string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(actorId))
@@ -54,4 +53,16 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
 
     private static string? Present(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>
+    /// Marks the actor as an application rather than a person.
+    /// </summary>
+    /// <remarks>
+    /// A bare client id is a GUID, and a GUID in a field named for an actor cannot be told apart
+    /// from a user id by whoever reads the audit trail a year later. The same reasoning keeps the
+    /// email fallback out of <c>UserId</c>: a fallback names the caller without being allowed to
+    /// pass itself off as the thing it stood in for.
+    /// </remarks>
+    private static string? Application(string? clientId) =>
+        Present(clientId) is { } identifier ? "client:" + identifier : null;
 }
