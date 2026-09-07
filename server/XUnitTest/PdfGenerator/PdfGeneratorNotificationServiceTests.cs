@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Blocks.Genesis;
+using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -112,6 +114,95 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<string>(),
                 It.IsAny<string>()), Times.Exactly(6));
         }
+
+        [Fact]
+        public async Task NotifyConvertDocumentToPdfEvent_Sends_EvenWithoutACorrelationId()
+        {
+            // Unlike every other Notify* method, this one targets a user, not a push connection,
+            // so there is always a valid target once BlocksContext resolves one -- the previous
+            // gate on the correlation id being present no longer applies.
+            SetAuthenticatedUser("user-42");
+            try
+            {
+                await _service.NotifyConvertDocumentToPdfEvent(true, "file-1", string.Empty, "p1");
+
+                _httpHelper.Verify(h => h.MakeHttpPostRequest<NotificationResponse>(
+                    It.IsAny<object>(),
+                    It.IsAny<string>(),
+                    It.IsAny<Dictionary<string, string>>(),
+                    It.IsAny<string>(),
+                    It.IsAny<string>()), Times.Once);
+            }
+            finally
+            {
+                BlocksContext.ClearContext();
+            }
+        }
+
+        [Fact]
+        public async Task NotifyConvertDocumentToPdfEvent_Skips_WhenNoAuthenticatedUser()
+        {
+            BlocksContext.ClearContext();
+
+            await _service.NotifyConvertDocumentToPdfEvent(true, "file-1", "corr-1", "p1");
+
+            _httpHelper.Verify(h => h.MakeHttpPostRequest<NotificationResponse>(
+                It.IsAny<object>(),
+                It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string>(),
+                It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task NotifyConvertDocumentToPdfEvent_RequestBody_MatchesTheNotifierContract()
+        {
+            SetAuthenticatedUser("user-77");
+            object? capturedRequest = null;
+            _httpHelper
+                .Setup(h => h.MakeHttpPostRequest<NotificationResponse>(
+                    It.IsAny<object>(),
+                    It.IsAny<string>(),
+                    It.IsAny<Dictionary<string, string>>(),
+                    It.IsAny<string>(),
+                    It.IsAny<string>()))
+                .Callback<object, string, Dictionary<string, string>, string, string>(
+                    (payload, _, _, _, _) => capturedRequest = payload)
+                .ReturnsAsync((new NotificationResponse { isSuccess = true }, string.Empty));
+
+            try
+            {
+                await _service.NotifyConvertDocumentToPdfEvent(true, "file-9", "corr-9", "p1");
+            }
+            finally
+            {
+                BlocksContext.ClearContext();
+            }
+
+            capturedRequest.Should().NotBeNull();
+            var type = capturedRequest!.GetType();
+
+            // No connectionId at all in the request -- this notification targets the user, not a
+            // push connection, and the real /api/Notifier/Notify contract makes it optional.
+            type.GetProperty("ConnectionId").Should().BeNull();
+
+            var userIds = (List<string>)type.GetProperty("UserIds")!.GetValue(capturedRequest)!;
+            userIds.Should().ContainSingle().Which.Should().Be("user-77");
+
+            type.GetProperty("ConfigurationName")!.GetValue(capturedRequest)
+                .Should().Be("SignatureNotification");
+
+            var denormalizedPayload = (string)type.GetProperty("DenormalizedPayload")!.GetValue(capturedRequest)!;
+            using var payloadJson = JsonDocument.Parse(denormalizedPayload);
+            payloadJson.RootElement.GetProperty("FileId").GetString().Should().Be("file-9");
+            payloadJson.RootElement.GetProperty("Success").GetBoolean().Should().BeTrue();
+            payloadJson.RootElement.GetProperty("MessageCoRelationId").GetString().Should().Be("corr-9");
+        }
+
+        private static void SetAuthenticatedUser(string userId) =>
+            BlocksContext.SetContext(BlocksContext.Create(
+                "tenant-1", null, userId, true, null, "org-1",
+                DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
 
         [Fact]
         public async Task SendNotification_ShouldHandleExceptions_WithoutThrowing()
