@@ -349,6 +349,56 @@ public sealed class SubscriptionProrationCalculatorTests
         outcome.Breakdown.Should().Be(default(ProrationBreakdown));
     }
 
+    /// <summary>
+    /// A quantity change's target is the current period itself, not a calendar period bought
+    /// today — so a quantity increase during a calendar stub owes only for the days and the time
+    /// actually left in it, not for a fresh month at the new quantity.
+    /// </summary>
+    [Fact]
+    public void A_quantity_increase_during_a_calendar_stub_prices_both_sides_from_the_same_stub()
+    {
+        var stubStart = new DateTime(2026, 4, 29, 0, 0, 0, DateTimeKind.Utc);
+        var stubEnd = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+        var subscription = new SubscriptionDetail
+        {
+            Plan = new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            Price = new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 1_500,
+                QuantityItemKey = "user",
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            QuantityItems =
+            [
+                new SubscriptionQuantityItem { ItemKey = "user", Quantity = 10, UnitAmountMinor = 1_500 }
+            ],
+            CurrentPeriodStartUtc = stubStart,
+            CurrentPeriodEndUtc = stubEnd
+        };
+        var target = new List<SubscriptionQuantityItem>
+        {
+            new() { ItemKey = "user", Quantity = 12, UnitAmountMinor = 1_500 }
+        };
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription,
+            subscription.Plan,
+            subscription.Price,
+            target,
+            stubStart,
+            stubStart,
+            stubEnd,
+            targetIsCurrentPeriod: true);
+
+        // Outgoing: 15000 x 2/30 = 1000. Target: 18000 x 2/30 = 1200. Neither is a fresh month.
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(1_000);
+        outcome.Breakdown.Target.ProratedValueMinor.Should().Be(1_200);
+        outcome.ChargeMinor.Should().Be(200);
+    }
+
     private static SubscriptionDetail NewSubscription(
         long oldAmountMinor,
         long creditBalanceMinor = 0,

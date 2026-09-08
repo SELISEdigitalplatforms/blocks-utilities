@@ -247,6 +247,59 @@ public sealed class CalendarAlignedPlanChangeTests
         outcome.TargetFullPeriodTotalMinor.Should().Be(1_200_000);
     }
 
+    /// <summary>
+    /// The bug this fix closes: a subscription whose own current period is a calendar stub must be
+    /// credited unused time at the stub's own price, not at a full month's.
+    /// </summary>
+    /// <remarks>
+    /// A CHF 150 monthly plan bought for the last two days of a 30-day April costs CHF 10 — 150 x
+    /// 2/30. An immediate upgrade taken the instant that stub opens has consumed none of it yet, so
+    /// crediting it back at anything more than CHF 10 hands back money the subscriber never paid.
+    /// </remarks>
+    [Fact]
+    public void An_upgrade_out_of_a_calendar_stub_credits_the_stubs_own_price_not_a_full_month()
+    {
+        var stubStart = new DateTime(2026, 4, 29, 0, 0, 0, DateTimeKind.Utc);
+        var stubEnd = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = "sub-1",
+            CurrencyCode = "CHF",
+            Plan = new PlanSnapshot { Code = "professional", DisplayName = "Professional" },
+            Price = new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 15_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            CurrentPeriodStartUtc = stubStart,
+            CurrentPeriodEndUtc = stubEnd
+        };
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription,
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 40_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            [],
+            stubStart,
+            stubStart,
+            stubEnd,
+            new BillingDayFraction(2, 30));
+
+        // 15000 x 2/30, rounded to the nearest minor unit — not the full 15000 a missing fraction
+        // would credit.
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(1_000);
+    }
+
     private static ProrationOutcome Calculate(
         long targetUnitAmountMinor,
         BillingDayFraction? fraction = null,
