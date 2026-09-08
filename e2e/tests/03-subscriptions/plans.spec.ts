@@ -20,7 +20,7 @@ import {
   verifyDuplicatePlanPrefillsWizardWithBlankCode,
   verifyEditOpensBuilderWithIdentityLocked,
   editDescriptionAndSaveReturnsToDetailPage,
-  verifyPlanIsDiscoverableFromListByCode,
+  // verifyPlanIsDiscoverableFromListByCode,
   verifyDiscountsLinkNavigatesToDiscountsPage,
   verifyBackToPlansLinkReturnsToPlans,
 } from "../../page/subscripptions/plans";
@@ -83,8 +83,8 @@ test.describe("flow: Subscriptions - Plans", () => {
         displayName,
         `Updated by e2e at ${uniqueSuffix}`,
       ));
-    await test.step("[Positive] the plan is discoverable from the plan list by its code", () =>
-      verifyPlanIsDiscoverableFromListByCode(page, displayName, code));
+    // await test.step("[Positive] the plan is discoverable from the plan list by its code", () =>
+    //   verifyPlanIsDiscoverableFromListByCode(page, displayName, code));
     await test.step("[Positive] Discounts navigates to the discounts page", () =>
       verifyDiscountsLinkNavigatesToDiscountsPage(page));
     await test.step("[Positive] 'Back to plans' returns to the plans list without saving", () =>

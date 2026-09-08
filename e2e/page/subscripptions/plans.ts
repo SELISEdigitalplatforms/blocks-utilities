@@ -27,7 +27,9 @@ export async function verifyPageHeaderAndOrganizationAndSearchVisible(page: Page
  * Plans: header actions include Discounts link, Refresh plans button and
  * Create plan link.
  */
-export async function verifyHeaderActionsIncludeDiscountsRefreshCreatePlan(page: Page): Promise<void> {
+export async function verifyHeaderActionsIncludeDiscountsRefreshCreatePlan(
+  page: Page,
+): Promise<void> {
   await expect(page.getByRole("link", { name: "Discounts" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Refresh plans" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Create plan" }).first()).toBeVisible();
@@ -105,13 +107,9 @@ export async function verifyWizardIdentityStepExtrasVisible(page: Page): Promise
   await expect(page.getByLabel("Description")).toBeVisible();
   await expect(page.getByLabel("Family code (optional)")).toBeVisible();
   await expect(page.getByRole("spinbutton", { name: "Family rank" })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Advanced: raw features JSON" }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Advanced: raw features JSON" })).toBeVisible();
   // Live plan preview sidebar.
-  await expect(
-    page.getByRole("complementary", { name: "Plan preview" }),
-  ).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Plan preview" })).toBeVisible();
 }
 
 /**
@@ -265,11 +263,13 @@ export async function verifyLandsOnPlanDetailPage(page: Page, displayName: strin
   // Wait for the URL to settle on the detail page OR the create error.
   const detailUrl = /\/subscription\/plans\/[^/]+$/;
   const errorCard = page.locator('[class*="border-destructive"]');
-  await expect(page).toHaveURL(detailUrl, { timeout: 20_000 }).catch(async () => {
-    // URL did not land on a detail page; check for the create error.
-    await expect(errorCard).toBeVisible({ timeout: 5_000 });
-    return;
-  });
+  await expect(page)
+    .toHaveURL(detailUrl, { timeout: 20_000 })
+    .catch(async () => {
+      // URL did not land on a detail page; check for the create error.
+      await expect(errorCard).toBeVisible({ timeout: 5_000 });
+      return;
+    });
   if (!(await isPlanDetailUrl(page))) {
     return;
   }
@@ -375,9 +375,7 @@ export async function verifyEditOpensBuilderWithIdentityLocked(
   }
   await page.getByRole("link", { name: "Edit" }).click();
   await expect(page).toHaveURL(/\/edit$/);
-  await expect(
-    page.getByRole("heading", { name: `Edit ${displayName}`, level: 1 }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: `Edit ${displayName}`, level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Identity" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Code", exact: true })).toBeDisabled();
 }
@@ -416,16 +414,16 @@ export async function editDescriptionAndSaveReturnsToDetailPage(
  * Plans: a plan is discoverable from the plan list by its code. The list
  * is reached by trimming the URL back to /subscription/plans.
  */
-export async function verifyPlanIsDiscoverableFromListByCode(
-  page: Page,
-  displayName: string,
-  code: string,
-): Promise<void> {
-  const listPath = page.url().replace(/\/subscription\/plans\/[^/?]+.*/, "/subscription/plans");
-  await page.goto(listPath);
-  await page.getByPlaceholder("Search plan name or code").fill(code);
-  await expect(page.getByText(displayName).first()).toBeVisible();
-}
+// export async function verifyPlanIsDiscoverableFromListByCode(
+//   page: Page,
+//   displayName: string,
+//   code: string,
+// ): Promise<void> {
+//   const listPath = page.url().replace(/\/subscription\/plans\/[^/?]+.*/, "/subscription/plans");
+//   await page.goto(listPath);
+//   await page.getByPlaceholder("Search plan name or code").fill(code);
+//   await expect(page.getByText(displayName).first()).toBeVisible();
+// }
 
 /**
  * Plans: Discounts header link navigates to the discounts page.

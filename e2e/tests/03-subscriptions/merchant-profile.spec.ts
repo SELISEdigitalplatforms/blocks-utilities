@@ -10,10 +10,13 @@ import {
   verifySubscriptionPaymentProviderSectionVisible,
   verifyLogoUploadAndConsoleOnlyFooterVisible,
   verifyBackToPlansLinkReturnsToPlans,
+  // isSaveEnabled,
 } from "../../page/subscripptions/merchant-profile";
 
 test.describe("flow: Subscriptions - Merchant profile", () => {
-  test("Merchant profile - header, address, identity, branding, provider selector, logo, save, reload", async ({ page }) => {
+  test("Merchant profile - header, address, identity, branding, provider selector, logo, save, reload", async ({
+    page,
+  }) => {
     test.setTimeout(240_000);
 
     const stamp = Date.now().toString();
@@ -30,6 +33,16 @@ test.describe("flow: Subscriptions - Merchant profile", () => {
       verifyLogoUploadAndConsoleOnlyFooterVisible(page));
     await test.step("[Positive] inherited vs own identity is reported on the page", () =>
       verifyInheritedVsOwnIdentityBannerVisible(page));
+
+    // Detect Save availability once and skip the save/round-trip steps
+    // when the tenant has no payment provider configured (the Save button
+    // is disabled with a helpful message in that case).
+    // const saveEnabled = await isSaveEnabled(page);
+    // test.skip(
+    //   !saveEnabled,
+    //   "Save merchant profile is disabled because no payment provider is configured for this tenant",
+    // );
+
     await test.step("[Positive] editing identity, support email and saving updates the profile", () =>
       editIdentityAndSave(page, stamp));
     await test.step("[Positive] a reload re-fetches the saved profile with values preserved", () =>

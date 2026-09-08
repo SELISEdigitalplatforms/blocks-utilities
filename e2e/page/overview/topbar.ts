@@ -15,15 +15,18 @@ export async function openConsoleWithNotifications(page: Page): Promise<void> {
 
 /** Topbar: switching theme to Dark applies it, then Light restores it. */
 export async function switchTheme(page: Page): Promise<void> {
-  const themeTablist = page.getByRole("tablist").first();
-  const darkTab = themeTablist.locator('[aria-controls$="-content-dark"]');
-  const lightTab = themeTablist.locator('[aria-controls$="-content-light"]');
+  const themeButton = page.getByRole("button", { name: "Change theme" });
 
-  await expect(themeTablist).toBeVisible({ timeout: 30_000 });
-  await darkTab.click();
-  await expect(page.locator("html")).toHaveClass(/dark/);
-  await lightTab.click();
+  // Theme picker is now a popover menu (Auto/Light/Dark) that closes after
+  // each selection — reopen via the trigger button between picks.
+  await expect(themeButton).toBeVisible({ timeout: 30_000 });
+  await themeButton.click();
+  await page.getByText("Light", { exact: true }).click();
   await expect(page.locator("html")).not.toHaveClass(/dark/);
+
+  await themeButton.click();
+  await page.getByText("Dark", { exact: true }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
 }
 
 /** Topbar: language selector lists EN/German/French with non-English disabled. */
