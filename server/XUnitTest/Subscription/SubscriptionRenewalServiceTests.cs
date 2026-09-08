@@ -400,6 +400,33 @@ public sealed class SubscriptionRenewalServiceTests
     }
 
     /// <summary>
+    /// The matching negative for the test above: a subscription whose trial window has long since
+    /// rolled must not enqueue a projection refresh on every renewal for the rest of its life. The
+    /// per-window check already reaches no repository call at all here, so nothing is left for the
+    /// scheduler to be told about.
+    /// </summary>
+    [Fact]
+    public async Task A_renewal_of_a_subscription_whose_trial_window_has_rolled_schedules_no_refresh()
+    {
+        var subscription = NewTrialingSubscription(
+            new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc), SubscriptionStatus.Active);
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+
+        await Service(scheduler.Object, withUsage: true).RenewAsync(subscription, CancellationToken.None);
+
+        _usage.Verify(
+            repository => repository.TryResnapshotAllowanceAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        scheduler.Verify(
+            work => work.ScheduleUsageProjectionRefreshAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
     /// A plan change riding on the same renewal already re-anchors the usage schedule and opens a
     /// correct window of its own; re-snapshotting on top of that would be resolving an allowance for
     /// a window the renewal is about to replace anyway.

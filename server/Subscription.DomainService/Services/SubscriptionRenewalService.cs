@@ -772,6 +772,12 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             var previousStatus = subscription.Status;
             subscription.Status = SubscriptionStatus.Active;
 
+            // Whether any counter actually moved, so a subscription whose trial ended long ago does
+            // not enqueue a projection refresh on every renewal from here to the end of its life —
+            // the per-window check below already skips every meter, so this stays false and nothing
+            // downstream is asked to re-read what did not change.
+            var resnapshotted = false;
+
             try
             {
                 foreach (var meter in subscription.Plan.Meters)
@@ -812,7 +818,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                         .Where(threshold => counter.Balance * 100 >= allowance * threshold)
                         .ToList();
 
-                    await _usage.TryResnapshotAllowanceAsync(
+                    resnapshotted |= await _usage.TryResnapshotAllowanceAsync(
                         subscription.TenantId, counterId, allowance, retainedThresholds,
                         cancellationToken);
                 }
@@ -822,7 +828,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription.Status = previousStatus;
             }
 
-            if (_scheduler is not null)
+            if (resnapshotted && _scheduler is not null)
             {
                 await _scheduler.ScheduleUsageProjectionRefreshAsync(
                     subscription.TenantId,
