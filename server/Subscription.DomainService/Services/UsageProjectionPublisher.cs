@@ -332,7 +332,11 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
 
             if (!planMeterKeys.Contains(row.MeterKey))
             {
-                if (await _current.TryPublishAsync(OrphanDocument(subscription, row), cancellationToken))
+                // Only when the subscription's own version has moved past what this row already
+                // carries: a republish that changes nothing still runs the merge's insert fallback
+                // into a guaranteed duplicate-key exception, on every pass, forever.
+                if (subscription.Version > row.SubscriptionVersion &&
+                    await _current.TryPublishAsync(OrphanDocument(subscription, row), cancellationToken))
                 {
                     reconciled++;
                 }
@@ -340,10 +344,20 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
                 continue;
             }
 
+            // Superseded, not merely later: the row must actually precede the current window, or a
+            // window that opens before every stored row (a meter's ResetPolicy moving to Never opens
+            // a lifetime window starting at the subscription's own creation) would retire rows that
+            // are not superseded at all — inverting PeriodStartUtc past PeriodEndUtc and handing the
+            // TTL index a still-live row to delete.
             if (currentStartByMeter.TryGetValue(row.MeterKey, out var currentStart) &&
+                row.PeriodStartUtc < currentStart &&
                 currentStart < row.PeriodEndUtc &&
                 await _current.TryRetireAsync(
-                    subscription.TenantId, row.ItemId, currentStart, cancellationToken))
+                    subscription.TenantId,
+                    row.ItemId,
+                    currentStart,
+                    currentStart.AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays)),
+                    cancellationToken))
             {
                 reconciled++;
             }

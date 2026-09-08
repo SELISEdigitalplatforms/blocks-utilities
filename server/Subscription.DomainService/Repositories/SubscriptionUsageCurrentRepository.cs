@@ -371,6 +371,7 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         string tenantId,
         string itemId,
         DateTime endUtc,
+        DateTime expiresAtUtc,
         CancellationToken cancellationToken)
     {
         var result = await Current(tenantId).UpdateOneAsync(
@@ -383,7 +384,7 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                     endUtc)),
             Builders<SubscriptionUsageCurrent>.Update
                 .Set(current => current.PeriodEndUtc, endUtc)
-                .Set(current => current.ExpiresAtUtc, endUtc),
+                .Set(current => current.ExpiresAtUtc, expiresAtUtc),
             cancellationToken: cancellationToken);
 
         return result.ModifiedCount == 1;

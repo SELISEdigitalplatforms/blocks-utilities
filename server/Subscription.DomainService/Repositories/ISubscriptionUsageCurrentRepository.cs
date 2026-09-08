@@ -108,10 +108,18 @@ public interface ISubscriptionUsageCurrentRepository
     /// <paramref name="endUtc"/>. A dedicated write rather than folding <c>PeriodEndUtc</c> into the
     /// merge pipeline's conditional groups, because that field sits in the unconditional identity
     /// group there and must stay there for every other write.
+    /// <para>
+    /// <paramref name="expiresAtUtc"/> is taken from the caller rather than derived from
+    /// <paramref name="endUtc"/> in here: <c>endUtc</c> is the new window's start, ordinarily in the
+    /// past relative to when this runs, and a row whose <c>ExpiresAtUtc</c> follows it into the past
+    /// is picked up by the TTL index within a minute — deleting a row this call means to retire, not
+    /// erase.
+    /// </para>
     /// </remarks>
     Task<bool> TryRetireAsync(
         string tenantId,
         string itemId,
         DateTime endUtc,
+        DateTime expiresAtUtc,
         CancellationToken cancellationToken);
 }
