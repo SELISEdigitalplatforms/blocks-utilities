@@ -699,7 +699,15 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         // allowance: MeterAllowance.Base now resolves the plan's quantity instead of the trial's
         // grant. A plan change riding along on the same renewal needs nothing here — it already
         // re-anchored the usage schedule and opened a correct window of its own.
-        if (subscription.Status == SubscriptionStatus.Trialing && appliedPlanChange is null)
+        //
+        // Gated on the subscription having a trial at all, not on the transition's own from-status.
+        // A card-free trial converts Trialing -> Unpaid, not Trialing -> Active; the renewal that
+        // actually moves it to Active runs later, from Unpaid, through this same method — and by
+        // then subscription.Status is already Unpaid, not Trialing. The per-meter check inside
+        // ResnapshotTrialConversionAsync is what keeps this from re-snapshotting every ordinary
+        // renewal: only a window that opened before the trial ended could still be holding its
+        // grant.
+        if (subscription.Trial is not null && appliedPlanChange is null)
         {
             await ResnapshotTrialConversionAsync(subscription, cancellationToken);
         }
@@ -737,10 +745,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     /// lives in a different collection from the subscription, so it cannot join the transition's own
     /// write regardless of how this is called.
     /// <para>
-    /// ponytail: a lost re-snapshot leaves the subscription Active with a stale allowance until its
-    /// usage window rolls over naturally. The guarded filter on <c>TryResnapshotAllowanceAsync</c>
-    /// makes any retry safe; if that ceiling stops being acceptable, move this onto the outbox
-    /// instead of calling it inline here.
+    /// ponytail: a lost write here is not a dead end — every later renewal or recovery while the
+    /// window still overlaps the trial calls this again, and the repository's
+    /// <c>LimitSnapshot != allowance</c> filter makes an already-correct snapshot a cheap no-op. So
+    /// the ceiling is only "stale until the next renewal," never "stale forever." If even that
+    /// window is unacceptable, move this onto the outbox instead of calling it inline here.
     /// </para>
     /// </remarks>
     private async Task ResnapshotTrialConversionAsync(
@@ -754,11 +763,12 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         try
         {
-            // The subscription just transitioned to Active in the store; this in-memory copy still
-            // reads Trialing, and the opening-allowance resolution below must see it as converted
-            // or it recomputes the trial's grant instead of the plan's quantity. Restored after,
-            // since this same object still names the transition's own "from" status in the log
-            // lines below it.
+            // The subscription just transitioned in the store — to Active on an ordinary or
+            // converting renewal, possibly still Unpaid mid-recovery elsewhere in this method — but
+            // this in-memory copy is not guaranteed to reflect that, and the opening-allowance
+            // resolution below must see a non-Trialing status or it recomputes the trial's grant
+            // instead of the plan's quantity. Restored after, since this same object still names the
+            // transition's own "from" status in the log lines below it.
             var previousStatus = subscription.Status;
             subscription.Status = SubscriptionStatus.Active;
 
@@ -768,6 +778,16 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 {
                     if (!MeterPeriodResolver.TryGetPeriod(
                             subscription, meter, _time.GetUtcNow().UtcDateTime, out var period))
+                    {
+                        continue;
+                    }
+
+                    // Only a window whose snapshot could have been the trial's grant. A window that
+                    // opened after the trial ended already froze the plan's own quantity, and
+                    // re-freezing it here would move an allowance the customer is already spending
+                    // against — the invariant
+                    // An_opened_window_is_still_held_to_the_allowance_it_opened_with protects.
+                    if (subscription.Trial is not { } trial || period.StartUtc >= trial.EndsAtUtc)
                     {
                         continue;
                     }
