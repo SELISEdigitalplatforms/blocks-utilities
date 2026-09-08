@@ -250,6 +250,33 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryResnapshotAllowanceAsync(
+        string tenantId,
+        string counterId,
+        decimal allowance,
+        IReadOnlyList<int> retainedThresholds,
+        CancellationToken cancellationToken)
+    {
+        var result = await Counters(tenantId).UpdateOneAsync(
+            Builders<SubscriptionUsageCounter>.Filter.And(
+                Builders<SubscriptionUsageCounter>.Filter.Eq(
+                    counter => counter.ItemId,
+                    counterId),
+                Builders<SubscriptionUsageCounter>.Filter.Ne(
+                    counter => counter.LimitSnapshot,
+                    allowance),
+                Builders<SubscriptionUsageCounter>.Filter.Gt(
+                    counter => counter.PeriodEndUtc,
+                    DateTime.UtcNow)),
+            Builders<SubscriptionUsageCounter>.Update
+                .Set(counter => counter.LimitSnapshot, allowance)
+                .Set(counter => counter.NotifiedThresholds, retainedThresholds.ToList())
+                .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<IReadOnlyList<SubscriptionUsageRecord>> ListRecordsAsync(
         string tenantId,
         string subscriptionId,
