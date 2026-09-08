@@ -50,6 +50,11 @@ public sealed class UsageProjectionPublisherTests
                 _seeded.Add(document))
             .ReturnsAsync(true);
 
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[]);
+
         _usage
             .Setup(repository => repository.GetCountersAsync(
                 TenantId,
@@ -315,6 +320,114 @@ public sealed class UsageProjectionPublisherTests
 
         _published.Should().ContainSingle().Which.ExpiresAtUtc.Should().Be(expires);
     }
+
+    /// <summary>
+    /// The d9f76e26 shape: every meter that recorded the row's usage has since left the plan, so
+    /// <c>CurrentWindows</c> yields nothing at all. A refresh must still find and repair what it left
+    /// behind rather than stopping at "no windows, nothing to do".
+    /// </summary>
+    [Fact]
+    public async Task Refreshing_a_meterless_plan_reconciles_the_orphaned_row_instead_of_returning_zero()
+    {
+        var subscription = Subscription();
+        subscription.Plan.Meters = [];
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[OrphanRow()]);
+
+        var written = await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        written.Should().Be(1);
+        _published.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task An_orphaned_row_takes_the_subscriptions_status_and_version_but_keeps_its_balance()
+    {
+        var subscription = Subscription();
+        subscription.Plan.Meters = [];
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.Version = 7;
+
+        var orphan = OrphanRow();
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[orphan]);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var document = _published.Should().ContainSingle().Subject;
+        document.SubscriptionStatus.Should().Be(SubscriptionStatus.Canceled);
+        document.SubscriptionVersion.Should().Be(7);
+        document.Used.Should().Be(orphan.Used, "the genuine balance must survive the meter leaving the plan");
+        document.CounterVersion.Should().Be(orphan.CounterVersion);
+    }
+
+    /// <summary>The a00c2376 shape: a plan change re-anchored the window before this row was retired.</summary>
+    [Fact]
+    public async Task A_superseded_row_is_retired_at_the_current_windows_start_and_the_current_row_stands()
+    {
+        var subscription = Subscription();
+
+        var superseded = new SubscriptionUsageCurrent
+        {
+            ItemId = "sub-1:screening:M2026-08",
+            TenantId = TenantId,
+            OrganizationId = OrganizationId,
+            SubscriptionId = "sub-1",
+            MeterKey = "screening",
+            PeriodKey = "M2026-08",
+            PeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            // Extends past the current window's own start, which is what makes it superseded rather
+            // than simply an old, already-closed row with nothing wrong with it.
+            PeriodEndUtc = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc),
+            Included = 100,
+            Used = 10,
+            ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[superseded]);
+
+        DateTime? retiredAt = null;
+        _current
+            .Setup(repository => repository.TryRetireAsync(
+                TenantId, superseded.ItemId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, DateTime endUtc, CancellationToken _) => retiredAt = endUtc)
+            .ReturnsAsync(true);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        retiredAt.Should().Be(Period().StartUtc);
+        _published.Should().NotContain(document => document.ItemId == superseded.ItemId);
+    }
+
+    private static SubscriptionUsageCurrent OrphanRow() => new()
+    {
+        ItemId = "sub-1:retired-meter:M2026-09",
+        TenantId = TenantId,
+        OrganizationId = OrganizationId,
+        SubscriptionId = "sub-1",
+        MeterKey = "retired-meter",
+        PeriodKey = "M2026-09",
+        PeriodStartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+        PeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+        Included = 100,
+        Used = 42,
+        Remaining = 58,
+        CounterVersion = 5,
+        SubscriptionVersion = 3,
+        ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+    };
 
     private UsageProjectionPublisher Publisher() => new(
         _current.Object,

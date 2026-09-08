@@ -181,72 +181,83 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
 
         var windows = CurrentWindows(subscription, asOfUtc).ToList();
 
-        if (windows.Count == 0)
-        {
-            return 0;
-        }
-
-        // One batch for every meter, which matters here as much as on the read path: a repair over a
-        // subscription with a dozen meters would otherwise be a dozen round trips.
-        var counters = await _usage.GetCountersAsync(
-            subscription.TenantId,
-            windows
-                .Select(window => SubscriptionUsageCounter.CreateId(
-                    subscription.ItemId,
-                    window.Meter.MeterKey,
-                    window.Period.Key))
-                .ToList(),
-            cancellationToken);
-
         var published = 0;
 
-        foreach (var (meter, period) in windows)
+        if (windows.Count > 0)
         {
-            counters.TryGetValue(
-                SubscriptionUsageCounter.CreateId(subscription.ItemId, meter.MeterKey, period.Key),
-                out var counter);
-
-            var allowance = await _allowances.EffectiveAsync(
-                subscription,
-                meter,
-                period,
-                counter,
+            // One batch for every meter, which matters here as much as on the read path: a repair
+            // over a subscription with a dozen meters would otherwise be a dozen round trips.
+            var counters = await _usage.GetCountersAsync(
+                subscription.TenantId,
+                windows
+                    .Select(window => SubscriptionUsageCounter.CreateId(
+                        subscription.ItemId,
+                        window.Meter.MeterKey,
+                        window.Period.Key))
+                    .ToList(),
                 cancellationToken);
 
-            SubscriptionUsageCurrent document;
-
-            if (counter is null)
+            foreach (var (meter, period) in windows)
             {
-                // No counter means nothing has been recorded in this window, so the balance is zero
-                // and the counter version is zero.
-                document = Describe(
-                    subscription, meter, period, counter: null, balance: 0, counterVersion: 0, allowance);
+                counters.TryGetValue(
+                    SubscriptionUsageCounter.CreateId(subscription.ItemId, meter.MeterKey, period.Key),
+                    out var counter);
 
-                // Seed first, which creates it if it is missing and refuses to touch it if it is
-                // not. Then publish, which is what carries a changed allowance onto a window that
-                // already has a zero-usage document.
-                //
-                // Both, rather than one: the seed cannot update, and the publish cannot insert past
-                // a zero counter version against a document holding real usage. Together they cover
-                // the two cases without either being able to discard a balance — the publish is
-                // still ordered, so against a document with any recorded usage its counter version
-                // of zero loses, and against a zero-usage document it wins only on a newer
-                // subscription version.
-                if (await _current.TrySeedAsync(document, cancellationToken) ||
-                    await _current.TryPublishAsync(document, cancellationToken))
+                var allowance = await _allowances.EffectiveAsync(
+                    subscription,
+                    meter,
+                    period,
+                    counter,
+                    cancellationToken);
+
+                SubscriptionUsageCurrent document;
+
+                if (counter is null)
+                {
+                    // No counter means nothing has been recorded in this window, so the balance is
+                    // zero and the counter version is zero.
+                    document = Describe(
+                        subscription, meter, period, counter: null, balance: 0, counterVersion: 0,
+                        allowance);
+
+                    // Seed first, which creates it if it is missing and refuses to touch it if it is
+                    // not. Then publish, which is what carries a changed allowance onto a window that
+                    // already has a zero-usage document.
+                    //
+                    // Both, rather than one: the seed cannot update, and the publish cannot insert
+                    // past a zero counter version against a document holding real usage. Together
+                    // they cover the two cases without either being able to discard a balance — the
+                    // publish is still ordered, so against a document with any recorded usage its
+                    // counter version of zero loses, and against a zero-usage document it wins only
+                    // on a newer subscription version.
+                    if (await _current.TrySeedAsync(document, cancellationToken) ||
+                        await _current.TryPublishAsync(document, cancellationToken))
+                    {
+                        published++;
+                    }
+
+                    continue;
+                }
+
+                document = Describe(subscription, meter, period, counter, allowance);
+
+                if (await _current.TryPublishAsync(document, cancellationToken))
                 {
                     published++;
                 }
-
-                continue;
             }
+        }
 
-            document = Describe(subscription, meter, period, counter, allowance);
+        // Plan-derived windows are what a busy meter republishes; stored rows are what is actually
+        // in the collection. The two drift apart on a plan change (superseded rows the new window
+        // never touches) and on a meter leaving the plan entirely (orphaned rows no window can ever
+        // name again), so both must be reconciled for a refresh to be a refresh of what exists rather
+        // than only of what the plan currently implies.
+        published += await ReconcileStoredRowsAsync(subscription, windows, correlationId, cancellationToken);
 
-            if (await _current.TryPublishAsync(document, cancellationToken))
-            {
-                published++;
-            }
+        if (windows.Count == 0 && published == 0)
+        {
+            return 0;
         }
 
         _logger.LogInformation(
@@ -260,6 +271,138 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
 
         return published;
     }
+
+    /// <summary>
+    /// Retires or repairs the stored rows a plan-derived window no longer covers.
+    /// </summary>
+    /// <remarks>
+    /// Two shapes, told apart by whether the row's meter is still on the plan:
+    /// <list type="bullet">
+    /// <item>still on the plan, and the current window for that meter starts before this row's own
+    /// end — a superseded window a plan change re-anchored past. Retired at the current window's
+    /// start, which is what keeps one meter from ever answering with two live rows.</item>
+    /// <item>no longer on the plan at all — an orphaned window. The genuine, possibly still-open
+    /// balance is kept; only the subscription-owned fields are republished, so a reader sees the
+    /// subscription's current status and plan rather than whatever was true when the meter was
+    /// dropped.</item>
+    /// </list>
+    /// </remarks>
+    private async Task<int> ReconcileStoredRowsAsync(
+        SubscriptionDetail subscription,
+        IReadOnlyList<(PlanMeter Meter, BillingPeriod Period)> windows,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var stored = await _current.ListBySubscriptionAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            cancellationToken);
+
+        if (stored.Count == 0)
+        {
+            return 0;
+        }
+
+        var currentIds = new HashSet<string>(
+            windows.Select(window => SubscriptionUsageCurrent.CreateId(
+                subscription.ItemId,
+                window.Meter.MeterKey,
+                window.Period.Key)),
+            StringComparer.Ordinal);
+
+        var currentStartByMeter = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+
+        foreach (var window in windows)
+        {
+            currentStartByMeter[window.Meter.MeterKey] = window.Period.StartUtc;
+        }
+
+        var planMeterKeys = new HashSet<string>(
+            subscription.Plan.Meters.Select(meter => meter.MeterKey),
+            StringComparer.Ordinal);
+
+        var reconciled = 0;
+
+        foreach (var row in stored)
+        {
+            if (currentIds.Contains(row.ItemId))
+            {
+                continue;
+            }
+
+            if (!planMeterKeys.Contains(row.MeterKey))
+            {
+                if (await _current.TryPublishAsync(OrphanDocument(subscription, row), cancellationToken))
+                {
+                    reconciled++;
+                }
+
+                continue;
+            }
+
+            if (currentStartByMeter.TryGetValue(row.MeterKey, out var currentStart) &&
+                currentStart < row.PeriodEndUtc &&
+                await _current.TryRetireAsync(
+                    subscription.TenantId, row.ItemId, currentStart, cancellationToken))
+            {
+                reconciled++;
+            }
+        }
+
+        if (reconciled > 0)
+        {
+            _logger.LogInformation(
+                "Usage projection reconciled stale stored rows TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} StoredRows={StoredRows} Reconciled={Reconciled} " +
+                "CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                stored.Count,
+                reconciled,
+                correlationId);
+        }
+
+        return reconciled;
+    }
+
+    /// <summary>
+    /// Republishes a row whose meter left the plan, carrying its balance across untouched.
+    /// </summary>
+    /// <remarks>
+    /// Built from the stored row rather than from <see cref="Describe"/>, which needs a
+    /// <see cref="PlanMeter"/> this row no longer has one of. Only the fields the subscription's own
+    /// version owns are overwritten; the merge pipeline in
+    /// <c>SubscriptionUsageCurrentRepository</c> decides the rest by comparing versions the same way
+    /// it does for every other publish, so a stale republish here can still lose to a newer one.
+    /// </remarks>
+    private SubscriptionUsageCurrent OrphanDocument(
+        SubscriptionDetail subscription,
+        SubscriptionUsageCurrent row) => new()
+    {
+        ItemId = row.ItemId,
+        TenantId = row.TenantId,
+        OrganizationId = row.OrganizationId,
+        SubscriptionId = row.SubscriptionId,
+        SubscriptionStatus = subscription.Status,
+        PlanId = subscription.Plan.PlanId,
+        PlanCode = subscription.Plan.Code,
+        MeterKey = row.MeterKey,
+        UnitLabel = row.UnitLabel,
+        QuantityScale = row.QuantityScale,
+        PeriodKey = row.PeriodKey,
+        PeriodStartUtc = row.PeriodStartUtc,
+        PeriodEndUtc = row.PeriodEndUtc,
+        Included = row.Included,
+        Used = row.Used,
+        Remaining = row.Remaining,
+        Overage = row.Overage,
+        OverageAllowed = row.OverageAllowed,
+        CounterVersion = row.CounterVersion,
+        SubscriptionVersion = subscription.Version,
+        SchemaVersion = SubscriptionUsageCurrent.CurrentSchemaVersion,
+        UpdatedAtUtc = _time.GetUtcNow().UtcDateTime,
+        ExpiresAtUtc = row.ExpiresAtUtc
+    };
 
     /// <summary>
     /// Every meter's window containing <paramref name="asOfUtc"/>.

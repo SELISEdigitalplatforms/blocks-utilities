@@ -288,7 +288,11 @@ public sealed class SubscriptionRenewalServiceTests
                 "The card was declined.",
                 "corr-1"));
 
-    private SubscriptionRenewalService Service(ISubscriptionWorkScheduler? scheduler = null) => new(
+    private readonly Mock<ISubscriptionUsageRepository> _usage = new();
+
+    private SubscriptionRenewalService Service(
+        ISubscriptionWorkScheduler? scheduler = null,
+        bool withUsage = false) => new(
         _subscriptions.Object,
         _billingAccounts.Object,
         _gateway.Object,
@@ -298,7 +302,117 @@ public sealed class SubscriptionRenewalServiceTests
         NullLogger<SubscriptionRenewalService>.Instance,
         _time,
         audit: null,
-        scheduler: scheduler);
+        scheduler: scheduler,
+        usage: withUsage ? _usage.Object : null,
+        allowances: withUsage ? new MeterAllowanceResolver(_usage.Object) : null);
+
+    // ---- Re-snapshotting a converted trial's allowance ----------------------------------------
+
+    private static SubscriptionDetail NewTrialingSubscription(DateTime trialEndsAtUtc)
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Trialing);
+        subscription.Trial = new TrialTerms
+        {
+            EndsAtUtc = trialEndsAtUtc,
+            RequiresPaymentMethod = true,
+            Grants = [new TrialMeterGrant { MeterKey = "token", IncludedQuantity = 250 }]
+        };
+        subscription.InitialChargeAmountMinor = null;
+        subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "token",
+                UnitLabel = "token",
+                IncludedQuantity = 1550.55m,
+                OverageAllowed = true,
+                ResetPolicy = MeterResetPolicy.Periodic
+            }
+        ];
+        subscription.UsageSchedule = new BillingSchedule
+        {
+            Interval = BillingInterval.Month,
+            IntervalCount = 1,
+            AnchorInstantUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            TimeZoneId = "UTC",
+            AnchorDayOfMonth = 1
+        };
+
+        return subscription;
+    }
+
+    /// <summary>The 876a7ef4 shape: a converted trial's counter must move off the trial's grant.</summary>
+    [Fact]
+    public async Task A_trial_conversion_resnapshots_the_counter_from_the_grant_to_the_plans_quantity()
+    {
+        var subscription = NewTrialingSubscription(new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+
+        // Keyed off whichever id the service actually composes rather than a period key spelled out
+        // here: PeriodKey.Create's exact shape is BillingPeriodCalculator's concern, not this test's.
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string counterId, CancellationToken _) => new SubscriptionUsageCounter
+            {
+                ItemId = counterId,
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                SubscriptionId = "sub-1",
+                MeterKey = "token",
+                Balance = 1100.75m,
+                LimitSnapshot = 250,
+                NotifiedThresholds = [50, 75, 90],
+                PeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+                PeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc)
+            });
+
+        decimal? resnappedAllowance = null;
+        IReadOnlyList<int>? retainedThresholds = null;
+
+        _usage
+            .Setup(repository => repository.TryResnapshotAllowanceAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<IReadOnlyList<int>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, decimal allowance, IReadOnlyList<int> thresholds,
+                CancellationToken _) =>
+            {
+                resnappedAllowance = allowance;
+                retainedThresholds = thresholds;
+            })
+            .ReturnsAsync(true);
+
+        await Service(scheduler.Object, withUsage: true).RenewAsync(subscription, CancellationToken.None);
+
+        resnappedAllowance.Should().Be(1550.55m, "the plan's own quantity, not the trial's grant");
+        // 1100.75 clears 50% of 1550.55 but neither 75% nor 90%, so only 50 is still crossed.
+        retainedThresholds.Should().Equal(50);
+        scheduler.Verify(
+            work => work.ScheduleUsageProjectionRefreshAsync(
+                TenantId, OrganizationId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// A plan change riding on the same renewal already re-anchors the usage schedule and opens a
+    /// correct window of its own; re-snapshotting on top of that would be resolving an allowance for
+    /// a window the renewal is about to replace anyway.
+    /// </summary>
+    [Fact]
+    public async Task A_trial_conversion_with_a_plan_change_riding_along_does_not_resnapshot()
+    {
+        var subscription = NewTrialingSubscription(new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+        subscription.CurrentPeriodEndUtc = subscription.Trial!.EndsAtUtc;
+        subscription.PendingPlanChange = ScheduledChange(subscription.Trial.EndsAtUtc);
+
+        await Service(withUsage: true).RenewAsync(subscription, CancellationToken.None);
+
+        _usage.Verify(
+            repository => repository.TryResnapshotAllowanceAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 
     /// <summary>
     /// A decrease is not refunded, so it waits for the period it was scheduled against to close.

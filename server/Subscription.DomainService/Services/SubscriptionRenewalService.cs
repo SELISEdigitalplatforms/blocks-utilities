@@ -695,6 +695,15 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
+        // A converted trial is the one event that must move an already-open window's frozen
+        // allowance: MeterAllowance.Base now resolves the plan's quantity instead of the trial's
+        // grant. A plan change riding along on the same renewal needs nothing here — it already
+        // re-anchored the usage schedule and opened a correct window of its own.
+        if (subscription.Status == SubscriptionStatus.Trialing && appliedPlanChange is null)
+        {
+            await ResnapshotTrialConversionAsync(subscription, cancellationToken);
+        }
+
         if (_documents is not null && paymentDetailId is { Length: > 0 } invoiced)
         {
             // After the period is opened and the charge recorded, so the invoice can only describe a
@@ -717,6 +726,102 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await ScheduleNextRenewalAsync(subscription, period, cancellationToken);
         await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
             paymentDetailId, attemptNumber, cancellationToken);
+    }
+
+    /// <summary>
+    /// Re-freezes each open counter's allowance now that this subscription has converted out of its
+    /// trial, and asks the projection to re-read it.
+    /// </summary>
+    /// <remarks>
+    /// Best-effort and logged only, like every other post-transition follow-up here: the counter
+    /// lives in a different collection from the subscription, so it cannot join the transition's own
+    /// write regardless of how this is called.
+    /// <para>
+    /// ponytail: a lost re-snapshot leaves the subscription Active with a stale allowance until its
+    /// usage window rolls over naturally. The guarded filter on <c>TryResnapshotAllowanceAsync</c>
+    /// makes any retry safe; if that ceiling stops being acceptable, move this onto the outbox
+    /// instead of calling it inline here.
+    /// </para>
+    /// </remarks>
+    private async Task ResnapshotTrialConversionAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        if (_usage is null || _allowances is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // The subscription just transitioned to Active in the store; this in-memory copy still
+            // reads Trialing, and the opening-allowance resolution below must see it as converted
+            // or it recomputes the trial's grant instead of the plan's quantity. Restored after,
+            // since this same object still names the transition's own "from" status in the log
+            // lines below it.
+            var previousStatus = subscription.Status;
+            subscription.Status = SubscriptionStatus.Active;
+
+            try
+            {
+                foreach (var meter in subscription.Plan.Meters)
+                {
+                    if (!MeterPeriodResolver.TryGetPeriod(
+                            subscription, meter, _time.GetUtcNow().UtcDateTime, out var period))
+                    {
+                        continue;
+                    }
+
+                    var counterId = SubscriptionUsageCounter.CreateId(
+                        subscription.ItemId, meter.MeterKey, period.Key);
+
+                    var counter = await _usage.GetCounterAsync(
+                        subscription.TenantId, counterId, cancellationToken);
+
+                    // No counter means nothing was recorded during the trial; the window will open
+                    // at the correct plan allowance on its own and there is nothing to correct.
+                    if (counter is null)
+                    {
+                        continue;
+                    }
+
+                    var allowance = await _allowances.OpeningAllowanceAsync(
+                        subscription, meter, period, cancellationToken);
+
+                    var retainedThresholds = counter.NotifiedThresholds
+                        .Where(threshold => counter.Balance * 100 >= allowance * threshold)
+                        .ToList();
+
+                    await _usage.TryResnapshotAllowanceAsync(
+                        subscription.TenantId, counterId, allowance, retainedThresholds,
+                        cancellationToken);
+                }
+            }
+            finally
+            {
+                subscription.Status = previousStatus;
+            }
+
+            if (_scheduler is not null)
+            {
+                await _scheduler.ScheduleUsageProjectionRefreshAsync(
+                    subscription.TenantId,
+                    subscription.OrganizationId,
+                    subscription.ItemId,
+                    subscription.CorrelationId,
+                    cancellationToken);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "Could not re-snapshot usage allowances after a trial conversion; the window stays " +
+                "at the trial grant until it next rolls over TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId));
+        }
     }
 
     /// <summary>

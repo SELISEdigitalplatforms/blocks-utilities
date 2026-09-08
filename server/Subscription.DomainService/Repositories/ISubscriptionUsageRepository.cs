@@ -93,6 +93,26 @@ public interface ISubscriptionUsageRepository
         long appliedRecordCount,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Re-freezes an open window's allowance, for the one event that must move it after the window
+    /// opened: a trial converting to paid, where the opening allowance now resolves to the plan's
+    /// quantity instead of the trial's grant.
+    /// </summary>
+    /// <remarks>
+    /// Guarded so it is idempotent and cannot touch a window that has already closed: filtered on
+    /// <c>LimitSnapshot != allowance</c> and <c>PeriodEndUtc &gt; now</c>. <paramref name="retainedThresholds"/>
+    /// replaces <c>NotifiedThresholds</c> outright — the caller has already recomputed which of the
+    /// previously-notified thresholds are still crossed at the new allowance, so a customer who was
+    /// notified at every threshold of a small trial grant is not left permanently unnotified once the
+    /// grant is replaced by a much larger plan quantity.
+    /// </remarks>
+    Task<bool> TryResnapshotAllowanceAsync(
+        string tenantId,
+        string counterId,
+        decimal allowance,
+        IReadOnlyList<int> retainedThresholds,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<SubscriptionUsageRecord>> ListRecordsAsync(
         string tenantId,
         string subscriptionId,
