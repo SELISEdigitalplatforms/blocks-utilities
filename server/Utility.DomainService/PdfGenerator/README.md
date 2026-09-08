@@ -226,6 +226,65 @@ Content-Type: application/json
 }
 ```
 
+## PDF Ingestion
+
+A sibling feature (`Utility.DomainService.PdfIngestion`, alongside this module rather than inside
+it) that inspects a PDF already in storage and remediates whatever the inspection finds — an
+unreadable file, indirect page geometry, a claimed but non-compliant PDF/A profile — replacing the
+file in place when a stage actually changes its bytes. Ported from `l3-net-signature-pdfengine`,
+which cannot be called over HTTP from here, so its capability is compiled straight into the Worker
+image instead (`server/Utility.DomainService/PdfGenerator/Tooling/`).
+
+### Endpoints
+
+| Method | Path | Returns | Purpose |
+|---|---|---|---|
+| `POST` | `/pdf-ingestions` | 202 | Queue one or more file IDs for ingestion. Accepts `dryRun: true` to inspect and record a verdict without uploading any remediated bytes back to storage. |
+| `POST` | `/pdf-ingestions/status` | 200 | Read the ingestion state — and, once complete, the full verdict — of one or more files. |
+
+Both mirror `/document-conversions` and `/document-conversions/status` exactly: a batch of file IDs
+in, one outcome per file back, `found: false` for a file never submitted rather than dropping it
+from the response, and a fresh `downloadUrl` resolved per request rather than stored.
+
+### Pipeline order
+
+Inspect → qpdf repair (if unreadable) → PDFBox geometry normalize (if geometry unreadable; a
+`SIGNED_DOCUMENT` exit is recorded as a skip, not a failure) → record signature → veraPDF confirm
+(if a PDF/A claim was found) → flatten + Ghostscript + re-validate + standard-PDF fallback (if
+non-compliant or PDF/A-1). Every stage's outcome is recorded on the verdict's provenance list.
+
+### Tool matrix
+
+| Tool | Used for | Execution mode in every deployed environment | Docker mode (local dev only) |
+|---|---|---|---|
+| qpdf | Repairing a file PdfPig/PdfSharp cannot open at all | Direct (`/usr/bin/qpdf`, installed in `Dockerfile.worker`) | `docker/qpdf/Dockerfile` — no JDK/qpdf install needed locally |
+| Apache PDFBox | Normalizing page geometry; flattening forms before PDF/A repair; the standard-PDF fallback | Direct (compiled into the image from `tools/pdfbox/*.java` against the real `pdfbox-app` jar) | `docker/pdfbox/Dockerfile` |
+| veraPDF | Confirming or refuting a PDF/A claim | Direct (`/opt/verapdf/verapdf`, via its own upstream installer) | Official `ghcr.io/verapdf/cli:latest` |
+| Ghostscript | Converting a non-compliant or PDF/A-1 file up to PDF/A-2B | Direct only — no Docker mode exists for it | n/a |
+
+Docker mode exists only so a developer can run the Worker without installing these binaries
+locally; it must never be selected in a container, since the Worker would then need a Docker socket
+mounted into its own pod to spawn sibling containers. `Dockerfile.worker` pins
+`PdfIngestion__QpdfExecutionMode`, `PdfIngestion__VeraPdfExecutionMode` and
+`PdfIngestion__PdfBoxExecutionMode` to `Direct` explicitly for exactly this reason.
+
+### Configuration
+
+Bound from the `PdfIngestion` section (`PdfToolingOptions`), by `RegisterPdfIngestionToolchain` —
+called only from the Worker, never the Api:
+
+| Key | Purpose |
+|---|---|
+| `QpdfPath`, `VeraPdfPath`, `JavaPath`, `PdfBoxJarPath`, `PdfBoxClassPath`, `GhostscriptPath` | Where each tool's binary/jar lives inside the Worker image |
+| `GhostscriptPdfADefinitionPath` | `PDFA_def.ps`, the Ghostscript output-intent definition |
+| `GhostscriptIccProfilePath` | The sRGB ICC profile Ghostscript reads for PDF/A repair — Alpine's real path, symlinked in `Dockerfile.worker` to the Debian-shaped path `PDFA_def.ps` was written against |
+| `QpdfExecutionMode`, `VeraPdfExecutionMode`, `PdfBoxExecutionMode` | `Direct` or `Docker` per tool (Ghostscript has no equivalent — Direct-only) |
+| `DockerPath`, `DockerContainerWorkspacePath`, `QpdfDockerImage`, `VeraPdfDockerImage`, `PdfBoxDockerImage` | Docker-mode settings, local development only |
+| `TempDirectory` | Per-operation workspace root (`/tmp/pdf-ingestion` in the image) |
+| `DefaultTimeoutSeconds` | Per-tool-call timeout |
+| `MaxFileSizeMb` | Defined (default 50) but not yet enforced by any stage — reserved for a future request-time size check |
+| `MaxParallelExternalProcesses` | Default 2 — Ghostscript and a JVM may run alongside the Worker's resident Chromium instance |
+
 ## Summary
 
 ✅ **Completed:**
