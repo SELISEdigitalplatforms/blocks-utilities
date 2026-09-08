@@ -551,6 +551,58 @@ public sealed class UsageProjectionPublisherTests
             Times.Never);
     }
 
+    /// <summary>
+    /// The fb64f47d shape: a future-dated row the current window has not superseded, but whose
+    /// status is still stale. Republish is gated only on the version comparison, never on window
+    /// position, so it must fire here exactly as it would for a row the window has already passed —
+    /// proven directly rather than left to follow from the retire guard above, since scoping
+    /// republish to rows preceding the current window is the kind of change that would look like a
+    /// safe tightening and silently reopen this one.
+    /// </summary>
+    [Fact]
+    public async Task A_future_dated_row_with_a_stale_version_is_republished_but_not_retired()
+    {
+        var subscription = Subscription();
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.Version = 14;
+
+        var futureDated = new SubscriptionUsageCurrent
+        {
+            ItemId = "sub-1:screening:M20261005",
+            TenantId = TenantId,
+            OrganizationId = OrganizationId,
+            SubscriptionId = "sub-1",
+            MeterKey = "screening",
+            PeriodKey = "M20261005",
+            PeriodStartUtc = new DateTime(2026, 10, 5, 0, 0, 0, DateTimeKind.Utc),
+            PeriodEndUtc = new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc),
+            Included = 100,
+            Used = 1,
+            SubscriptionStatus = SubscriptionStatus.Active,
+            SubscriptionVersion = 11,
+            ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[futureDated]);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var republished = _published.Should()
+            .ContainSingle(document => document.ItemId == futureDated.ItemId).Subject;
+        republished.SubscriptionStatus.Should().Be(SubscriptionStatus.Canceled);
+        republished.SubscriptionVersion.Should().Be(14);
+        _current.Verify(
+            repository => repository.TryRetireAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the current window has not superseded a row that starts after it");
+    }
+
     private static SubscriptionUsageCurrent OrphanRow() => new()
     {
         ItemId = "sub-1:retired-meter:M2026-09",
