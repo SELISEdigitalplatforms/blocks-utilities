@@ -273,8 +273,12 @@ export async function verifyOrderIdWhitespaceTrimmedInRequest(
     });
   });
 
-  // Listen for the popup so it doesn't fail the test.
-  page.once("popup", (popup) => popup.close().catch(() => undefined));
+  // Wait for the popup this submission triggers so the async submit flow
+  // (mutateAsync -> getSecureCheckoutUrl -> window.open) is fully settled
+  // before this step returns. Otherwise the popup can fire late, after a
+  // later step has registered its own "popup" listener, and get attributed
+  // to the wrong step.
+  const popupPromise = page.waitForEvent("popup", { timeout: 5_000 });
 
   await form.orderId.fill("   TEST-ORDER-TRIM   ");
   await form.amount.fill("10");
@@ -291,6 +295,10 @@ export async function verifyOrderIdWhitespaceTrimmedInRequest(
     );
   }
   expect(capturedOrderId).toBe("TEST-ORDER-TRIM");
+
+  const popup = await popupPromise;
+  await popup.close();
+  await page.unroute("**/payments/create");
 }
 
 /**
@@ -498,6 +506,18 @@ export async function verifyPopupBlockedFallbackShowsManualLink(
     "href",
     /^https:\/\/example\.com\/secure-checkout$/,
   );
+
+  // Restore window.open so later steps that expect a real popup still work.
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __originalOpen?: typeof window.open;
+      open: typeof window.open;
+    };
+    if (w.__originalOpen) {
+      w.open = w.__originalOpen;
+      delete w.__originalOpen;
+    }
+  });
 }
 
 /**
@@ -521,7 +541,10 @@ export async function verifySubmitButtonShowsLoadingState(
     });
   });
 
-  page.once("popup", (popup) => popup.close().catch(() => undefined));
+  // Await the popup (not fire-and-forget) so this step's async submit flow
+  // is fully settled before it returns, and doesn't leak a late "popup"
+  // event into a later step.
+  const popupPromise = page.waitForEvent("popup", { timeout: 5_000 });
 
   await form.orderId.fill("TEST-ORDER-LOADING");
   await form.amount.fill("10");
@@ -532,6 +555,9 @@ export async function verifySubmitButtonShowsLoadingState(
     page.getByRole("button", { name: /creating secure checkout/i }),
   ).toBeDisabled();
   await clickPromise;
+
+  const popup = await popupPromise;
+  await popup.close();
 }
 
 /** Create Payment: side panel explains the secure redirect flow. */
