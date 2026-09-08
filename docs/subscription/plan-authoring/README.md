@@ -108,6 +108,18 @@ defaultQuantity: 1          ← what a new subscriber starts with
 **These are three different numbers and "up to 40 users" is only the ceiling.** It is not what they
 get and not what they pay for.
 
+All three travel onto the subscription and come back on `GET /subscriptions/current`, beside the
+quantity actually held:
+
+```json
+{ "itemKey": "user", "unitLabel": "user", "quantity": 4,
+  "minQuantity": 1, "maxQuantity": 40, "defaultQuantity": 1 }
+```
+
+So a screen that offers to change the quantity does not need to fetch the plan to know what it may
+offer — and the bounds it reads are the ones **this** subscriber was sold, from their snapshot,
+even if you have since authored a new plan with different ones.
+
 ### The alternative most people miss: an unpriced quantity item
 
 A quantity item that **no price multiplies** is valid — the schema only checks the reverse (a price

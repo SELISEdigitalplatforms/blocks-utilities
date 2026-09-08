@@ -15,17 +15,20 @@ public sealed class PaymentCaptureReservationService :
     private readonly IPaymentCaptureWebhookReferenceService _references;
     private readonly IPaymentCaptureResponseMapper _responses;
     private readonly IOptionsMonitor<PaymentOptions> _options;
+    private readonly TimeProvider _time;
 
     public PaymentCaptureReservationService(
         IPaymentCaptureRepository captures,
         IPaymentCaptureWebhookReferenceService references,
         IPaymentCaptureResponseMapper responses,
-        IOptionsMonitor<PaymentOptions> options)
+        IOptionsMonitor<PaymentOptions> options,
+        TimeProvider? time = null)
     {
         _captures = captures;
         _references = references;
         _responses = responses;
         _options = options;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentCaptureReservationResult> ReserveAsync(
@@ -54,7 +57,7 @@ public sealed class PaymentCaptureReservationService :
             payment.ItemId,
             request);
         var leaseId = Guid.NewGuid().ToString("N");
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var capture = new PaymentCapture
         {
             CaptureId = captureId,
@@ -155,7 +158,7 @@ public sealed class PaymentCaptureReservationService :
             existingPayment.ItemId,
             existingCapture.CaptureId,
             recoveryLeaseId,
-            DateTime.UtcNow.Add(
+            _time.GetUtcNow().UtcDateTime.Add(
                 PaymentCaptureLeasePolicy.Resolve(
                     _options.CurrentValue)),
             cancellationToken);

@@ -21,6 +21,11 @@ public static class ApplicationServiceCollectionExtensions
 {
     public static IServiceCollection RegisterPaymentDomainServices(this IServiceCollection services, IConfiguration configuration)
     {
+        // The clock every payment service reads. TryAdd so a host that has already substituted a
+        // controlled clock -- or the subscription module, which registers the same production
+        // default -- keeps the one instance both modules then share.
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+
         // Singletons for the same reason the queue itself is: it lives in the root database and
         // needs no ambient tenant, and a Meter's instruments are process-wide.
         services.AddSingleton<IPaymentWorkQueue, PaymentWorkQueue>();
@@ -219,6 +224,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IPaymentCaptureWebhookStateTransitionService, PaymentCaptureWebhookStateTransitionService>();
         services.AddScoped<IPaymentMethodSetupWebhookStateTransitionService, PaymentMethodSetupWebhookStateTransitionService>();
         services.AddScoped<IStoredPaymentMethodLifecycleService, StoredPaymentMethodLifecycleService>();
+        services.AddScoped<ISubscriptionPaymentReconciler, StripeCheckoutReconciliationService>();
         services.AddScoped<IPaymentWebhookProcessor, PaymentWebhookProcessor>();
         services.AddScoped<IStoredPaymentMethodQueryService, StoredPaymentMethodQueryService>();
         services.AddScoped<IStoredPaymentMethodRemovalService, StoredPaymentMethodRemovalService>();

@@ -373,6 +373,7 @@ public sealed class PaymentsController : ControllerBase
             PaymentFailureKind.RateLimited => StatusCode(StatusCodes.Status429TooManyRequests, response),
             PaymentFailureKind.ProviderRejected => UnprocessableEntity(response),
             PaymentFailureKind.ProviderFailure => StatusCode(StatusCodes.Status502BadGateway, response),
+            PaymentFailureKind.Unauthenticated => StatusCode(StatusCodes.Status401Unauthorized, response),
             PaymentFailureKind.Unavailable => StatusCode(StatusCodes.Status503ServiceUnavailable, response),
             PaymentFailureKind.Timeout => StatusCode(StatusCodes.Status504GatewayTimeout, response),
             _ => StatusCode(StatusCodes.Status500InternalServerError, response)
@@ -436,6 +437,10 @@ public sealed class PaymentsController : ControllerBase
                 StatusCode(
                     StatusCodes.Status502BadGateway,
                     response),
+            PaymentFailureKind.Unauthenticated =>
+                StatusCode(
+                    StatusCodes.Status401Unauthorized,
+                    response),
             PaymentFailureKind.Unavailable =>
                 StatusCode(
                     StatusCodes.Status503ServiceUnavailable,
@@ -472,6 +477,9 @@ public sealed class PaymentsController : ControllerBase
             PaymentFailureKind.ProviderFailure => StatusCode(
                 StatusCodes.Status502BadGateway,
                 response),
+            PaymentFailureKind.Unauthenticated => StatusCode(
+                StatusCodes.Status401Unauthorized,
+                response),
             PaymentFailureKind.Unavailable => StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 response),
@@ -498,6 +506,9 @@ public sealed class PaymentsController : ControllerBase
             PaymentFailureKind.Validation => BadRequest(response),
             PaymentFailureKind.RateLimited => StatusCode(
                 StatusCodes.Status429TooManyRequests,
+                response),
+            PaymentFailureKind.Unauthenticated => StatusCode(
+                StatusCodes.Status401Unauthorized,
                 response),
             PaymentFailureKind.Unavailable => StatusCode(
                 StatusCodes.Status503ServiceUnavailable,

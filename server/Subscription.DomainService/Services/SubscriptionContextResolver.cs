@@ -26,7 +26,7 @@ public sealed class SubscriptionContextResolver : ISubscriptionContextResolver
         if (!resolution.IsSuccess || resolution.Context is null)
         {
             return SubscriptionContextResolution.Unresolved(
-                PaymentFailureKind.Unavailable,
+                PaymentFailureKind.Unauthenticated,
                 "subscription_context_missing",
                 "Authenticated tenant context is unavailable.");
         }
@@ -57,7 +57,7 @@ public sealed class SubscriptionContextResolver : ISubscriptionContextResolver
             // — and answering anyway would mean answering for somebody else. Stricter than the
             // payment resolver it wraps, which is content to leave this blank.
             return SubscriptionContextResolution.Unresolved(
-                PaymentFailureKind.Unavailable,
+                PaymentFailureKind.Unauthenticated,
                 "subscription_organization_missing",
                 "An organization is required to resolve a subscription.");
         }

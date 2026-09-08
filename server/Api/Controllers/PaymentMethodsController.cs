@@ -148,6 +148,10 @@ public sealed class PaymentMethodsController : ControllerBase
                 StatusCode(
                     StatusCodes.Status504GatewayTimeout,
                     response),
+            PaymentFailureKind.Unauthenticated =>
+                StatusCode(
+                    StatusCodes.Status401Unauthorized,
+                    response),
             PaymentFailureKind.Unavailable =>
                 StatusCode(
                     StatusCodes.Status503ServiceUnavailable,

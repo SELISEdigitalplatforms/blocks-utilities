@@ -1697,6 +1697,11 @@ Content-Type: application/json
             <code>chargeMinor</code> is zero for anything not charged today.
             <code>timing</code> is <code>Immediate</code> or <code>NextRenewal</code>, and
             <code>effectiveAtUtc</code> is when the change lands.
+            <code>quantities</code> carries the <strong>target</strong> plan's
+            <code>minQuantity</code>, <code>maxQuantity</code> and <code>defaultQuantity</code>
+            beside each quantity, since those are the terms the subscriber would be held to once
+            the change lands — the same fields <code>pendingPlanChange</code> reports on the
+            subscription read while a change is waiting for the period to end.
             <code>creditBankedMinor</code> is always <code>0</code> and is retained only so
             existing clients keep deserializing. <code>nextRenewalAmountMinor</code> is already the
             whole target period, tax included, undiminished by proration.
@@ -1849,6 +1854,16 @@ Content-Type: application/json
         A quantity change moves the number of units bought, never the plan. If the item carries
         volume bands, crossing one is an ordinary consequence of the quantity moving — the
         subscriber keeps their plan, their snapshot and their billing period.
+      </p>
+      <p class="prose">
+        The floor and ceiling a change is held to arrive with the subscription itself:
+        <code>minQuantity</code> and <code>maxQuantity</code> on each entry of
+        <code>quantities</code> from
+        <a href="#api-current"><code>GET /api/subscriptions/current</code></a>. They are read from
+        that subscription's plan snapshot, which is what these endpoints validate against, so a
+        client bounding its input from the read and the server refusing the request cannot
+        disagree. The response below states the quantity a change settled on; the bounds it must
+        respect stay on the subscription read.
       </p>
       <p class="prose">
         The two directions are not symmetrical, because the money is not. Direction is decided by
@@ -3090,10 +3105,38 @@ POST /api/subscriptions
             subscriptions.
           </p>
           <p class="prose">
-            <code>quantities</code> is what the subscriber holds and is paying for now.
+            <code>quantities</code> is what the subscriber holds and is paying for now, and each
+            entry carries the bounds the plan sells that item in:
+          </p>
+          <pre><code>"quantities": [
+  {
+    "itemKey": "user",
+    "unitLabel": "user",
+    "quantity": 4,          // held today
+    "minQuantity": 1,       // floor
+    "maxQuantity": 40,      // ceiling; null is unbounded
+    "defaultQuantity": 1    // what a new subscriber starts on
+  }
+]</code></pre>
+          <p class="prose">
+            <code>quantity</code> and <code>defaultQuantity</code> are different numbers and agree
+            only until somebody changes the quantity — read <code>quantity</code> for what is held
+            and paid for, <code>defaultQuantity</code> only to describe the plan. The bounds come
+            from this subscription's <strong>own plan snapshot</strong>, the same copy the
+            change-quantity endpoints validate against, so a client can bound its input here
+            without a second call to the catalogue — and must not read them from the live plan
+            instead, which may have been edited since this subscriber signed up. An item written
+            before the plan carried bounds for it reports <code>minQuantity: 1</code>,
+            <code>maxQuantity: null</code> and its own held quantity as the default, rather than
+            bounds it was never sold under.
+          </p>
+          <p class="prose">
             <code>pendingQuantityChange</code>, when present, is a reduction already booked for
             <code>currentPeriodEndUtc</code> — render both, or a page reload will show the larger
-            quantity with nothing to say a smaller one is coming.
+            quantity with nothing to say a smaller one is coming. Its entries state
+            <code>itemKey</code>, <code>unitLabel</code> and <code>quantity</code> only: the booked
+            quantity is held to the same bounds above, which are a property of the item rather than
+            of the change.
             <code>recurringAmountMinor</code> is what the next renewal costs at the quantity, band and
             discount in force, and <code>currentTier</code> the band it selects; take both from here
             rather than multiplying <code>unitAmountMinor</code> in the browser.

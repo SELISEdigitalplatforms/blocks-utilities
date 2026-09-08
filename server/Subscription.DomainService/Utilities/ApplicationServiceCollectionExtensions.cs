@@ -262,6 +262,11 @@ public static class ApplicationServiceCollectionExtensions
         // with two browsers.
         services.TryAddSingleton<PuppeteerSharpEngine>();
         services.TryAddSingleton<PdfStorageHelper>();
+        // PdfStorageHelper resolves its HttpClient from the factory, so the named client has to
+        // exist even in a host that registers this module without the utility module. Idempotent,
+        // so the utility module's own call adds nothing on top of this one.
+        services.AddHttpClient(
+            Utility.DomainService.Storage.StorageHelperBase.StorageHttpClientName);
         services.AddSingleton<
             IFinancialDocumentPdfRenderer,
             PuppeteerFinancialDocumentPdfRenderer>();

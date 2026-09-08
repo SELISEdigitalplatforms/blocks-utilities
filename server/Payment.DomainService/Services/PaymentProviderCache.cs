@@ -13,13 +13,16 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
     private readonly object _refreshGate = new();
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly IPaymentProviderSecretHydrator _secrets;
+    private readonly TimeProvider _time;
 
     public PaymentProviderCache(
         IOptionsMonitor<PaymentOptions> options,
-        IPaymentProviderSecretHydrator secrets)
+        IPaymentProviderSecretHydrator secrets,
+        TimeProvider? time = null)
     {
         _options = options;
         _secrets = secrets;
+        _time = time ?? TimeProvider.System;
     }
 
     public async Task<PaymentProvider?> GetAsync(
@@ -31,7 +34,7 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
         var key = CreateKey(tenantId, organizationId, providerName);
 
         if (_entries.TryGetValue(key, out var existing) &&
-            existing.ExpiresAtUtc > DateTime.UtcNow)
+            existing.ExpiresAtUtc > _time.GetUtcNow().UtcDateTime)
         {
             return existing.Provider;
         }
@@ -53,7 +56,7 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
 
         _entries[key] = new Entry(
             provider,
-            DateTime.UtcNow.AddSeconds(
+            _time.GetUtcNow().UtcDateTime.AddSeconds(
                 Math.Clamp(
                     _options.CurrentValue.ProviderCacheSeconds,
                     10,
@@ -92,7 +95,7 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
 
         _entries[key] = new Entry(
             provider,
-            DateTime.UtcNow.AddSeconds(
+            _time.GetUtcNow().UtcDateTime.AddSeconds(
                 Math.Clamp(
                     _options.CurrentValue.ProviderCacheSeconds,
                     10,
@@ -141,7 +144,7 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
 
     private bool ShouldRefresh(string key)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var throttle = TimeSpan.FromSeconds(
             Math.Clamp(
                 _options.CurrentValue
@@ -180,7 +183,7 @@ public sealed class PaymentProviderCache : IPaymentProviderCache
 
     private void RemoveExpired()
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         foreach (var item in _entries
                      .Where(entry =>

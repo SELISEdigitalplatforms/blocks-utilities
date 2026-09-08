@@ -59,12 +59,9 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             UsageIntervalCount = subscription.Plan.UsageIntervalCount,
             DisplayPriceNote = subscription.Price.DisplayPriceNote,
             Quantities = subscription.QuantityItems
-                .Select(item => new SubscriptionQuantityResponse
-                {
-                    ItemKey = item.ItemKey,
-                    UnitLabel = item.UnitLabel,
-                    Quantity = item.Quantity
-                })
+                .Select(item => QuantityResponseMapper.Subscription(
+                    item,
+                    subscription.Plan.QuantityItems))
                 .ToList(),
             CurrentPeriodStartUtc = subscription.CurrentPeriodStartUtc,
             CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
@@ -101,12 +98,11 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
                     IntervalCount = pendingPlan.Price.IntervalCount,
                     Quantities =
                     [
-                        .. pendingPlan.QuantityItems.Select(item => new SubscriptionQuantityResponse
-                        {
-                            ItemKey = item.ItemKey,
-                            UnitLabel = item.UnitLabel,
-                            Quantity = item.Quantity
-                        })
+                        // Bounds from the plan coming into force, not the one being left: the
+                        // quantities listed here are the ones that plan will hold the subscriber to.
+                        .. pendingPlan.QuantityItems.Select(item => QuantityResponseMapper.Subscription(
+                            item,
+                            pendingPlan.Plan.QuantityItems))
                     ],
                     RequestedAtUtc = pendingPlan.RequestedAtUtc,
                     EffectiveAtUtc = pendingPlan.EffectiveAtUtc

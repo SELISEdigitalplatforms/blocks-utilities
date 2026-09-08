@@ -73,6 +73,10 @@ public sealed class SubscriptionContextResolverTests
 
         resolution.IsSuccess.Should().BeFalse();
         resolution.ErrorCode.Should().Be("subscription_context_missing");
+
+        // Reported as an identity failure rather than a transient one, so the caller is told to
+        // present a different token instead of the same one again.
+        resolution.FailureKind.Should().Be(PaymentFailureKind.Unauthenticated);
     }
 
     /// <summary>
@@ -89,6 +93,7 @@ public sealed class SubscriptionContextResolverTests
 
         resolution.IsSuccess.Should().BeFalse();
         resolution.ErrorCode.Should().Be("subscription_organization_missing");
+        resolution.FailureKind.Should().Be(PaymentFailureKind.Unauthenticated);
     }
 
     private void Configure(string? organizationId) =>
