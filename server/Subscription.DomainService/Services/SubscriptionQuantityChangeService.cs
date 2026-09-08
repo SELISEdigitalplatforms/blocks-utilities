@@ -466,7 +466,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 target,
                 now,
                 subscription.CurrentPeriodStartUtc,
-                subscription.CurrentPeriodEndUtc);
+                subscription.CurrentPeriodEndUtc,
+                // The target is this same current period at a new quantity, not a calendar period
+                // bought today — see Calculate's own remarks on targetIsCurrentPeriod.
+                targetIsCurrentPeriod: true);
 
             chargeMinor = outcome.ChargeMinor;
             newCreditBalanceMinor = outcome.NewCreditBalanceMinor;
