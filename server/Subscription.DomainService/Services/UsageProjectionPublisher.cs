@@ -273,19 +273,29 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
     }
 
     /// <summary>
-    /// Retires or repairs the stored rows a plan-derived window no longer covers.
+    /// Republishes and, where it overlaps, retires every stored row a plan-derived window no longer
+    /// covers.
     /// </summary>
     /// <remarks>
-    /// Two shapes, told apart by whether the row's meter is still on the plan:
+    /// Two independent actions, not two alternative shapes — a row that is both superseded and still
+    /// on the plan needs both, or its status and plan go stale for as long as
+    /// <c>CounterRetentionDays</c> keeps the retired row alive:
     /// <list type="bullet">
-    /// <item>still on the plan, and the current window for that meter starts before this row's own
-    /// end — a superseded window a plan change re-anchored past. Retired at the current window's
-    /// start, which is what keeps one meter from ever answering with two live rows.</item>
-    /// <item>no longer on the plan at all — an orphaned window. The genuine, possibly still-open
-    /// balance is kept; only the subscription-owned fields are republished, so a reader sees the
-    /// subscription's current status and plan rather than whatever was true when the meter was
-    /// dropped.</item>
+    /// <item>Every row no current window describes is republished with this subscription's own
+    /// status, plan and version, whether its meter left the plan entirely or is merely between
+    /// windows. A reader filtering on <c>SubscriptionStatus</c> alone — with no window predicate to
+    /// protect it — must not see a status this subscription no longer holds for as long as a
+    /// superseded row survives.</item>
+    /// <item>Additionally, a row whose meter is still on the plan and that the current window
+    /// genuinely precedes — starts before it, and extends past its start — is retired at the
+    /// current window's start. That is what keeps one meter from ever answering with two live rows;
+    /// it is not a substitute for the republish above, which is what keeps a stale status from
+    /// surviving under a query that never looks at the window at all.</item>
     /// </list>
+    /// Publish before retire, deliberately: <c>PeriodEndUtc</c> sits in the merge pipeline's
+    /// unconditional identity group, so a publish carrying this row's own (not yet clamped)
+    /// <c>PeriodEndUtc</c> after a retire had already shrunk it would write the old, wider window
+    /// straight back.
     /// </remarks>
     private async Task<int> ReconcileStoredRowsAsync(
         SubscriptionDetail subscription,
@@ -317,10 +327,6 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             currentStartByMeter[window.Meter.MeterKey] = window.Period.StartUtc;
         }
 
-        var planMeterKeys = new HashSet<string>(
-            subscription.Plan.Meters.Select(meter => meter.MeterKey),
-            StringComparer.Ordinal);
-
         var reconciled = 0;
 
         foreach (var row in stored)
@@ -330,18 +336,15 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
                 continue;
             }
 
-            if (!planMeterKeys.Contains(row.MeterKey))
-            {
-                // Only when the subscription's own version has moved past what this row already
-                // carries: a republish that changes nothing still runs the merge's insert fallback
-                // into a guaranteed duplicate-key exception, on every pass, forever.
-                if (subscription.Version > row.SubscriptionVersion &&
-                    await _current.TryPublishAsync(OrphanDocument(subscription, row), cancellationToken))
-                {
-                    reconciled++;
-                }
+            var changed = false;
 
-                continue;
+            // Only when the subscription's own version has moved past what this row already
+            // carries: a republish that changes nothing still runs the merge's insert fallback
+            // into a guaranteed duplicate-key exception, on every pass, forever.
+            if (subscription.Version > row.SubscriptionVersion &&
+                await _current.TryPublishAsync(StoredRowDocument(subscription, row), cancellationToken))
+            {
+                changed = true;
             }
 
             // Superseded, not merely later: the row must actually precede the current window, or a
@@ -358,6 +361,11 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
                     currentStart,
                     currentStart.AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays)),
                     cancellationToken))
+            {
+                changed = true;
+            }
+
+            if (changed)
             {
                 reconciled++;
             }
@@ -380,16 +388,19 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
     }
 
     /// <summary>
-    /// Republishes a row whose meter left the plan, carrying its balance across untouched.
+    /// Republishes a stored row this subscription's own status, plan and version have moved past,
+    /// carrying its balance across untouched.
     /// </summary>
     /// <remarks>
     /// Built from the stored row rather than from <see cref="Describe"/>, which needs a
-    /// <see cref="PlanMeter"/> this row no longer has one of. Only the fields the subscription's own
-    /// version owns are overwritten; the merge pipeline in
+    /// <see cref="PlanMeter"/> a row whose meter left the plan no longer has one of — and for a row
+    /// whose meter is still on the plan, this runs before <see cref="ReconcileStoredRowsAsync"/>'s
+    /// own retire step, so its window fields are exactly as valid either way. Only the fields the
+    /// subscription's own version owns are overwritten; the merge pipeline in
     /// <c>SubscriptionUsageCurrentRepository</c> decides the rest by comparing versions the same way
     /// it does for every other publish, so a stale republish here can still lose to a newer one.
     /// </remarks>
-    private SubscriptionUsageCurrent OrphanDocument(
+    private SubscriptionUsageCurrent StoredRowDocument(
         SubscriptionDetail subscription,
         SubscriptionUsageCurrent row) => new()
     {

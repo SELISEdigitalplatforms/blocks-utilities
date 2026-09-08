@@ -399,7 +399,8 @@ public sealed class UsageProjectionPublisherTests
             Times.Never);
     }
 
-    /// <summary>The a00c2376 shape: a plan change re-anchored the window before this row was retired.</summary>
+    /// <summary>The a00c2376 shape, isolating the clamp: a row already at the subscription's own
+    /// version, so nothing about republishing muddies what the overlap clamp alone does.</summary>
     [Fact]
     public async Task A_superseded_row_is_retired_at_the_current_windows_start_and_the_current_row_stands()
     {
@@ -419,6 +420,10 @@ public sealed class UsageProjectionPublisherTests
             PeriodEndUtc = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc),
             Included = 100,
             Used = 10,
+            // Already at the subscription's own version, so the republish half of reconciliation has
+            // nothing to do here and this test is purely about the clamp — the combined case, where a
+            // stale version drives both actions, is its own test below.
+            SubscriptionVersion = subscription.Version,
             ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
         };
 
@@ -441,6 +446,62 @@ public sealed class UsageProjectionPublisherTests
 
         retiredAt.Should().Be(Period().StartUtc);
         _published.Should().NotContain(document => document.ItemId == superseded.ItemId);
+    }
+
+    /// <summary>
+    /// The a00c2376 shape as it actually occurs: a plan change re-anchored the window AND moved the
+    /// subscription's version, so the row is both superseded and carrying a stale status. Retiring it
+    /// alone would leave that stale status readable for the whole of CounterRetentionDays to a query
+    /// that filters on SubscriptionStatus with no window predicate — the gap the client's own query
+    /// exposed. Both actions must fire from the one row.
+    /// </summary>
+    [Fact]
+    public async Task A_superseded_row_with_a_stale_status_is_republished_and_retired_together()
+    {
+        var subscription = Subscription();
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.Version = 11;
+
+        var superseded = new SubscriptionUsageCurrent
+        {
+            ItemId = "sub-1:screening:M2026-08",
+            TenantId = TenantId,
+            OrganizationId = OrganizationId,
+            SubscriptionId = "sub-1",
+            MeterKey = "screening",
+            PeriodKey = "M2026-08",
+            PeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            PeriodEndUtc = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc),
+            Included = 100,
+            Used = 10,
+            SubscriptionStatus = SubscriptionStatus.Active,
+            SubscriptionVersion = 2,
+            ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[superseded]);
+
+        DateTime? retiredAt = null;
+        _current
+            .Setup(repository => repository.TryRetireAsync(
+                TenantId, superseded.ItemId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, DateTime endUtc, DateTime _, CancellationToken _) =>
+                retiredAt = endUtc)
+            .ReturnsAsync(true);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        retiredAt.Should().Be(Period().StartUtc);
+        var republished = _published.Should()
+            .ContainSingle(document => document.ItemId == superseded.ItemId).Subject;
+        republished.SubscriptionStatus.Should().Be(SubscriptionStatus.Canceled);
+        republished.SubscriptionVersion.Should().Be(11);
+        republished.Used.Should().Be(10, "the balance is untouched by republishing status and plan");
     }
 
     /// <summary>
@@ -469,6 +530,9 @@ public sealed class UsageProjectionPublisherTests
             PeriodEndUtc = new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc),
             Included = 100,
             Used = 1,
+            // Already at the subscription's own version, so this test is purely about the retire
+            // guard and is not incidentally also exercising a republish.
+            SubscriptionVersion = subscription.Version,
             ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
         };
 
