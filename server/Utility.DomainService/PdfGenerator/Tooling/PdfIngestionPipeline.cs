@@ -182,7 +182,10 @@ public sealed class PdfIngestionPipeline : IPdfIngestionPipeline
                 failedChecks = veraPdfResult.Errors;
                 finalProfile = validatedProfile;
 
-                var isPdfA1 = validatedProfile is not null && validatedProfile.TrimStart().StartsWith('1');
+                // Real veraPDF output puts a full descriptive string here - "PDF/A-1b validation
+                // profile" - not a short code, so a StartsWith('1') check (which would never match)
+                // was verified wrong against an actual captured report before being fixed to this.
+                var isPdfA1 = validatedProfile is not null && validatedProfile.Contains("PDF/A-1", StringComparison.OrdinalIgnoreCase);
                 var needsRepair = veraPdfResult.Success && (!isCompliant || isPdfA1);
 
                 if (needsRepair)

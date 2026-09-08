@@ -53,9 +53,23 @@ public sealed class VeraPdfXmlParser
 
     private static bool IsFailedCheckNode(XElement element)
     {
-        if (!element.Name.LocalName.Equals("rule", StringComparison.OrdinalIgnoreCase)
-            && !element.Name.LocalName.Equals("test", StringComparison.OrdinalIgnoreCase)
-            && !element.Name.LocalName.Equals("check", StringComparison.OrdinalIgnoreCase))
+        var name = element.Name.LocalName;
+        var isRule = name.Equals("rule", StringComparison.OrdinalIgnoreCase);
+
+        if (!isRule
+            && !name.Equals("test", StringComparison.OrdinalIgnoreCase)
+            && !name.Equals("check", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // A real captured veraPDF report nests <check status="failed"> inside <rule status="failed">
+        // as that rule's own supporting detail (one per failing location), not a second independent
+        // failure - counting both produced duplicate entries, and collapsed distinct rules into one
+        // generic string once DescribeFailure's old priority order is applied to both. Only a
+        // check/test with no rule ancestor - a different report shape this parser also tolerates -
+        // is counted on its own.
+        if (!isRule && element.Ancestors().Any(a => a.Name.LocalName.Equals("rule", StringComparison.OrdinalIgnoreCase)))
         {
             return false;
         }
@@ -70,11 +84,22 @@ public sealed class VeraPdfXmlParser
 
     private static string? DescribeFailure(XElement element)
     {
-        return ReadAttribute(element, "specification")
-            ?? ReadAttribute(element, "clause")
+        // clause+description first: against a real captured report, "specification" alone is the
+        // ISO document name shared by every rule in it (e.g. "ISO 19005-1:2005"), so putting it
+        // first made every distinct rule collapse into one identical, uninformative string once
+        // deduplicated.
+        var clause = ReadAttribute(element, "clause");
+        var description = ReadElementValue(element, "description");
+
+        if (!string.IsNullOrWhiteSpace(clause) && !string.IsNullOrWhiteSpace(description))
+        {
+            return $"{clause}: {description}";
+        }
+
+        return description
+            ?? ReadAttribute(element, "specification")
             ?? ReadAttribute(element, "testNumber")
             ?? ReadElementValue(element, "message")
-            ?? ReadElementValue(element, "description")
             ?? CompactText(element.Value);
     }
 

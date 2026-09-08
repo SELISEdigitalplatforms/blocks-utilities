@@ -234,7 +234,9 @@ public sealed class PdfIngestionPipelineTests : IDisposable
 
         _pdfAValidator
             .Setup(x => x.ValidateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PdfAValidationResult { Success = true, IsPdfA = true, IsCompliant = true, ProfileName = "1B" });
+            // The real veraPDF shape, captured against an actual PDF via its Docker CLI: a full
+            // descriptive string, not a short code - profileName="PDF/A-1b validation profile".
+            .ReturnsAsync(new PdfAValidationResult { Success = true, IsPdfA = true, IsCompliant = true, ProfileName = "PDF/A-1b validation profile" });
 
         _flattener
             .Setup(x => x.FlattenAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
