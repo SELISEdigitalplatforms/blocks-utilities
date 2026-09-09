@@ -2,6 +2,7 @@ using FluentAssertions;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 
 namespace XUnitTest.Subscription;
 
@@ -347,6 +348,158 @@ public sealed class SubscriptionProrationCalculatorTests
         var outcome = Calculate(subscription, NewPrice(2_000), [], PeriodStart);
 
         outcome.Breakdown.Should().Be(default(ProrationBreakdown));
+    }
+
+    /// <summary>
+    /// A quantity change's target is the current period itself, not a calendar period bought
+    /// today — so a quantity increase during a calendar stub owes only for the days and the time
+    /// actually left in it, not for a fresh month at the new quantity.
+    /// </summary>
+    [Fact]
+    public void A_quantity_increase_during_a_calendar_stub_prices_both_sides_from_the_same_stub()
+    {
+        var outcome = QuantityIncreaseDuringStub(StubStart);
+
+        // Outgoing: 15000 x 2/30 = 1000. Target: 18000 x 2/30 = 1200. Neither is a fresh month.
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(1_000);
+        outcome.Breakdown.Target.ProratedValueMinor.Should().Be(1_200);
+        outcome.ChargeMinor.Should().Be(200);
+    }
+
+    /// <summary>
+    /// Guards the elapsed-time half of <c>targetIsCurrentPeriod</c>: pricing right at the stub's
+    /// start (as the test above does) cannot tell a working elapsed-time ratio from one silently
+    /// skipped by the calendar-priced shortcut, since remaining and total time are equal either
+    /// way. Asking partway through the stub is the only way to catch that shortcut firing where it
+    /// must not.
+    /// </summary>
+    [Fact]
+    public void A_quantity_increase_partway_through_a_calendar_stub_prices_only_the_time_left()
+    {
+        // One of the stub's two days has already elapsed.
+        var outcome = QuantityIncreaseDuringStub(StubStart.AddDays(1));
+
+        // Half of each side's calendar-priced amount: 1000/2 = 500, 1200/2 = 600.
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(500);
+        outcome.Breakdown.Target.ProratedValueMinor.Should().Be(600);
+        outcome.ChargeMinor.Should().Be(100);
+
+        // What recurs from the next boundary on is unaffected by how much of the stub is left.
+        outcome.TargetFullPeriodTotalMinor.Should().Be(18_000);
+    }
+
+    /// <summary>
+    /// At the stub's own end there is no time left on either side, so nothing is owed and nothing
+    /// is credited — the same zero-remaining floor an ordinary anniversary period already has.
+    /// </summary>
+    [Fact]
+    public void A_quantity_increase_at_the_stubs_end_owes_and_credits_nothing_further()
+    {
+        var outcome = QuantityIncreaseDuringStub(StubEnd);
+
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(0);
+        outcome.Breakdown.Target.ProratedValueMinor.Should().Be(0);
+        outcome.ChargeMinor.Should().Be(0);
+    }
+
+    /// <summary>
+    /// The fraction is read from where the current period actually starts, never from the
+    /// signup-time fields, which is what makes it correct after a renewal moves those dates
+    /// without clearing them.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SubscriptionDetail.InitialChargeProrated"/> and its day counts are frozen once,
+    /// at signup, and nothing clears them on a later renewal or plan change — see
+    /// <see cref="CalendarBillingAlignment.FrozenFraction"/>'s own remarks. This subscription is
+    /// stamped with a stale 7/31 from a signup stub that ended long ago, but is now sitting in a
+    /// full calendar month starting on the first: reading the stale fields instead of resolving
+    /// fresh from <see cref="SubscriptionDetail.CurrentPeriodStartUtc"/> would scale the outgoing
+    /// side down to a week's worth of an already-whole month.
+    /// </remarks>
+    [Fact]
+    public void The_outgoing_fraction_ignores_a_stale_signup_fraction_frozen_on_the_subscription()
+    {
+        var periodStart = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var periodEnd = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var subscription = new SubscriptionDetail
+        {
+            Plan = new PlanSnapshot { Code = "professional", DisplayName = "Professional" },
+            Price = new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 30_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            CurrentPeriodStartUtc = periodStart,
+            CurrentPeriodEndUtc = periodEnd,
+            // A signup stub from a previous cycle, long since superseded by this full month.
+            InitialChargeProrated = true,
+            ProrationDays = 7,
+            ProrationTotalDays = 31
+        };
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription,
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 60_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            [],
+            periodStart,
+            periodStart,
+            periodEnd,
+            new BillingDayFraction(31, 31));
+
+        // The full 30000, not 30000 x 7/31 = 6774 — the current period is a whole month, and the
+        // stale signup fields must never be read to say otherwise.
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(30_000);
+    }
+
+    private static readonly DateTime StubStart = new(2026, 4, 29, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime StubEnd = new(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private static ProrationOutcome QuantityIncreaseDuringStub(DateTime nowUtc)
+    {
+        var subscription = new SubscriptionDetail
+        {
+            Plan = new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            Price = new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 1_500,
+                QuantityItemKey = "user",
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            QuantityItems =
+            [
+                new SubscriptionQuantityItem { ItemKey = "user", Quantity = 10, UnitAmountMinor = 1_500 }
+            ],
+            CurrentPeriodStartUtc = StubStart,
+            CurrentPeriodEndUtc = StubEnd
+        };
+        var target = new List<SubscriptionQuantityItem>
+        {
+            new() { ItemKey = "user", Quantity = 12, UnitAmountMinor = 1_500 }
+        };
+
+        return SubscriptionProrationCalculator.Calculate(
+            subscription,
+            subscription.Plan,
+            subscription.Price,
+            target,
+            nowUtc,
+            StubStart,
+            StubEnd,
+            targetIsCurrentPeriod: true);
     }
 
     private static SubscriptionDetail NewSubscription(

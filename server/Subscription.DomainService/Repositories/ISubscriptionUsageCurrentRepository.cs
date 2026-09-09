@@ -85,4 +85,41 @@ public interface ISubscriptionUsageCurrentRepository
         string tenantId,
         string documentId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every stored document for one subscription, with no window predicate.
+    /// </summary>
+    /// <remarks>
+    /// For reconciliation, which must find rows a plan-derived window can no longer describe —
+    /// superseded by a later window, or orphaned because their meter left the plan. Those rows are
+    /// exactly what a window-filtered read like <see cref="ListCurrentAsync"/> can never return.
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionUsageCurrent>> ListBySubscriptionAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Clamps a superseded row's window to <paramref name="endUtc"/>, so it stops overlapping the
+    /// window that replaced it.
+    /// </summary>
+    /// <remarks>
+    /// Guarded to only shrink: a no-op unless the stored <c>PeriodEndUtc</c> is still past
+    /// <paramref name="endUtc"/>. A dedicated write rather than folding <c>PeriodEndUtc</c> into the
+    /// merge pipeline's conditional groups, because that field sits in the unconditional identity
+    /// group there and must stay there for every other write.
+    /// <para>
+    /// <paramref name="expiresAtUtc"/> is taken from the caller rather than derived from
+    /// <paramref name="endUtc"/> in here: <c>endUtc</c> is the new window's start, ordinarily in the
+    /// past relative to when this runs, and a row whose <c>ExpiresAtUtc</c> follows it into the past
+    /// is picked up by the TTL index within a minute — deleting a row this call means to retire, not
+    /// erase.
+    /// </para>
+    /// </remarks>
+    Task<bool> TryRetireAsync(
+        string tenantId,
+        string itemId,
+        DateTime endUtc,
+        DateTime expiresAtUtc,
+        CancellationToken cancellationToken);
 }
