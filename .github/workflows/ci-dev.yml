@@ -66,7 +66,7 @@ jobs:
 
   deploy:
     needs: build-and-push
-    runs-on: [self-hosted, Linux, X64, cloud-devstg-runner]
+    runs-on: [self-hosted, cloud-devstg-runner]
     timeout-minutes: 20
     permissions:
       contents: read
@@ -105,8 +105,27 @@ jobs:
           test -f "$INFRA_DIR/docker-compose.yml" || { echo "::error::missing $INFRA_DIR/docker-compose.yml"; exit 1; }
 
           cd "$INFRA_DIR"
-          export "$TAG_VAR=$IMAGE_TAG"
+
+          # Persist the tag in .env instead of only exporting it for this shell.
+          # Otherwise .env keeps pointing at the previous tag, and any later
+          # `docker compose up -d` or `./run.sh -all` silently rolls this
+          # service back to the old image.
+          cp .env ".env.bak-deploy"
+          if grep -qE "^${TAG_VAR}=" .env; then
+            sed -i -E "s|^${TAG_VAR}=.*|${TAG_VAR}=${IMAGE_TAG}|" .env
+          else
+            printf '%s=%s\n' "$TAG_VAR" "$IMAGE_TAG" >> .env
+          fi
           echo "Deploying $SVC ($TAG_VAR=$IMAGE_TAG) from $INFRA_DIR"
+
+          # Confirm .env now resolves to the tag we are about to deploy.
+          resolved=$(docker compose --env-file .env --profile infra --profile "$SVC" config 2>/dev/null \
+                     | grep -oE "image: [^ ]*${SVC}-api:[^ ]*" | head -1)
+          echo "compose resolves: $resolved"
+          case "$resolved" in
+            *":$IMAGE_TAG") ;;
+            *) echo "::error::.env did not take the new tag ($TAG_VAR=$IMAGE_TAG); got $resolved"; exit 1 ;;
+          esac
 
           # --profile infra is required for a valid compose project: the app
           # services declare depends_on mongodb, which lives in that profile.
