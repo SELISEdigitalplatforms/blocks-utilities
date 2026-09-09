@@ -15,6 +15,13 @@
         Task NotifyStampTextToPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
         Task NotifyStampIntoPdfEvent(bool success, string outputPdfFileId, string messageCoRelationId, string? projectKey);
         Task NotifyConvertDocumentToPdfEvent(bool success, string fileId, string messageCoRelationId, string? projectKey);
+
+        /// <summary>
+        /// Notifies the requesting user that one file's ingestion finished. Unlike
+        /// <see cref="NotifyConvertDocumentToPdfEvent"/>, the user is supplied explicitly rather than
+        /// read from ambient <c>BlocksContext</c> - see <c>IngestPdfEvent.UserId</c> for why.
+        /// </summary>
+        Task NotifyIngestPdfEvent(bool success, string fileId, string messageCoRelationId, string? userId, string? projectKey);
     }
 }
 

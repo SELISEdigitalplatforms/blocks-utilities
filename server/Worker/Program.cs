@@ -5,7 +5,9 @@ using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
 using Utility.DomainService.Messaging;
+using Utility.DomainService.PdfGenerator.Tooling;
 using Utility.DomainService.PdfGenerator.Utilities;
+using Utility.DomainService.PdfIngestion.Utilities;
 using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Subscription.DomainService.Services;
@@ -13,6 +15,7 @@ using Subscription.DomainService.Utilities;
 using Worker;
 using Worker.Configuration;
 using Worker.Consumers.PdfGenerator;
+using Worker.Consumers.PdfIngestion;
 using Worker.Consumers.Payment;
 using Worker.Consumers.Subscription;
 using Subscription.DomainService.Entities;
@@ -77,6 +80,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             // Register the test consumer
             services.RegisterUtilityServices();
             services.RegisterPdfGeneratorConsumers();
+            services.RegisterPdfIngestionConsumers();
+            // Worker-only: the Api answers requests and serves polling, and must never resolve a
+            // graph that expects qpdf, Java or Ghostscript on PATH.
+            services.RegisterPdfIngestionToolchain(context.Configuration);
             services.AddSingleton<IVault>(_ => paymentVault);
             services.RegisterPaymentDomainServices(context.Configuration);
             services.RegisterSubscriptionDomainServices(
@@ -131,6 +138,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
     var magicLink = MagicLinkConstants.GetMessageConfiguration(connectionString);
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
+    var pdfIngestion = PdfIngestionConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
 
     if (MagicLinkConstants.GetProvider(connectionString) == MagicLinkConstants.RabbitMqProvider)
@@ -145,6 +153,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..magicLink.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..pdfIngestion.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ConsumerSubscription.BindToQueue(
                         PaymentConstants.PaymentWorkQueue),
@@ -165,6 +174,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Queues ?? [],
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
+                ..pdfIngestion.AzureServiceBusConfiguration?.Queues ?? [],
                 ..templateEngine.AzureServiceBusConfiguration?.Queues ?? [],
                 PaymentConstants.PaymentWorkQueue
             ],
@@ -173,6 +183,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..magicLink.AzureServiceBusConfiguration?.Topics ?? [],
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
+                ..pdfIngestion.AzureServiceBusConfiguration?.Topics ?? [],
                 ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
                 PaymentConstants.LifecycleTopic,
                 SubscriptionConstants.LifecycleTopic
