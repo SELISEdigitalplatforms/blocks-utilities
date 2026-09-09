@@ -67,6 +67,25 @@ public sealed class ProcessRunner : IProcessRunner
                 TimedOut = true
             };
         }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        {
+            // The executable could not even be started - a missing binary, an invalid working
+            // directory, a permission error. Every tool wrapper (QpdfPdfNormalizer,
+            // VeraPdfAValidator, PdfBoxGeometryNormalizer/PdfFlattener/StandardPdfConverter,
+            // GhostscriptPdfAConverter) already treats a non-zero-exit ProcessResult as an
+            // ordinary, graceful failure - reporting this the same way means a misconfigured or
+            // missing tool surfaces through those existing fallback paths instead of throwing past
+            // all of them and erasing whatever the pipeline had already legitimately determined
+            // about the file (verified live: a missing Ghostscript binary during PDF/A repair used
+            // to make the whole verdict falsely report the file as completely unreadable).
+            stopwatch.Stop();
+            return new ProcessResult
+            {
+                ExitCode = -1,
+                StandardError = ex.Message,
+                Duration = stopwatch.Elapsed
+            };
+        }
     }
 
     private static void PrependExecutableDirectoryToPath(ProcessStartInfo startInfo, string fileName)
