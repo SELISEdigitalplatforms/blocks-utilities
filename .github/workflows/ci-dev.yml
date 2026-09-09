@@ -66,7 +66,7 @@ jobs:
 
   deploy:
     needs: build-and-push
-    runs-on: [self-hosted, cloud-devstg-runner]
+    runs-on: [self-hosted, Linux, X64, cloud-devstg-runner]
     timeout-minutes: 20
     permissions:
       contents: read
