@@ -4,7 +4,7 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Input } from "@/components/ui-kits/input/input";
 import { toast } from "@/hooks/use-toast";
 import { useRecordUsage } from "../hooks/use-record-usage";
-import type { EntitlementDecision } from "../models/subscription-simulation.model";
+import type { MeterUsage } from "../models/subscription-simulation.model";
 import { subscriptionSimulationService } from "../services/subscription-simulation.service";
 import type { PlanMeter } from "../../subscription/models/subscription-plan.model";
 
@@ -21,23 +21,33 @@ import type { PlanMeter } from "../../subscription/models/subscription-plan.mode
 export const UsageMeterRow = ({
   meter,
   entitlementKey,
-  initialDecision,
+  usage,
   organizationId,
 }: {
   meter: PlanMeter;
   /** The plan entitlement that gates this meter, if the plan defines one. */
   entitlementKey: string | undefined;
-  initialDecision: EntitlementDecision | undefined;
+  /** This meter's row from `GET /api/subscription-usage/current` — the authoritative figures. */
+  usage: MeterUsage | undefined;
   organizationId: string | undefined;
 }) => {
   const { mutateAsync: recordUsage } = useRecordUsage();
 
   const [quantity, setQuantity] = useState("1");
   const [phase, setPhase] = useState<"idle" | "checking" | "recording">("idle");
-  const [lastCheck, setLastCheck] = useState<EntitlementDecision | undefined>(initialDecision);
+  // A record answers with the balance including that call, so it is newer than any read. It is
+  // dropped as soon as a fresh read arrives for the same period.
+  const [recorded, setRecorded] = useState<MeterUsage | null>(null);
   const [lastResult, setLastResult] = useState<
     { message: string; tone: "success" | "blocked" | "error" } | null
   >(null);
+
+  // The record result wins while it is for the period the read describes; once the read catches
+  // up (or the period turns over) the server's own row takes back over.
+  const current =
+    recorded && (!usage || (usage.periodKey === recorded.periodKey && usage.used < recorded.used))
+      ? recorded
+      : usage;
 
   const consume = async () => {
     const parsedQuantity = Number(quantity);
@@ -56,8 +66,6 @@ export const UsageMeterRow = ({
           entitlementKey,
           organizationId,
         );
-        setLastCheck(checked);
-
         if (!checked.allowed) {
           setLastResult({
             message: `Blocked before recording — ${checked.reason}.`,
@@ -92,6 +100,8 @@ export const UsageMeterRow = ({
         organizationId,
       });
 
+      setRecorded(result);
+
       setLastResult({
         message: result.allowed
           ? `Recorded. ${result.used}/${result.included} ${result.unitLabel} used this period, ${result.remaining} remaining${result.overage ? `, ${result.overage} over` : ""}.`
@@ -121,8 +131,8 @@ export const UsageMeterRow = ({
       <div className="min-w-0">
         <p className="text-sm font-medium">{meter.displayName}</p>
         <p className="text-xs text-muted-foreground">
-          {lastCheck?.limitKind === "Count"
-            ? `${lastCheck.used ?? 0}/${lastCheck.limit ?? meter.includedQuantity} ${meter.unitLabel}${meter.includedQuantity === 1 ? "" : "s"} used this period`
+          {current
+            ? `${current.used}/${current.included} ${current.unitLabel || meter.unitLabel}${current.included === 1 ? "" : "s"} used this period${current.overage ? `, ${current.overage} over` : ""}`
             : entitlementKey
               ? `Entitlement: ${entitlementKey}`
               : `No entitlement gates this meter — recording goes straight through.`}
