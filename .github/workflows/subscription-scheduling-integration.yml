@@ -5,6 +5,10 @@ on:
     paths:
       - "server/Subscription.DomainService/Scheduling/**"
       - "server/Subscription.DomainService/Services/SubscriptionRenewalService.cs"
+      - "server/Subscription.DomainService/Services/UsageProjectionPublisher.cs"
+      - "server/Subscription.DomainService/Services/MeterAllowanceResolver.cs"
+      - "server/Subscription.DomainService/Utilities/MeterAllowance.cs"
+      - "server/Subscription.DomainService/Repositories/SubscriptionUsage*.cs"
       - "server/XUnitTest/Integration/**"
       - ".github/workflows/subscription-scheduling-integration.yml"
   push:
@@ -12,6 +16,10 @@ on:
     paths:
       - "server/Subscription.DomainService/Scheduling/**"
       - "server/Subscription.DomainService/Services/SubscriptionRenewalService.cs"
+      - "server/Subscription.DomainService/Services/UsageProjectionPublisher.cs"
+      - "server/Subscription.DomainService/Services/MeterAllowanceResolver.cs"
+      - "server/Subscription.DomainService/Utilities/MeterAllowance.cs"
+      - "server/Subscription.DomainService/Repositories/SubscriptionUsage*.cs"
       - "server/XUnitTest/Integration/**"
 
 jobs:

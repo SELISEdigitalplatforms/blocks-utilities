@@ -466,15 +466,19 @@ public sealed class UsageRecordingService : IUsageRecordingService
             subscription.Plan.Meters.Select(meter => meter.MeterKey),
             StringComparer.Ordinal);
 
+        // A structurally sound read model can still hold two live rows for one meter — a plan
+        // change that re-anchors the window before the reconciliation sweep retires the row it
+        // superseded. Highest SubscriptionVersion wins, mirroring the merge pipeline's own tie
+        // break, so a stale duplicate never outranks the row that superseded it.
+        var deduped = documents
+            .Where(document => meters.Contains(document.MeterKey))
+            .GroupBy(document => document.MeterKey, StringComparer.Ordinal)
+            .Select(group => group.OrderByDescending(document => document.SubscriptionVersion).First());
+
         var results = new List<(UsageResponse, DateTime)>(documents.Count);
 
-        foreach (var document in documents)
+        foreach (var document in deduped)
         {
-            if (!meters.Contains(document.MeterKey))
-            {
-                continue;
-            }
-
             results.Add((
                 new UsageResponse
                 {

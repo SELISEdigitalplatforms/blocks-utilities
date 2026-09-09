@@ -24,6 +24,15 @@ public static class SubscriptionProrationCalculator
     /// one for a plan change — its volume bands and combination policy are what the new side is
     /// held to, since those are what the subscriber is moving onto.
     /// </param>
+    /// <param name="targetIsCurrentPeriod">
+    /// True for a quantity change, whose target is not a newly bought calendar period but the
+    /// subscription's own current one — the same dates, just a different quantity. The outgoing
+    /// side's own resolved calendar fraction is then reused for the target instead of
+    /// <paramref name="targetFraction"/>, and, unlike a plan change onto a fresh calendar period,
+    /// the result still goes through the elapsed-time ratio below rather than being taken as
+    /// already exactly the period bought — a quantity change made partway through a stub owes for
+    /// what is left of it, not for the whole stub over again.
+    /// </param>
     public static ProrationOutcome Calculate(
         SubscriptionDetail subscription,
         PlanSnapshot targetPlan,
@@ -32,7 +41,8 @@ public static class SubscriptionProrationCalculator
         DateTime nowUtc,
         DateTime targetPeriodStartUtc,
         DateTime targetPeriodEndUtc,
-        BillingDayFraction targetFraction = default)
+        BillingDayFraction targetFraction = default,
+        bool targetIsCurrentPeriod = false)
     {
         ArgumentNullException.ThrowIfNull(subscription);
         ArgumentNullException.ThrowIfNull(targetPlan);
@@ -53,6 +63,19 @@ public static class SubscriptionProrationCalculator
             0,
             totalTicks);
 
+        // The outgoing period's own calendar fraction, when it has one — a plan change replaces
+        // CurrentPeriodStartUtc/EndUtc, so this cannot be read from InitialChargeProrated or the
+        // fraction frozen at signup; both survive renewals and would describe a period that is no
+        // longer the one being left. Resolved fresh instead, exactly as the target side resolves
+        // its own.
+        var outgoingFraction = CurrentPeriodFraction(subscription);
+
+        // A quantity change's target is not a period being purchased today — it is the current
+        // period, priced at a different quantity — so it is charged the identical fraction the
+        // outgoing side just resolved rather than whatever the caller supplied for a freshly
+        // bought calendar period.
+        var effectiveTargetFraction = targetIsCurrentPeriod ? outgoingFraction : targetFraction;
+
         // Both sides through the same band-aware path a renewal uses, so a quantity change is
         // priced at the band its quantity actually selects rather than at the flat unit amount.
         var oldDiscounted = SubscriptionAmountCalculator.DiscountedAmountMinor(
@@ -61,7 +84,8 @@ public static class SubscriptionProrationCalculator
             subscription.Price,
             subscription.QuantityItems,
             subscription.DiscountPeriodsApplied,
-            nowUtc);
+            nowUtc,
+            outgoingFraction);
 
         // A partial period on a calendar-aligned yearly target is charged from the monthly price
         // that annual price was linked to, exactly as a fresh signup on it would be. Prorating the
@@ -69,7 +93,7 @@ public static class SubscriptionProrationCalculator
         var newPrice = targetPrice;
         var newQuantityItems = targetQuantityItems;
 
-        if (targetFraction.IsPartial &&
+        if (effectiveTargetFraction.IsPartial &&
             CalendarBillingAlignment.TryStubBasis(
                 targetPrice,
                 targetQuantityItems,
@@ -90,7 +114,7 @@ public static class SubscriptionProrationCalculator
             newQuantityItems,
             subscription.DiscountPeriodsApplied,
             nowUtc,
-            targetFraction);
+            effectiveTargetFraction);
 
         // Each side settled at its own price's rate *and* mode, before the two are netted against
         // each other. A plan change can move a subscriber from a tax-exclusive price to an inclusive
@@ -117,7 +141,7 @@ public static class SubscriptionProrationCalculator
         // period — every anniversary target, and every change landing on the first —
         // newTaxInclusive already *is* the full period, and reusing it keeps those quotes
         // bit-identical rather than merely equal by inspection.
-        var targetFullPeriodTotalMinor = targetFraction.IsPartial
+        var targetFullPeriodTotalMinor = effectiveTargetFraction.IsPartial
             ? FullPeriod(subscription, targetPlan, targetPrice, targetQuantityItems, nowUtc)
             : newTaxInclusive;
 
@@ -134,7 +158,11 @@ public static class SubscriptionProrationCalculator
         // Every calendar-priced target, not only the partial ones. A change landing on the first
         // buys a whole month, and letting the clock scale it would charge a subscriber who moved
         // at noon less than one who signed up fresh at noon for the identical month.
-        var newRemainingCost = targetFraction.IsCalendarPriced
+        //
+        // Except a quantity change's target: it is not a period being bought today, it is the
+        // current period at a different quantity, so it still owes only for what is left of it —
+        // the same elapsed-time ratio the outgoing side was just charged.
+        var newRemainingCost = effectiveTargetFraction.IsCalendarPriced && !targetIsCurrentPeriod
             ? newTaxInclusive
             : targetTotalTicks <= 0
                 ? 0
@@ -399,6 +427,29 @@ public static class SubscriptionProrationCalculator
     /// </remarks>
     private static long Prorate(long amountMinor, long remainingTicks, long totalTicks) =>
         (long)((Int128)amountMinor * remainingTicks / totalTicks);
+
+    /// <summary>
+    /// The current period's own calendar fraction, when its bounds are actually a calendar-aligned
+    /// stub or whole month rather than an anniversary period.
+    /// </summary>
+    /// <remarks>
+    /// Re-derived from <see cref="SubscriptionDetail.CurrentPeriodStartUtc"/> rather than trusted
+    /// from anywhere stored on the subscription, because a plan change is exactly the event that
+    /// replaces those dates — nothing frozen earlier can describe the period being left.
+    /// <see cref="CalendarBillingAlignment.TryResolveFirstPeriod"/> is asked what a period starting
+    /// there would cover, and the answer is trusted only if it actually ends where this period
+    /// does; an anniversary period, or a full annual period, will not, and falls back to full-period
+    /// pricing exactly as before this method existed.
+    /// </remarks>
+    private static BillingDayFraction CurrentPeriodFraction(SubscriptionDetail subscription) =>
+        CalendarBillingAlignment.IsCalendarAligned(subscription.Price) &&
+        CalendarBillingAlignment.TryResolveFirstPeriod(
+            subscription.CurrentPeriodStartUtc,
+            subscription.FeeSchedule.TimeZoneId,
+            out var period) &&
+        period.EndUtc == subscription.CurrentPeriodEndUtc
+            ? BillingDayFraction.Of(period)
+            : default;
 }
 
 /// <param name="ChargeMinor">What to charge now. Zero when the change is fully covered by credit.</param>

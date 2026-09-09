@@ -353,6 +353,43 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                 documentId))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SubscriptionUsageCurrent>> ListBySubscriptionAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken) =>
+        await Current(tenantId)
+            .Find(Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.TenantId,
+                    tenantId),
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SubscriptionId,
+                    subscriptionId)))
+            .ToListAsync(cancellationToken);
+
+    public async Task<bool> TryRetireAsync(
+        string tenantId,
+        string itemId,
+        DateTime endUtc,
+        DateTime expiresAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Current(tenantId).UpdateOneAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.ItemId,
+                    itemId),
+                Builders<SubscriptionUsageCurrent>.Filter.Gt(
+                    current => current.PeriodEndUtc,
+                    endUtc)),
+            Builders<SubscriptionUsageCurrent>.Update
+                .Set(current => current.PeriodEndUtc, endUtc)
+                .Set(current => current.ExpiresAtUtc, expiresAtUtc),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     private IMongoCollection<SubscriptionUsageCurrent> Current(string tenantId) =>
         SubscriptionCollections.Of<SubscriptionUsageCurrent>(
             _dbContextProvider,

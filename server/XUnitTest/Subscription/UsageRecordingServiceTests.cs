@@ -624,6 +624,45 @@ public sealed class UsageRecordingServiceTests
     }
 
     /// <summary>
+    /// A structurally sound projection can still hold two live rows for one meter — a superseded row
+    /// the reconciliation sweep has not yet retired. The read must not hand a caller two contradictory
+    /// answers for the same meter, and must not report the projection as partial for a pair that
+    /// between them cover every meter.
+    /// </summary>
+    [Fact]
+    public async Task A_duplicate_live_row_for_one_meter_is_deduped_to_the_highest_subscription_version()
+    {
+        AddLifetimeMeter();
+
+        var stale = Projected("screening");
+        stale.ItemId = "sub-1:screening:M2026-08";
+        stale.SubscriptionVersion = 2;
+
+        var current = Projected("screening");
+        current.ItemId = "sub-1:screening:M2026-09";
+        current.SubscriptionVersion = 4;
+        current.Used = 10;
+
+        _current
+            .Setup(repository => repository.ListCurrentAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([stale, current, Projected("storage")]);
+
+        var read = await Service().ReadCurrentAsync(
+            null, UsageReadMode.Projection, "corr-1", CancellationToken.None);
+
+        read.Value!.Items.Should().HaveCount(2, "one entry per meter, not one per row");
+        read.Value.Diagnostics.Fallback.Should().Be(
+            UsageReadFallback.None, "a deduped pair still covers every meter the plan has");
+        read.Value.Items.Should().ContainSingle(item => item.MeterKey == "screening")
+            .Which.Used.Should().Be(10, "the higher SubscriptionVersion wins");
+    }
+
+    /// <summary>
     /// The default is unchanged, so no existing caller of this endpoint starts depending on a read
     /// model having been published.
     /// </summary>

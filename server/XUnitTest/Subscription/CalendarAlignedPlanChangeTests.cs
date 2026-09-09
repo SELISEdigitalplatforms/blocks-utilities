@@ -247,6 +247,159 @@ public sealed class CalendarAlignedPlanChangeTests
         outcome.TargetFullPeriodTotalMinor.Should().Be(1_200_000);
     }
 
+    /// <summary>
+    /// The bug this fix closes: a subscription whose own current period is a calendar stub must be
+    /// credited unused time at the stub's own price, not at a full month's.
+    /// </summary>
+    /// <remarks>
+    /// A CHF 150 monthly plan bought for the last two days of a 30-day April costs CHF 10 — 150 x
+    /// 2/30. An immediate upgrade taken the instant that stub opens has consumed none of it yet, so
+    /// crediting it back at anything more than CHF 10 hands back money the subscriber never paid.
+    /// </remarks>
+    [Fact]
+    public void An_upgrade_out_of_a_calendar_stub_credits_the_stubs_own_price_not_a_full_month()
+    {
+        var stubStart = new DateTime(2026, 4, 29, 0, 0, 0, DateTimeKind.Utc);
+        var stubEnd = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = "sub-1",
+            CurrencyCode = "CHF",
+            Plan = new PlanSnapshot { Code = "professional", DisplayName = "Professional" },
+            Price = new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 15_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            CurrentPeriodStartUtc = stubStart,
+            CurrentPeriodEndUtc = stubEnd
+        };
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription,
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 40_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            [],
+            stubStart,
+            stubStart,
+            stubEnd,
+            new BillingDayFraction(2, 30));
+
+        // 15000 x 2/30, rounded to the nearest minor unit — not the full 15000 a missing fraction
+        // would credit.
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(1_000);
+    }
+
+    /// <summary>
+    /// Guards the elapsed-time half of the fix: pricing right at the stub's own start (as the test
+    /// above does) cannot tell a working elapsed-time ratio from one silently skipped, since
+    /// remaining and total time are equal either way there. Asking partway through the stub is the
+    /// only way to catch the outgoing side being treated as already-fully-owed.
+    /// </summary>
+    [Fact]
+    public void An_upgrade_partway_through_a_calendar_stub_credits_only_the_time_left_in_it()
+    {
+        var stubStart = new DateTime(2026, 4, 29, 0, 0, 0, DateTimeKind.Utc);
+        var stubEnd = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = "sub-1",
+            CurrencyCode = "CHF",
+            Plan = new PlanSnapshot { Code = "professional", DisplayName = "Professional" },
+            Price = new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 15_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            CurrentPeriodStartUtc = stubStart,
+            CurrentPeriodEndUtc = stubEnd
+        };
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription,
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 40_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            [],
+            // One of the stub's two days has already elapsed.
+            stubStart.AddDays(1),
+            stubStart.AddDays(1),
+            stubEnd,
+            new BillingDayFraction(1, 30));
+
+        // The stub is worth 15000 x 2/30 = 1000, halved by the one remaining day of two: 500.
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(500);
+    }
+
+    /// <summary>
+    /// A price marked calendar-aligned whose current period does not actually end on the boundary
+    /// <see cref="CalendarBillingAlignment.TryResolveFirstPeriod"/> would derive from its start —
+    /// an anniversary-shaped period, or a full annual period — must still be priced as a whole
+    /// period rather than have some unrelated fraction forced onto it.
+    /// </summary>
+    [Fact]
+    public void An_outgoing_period_whose_boundary_does_not_match_falls_back_to_the_full_period()
+    {
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = "sub-1",
+            CurrencyCode = "CHF",
+            Plan = new PlanSnapshot { Code = "professional", DisplayName = "Professional" },
+            Price = new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 15_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            // Starts on the 29th, as the stub tests above do, but ends on the 29th of the
+            // following month rather than on the 1st — not a shape TryResolveFirstPeriod would
+            // ever produce from this start, so the boundary check must refuse it.
+            CurrentPeriodStartUtc = new DateTime(2026, 4, 29, 0, 0, 0, DateTimeKind.Utc),
+            CurrentPeriodEndUtc = new DateTime(2026, 5, 29, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription,
+            new PlanSnapshot { Code = "scale", DisplayName = "Scale" },
+            new PriceSnapshot
+            {
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 40_000,
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth
+            },
+            [],
+            subscription.CurrentPeriodStartUtc,
+            subscription.CurrentPeriodStartUtc,
+            subscription.CurrentPeriodEndUtc,
+            new BillingDayFraction(30, 30));
+
+        // The full 15000, never a fraction derived from a boundary this period does not have.
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(15_000);
+    }
+
     private static ProrationOutcome Calculate(
         long targetUnitAmountMinor,
         BillingDayFraction? fraction = null,

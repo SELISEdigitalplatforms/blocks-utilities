@@ -50,6 +50,11 @@ public sealed class UsageProjectionPublisherTests
                 _seeded.Add(document))
             .ReturnsAsync(true);
 
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[]);
+
         _usage
             .Setup(repository => repository.GetCountersAsync(
                 TenantId,
@@ -315,6 +320,308 @@ public sealed class UsageProjectionPublisherTests
 
         _published.Should().ContainSingle().Which.ExpiresAtUtc.Should().Be(expires);
     }
+
+    /// <summary>
+    /// The d9f76e26 shape: every meter that recorded the row's usage has since left the plan, so
+    /// <c>CurrentWindows</c> yields nothing at all. A refresh must still find and repair what it left
+    /// behind rather than stopping at "no windows, nothing to do".
+    /// </summary>
+    [Fact]
+    public async Task Refreshing_a_meterless_plan_reconciles_the_orphaned_row_instead_of_returning_zero()
+    {
+        var subscription = Subscription();
+        subscription.Plan.Meters = [];
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[OrphanRow()]);
+
+        var written = await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        written.Should().Be(1);
+        _published.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task An_orphaned_row_takes_the_subscriptions_status_and_version_but_keeps_its_balance()
+    {
+        var subscription = Subscription();
+        subscription.Plan.Meters = [];
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.Version = 7;
+
+        var orphan = OrphanRow();
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[orphan]);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var document = _published.Should().ContainSingle().Subject;
+        document.SubscriptionStatus.Should().Be(SubscriptionStatus.Canceled);
+        document.SubscriptionVersion.Should().Be(7);
+        document.Used.Should().Be(orphan.Used, "the genuine balance must survive the meter leaving the plan");
+        document.CounterVersion.Should().Be(orphan.CounterVersion);
+    }
+
+    /// <summary>
+    /// A republish that would change nothing still runs the merge's insert fallback into a
+    /// guaranteed duplicate-key exception — skipped so a backfill does not throw once per orphaned
+    /// row, forever.
+    /// </summary>
+    [Fact]
+    public async Task An_orphaned_row_already_at_the_subscriptions_version_is_not_republished()
+    {
+        var subscription = Subscription();
+        subscription.Plan.Meters = [];
+        subscription.Version = 1;
+
+        var orphan = OrphanRow();
+        orphan.SubscriptionVersion = 1;
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[orphan]);
+
+        var written = await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        written.Should().Be(0);
+        _current.Verify(
+            repository => repository.TryPublishAsync(
+                It.IsAny<SubscriptionUsageCurrent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>The a00c2376 shape, isolating the clamp: a row already at the subscription's own
+    /// version, so nothing about republishing muddies what the overlap clamp alone does.</summary>
+    [Fact]
+    public async Task A_superseded_row_is_retired_at_the_current_windows_start_and_the_current_row_stands()
+    {
+        var subscription = Subscription();
+
+        var superseded = new SubscriptionUsageCurrent
+        {
+            ItemId = "sub-1:screening:M2026-08",
+            TenantId = TenantId,
+            OrganizationId = OrganizationId,
+            SubscriptionId = "sub-1",
+            MeterKey = "screening",
+            PeriodKey = "M2026-08",
+            PeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            // Extends past the current window's own start, which is what makes it superseded rather
+            // than simply an old, already-closed row with nothing wrong with it.
+            PeriodEndUtc = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc),
+            Included = 100,
+            Used = 10,
+            // Already at the subscription's own version, so the republish half of reconciliation has
+            // nothing to do here and this test is purely about the clamp — the combined case, where a
+            // stale version drives both actions, is its own test below.
+            SubscriptionVersion = subscription.Version,
+            ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[superseded]);
+
+        DateTime? retiredAt = null;
+        _current
+            .Setup(repository => repository.TryRetireAsync(
+                TenantId, superseded.ItemId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, DateTime endUtc, DateTime _, CancellationToken _) =>
+                retiredAt = endUtc)
+            .ReturnsAsync(true);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        retiredAt.Should().Be(Period().StartUtc);
+        _published.Should().NotContain(document => document.ItemId == superseded.ItemId);
+    }
+
+    /// <summary>
+    /// The a00c2376 shape as it actually occurs: a plan change re-anchored the window AND moved the
+    /// subscription's version, so the row is both superseded and carrying a stale status. Retiring it
+    /// alone would leave that stale status readable for the whole of CounterRetentionDays to a query
+    /// that filters on SubscriptionStatus with no window predicate — the gap the client's own query
+    /// exposed. Both actions must fire from the one row.
+    /// </summary>
+    [Fact]
+    public async Task A_superseded_row_with_a_stale_status_is_republished_and_retired_together()
+    {
+        var subscription = Subscription();
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.Version = 11;
+
+        var superseded = new SubscriptionUsageCurrent
+        {
+            ItemId = "sub-1:screening:M2026-08",
+            TenantId = TenantId,
+            OrganizationId = OrganizationId,
+            SubscriptionId = "sub-1",
+            MeterKey = "screening",
+            PeriodKey = "M2026-08",
+            PeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            PeriodEndUtc = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc),
+            Included = 100,
+            Used = 10,
+            SubscriptionStatus = SubscriptionStatus.Active,
+            SubscriptionVersion = 2,
+            ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[superseded]);
+
+        DateTime? retiredAt = null;
+        _current
+            .Setup(repository => repository.TryRetireAsync(
+                TenantId, superseded.ItemId, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, DateTime endUtc, DateTime _, CancellationToken _) =>
+                retiredAt = endUtc)
+            .ReturnsAsync(true);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        retiredAt.Should().Be(Period().StartUtc);
+        var republished = _published.Should()
+            .ContainSingle(document => document.ItemId == superseded.ItemId).Subject;
+        republished.SubscriptionStatus.Should().Be(SubscriptionStatus.Canceled);
+        republished.SubscriptionVersion.Should().Be(11);
+        republished.Used.Should().Be(10, "the balance is untouched by republishing status and plan");
+    }
+
+    /// <summary>
+    /// A window that opens before every stored row — a meter's <c>ResetPolicy</c> moving from
+    /// <c>Periodic</c> to <c>Never</c> opens a lifetime window starting at the subscription's own
+    /// creation — must not be mistaken for having superseded a row that in fact starts later than it.
+    /// Retiring it would clamp <c>PeriodEndUtc</c> below <c>PeriodStartUtc</c> and hand the TTL index
+    /// a still-live row to delete.
+    /// </summary>
+    [Fact]
+    public async Task A_row_that_starts_after_the_current_window_is_not_retired()
+    {
+        var subscription = Subscription();
+
+        var futureDated = new SubscriptionUsageCurrent
+        {
+            ItemId = "sub-1:screening:M20261005",
+            TenantId = TenantId,
+            OrganizationId = OrganizationId,
+            SubscriptionId = "sub-1",
+            MeterKey = "screening",
+            PeriodKey = "M20261005",
+            // Starts after the current window's own start, so it has not been superseded by it —
+            // the inverse of the superseded-row shape above.
+            PeriodStartUtc = new DateTime(2026, 10, 5, 0, 0, 0, DateTimeKind.Utc),
+            PeriodEndUtc = new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc),
+            Included = 100,
+            Used = 1,
+            // Already at the subscription's own version, so this test is purely about the retire
+            // guard and is not incidentally also exercising a republish.
+            SubscriptionVersion = subscription.Version,
+            ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[futureDated]);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.TryRetireAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// The fb64f47d shape: a future-dated row the current window has not superseded, but whose
+    /// status is still stale. Republish is gated only on the version comparison, never on window
+    /// position, so it must fire here exactly as it would for a row the window has already passed —
+    /// proven directly rather than left to follow from the retire guard above, since scoping
+    /// republish to rows preceding the current window is the kind of change that would look like a
+    /// safe tightening and silently reopen this one.
+    /// </summary>
+    [Fact]
+    public async Task A_future_dated_row_with_a_stale_version_is_republished_but_not_retired()
+    {
+        var subscription = Subscription();
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.Version = 14;
+
+        var futureDated = new SubscriptionUsageCurrent
+        {
+            ItemId = "sub-1:screening:M20261005",
+            TenantId = TenantId,
+            OrganizationId = OrganizationId,
+            SubscriptionId = "sub-1",
+            MeterKey = "screening",
+            PeriodKey = "M20261005",
+            PeriodStartUtc = new DateTime(2026, 10, 5, 0, 0, 0, DateTimeKind.Utc),
+            PeriodEndUtc = new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc),
+            Included = 100,
+            Used = 1,
+            SubscriptionStatus = SubscriptionStatus.Active,
+            SubscriptionVersion = 11,
+            ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[futureDated]);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var republished = _published.Should()
+            .ContainSingle(document => document.ItemId == futureDated.ItemId).Subject;
+        republished.SubscriptionStatus.Should().Be(SubscriptionStatus.Canceled);
+        republished.SubscriptionVersion.Should().Be(14);
+        _current.Verify(
+            repository => repository.TryRetireAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the current window has not superseded a row that starts after it");
+    }
+
+    private static SubscriptionUsageCurrent OrphanRow() => new()
+    {
+        ItemId = "sub-1:retired-meter:M2026-09",
+        TenantId = TenantId,
+        OrganizationId = OrganizationId,
+        SubscriptionId = "sub-1",
+        MeterKey = "retired-meter",
+        PeriodKey = "M2026-09",
+        PeriodStartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+        PeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+        Included = 100,
+        Used = 42,
+        Remaining = 58,
+        CounterVersion = 5,
+        // Below any Subscription() default (Version 1) and below the explicit 7 the second test
+        // below sets, so both exercise a subscription version that has genuinely moved past it.
+        SubscriptionVersion = 0,
+        ExpiresAtUtc = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+    };
 
     private UsageProjectionPublisher Publisher() => new(
         _current.Object,
