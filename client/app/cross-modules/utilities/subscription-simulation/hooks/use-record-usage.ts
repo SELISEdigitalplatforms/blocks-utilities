@@ -8,9 +8,11 @@ export const useRecordUsage = () => {
   return useMutation({
     mutationFn: (request: RecordUsageRequest) =>
       subscriptionSimulationService.recordUsage(request),
-    onSuccess: () =>
+    onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["subscription-simulation-entitlements"],
-      }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["subscription-usage"] });
+    },
   });
 };

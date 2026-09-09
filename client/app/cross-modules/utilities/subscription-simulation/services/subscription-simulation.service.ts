@@ -3,6 +3,7 @@ import { serviceInstances } from "@/lib/http-client";
 import {
   AUDIT_TRAIL_DEFAULT_LIMIT,
   ENTITLEMENTS_ENDPOINT,
+  SUBSCRIPTION_USAGE_CURRENT_ENDPOINT,
   SUBSCRIPTION_USAGE_ENDPOINT,
   SUBSCRIPTION_USAGE_OVERAGE_PREVIEW_ENDPOINT,
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
@@ -16,6 +17,7 @@ import type {
   QuantityChangeQuote,
   EntitlementDecision,
   EntitlementsSnapshot,
+  MeterUsage,
   PreviewUsageOverageRequest,
   RecordUsageRequest,
   RecordUsageResult,
@@ -485,6 +487,29 @@ class SubscriptionSimulationService {
 
       throw error;
     }
+  }
+
+  /**
+   * Where every meter's allowance actually stands, straight from the counters.
+   *
+   * The entitlement snapshot is not this: it answers "may they act", per entitlement, and a meter
+   * with no entitlement gating it has no row there at all. Read here instead so the figures shown
+   * are the meter's own.
+   */
+  async getCurrentUsage(organizationId?: string): Promise<MeterUsage[]> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    const response = await serviceInstances.utitlitiesService.get<
+      SimulationApiResponse<MeterUsage[]>
+    >(`${SUBSCRIPTION_USAGE_CURRENT_ENDPOINT}${query}`);
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || "Current usage could not be loaded.");
+    }
+
+    return response.data;
   }
 
   /** The authoritative gate — the figures returned include this call. */
