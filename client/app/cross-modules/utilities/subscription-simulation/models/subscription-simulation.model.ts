@@ -595,6 +595,13 @@ export interface RecordUsageResult {
  * A hypothetical slice of additional metered usage to price. Writes nothing and charges nothing —
  * see {@link UsageOveragePreviewResult}.
  */
+/**
+ * One meter's state as `GET /api/subscription-usage/current` reports it — the same body a record
+ * call returns, so the two are read the same way. `allowed` and `replayed` describe a recording
+ * and mean nothing on a read.
+ */
+export type MeterUsage = RecordUsageResult;
+
 export interface PreviewUsageOverageRequest {
   meterKey: string;
   /** Cannot be zero or negative — a preview of no additional usage answers nothing. */

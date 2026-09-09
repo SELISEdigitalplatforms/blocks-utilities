@@ -31,7 +31,7 @@
     <PackageVersion Include="Aspose.Words" Version="25.6.0" />
     <PackageVersion Include="DotLiquid" Version="2.2.692" />
     <PackageVersion Include="iTextSharp.LGPLv2.Core" Version="1.7.5" />
-    <PackageVersion Include="PdfPig" Version="0.1.5" />
+    <PackageVersion Include="PdfPig" Version="0.1.16" />
     <PackageVersion Include="PdfSharp" Version="6.2.4" />
     <PackageVersion Include="PuppeteerSharp" Version="20.2.5" />
     <PackageVersion Include="Shark.PdfConvert" Version="1.0.5" />

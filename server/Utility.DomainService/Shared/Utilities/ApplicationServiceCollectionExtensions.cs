@@ -9,6 +9,7 @@ using Utility.DomainService.Geolocation.service;
 using Utility.DomainService.TemplateEngine.service;
 using Utility.DomainService.Shared.Services;
 using Utility.DomainService.PdfGenerator.service;
+using Utility.DomainService.PdfIngestion.service;
 using Utility.DomainService.MagicLink.Service;
 using Utility.DomainService.MagicLink;
 using DomainService.Storage;
@@ -72,6 +73,15 @@ namespace DomainService.Utilities
             // Word formats, so there is nothing to select between.
             services.TryAddSingleton<IDocumentToPdfConverter, AsposeDocumentToPdfConverter>();
             services.TryAddSingleton<IDocumentConversionService, DocumentConversionService>();
+
+            // PDF Ingestion request/status surface. Registered here, for both hosts, because both
+            // the Api (accepting requests, serving polls) and the Worker (the consumer that resolves
+            // IPdfIngestionRepository too) need it. The tool-execution graph these depend on
+            // downstream (qpdf, veraPDF, PDFBox, Ghostscript) is registered separately by
+            // RegisterPdfIngestionToolchain, called only from the Worker - the Api must never need
+            // those binaries on PATH.
+            services.TryAddSingleton<IPdfIngestionRepository, PdfIngestionRepository>();
+            services.TryAddSingleton<IPdfIngestionService, PdfIngestionService>();
 
             // Magic Link Services
             services.AddSingleton<IMagicLinkService, MagicLinkService>();
