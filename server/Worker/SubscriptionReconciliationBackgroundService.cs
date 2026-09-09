@@ -128,11 +128,24 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
                 // reach — one never provisioned a database, one mid-migration. Letting that
                 // escape would abort the loop at whatever position the bad tenant happens to
                 // occupy and silently stop billing every tenant ordered after it.
-                _logger.LogWarning(
-                    exception,
-                    "Subscription reconciliation skipped a tenant after an error " +
-                    "TenantHash={TenantHash}",
-                    PaymentLogValue.Hash(tenantId));
+                // An unprovisioned tenant is the expected half of that, and it repeats every
+                // pass for every such tenant — a stack trace per tenant per tick buries the
+                // failures worth reading, so it gets one line and anything else keeps its trace.
+                if (exception.GetBaseException() is KeyNotFoundException)
+                {
+                    _logger.LogWarning(
+                        "Subscription reconciliation skipped a tenant with no database " +
+                        "TenantHash={TenantHash}",
+                        PaymentLogValue.Hash(tenantId));
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "Subscription reconciliation skipped a tenant after an error " +
+                        "TenantHash={TenantHash}",
+                        PaymentLogValue.Hash(tenantId));
+                }
             }
         }
     }
