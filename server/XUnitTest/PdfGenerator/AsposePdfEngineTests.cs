@@ -179,7 +179,14 @@ namespace XUnitTest.PdfGenerator
 
         #region ConvertHtmlToPdfAsync
 
-        [Fact(Skip = "Aspose HTML to PDF crashes in Linux CI (.NET 9)")]
+        // Was skipped as "Aspose HTML to PDF crashes in Linux CI (.NET 9)". The crash was not
+        // Aspose and not .NET 9: Aspose renders through SkiaSharp, and no Linux native asset for
+        // SkiaSharp was ever referenced, so libSkiaSharp.so was absent from every Linux publish and
+        // the process took a SIGSEGV on the first page it laid out. It reached production the same
+        // way, killing the worker (exit 139) on each redelivery of a document-conversion message.
+        // Re-enabled with SkiaSharp.NativeAssets.Linux.NoDependencies in place: this test is the
+        // regression guard, and skipping it again would hide exactly the failure it exists to catch.
+        [Fact]
         public async Task ConvertHtmlToPdfAsync_ValidHtml_ReturnsPdf()
         {
             // Minimal valid HTML and options
