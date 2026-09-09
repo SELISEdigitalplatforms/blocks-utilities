@@ -268,6 +268,15 @@ mounted into its own pod to spawn sibling containers. `Dockerfile.worker` pins
 `PdfIngestion__QpdfExecutionMode`, `PdfIngestion__VeraPdfExecutionMode` and
 `PdfIngestion__PdfBoxExecutionMode` to `Direct` explicitly for exactly this reason.
 
+Ghostscript has no Docker mode, so testing PDF/A repair on a Windows dev machine means running a
+real Windows Ghostscript build. `PDFA_def.ps` hardcodes its ICC profile path as the rootless,
+Debian-shaped `/usr/share/color/icc/ghostscript/srgb.icc` (unambiguous on Linux). On Windows,
+Ghostscript's `-dSAFER` sandbox resolves that rootless path differently at `--permit-file-read`
+registration time than at actual open time, so the two never match and every PDF/A repair fails
+with `invalidfileaccess` — confirmed live, not something Linux/Docker deployments hit. Work around
+it locally with `--permit-file-read=*` (or point `GhostscriptIccProfilePath`/`PDFA_def.ps` at a
+matching drive-letter path); don't change the production default over this.
+
 ### Configuration
 
 Bound from the `PdfIngestion` section (`PdfToolingOptions`), by `RegisterPdfIngestionToolchain` —
