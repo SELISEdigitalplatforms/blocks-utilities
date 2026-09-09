@@ -147,6 +147,17 @@ RUN mkdir -p /usr/share/color/icc/ghostscript \
     && test -e /usr/share/color/icc/ghostscript/srgb.icc
 
 COPY --from=publish /app/publish .
+
+# Aspose.Words renders through SkiaSharp, and SkiaSharp's own package brings native assets only
+# for Windows and macOS. A Linux publish that is missing SkiaSharp.NativeAssets.Linux.NoDependencies
+# still carries the managed SkiaSharp.dll, so nothing fails until Aspose lays out its first page --
+# at which point the worker takes a SIGSEGV and crashloops on the redelivered message, taking every
+# other queue this process serves down with it. That is what happened in production, so the presence
+# of the native library is asserted at build time rather than discovered from a pod's exit code.
+# Matched by glob rather than a fixed RID: the publish stage's platform is overridable via
+# DOTNET_PUBLISH_PLATFORM, so pinning linux-musl-x64 here would fail an arm64 build for the wrong reason.
+RUN test -n "$(find /app/runtimes -path '*linux-musl-*/native/libSkiaSharp.so' -print -quit)"
+
 COPY --from=pdfbox-build /opt/pdfbox /opt/pdfbox
 COPY tools/ghostscript/PDFA_def.ps /opt/pdfingestion/PDFA_def.ps
 

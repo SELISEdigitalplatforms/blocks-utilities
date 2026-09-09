@@ -3,6 +3,13 @@
 
   <ItemGroup>
 	<PackageReference Include="Aspose.Words" />
+	<!-- The Linux native half of the SkiaSharp that Aspose.Words depends on. SkiaSharp itself only
+	     brings native assets for Windows and macOS, so a Linux publish ships the managed binding
+	     with nothing behind it and the process takes a SIGSEGV on the first page it renders.
+	     NoDependencies is the right variant for the Alpine worker image: it carries a linux-musl-x64
+	     RID and statically links freetype, so it needs no fontconfig and no extra apk packages.
+	     Aspose does its own font discovery through FolderFontSource, so nothing is lost by that. -->
+	<PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
 	<PackageReference Include="DotLiquid" />
 	<PackageReference Include="FluentValidation" />
 	<PackageReference Include="iTextSharp.LGPLv2.Core" />
