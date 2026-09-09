@@ -336,6 +336,38 @@ namespace XUnitTest.PdfGenerator
                 DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
 
         [Fact]
+        public async Task NotifyIngestPdfEvent_Sends_ToTheUserSuppliedExplicitly_EvenWithNoAmbientContext()
+        {
+            // The whole point of the explicit-userId overload: it must not depend on BlocksContext
+            // being populated correctly by the time a queued message is consumed.
+            BlocksContext.ClearContext();
+
+            await _service.NotifyIngestPdfEvent(true, "file-1", "corr-1", "user-99", "p1");
+
+            _httpHelper.Verify(h => h.MakeHttpPostRequest<NotificationResponse>(
+                It.Is<object>(payload => JsonSerializer.Serialize(payload).Contains("user-99")),
+                It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string>(),
+                It.IsAny<string>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task NotifyIngestPdfEvent_Skips_WhenTheSuppliedUserIdIsNull()
+        {
+            BlocksContext.ClearContext();
+
+            await _service.NotifyIngestPdfEvent(true, "file-1", "corr-1", null, "p1");
+
+            _httpHelper.Verify(h => h.MakeHttpPostRequest<NotificationResponse>(
+                It.IsAny<object>(),
+                It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string>(),
+                It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
         public async Task SendNotification_ShouldHandleExceptions_WithoutThrowing()
         {
             _httpHelper.Setup(h => h.MakeHttpPostRequest<NotificationResponse>(

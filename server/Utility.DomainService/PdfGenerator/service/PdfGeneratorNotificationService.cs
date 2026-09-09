@@ -148,6 +148,18 @@ namespace Utility.DomainService.PdfGenerator.service
             });
         }
 
+        public async Task NotifyIngestPdfEvent(bool success, string fileId, string messageCoRelationId, string? userId, string? projectKey)
+        {
+            _logger.LogInformation("NotifyIngestPdfEvent: Sending notification for fileId={FileId}, success={Success}", LogSanitizer.Scrub(fileId), success);
+
+            await SendUserNotificationAsync(success, messageCoRelationId, new
+            {
+                FileId = fileId,
+                MessageCoRelationId = messageCoRelationId,
+                Success = success
+            }, userId);
+        }
+
         /// <summary>
         /// Sends a document-conversion notification to <c>POST /api/Notifier/Notify</c>, targeted
         /// at the requesting user rather than a push connection.
@@ -170,12 +182,17 @@ namespace Utility.DomainService.PdfGenerator.service
         /// notification type, not something derived from configuration.
         /// </para>
         /// </remarks>
-        private async Task SendUserNotificationAsync(bool success, string? messageCoRelationId, object payload)
+        private Task SendUserNotificationAsync(bool success, string? messageCoRelationId, object payload) =>
+            SendUserNotificationAsync(success, messageCoRelationId, payload, BlocksContext.GetContext()?.UserId);
+
+        /// <summary>
+        /// Overload taking the target user explicitly, for callers such as
+        /// <see cref="NotifyIngestPdfEvent"/> whose event carries the requesting user rather than
+        /// relying on ambient <see cref="BlocksContext"/> still being correct by the time a queued
+        /// message is consumed.
+        /// </summary>
+        private async Task SendUserNotificationAsync(bool success, string? messageCoRelationId, object payload, string? userId)
         {
-            // Read once and kept in scope for the catch block too, so a failure log can still say
-            // who the notification was for even when the exception happens after this point (e.g.
-            // serializing the payload, hashing the secret, or the HTTP call itself).
-            var userId = BlocksContext.GetContext()?.UserId;
 
             try
             {

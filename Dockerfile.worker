@@ -23,6 +23,26 @@ RUN dotnet publish server/Worker/Worker.csproj \
     -p:DebugType=None
 
 # -----------------------------------------------------------------------------
+# Stage: pdfbox-build — compiles the two PDFBox ingestion tools against the
+# real pdfbox-app jar. glibc image (matches l3-net-signature-pdfengine's own
+# build stage); only the compiled classes are copied into the Alpine runtime
+# stage below, so this stage's libc never reaches the shipped image.
+# -----------------------------------------------------------------------------
+FROM eclipse-temurin:17-jdk AS pdfbox-build
+ARG PDFBOX_VERSION=3.0.8
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY tools/pdfbox/*.java /tmp/pdfbox-src/
+RUN mkdir -p /opt/pdfbox \
+    && curl -fsSL "https://repo1.maven.org/maven2/org/apache/pdfbox/pdfbox-app/${PDFBOX_VERSION}/pdfbox-app-${PDFBOX_VERSION}.jar" -o /opt/pdfbox/pdfbox-app.jar \
+    && javac -cp /opt/pdfbox/pdfbox-app.jar -d /opt/pdfbox /tmp/pdfbox-src/*.java \
+    && java -cp "/opt/pdfbox/pdfbox-app.jar:/opt/pdfbox" PdfBoxFlatten --version \
+    && java -cp "/opt/pdfbox/pdfbox-app.jar:/opt/pdfbox" PdfBoxNormalizeGeometry --version
+
+# -----------------------------------------------------------------------------
 # Stage: runtime — ASP.NET Core runtime on Alpine (Worker targets shared
 # Microsoft.AspNetCore.App via the Worker SDK / dependencies.)
 # -----------------------------------------------------------------------------
@@ -74,8 +94,82 @@ RUN apk add --no-cache \
 # key is unset, so a set path means no runtime download is ever attempted.
 ENV PuppeteerSharp__ExecutablePath=/usr/local/bin/chromium-browser
 
+# PDF ingestion toolchain (ported from l3-net-signature-pdfengine, ARM: it cannot be called over
+# HTTP from here, so its capability is compiled straight into this image instead). qpdf repairs
+# unreadable PDFs; openjdk17-jre-headless + the pdfbox-build stage's classes normalize page
+# geometry and flatten forms; ghostscript repairs PDF/A; bash backs the veraPDF installer, which
+# is a shell script, and its generated launcher.
+ARG VERAPDF_INSTALLER_URL=https://software.verapdf.org/releases/verapdf-installer.zip
+# In-build assertions (qpdf --version, verapdf --version below) so a broken tool install fails
+# the image build rather than surfacing at runtime the first time a document needs repair.
+RUN apk add --no-cache \
+        qpdf \
+        openjdk17-jre-headless \
+        ghostscript \
+        bash \
+        unzip \
+        curl \
+    && mkdir -p /tmp/verapdf-installer /opt/verapdf \
+    && curl -fsSL "${VERAPDF_INSTALLER_URL}" -o /tmp/verapdf-installer/verapdf-installer.zip \
+    && unzip -q /tmp/verapdf-installer/verapdf-installer.zip -d /tmp/verapdf-installer \
+    && printf '%s\n' \
+        '<AutomatedInstallation langpack="eng">' \
+        '  <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>' \
+        '  <com.izforge.izpack.panels.target.TargetPanel id="install_dir">' \
+        '    <installpath>/opt/verapdf</installpath>' \
+        '  </com.izforge.izpack.panels.target.TargetPanel>' \
+        '  <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">' \
+        '    <pack index="0" name="veraPDF GUI" selected="true"/>' \
+        '    <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>' \
+        '    <pack index="2" name="veraPDF Validation model" selected="true"/>' \
+        '    <pack index="3" name="veraPDF Documentation" selected="false"/>' \
+        '    <pack index="4" name="veraPDF Sample Plugins" selected="false"/>' \
+        '  </com.izforge.izpack.panels.packs.PacksPanel>' \
+        '  <com.izforge.izpack.panels.install.InstallPanel id="install"/>' \
+        '  <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>' \
+        '</AutomatedInstallation>' \
+        > /tmp/verapdf-installer/auto-install.xml \
+    && installer_script="$(find /tmp/verapdf-installer -maxdepth 2 -type f \( -name 'verapdf-install' -o -name 'vera-install' \) -print -quit)" \
+    && test -n "${installer_script}" \
+    && chmod +x "${installer_script}" \
+    && "${installer_script}" /tmp/verapdf-installer/auto-install.xml \
+    && test -x /opt/verapdf/verapdf \
+    && qpdf --version \
+    && /opt/verapdf/verapdf --version \
+    && rm -rf /tmp/verapdf-installer
+
+# PDFA_def.ps hardcodes the Debian ICC profile path; Alpine installs the sRGB profile under
+# /usr/share/ghostscript/<version>/iccprofiles/ instead. Symlinking keeps PDFA_def.ps
+# byte-identical to upstream rather than forking it, and `test -e` fails the build on a miss
+# instead of silently producing broken PDF/A output at runtime.
+RUN mkdir -p /usr/share/color/icc/ghostscript \
+    && ln -sf "$(find /usr/share/ghostscript -name srgb.icc -print -quit)" /usr/share/color/icc/ghostscript/srgb.icc \
+    && test -e /usr/share/color/icc/ghostscript/srgb.icc
+
 COPY --from=publish /app/publish .
-RUN chown -R app:app /app
+COPY --from=pdfbox-build /opt/pdfbox /opt/pdfbox
+COPY tools/ghostscript/PDFA_def.ps /opt/pdfingestion/PDFA_def.ps
+
+# Every deployed environment runs Direct - the image carries all four binaries. Docker mode exists
+# only so a developer can run the Worker without installing qpdf/Java/veraPDF locally; selecting
+# it in a container would require the Worker to spawn sibling containers via a Docker socket
+# mounted into the pod, which this deployment does not do. Pinning here means a stray config value
+# cannot put a deployed pod onto that path.
+ENV PdfIngestion__QpdfExecutionMode=Direct \
+    PdfIngestion__QpdfPath=/usr/bin/qpdf \
+    PdfIngestion__VeraPdfExecutionMode=Direct \
+    PdfIngestion__VeraPdfPath=/opt/verapdf/verapdf \
+    PdfIngestion__PdfBoxExecutionMode=Direct \
+    PdfIngestion__JavaPath=/usr/bin/java \
+    PdfIngestion__PdfBoxJarPath=/opt/pdfbox/pdfbox-app.jar \
+    PdfIngestion__PdfBoxClassPath=/opt/pdfbox \
+    PdfIngestion__GhostscriptPath=/usr/bin/gs \
+    PdfIngestion__GhostscriptPdfADefinitionPath=/opt/pdfingestion/PDFA_def.ps \
+    PdfIngestion__GhostscriptIccProfilePath=/usr/share/color/icc/ghostscript/srgb.icc \
+    PdfIngestion__TempDirectory=/tmp/pdf-ingestion
+
+RUN mkdir -p /tmp/pdf-ingestion \
+    && chown -R app:app /app /tmp/pdf-ingestion /opt/pdfbox /opt/pdfingestion
 
 USER app
 

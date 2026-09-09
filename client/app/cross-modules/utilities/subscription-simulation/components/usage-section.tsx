@@ -3,7 +3,7 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
-import { useEntitlements } from "../hooks/use-entitlements";
+import { useCurrentUsage } from "../hooks/use-current-usage";
 import { UsageMeterRow } from "./usage-meter-row";
 
 export const UsageSection = ({
@@ -13,13 +13,10 @@ export const UsageSection = ({
   plan: SubscriptionPlan | undefined;
   organizationId: string | undefined;
 }) => {
-  const {
-    data: entitlements,
-    error,
-    isError,
-    isLoading,
-    refetch,
-  } = useEntitlements(organizationId);
+  // The figures shown come from here, not from the entitlement snapshot: this is per meter and
+  // exists whether or not an entitlement gates it. The per-consume entitlement check still runs
+  // inside each row, right before acting, which is the point of the two-step flow.
+  const { data: usage, error, isError, isLoading, refetch } = useCurrentUsage(organizationId);
 
   return (
     <Card className="rounded-xl p-0">
@@ -30,7 +27,8 @@ export const UsageSection = ({
           <code className="mx-1 rounded bg-muted px-1">GET /api/entitlements/{"{key}"}</code>{" "}
           first and decides from that answer, then records with{" "}
           <code className="mx-1 rounded bg-muted px-1">POST /api/subscription-usage</code>,
-          which is the call that actually enforces.
+          which is the call that actually enforces. The figures below are read from{" "}
+          <code className="mx-1 rounded bg-muted px-1">GET /api/subscription-usage/current</code>.
         </p>
       </div>
 
@@ -44,7 +42,7 @@ export const UsageSection = ({
           <div className="flex flex-col items-start gap-2">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">Entitlements could not be loaded</span>
+              <span className="font-medium">Current usage could not be loaded</span>
             </div>
             <p className="text-sm text-muted-foreground">
               {error instanceof Error ? error.message : "Try again in a moment."}
@@ -72,9 +70,7 @@ export const UsageSection = ({
                   key={meter.meterKey}
                   meter={meter}
                   entitlementKey={entitlementKey}
-                  initialDecision={entitlements?.entitlements.find(
-                    (decision) => decision.key === entitlementKey,
-                  )}
+                  usage={usage?.find((row) => row.meterKey === meter.meterKey)}
                   organizationId={organizationId}
                 />
               );
