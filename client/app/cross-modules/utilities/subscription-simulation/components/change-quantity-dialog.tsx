@@ -420,6 +420,9 @@ const explain = (code: string, error: unknown): string => {
       return "An increase has to be charged, and there is no saved card to charge. Add a payment method first.";
     case "subscription_quantity_change_not_allowed":
       return "This subscription cannot change quantity in its current state.";
+    case "subscription_cancellation_scheduled":
+      return "This subscription is scheduled to cancel. Undo the cancellation before changing " +
+        "quantity.";
     case "subscription_quantity_item_unknown":
       return "This plan does not sell that item.";
     case "subscription_quantity_unchanged":

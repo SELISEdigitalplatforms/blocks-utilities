@@ -260,6 +260,23 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             canCancelImmediately);
     }
 
+    /// <remarks>
+    /// Not a perfect inverse of a cancellation taken inside a calendar-aligned yearly
+    /// subscription's opening stub: the cancel path unconditionally drops
+    /// <see cref="SubscriptionDetail.PendingAnnualPeriod"/> (see <see cref="EndAtPeriodEndAsync"/>),
+    /// and this does not restore it — there is nothing left to restore it from by the time this
+    /// runs. <c>NextFeeBillingAtUtc</c> is still restored correctly either way, so the boundary
+    /// still charges something; for a prepaid year that something is unaffected (its end was
+    /// already folded into <c>CurrentPeriodEndUtc</c>), but for an unpaid one the frozen annual
+    /// quote is gone and the boundary instead prices an ordinary period fresh, at whatever the plan
+    /// costs by then rather than the amount originally quoted at signup.
+    /// <para>
+    /// ponytail: known gap, narrow blast radius (only an unpaid opening-stub annual quote, only if
+    /// the price changed between signup and the undo). Close it by having the cancel path snapshot
+    /// the cleared <c>PendingAnnualPeriod</c> onto the transition so an undo can restore it, if this
+    /// ever needs to be exact.
+    /// </para>
+    /// </remarks>
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> WithdrawCancellationAsync(
         string subscriptionId,
         string? organizationId,
@@ -514,7 +531,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // Either way the pending year stops being pending. Prepaid, it has just been folded
                 // into the period above; unpaid, clearing the next billing instant above already
                 // stopped its charge, and leaving the record behind would invite a later sweep to
-                // find a year nobody is going to pay for.
+                // find a year nobody is going to pay for. Also why WithdrawCancellationAsync cannot
+                // restore it on an undo — see its own remarks.
                 ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
                 Event = _events.Create(
                     subscription,

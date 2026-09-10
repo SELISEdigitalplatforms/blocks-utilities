@@ -1030,6 +1030,45 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         return false;
     }
 
+    /// <summary>
+    /// The preview-only obstacles worth quoting a price alongside rather than refusing outright —
+    /// mirrors the same two checks <see cref="RunAsync"/> makes as outright failures on the real
+    /// change.
+    /// </summary>
+    private static List<SubscriptionPreviewBlockerResponse> BuildBlockers(
+        SubscriptionDetail subscription, bool preview, DateTime now)
+    {
+        if (!preview)
+        {
+            return [];
+        }
+
+        var blockers = new List<SubscriptionPreviewBlockerResponse>();
+
+        if (subscription.CancelAtPeriodEnd)
+        {
+            blockers.Add(new SubscriptionPreviewBlockerResponse
+            {
+                Code = "subscription_cancellation_scheduled",
+                Message = "This subscription is scheduled to cancel. Undo the cancellation before "
+                    + "changing quantity."
+            });
+        }
+
+        if (subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
+            now < subscription.CurrentPeriodEndUtc)
+        {
+            blockers.Add(new SubscriptionPreviewBlockerResponse
+            {
+                Code = "subscription_promotion_change_locked",
+                Message = "This subscription is on a free opening period and cannot change " +
+                    "quantity until it ends."
+            });
+        }
+
+        return blockers;
+    }
+
     private static bool SameQuantities(
         IReadOnlyList<SubscriptionQuantityItem> left,
         IReadOnlyList<SubscriptionQuantityItem> right) =>
@@ -1107,18 +1146,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 - renewal.BuiltInDiscountMinor
                 - renewal.PromotionalDiscountMinor,
             PromotionApplied = renewal.DiscountApplied,
-            Blockers = preview &&
-                subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
-                now < subscription.CurrentPeriodEndUtc
-                    ?
-                    [
-                        new SubscriptionPreviewBlockerResponse
-                        {
-                            Code = "subscription_promotion_change_locked",
-                            Message = "This subscription is on a free opening period and cannot change quantity until it ends."
-                        }
-                    ]
-                    : [],
+            Blockers = BuildBlockers(subscription, preview, now),
             ChargePaymentDetailId = paymentDetailId,
             PendingQuantityChange = QuantityResponseMapper.Pending(pending),
             ProviderName = account?.ProviderName
