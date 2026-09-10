@@ -144,6 +144,25 @@ public sealed class SubscriptionRepairAnnouncer
                     repaired,
                     PaymentLogValue.Id(tenantId));
             }
+
+            // The sweep above compares rows that already exist, so it can never find a subscription
+            // whose row was never written -- exactly what an activation path that skips the
+            // publish (see StartWithoutPaymentAsync) leaves behind. Nothing else in this codebase
+            // ever schedules a tenant-wide UsageProjectionRefresh work item, so without this call
+            // the backfill this class's own remarks call "the durable path" never actually runs.
+            var backfilled = await _usageProjections.BackfillTenantAsync(
+                tenantId,
+                $"backfill:{tenantId}",
+                stoppingToken);
+
+            if (backfilled.Written > 0)
+            {
+                _logger.LogInformation(
+                    "Repair sweep backfilled missing usage projections " +
+                    "WrittenCount={WrittenCount} TenantId={TenantId}",
+                    backfilled.Written,
+                    PaymentLogValue.Id(tenantId));
+            }
         }
 
         var bucketMinutes = Math.Max(1, options.SchedulerSweepBucketMinutes);
