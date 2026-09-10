@@ -21,6 +21,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<UsageProjectionPublisher> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionEntitlementsCurrentRepository? _entitlements;
 
     public UsageProjectionPublisher(
         ISubscriptionUsageCurrentRepository current,
@@ -30,7 +31,11 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<UsageProjectionPublisher> logger,
         TimeProvider? time = null,
-        UsageProjectionMetrics? metrics = null)
+        UsageProjectionMetrics? metrics = null,
+        // Optional, like every collaborator threaded through this class: a caller or test that
+        // constructs this publisher unaware the entitlements projection exists must keep compiling
+        // and keep behaving as before.
+        ISubscriptionEntitlementsCurrentRepository? entitlements = null)
     {
         _current = current;
         _usage = usage;
@@ -40,6 +45,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         _logger = logger;
         _time = time ?? TimeProvider.System;
         _metrics = metrics ?? UsageProjectionMetrics.Shared;
+        _entitlements = entitlements;
     }
 
     public async Task<UsageProjectionOutcome> PublishAsync(
@@ -255,6 +261,10 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         // than only of what the plan currently implies.
         published += await ReconcileStoredRowsAsync(subscription, windows, correlationId, cancellationToken);
 
+        // Unconditional on windows.Count: a plan with no metered entitlement at all has no window
+        // to piggyback this on, and would otherwise never get an entitlements row published.
+        await PublishEntitlementsAsync(subscription, correlationId, cancellationToken);
+
         if (windows.Count == 0 && published == 0)
         {
             return 0;
@@ -428,6 +438,69 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         UpdatedAtUtc = _time.GetUtcNow().UtcDateTime,
         ExpiresAtUtc = row.ExpiresAtUtc
     };
+
+    /// <summary>
+    /// Publishes this subscription's entitlement terms, so a direct-Mongo reader can see them
+    /// without an API call. Best-effort: this is a read model derived entirely from the
+    /// subscription already in hand, so a write failure here must not fail the refresh that is
+    /// keeping the usage projection itself current.
+    /// </summary>
+    private async Task PublishEntitlementsAsync(
+        SubscriptionDetail subscription,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_entitlements is null)
+        {
+            return;
+        }
+
+        var document = new SubscriptionEntitlementsCurrent
+        {
+            ItemId = subscription.ItemId,
+            TenantId = subscription.TenantId,
+            OrganizationId = subscription.OrganizationId,
+            SubscriptionId = subscription.ItemId,
+            SubscriptionStatus = subscription.Status,
+            PlanId = subscription.Plan.PlanId,
+            PlanCode = subscription.Plan.Code,
+            FeaturesJson = subscription.Plan.FeaturesJson,
+            Entitlements = subscription.Plan.Entitlements
+                .Select(entitlement => new SubscriptionEntitlementCurrentItem
+                {
+                    Key = entitlement.Key,
+                    LimitKind = entitlement.LimitKind,
+                    Limit = entitlement.Limit,
+                    MeterKey = entitlement.MeterKey,
+                    UnitLabel = entitlement.UnitLabel
+                })
+                .ToList(),
+            SubscriptionVersion = subscription.Version,
+            SchemaVersion = SubscriptionEntitlementsCurrent.CurrentSchemaVersion,
+            UpdatedAtUtc = _time.GetUtcNow().UtcDateTime
+        };
+
+        try
+        {
+            await WithTransientRetryAsync(
+                () => _entitlements.TryPublishAsync(document, cancellationToken),
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Failed to publish the entitlements projection; the next refresh will retry " +
+                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                correlationId);
+        }
+    }
 
     /// <summary>
     /// Every meter's window containing <paramref name="asOfUtc"/>.

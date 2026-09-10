@@ -28,11 +28,13 @@ public sealed class UsageProjectionPublisherTests
     private readonly Mock<ISubscriptionUsageCurrentRepository> _current = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionWorkScheduler> _scheduler = new();
+    private readonly Mock<ISubscriptionEntitlementsCurrentRepository> _entitlements = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero));
 
     private readonly List<SubscriptionUsageCurrent> _published = [];
     private readonly List<SubscriptionUsageCurrent> _seeded = [];
+    private readonly List<SubscriptionEntitlementsCurrent> _publishedEntitlements = [];
 
     public UsageProjectionPublisherTests()
     {
@@ -67,6 +69,13 @@ public sealed class UsageProjectionPublisherTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((0L, 0L));
+
+        _entitlements
+            .Setup(repository => repository.TryPublishAsync(
+                It.IsAny<SubscriptionEntitlementsCurrent>(), It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionEntitlementsCurrent document, CancellationToken _) =>
+                _publishedEntitlements.Add(document))
+            .ReturnsAsync(true);
     }
 
     [Fact]
@@ -290,6 +299,49 @@ public sealed class UsageProjectionPublisherTests
             repository => repository.GetCounterAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    /// <summary>
+    /// So a direct-Mongo reader can answer "what can this subscription do" without an API call — the
+    /// same reasoning the usage projection exists for, applied to entitlement terms rather than
+    /// meter balances.
+    /// </summary>
+    [Fact]
+    public async Task Refreshing_publishes_the_plans_entitlements_and_features()
+    {
+        await Publisher().RefreshAsync(
+            Subscription(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var document = _publishedEntitlements.Should().ContainSingle().Subject;
+        document.ItemId.Should().Be("sub-1");
+        document.SubscriptionId.Should().Be("sub-1");
+        document.PlanCode.Should().Be("pro");
+        document.FeaturesJson.Should().Be("""{"advancedReporting":true}""");
+        document.Entitlements.Should().HaveCount(2);
+        document.Entitlements.Should().Contain(entitlement =>
+            entitlement.Key == "screening" &&
+            entitlement.LimitKind == EntitlementLimitKind.Count &&
+            entitlement.Limit == 100 &&
+            entitlement.MeterKey == "screening");
+        document.Entitlements.Should().Contain(entitlement =>
+            entitlement.Key == "sso" &&
+            entitlement.LimitKind == EntitlementLimitKind.Boolean);
+    }
+
+    /// <summary>
+    /// A plan whose only entitlements are boolean has no metered window to piggyback this on, so the
+    /// publish must not be conditioned on <c>CurrentWindows</c> yielding anything.
+    /// </summary>
+    [Fact]
+    public async Task A_subscription_with_no_meters_still_gets_its_entitlements_published()
+    {
+        var subscription = Subscription();
+        subscription.Plan.Meters.Clear();
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _publishedEntitlements.Should().ContainSingle();
     }
 
     /// <summary>
@@ -630,7 +682,8 @@ public sealed class UsageProjectionPublisherTests
         _scheduler.Object,
         new OptionsStub(),
         NullLogger<UsageProjectionPublisher>.Instance,
-        _time);
+        _time,
+        entitlements: _entitlements.Object);
 
     private static SubscriptionUsageCounter Counter(
         long balance,
@@ -674,6 +727,7 @@ public sealed class UsageProjectionPublisherTests
         {
             PlanId = "plan-1",
             Code = "pro",
+            FeaturesJson = """{"advancedReporting":true}""",
             Meters =
             [
                 Meter(),
@@ -684,6 +738,22 @@ public sealed class UsageProjectionPublisherTests
                     IncludedQuantity = 500,
                     OverageAllowed = false,
                     ResetPolicy = MeterResetPolicy.Never
+                }
+            ],
+            Entitlements =
+            [
+                new PlanEntitlement
+                {
+                    Key = "screening",
+                    LimitKind = EntitlementLimitKind.Count,
+                    Limit = 100,
+                    MeterKey = "screening",
+                    UnitLabel = "screening"
+                },
+                new PlanEntitlement
+                {
+                    Key = "sso",
+                    LimitKind = EntitlementLimitKind.Boolean
                 }
             ]
         },
