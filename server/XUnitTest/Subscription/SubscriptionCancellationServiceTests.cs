@@ -119,6 +119,61 @@ public sealed class SubscriptionCancellationServiceTests
             "questions about cancellation");
     }
 
+    /// <summary>
+    /// A plan or quantity change mid-settlement commits through the reservation it holds rather
+    /// than the version once money has moved, so a cancel that only bumped the version could not
+    /// stop it landing afterward — leaving CancelAtPeriodEnd set on a subscription that just moved
+    /// plan and renewal date. Refusing here, the same way a renewal already does, is what closes
+    /// that gap: see SubscriptionTransition.RequireNoSettlementReservation's own remarks.
+    /// </summary>
+    [Fact]
+    public async Task Scheduling_a_cancellation_refuses_to_land_on_an_unresolved_settlement_reservation()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.RequireNoSettlementReservation.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_immediate_cancellation_also_refuses_to_land_on_an_unresolved_settlement_reservation()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _transition!.RequireNoSettlementReservation.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// What the caller actually sees when the guard above fires: not a silent no-op, and not the
+    /// idempotent-duplicate success path — a genuine conflict, because nothing about this
+    /// subscription actually moved. Worth pinning down for the case that matters most: a
+    /// reservation stranded by a dying process, which widens this window from the length of one
+    /// card charge to however long it sits waiting for the recovery sweep to resolve it.
+    /// </summary>
+    [Fact]
+    public async Task A_cancellation_blocked_by_an_in_flight_settlement_is_reported_as_a_conflict()
+    {
+        _subscription!.SettlementReservation = new SettlementReservation
+        {
+            ReservationId = "res-1",
+            Kind = SettlementReservationKind.PlanChange,
+            ChargeAmountMinor = 1_000,
+            ReservedAtUtc = _time.GetUtcNow().UtcDateTime
+        };
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        result.ErrorCode.Should().Be("subscription_transition_conflict");
+    }
+
     [Fact]
     public async Task An_immediate_cancellation_ends_it_now()
     {

@@ -521,6 +521,16 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // Status alone does not move here, so it cannot arbitrate two concurrent
                 // first-time requests the way it does everywhere else — this is what does instead.
                 RequireCancellationNotAlreadyScheduled = true,
+                // A plan or quantity increase mid-settlement writes its result through the
+                // reservation it holds, not the version — see TryChangePlanAsync's own remarks —
+                // so a version bump from this write cannot stop it from landing afterward. Without
+                // this, a cancel that wins the race here and a charge that lands after it produces
+                // exactly the contradictory state (CancelAtPeriodEnd on a subscription that just
+                // moved plan and renewal date) the plan/quantity-change guard now refuses at the
+                // other end. Losing to a reservation here is temporary: the caller retries once the
+                // settlement resolves, including one stranded and later promoted by the recovery
+                // sweep.
+                RequireNoSettlementReservation = true,
                 // A year already paid for is a year the subscriber keeps. Cancelling inside the
                 // opening stub of a prepaid annual price therefore runs entitlement through to the
                 // end of that year rather than stopping with the stub — they bought it, and this
@@ -575,6 +585,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 EndedAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // Same race as the scheduled cancel above, and the same fix — see its own remarks.
+                RequireNoSettlementReservation = true,
                 // Entitlement stops now, so a year that had not started never will. Dropped so no
                 // later sweep can find it and charge for a period this subscription never held.
                 ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,

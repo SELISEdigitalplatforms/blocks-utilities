@@ -501,8 +501,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// </summary>
     /// <remarks>
     /// Applied to <see cref="TryTransitionAsync"/> only when the transition asks for it — see
-    /// <see cref="SubscriptionTransition.RequireNoSettlementReservation"/>, which renewals set and
-    /// activation, cancellation and usage rating do not. A blanket lock there would let one
+    /// <see cref="SubscriptionTransition.RequireNoSettlementReservation"/>, which renewals and
+    /// cancellation set and activation and usage rating do not. A blanket lock there would let one
     /// unresolvable reservation stall a subscription's whole lifecycle.
     /// </remarks>
     private static FilterDefinition<SubscriptionDetail> NoSettlementReservationFilter() =>
