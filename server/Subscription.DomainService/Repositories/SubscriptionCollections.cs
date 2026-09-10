@@ -30,6 +30,12 @@ internal static class SubscriptionCollections
     /// hand it the enforcement authority for metered billing.
     /// </remarks>
     public const string UsageCurrent = "SubscriptionUsageCurrent";
+
+    /// <summary>
+    /// The published entitlement-terms projection, read directly by consumers outside this service.
+    /// See <see cref="Entities.SubscriptionEntitlementsCurrent"/>.
+    /// </summary>
+    public const string EntitlementsCurrent = "SubscriptionEntitlementsCurrent";
     public const string PaymentLinks = "SubscriptionPaymentLinks";
     public const string UsageInvoices = "SubscriptionUsageInvoices";
     public const string AuditEvents = "SubscriptionAuditEvents";
