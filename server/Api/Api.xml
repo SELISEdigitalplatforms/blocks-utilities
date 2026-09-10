@@ -896,6 +896,16 @@
             simply swaps with no charge or credit either way.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.WithdrawCancellation(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Undoes a cancellation scheduled for the end of the paid period.
+            </summary>
+            <remarks>
+            The subscription keeps renewing exactly as before. <c>404</c> when nothing is scheduled —
+            including once the promised period end has already passed — <c>409</c> when the
+            subscription moved underneath the request.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.CancelPendingPlanChange(System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Withdraws a plan change scheduled for the end of the paid period.

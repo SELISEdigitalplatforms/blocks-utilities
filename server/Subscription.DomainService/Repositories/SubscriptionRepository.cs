@@ -501,8 +501,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// </summary>
     /// <remarks>
     /// Applied to <see cref="TryTransitionAsync"/> only when the transition asks for it — see
-    /// <see cref="SubscriptionTransition.RequireNoSettlementReservation"/>, which renewals set and
-    /// activation, cancellation and usage rating do not. A blanket lock there would let one
+    /// <see cref="SubscriptionTransition.RequireNoSettlementReservation"/>, which renewals and
+    /// cancellation set and activation and usage rating do not. A blanket lock there would let one
     /// unresolvable reservation stall a subscription's whole lifecycle.
     /// </remarks>
     private static FilterDefinition<SubscriptionDetail> NoSettlementReservationFilter() =>
@@ -603,6 +603,46 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 .Set(subscription => subscription.PendingPlanChange, null)
                 .Inc(subscription => subscription.Version, 1)
                 .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryWithdrawScheduledCancellationAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        DateTime restoredNextFeeBillingAtUtc,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        var filter = Builders<SubscriptionDetail>.Filter.And(
+            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.CancelAtPeriodEnd,
+                true),
+            Builders<SubscriptionDetail>.Filter.Gt(
+                subscription => subscription.CurrentPeriodEndUtc,
+                DateTime.UtcNow));
+
+        var update = Builders<SubscriptionDetail>.Update
+            .Set(subscription => subscription.CancelAtPeriodEnd, false)
+            .Set(subscription => subscription.CanCancelImmediately, false)
+            .Set(subscription => subscription.CanceledAtUtc, (DateTime?)null)
+            .Set(subscription => subscription.CancellationReason, (string?)null)
+            // Restores the renewal the cancellation cleared. The caller already holds this
+            // subscription's own CurrentPeriodEndUtc, so it is passed in rather than read back
+            // through a pipeline update.
+            .Set(subscription => subscription.NextFeeBillingAtUtc, restoredNextFeeBillingAtUtc)
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
+            .Push(subscription => subscription.OutboxEvents, outboxEvent);
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            filter,
+            update,
             cancellationToken: cancellationToken);
 
         return result.ModifiedCount == 1;

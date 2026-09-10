@@ -251,6 +251,22 @@ public interface ISubscriptionRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Withdraws a scheduled cancellation, restoring the renewal it cleared.
+    /// </summary>
+    /// <remarks>
+    /// Guarded by <c>CancelAtPeriodEnd == true</c> and <c>CurrentPeriodEndUtc &gt; now</c> in
+    /// addition to the version: once the promised boundary has passed it is too late to undo, and
+    /// the finalizing sweep is the one that gets to decide what happens next.
+    /// </remarks>
+    Task<bool> TryWithdrawScheduledCancellationAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        DateTime restoredNextFeeBillingAtUtc,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Counts one more card-collection attempt, so the next one is raised under a fresh key.
     /// </summary>
     /// <remarks>

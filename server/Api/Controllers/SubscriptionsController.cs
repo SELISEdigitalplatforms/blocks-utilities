@@ -287,6 +287,40 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
+    /// Undoes a cancellation scheduled for the end of the paid period.
+    /// </summary>
+    /// <remarks>
+    /// The subscription keeps renewing exactly as before. <c>404</c> when nothing is scheduled —
+    /// including once the promised period end has already passed — <c>409</c> when the
+    /// subscription moved underneath the request.
+    /// </remarks>
+    [HttpDelete("{subscriptionId}/cancellation")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
+    public async Task<IActionResult> WithdrawCancellation(
+        string subscriptionId,
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _cancellation.WithdrawCancellationAsync(
+            subscriptionId,
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("WithdrawCancellation", organizationId, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
     /// Withdraws a plan change scheduled for the end of the paid period.
     /// </summary>
     /// <remarks>

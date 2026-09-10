@@ -38,6 +38,8 @@ public static class SubscriptionConstants
         "SubscriptionActivationFailed";
     public const string SubscriptionCancellationRequested =
         "SubscriptionCancellationRequested";
+    public const string SubscriptionCancellationWithdrawn =
+        "SubscriptionCancellationWithdrawn";
     public const string SubscriptionCanceled = "SubscriptionCanceled";
     public const string UsageThresholdReached = "UsageThresholdReached";
     public const string SubscriptionRenewed = "SubscriptionRenewed";

@@ -260,6 +260,117 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             canCancelImmediately);
     }
 
+    /// <remarks>
+    /// Not a perfect inverse of a cancellation taken inside a calendar-aligned yearly
+    /// subscription's opening stub: the cancel path unconditionally drops
+    /// <see cref="SubscriptionDetail.PendingAnnualPeriod"/> (see <see cref="EndAtPeriodEndAsync"/>),
+    /// and this does not restore it — there is nothing left to restore it from by the time this
+    /// runs. <c>NextFeeBillingAtUtc</c> is still restored correctly either way, so the boundary
+    /// still charges something; for a prepaid year that something is unaffected (its end was
+    /// already folded into <c>CurrentPeriodEndUtc</c>), but for an unpaid one the frozen annual
+    /// quote is gone and the boundary instead prices an ordinary period fresh, at whatever the plan
+    /// costs by then rather than the amount originally quoted at signup.
+    /// <para>
+    /// ponytail: known gap, narrow blast radius (only an unpaid opening-stub annual quote, only if
+    /// the price changed between signup and the undo). Close it by having the cancel path snapshot
+    /// the cleared <c>PendingAnnualPeriod</c> onto the transition so an undo can restore it, if this
+    /// ever needs to be exact.
+    /// </para>
+    /// </remarks>
+    public async Task<SubscriptionOperationResult<SubscriptionResponse>> WithdrawCancellationAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, organizationId, cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+
+        var subscription = await _subscriptions.GetAsync(
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "The subscription does not exist.",
+                correlationId);
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        // Once the promised boundary has passed it is too late to undo — the finalizing sweep
+        // owns what happens to the subscription from here, whether or not it has actually run yet.
+        if (!subscription.CancelAtPeriodEnd || !SubscriptionLiveness.IsEffectivelyLive(subscription, now))
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_cancellation_not_scheduled",
+                "There is no scheduled cancellation to undo.",
+                correlationId);
+        }
+
+        var outboxEvent = _events.Create(
+            subscription, SubscriptionConstants.SubscriptionCancellationWithdrawn, correlationId);
+
+        if (!await _subscriptions.TryWithdrawScheduledCancellationAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                subscription.CurrentPeriodEndUtc,
+                outboxEvent,
+                cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_transition_conflict",
+                "The subscription changed while the cancellation was being undone.",
+                correlationId);
+        }
+
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription, outboxEvent, cancellationToken);
+
+            await _scheduler.ScheduleUsageProjectionRefreshAsync(
+                subscription.TenantId,
+                subscription.OrganizationId,
+                subscription.ItemId,
+                correlationId,
+                cancellationToken);
+        }
+
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        subscription.CancelAtPeriodEnd = false;
+        subscription.CanCancelImmediately = false;
+        subscription.CanceledAtUtc = null;
+        subscription.CancellationReason = null;
+        subscription.NextFeeBillingAtUtc = subscription.CurrentPeriodEndUtc;
+        subscription.Version++;
+
+        _logger.LogInformation(
+            "Scheduled subscription cancellation withdrawn TenantHash={TenantHash} " +
+            "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Success(
+            await _mapper.ToResponseAsync(
+                _billingAccounts, subscription, null, null, cancellationToken),
+            correlationId);
+    }
+
     /// <summary>
     /// The bookkeeping every successful write shares: settle any pending checkout, drop the
     /// cached entitlement snapshot, log, and build the response from the in-memory reflection
@@ -410,6 +521,16 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // Status alone does not move here, so it cannot arbitrate two concurrent
                 // first-time requests the way it does everywhere else — this is what does instead.
                 RequireCancellationNotAlreadyScheduled = true,
+                // A plan or quantity increase mid-settlement writes its result through the
+                // reservation it holds, not the version — see TryChangePlanAsync's own remarks —
+                // so a version bump from this write cannot stop it from landing afterward. Without
+                // this, a cancel that wins the race here and a charge that lands after it produces
+                // exactly the contradictory state (CancelAtPeriodEnd on a subscription that just
+                // moved plan and renewal date) the plan/quantity-change guard now refuses at the
+                // other end. Losing to a reservation here is temporary: the caller retries once the
+                // settlement resolves, including one stranded and later promoted by the recovery
+                // sweep.
+                RequireNoSettlementReservation = true,
                 // A year already paid for is a year the subscriber keeps. Cancelling inside the
                 // opening stub of a prepaid annual price therefore runs entitlement through to the
                 // end of that year rather than stopping with the stub — they bought it, and this
@@ -420,7 +541,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // Either way the pending year stops being pending. Prepaid, it has just been folded
                 // into the period above; unpaid, clearing the next billing instant above already
                 // stopped its charge, and leaving the record behind would invite a later sweep to
-                // find a year nobody is going to pay for.
+                // find a year nobody is going to pay for. Also why WithdrawCancellationAsync cannot
+                // restore it on an undo — see its own remarks.
                 ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
                 Event = _events.Create(
                     subscription,
@@ -463,6 +585,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 EndedAtUtc = now,
                 CancellationReason = reason,
                 ClearNextFeeBillingAt = true,
+                // Same race as the scheduled cancel above, and the same fix — see its own remarks.
+                RequireNoSettlementReservation = true,
                 // Entitlement stops now, so a year that had not started never will. Dropped so no
                 // later sweep can find it and charge for a period this subscription never held.
                 ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
