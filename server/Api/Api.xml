@@ -393,11 +393,12 @@
             - Text extraction: Use Engine 3 (Aspose) only.
             </summary>
         </member>
-        <member name="M:Api.Controllers.PdfGeneratorController.#ctor(Utility.DomainService.PdfGenerator.service.IPdfGeneratorService)">
+        <member name="M:Api.Controllers.PdfGeneratorController.#ctor(Utility.DomainService.PdfGenerator.service.IPdfGeneratorService,Utility.DomainService.PdfGenerator.service.ISinglePdfGeneratorService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.PdfGeneratorController"/> class.
             </summary>
-            <param name="pdfGeneratorService">The service used for PDF generator operations.</param>
+            <param name="pdfGeneratorService">The service used for queued PDF generator operations.</param>
+            <param name="singlePdfGeneratorService">The service used for synchronous single-file HTML-to-PDF.</param>
         </member>
         <member name="M:Api.Controllers.PdfGeneratorController.MergePdfs(Utility.DomainService.PdfGenerator.MergePdfsRequest)">
             <summary>
@@ -431,6 +432,17 @@
             ProjectKey: Project key for multi-tenancy
             </remarks>
             <returns>CreatePdfsFromHtmlResponse</returns>
+        </member>
+        <member name="M:Api.Controllers.PdfGeneratorController.CreateSinglePdfFromHtml(Utility.DomainService.PdfGenerator.CreateSinglePdfFromHtmlRequest)">
+            <summary>
+            Render a single HTML document to PDF synchronously and return the stored file ID.
+            </summary>
+            <remarks>
+            Unlike CreatePdfsFromHtml, this action renders and stores in-process and returns the
+            File ID in the same response. Engine is hardcoded to PuppeteerSharp. HtmlContent is
+            inline only (no HtmlFileId). AccessModifier defaults to Private.
+            </remarks>
+            <returns>CreateSinglePdfFromHtmlResponse</returns>
         </member>
         <member name="M:Api.Controllers.PdfGeneratorController.CreatePdfsFromHtmlUsingTemplateEngine(Utility.DomainService.PdfGenerator.CreatePdfsFromHtmlUsingTERequest)">
             <summary>
@@ -521,6 +533,56 @@
             ProjectKey: Project key for multi-tenancy
             </remarks>
             <returns>StampIntoPdfResponse</returns>
+        </member>
+        <member name="T:Api.Controllers.PdfIngestionsController">
+            <summary>
+            Inspecting PDFs already in storage and remediating whatever the inspection finds - unreadable
+            files, indirect page geometry, a claimed but non-compliant PDF/A profile.
+            </summary>
+            <remarks>
+            Its own controller rather than another action on <c>PdfGeneratorController</c>, for the same
+            reason <c>DocumentConversionsController</c> is: ingestion is a resource with a lifetime, not a
+            fire-and-forget queue push, and needs a status endpoint to match.
+            <para>
+            Both endpoints take a list of file IDs and answer with one outcome per file. Remediation happens
+            in place, so a file's own storage ID is the only thing supplied for it and the only thing needed
+            to poll status afterwards.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PdfIngestionsController.Ingest(Utility.DomainService.PdfIngestion.IngestPdfsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Queues one or more PDFs for ingestion.
+            </summary>
+            <remarks>
+            Returns 202 as soon as the batch is recorded and queued - no file in it has been inspected
+            yet. Each file in <c>fileIds</c> is accepted or rejected independently: one blank or duplicate
+            ID does not stop the rest of the batch, and the response's <c>results</c> array says which is
+            which.
+            <para>
+            Supplying <c>messageCoRelationId</c> also gets a completion notification per file as each one
+            finishes. Setting <c>dryRun</c> records and reports each file's verdict without uploading any
+            remediated bytes back to storage - useful for the first production rollout of an otherwise
+            destructive in-place feature.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PdfIngestionsController.GetStatus(Utility.DomainService.PdfIngestion.GetPdfIngestionStatusRequest,System.Threading.CancellationToken)">
+            <summary>
+            Reads the ingestion outcome of one or more files, including each one's full verdict once its
+            pipeline run has completed.
+            </summary>
+            <remarks>
+            The fallback for a completion notification that never arrived. A file still running answers
+            with <c>status</c> of <c>Queued</c> or <c>Processing</c> and <c>isComplete: false</c>. A file
+            never submitted for ingestion answers with <c>found: false</c> rather than dropping out of the
+            response, so the caller can match every ID they asked about against exactly one result.
+            <para>
+            The request as a whole is 400 only when it is structurally invalid - an empty or oversized
+            <c>fileIds</c> list. A per-file outcome is carried in that file's own result entry, not the
+            HTTP status, because one response can only carry one status code for the whole batch.
+            </para>
+            </remarks>
         </member>
         <member name="M:Api.Controllers.SequenceController.#ctor(Utility.DomainService.Sequence.service.ISequenceService)">
             <summary>
@@ -1253,6 +1315,15 @@
             The same shape as <see cref="T:Api.Utilities.SubscriptionApiResults"/>, and deliberately the same status codes
             for the same kinds of failure: a client that has learned how one part of this API reports a
             validation error or a missing record should not have to learn it again here.
+            </remarks>
+        </member>
+        <member name="T:Api.Utilities.PdfIngestionApiResults">
+            <summary>
+            Maps a PDF-ingestion result onto an HTTP response.
+            </summary>
+            <remarks>
+            The same shape as <see cref="T:Api.Utilities.DocumentConversionApiResults"/>, and deliberately the same status
+            codes for the same kinds of failure.
             </remarks>
         </member>
         <member name="T:Api.Utilities.SubscriptionApiResults">
