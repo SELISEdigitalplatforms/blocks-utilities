@@ -95,7 +95,7 @@ namespace Utility.DomainService.PdfGenerator.service
         }
 
         /// <inheritdoc />
-        public async Task<Stream?> ConvertHtmlToPdfAsync(string htmlContent, PdfGenerationOptions options)
+        public virtual async Task<Stream?> ConvertHtmlToPdfAsync(string htmlContent, PdfGenerationOptions options)
         {
             try
             {

@@ -7,12 +7,14 @@ namespace XUnitTest.PdfGenerator
     public class PdfGeneratorControllerTests
     {
         private readonly Mock<IPdfGeneratorService> _pdfGeneratorService = new();
+        private readonly Mock<ISinglePdfGeneratorService> _singlePdfGeneratorService = new();
         private readonly PdfGeneratorController _controller;
 
         public PdfGeneratorControllerTests()
         {
             _controller = new PdfGeneratorController(
-                _pdfGeneratorService.Object);
+                _pdfGeneratorService.Object,
+                _singlePdfGeneratorService.Object);
         }
 
         [Fact]
@@ -107,6 +109,18 @@ namespace XUnitTest.PdfGenerator
             _pdfGeneratorService.Setup(s => s.StampIntoPdfAsync(request)).ReturnsAsync(response);
 
             var result = await _controller.StampIntoPdf(request);
+
+            Assert.Same(response, result);
+        }
+
+        [Fact]
+        public async Task CreateSinglePdfFromHtml_Returns_Service_Response()
+        {
+            var request = new CreateSinglePdfFromHtmlRequest();
+            var response = new CreateSinglePdfFromHtmlResponse();
+            _singlePdfGeneratorService.Setup(s => s.CreateSinglePdfFromHtmlAsync(request)).ReturnsAsync(response);
+
+            var result = await _controller.CreateSinglePdfFromHtml(request);
 
             Assert.Same(response, result);
         }
