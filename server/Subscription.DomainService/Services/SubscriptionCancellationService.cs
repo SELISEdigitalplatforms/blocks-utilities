@@ -260,6 +260,100 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             canCancelImmediately);
     }
 
+    public async Task<SubscriptionOperationResult<SubscriptionResponse>> WithdrawCancellationAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, organizationId, cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+
+        var subscription = await _subscriptions.GetAsync(
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "The subscription does not exist.",
+                correlationId);
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        // Once the promised boundary has passed it is too late to undo — the finalizing sweep
+        // owns what happens to the subscription from here, whether or not it has actually run yet.
+        if (!subscription.CancelAtPeriodEnd || !SubscriptionLiveness.IsEffectivelyLive(subscription, now))
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_cancellation_not_scheduled",
+                "There is no scheduled cancellation to undo.",
+                correlationId);
+        }
+
+        var outboxEvent = _events.Create(
+            subscription, SubscriptionConstants.SubscriptionCancellationWithdrawn, correlationId);
+
+        if (!await _subscriptions.TryWithdrawScheduledCancellationAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                subscription.Version,
+                subscription.CurrentPeriodEndUtc,
+                outboxEvent,
+                cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_transition_conflict",
+                "The subscription changed while the cancellation was being undone.",
+                correlationId);
+        }
+
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(
+                subscription, outboxEvent, cancellationToken);
+
+            await _scheduler.ScheduleUsageProjectionRefreshAsync(
+                subscription.TenantId,
+                subscription.OrganizationId,
+                subscription.ItemId,
+                correlationId,
+                cancellationToken);
+        }
+
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        subscription.CancelAtPeriodEnd = false;
+        subscription.CanCancelImmediately = false;
+        subscription.CanceledAtUtc = null;
+        subscription.CancellationReason = null;
+        subscription.NextFeeBillingAtUtc = subscription.CurrentPeriodEndUtc;
+        subscription.Version++;
+
+        _logger.LogInformation(
+            "Scheduled subscription cancellation withdrawn TenantHash={TenantHash} " +
+            "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Hash(subscription.ItemId),
+            correlationId);
+
+        return SubscriptionOperationResult<SubscriptionResponse>.Success(
+            await _mapper.ToResponseAsync(
+                _billingAccounts, subscription, null, null, cancellationToken),
+            correlationId);
+    }
+
     /// <summary>
     /// The bookkeeping every successful write shares: settle any pending checkout, drop the
     /// cached entitlement snapshot, log, and build the response from the in-memory reflection

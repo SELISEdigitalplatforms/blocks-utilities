@@ -608,6 +608,46 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryWithdrawScheduledCancellationAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        DateTime restoredNextFeeBillingAtUtc,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        var filter = Builders<SubscriptionDetail>.Filter.And(
+            VersionedFilter(tenantId, subscriptionId, expectedVersion),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.CancelAtPeriodEnd,
+                true),
+            Builders<SubscriptionDetail>.Filter.Gt(
+                subscription => subscription.CurrentPeriodEndUtc,
+                DateTime.UtcNow));
+
+        var update = Builders<SubscriptionDetail>.Update
+            .Set(subscription => subscription.CancelAtPeriodEnd, false)
+            .Set(subscription => subscription.CanCancelImmediately, false)
+            .Set(subscription => subscription.CanceledAtUtc, (DateTime?)null)
+            .Set(subscription => subscription.CancellationReason, (string?)null)
+            // Restores the renewal the cancellation cleared. The caller already holds this
+            // subscription's own CurrentPeriodEndUtc, so it is passed in rather than read back
+            // through a pipeline update.
+            .Set(subscription => subscription.NextFeeBillingAtUtc, restoredNextFeeBillingAtUtc)
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
+            .Push(subscription => subscription.OutboxEvents, outboxEvent);
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            filter,
+            update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryBumpPaymentMethodSetupAttemptAsync(
         string tenantId,
         string subscriptionId,

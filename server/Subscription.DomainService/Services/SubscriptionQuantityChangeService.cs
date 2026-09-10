@@ -224,6 +224,20 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 correlationId);
         }
 
+        // The plan-change service's identical guard applies here too: a cancellation already
+        // schedules nothing to happen at the next renewal, and pricing a quantity change against
+        // that boundary would either charge an increase today and push the cancellation date out,
+        // or schedule a decrease for a renewal that will never come.
+        if (!preview && subscription.CancelAtPeriodEnd)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_cancellation_scheduled",
+                "This subscription is scheduled to cancel. Undo the cancellation before changing "
+                    + "quantity.",
+                correlationId);
+        }
+
         // Checked before anything is calculated, so a stale caller is told to re-read rather than
         // shown a quote derived from a quantity that has already moved.
         if (subscription.Version != request.Version)

@@ -498,6 +498,32 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        // A cancellation already schedules what happens at the next renewal boundary — nothing.
+        // Pricing a plan change against that boundary would either push the cancellation date out
+        // (an upgrade charging a full new period) or schedule a change for a renewal that will
+        // never come (a downgrade). Undo the cancellation first; the change then prices normally.
+        var blockers = new List<SubscriptionPreviewBlockerResponse>();
+
+        if (subscription.CancelAtPeriodEnd)
+        {
+            if (!preview)
+            {
+                return Failure<PlanChangeResolution>(
+                    PaymentFailureKind.Conflict,
+                    "subscription_cancellation_scheduled",
+                    "This subscription is scheduled to cancel. Undo the cancellation before "
+                        + "changing plan.",
+                    correlationId);
+            }
+
+            blockers.Add(new SubscriptionPreviewBlockerResponse
+            {
+                Code = "subscription_cancellation_scheduled",
+                Message = "This subscription is scheduled to cancel. Undo the cancellation before "
+                    + "changing plan."
+            });
+        }
+
         // A quantity increase is holding units priced against the plan being left. Refused by name
         // rather than by the repository's filter alone, so the caller knows to re-read and retry
         // rather than reading it as a stale version. Only enforced on the real change: a preview
@@ -578,8 +604,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                     + "or choose a target the discount covers.",
                 correlationId);
         }
-
-        var blockers = new List<SubscriptionPreviewBlockerResponse>();
 
         if (preview && promotionChangeLocked)
         {

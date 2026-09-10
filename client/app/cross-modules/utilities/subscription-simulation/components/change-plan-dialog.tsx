@@ -28,6 +28,7 @@ import {
   type BillingProfileGap,
 } from "../../subscription/utilities/subscription-api-failure";
 import { BillingProfileIncompleteNotice } from "./billing-profile-incomplete-notice";
+import { useWithdrawCancellation } from "../hooks/use-cancel-subscription";
 import { useChangeSubscriptionPlan } from "../hooks/use-change-subscription-plan";
 import { usePreviewPlanChange } from "../hooks/use-preview-plan-change";
 import type {
@@ -63,6 +64,7 @@ export const ChangePlanDialog = ({
 }) => {
   const preview = usePreviewPlanChange();
   const apply = useChangeSubscriptionPlan();
+  const withdrawCancellation = useWithdrawCancellation();
 
   const [targetPlanId, setTargetPlanId] = useState(currentPlan?.planId ?? "");
   const [priceId, setPriceId] = useState("");
@@ -72,7 +74,7 @@ export const ChangePlanDialog = ({
   const [confirmationProfileGap, setConfirmationProfileGap] =
     useState<BillingProfileGap | null>(null);
 
-  const busy = preview.isPending || apply.isPending;
+  const busy = preview.isPending || apply.isPending || withdrawCancellation.isPending;
 
   const targetPlan = useMemo(
     () => plans.find((plan) => plan.planId === targetPlanId),
@@ -230,7 +232,28 @@ export const ChangePlanDialog = ({
     }
   };
 
-  const blocked = (quote?.blockers.length ?? 0) > 0;
+  const undoCancellation = async () => {
+    try {
+      await withdrawCancellation.mutateAsync({
+        subscriptionId: subscription.subscriptionId,
+        organizationId,
+      });
+      toast({
+        variant: "success",
+        title: "Cancellation undone",
+        description: "This subscription keeps renewing as before.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Could not undo the cancellation",
+        description:
+          error instanceof Error ? error.message : "The cancellation could not be undone.",
+      });
+    }
+  };
+
+  const blocked = (quote?.blockers.length ?? 0) > 0 || subscription.cancelAtPeriodEnd;
   const previewProfileGap = quote?.blockers
     .map((blocker) =>
       billingProfileGapOf({
@@ -260,6 +283,28 @@ export const ChangePlanDialog = ({
         </DialogHeader>
 
         <div className="space-y-4">
+          {subscription.cancelAtPeriodEnd && (
+            <div
+              className="flex items-start justify-between gap-2 rounded-md border border-warning-300 bg-warning-50 p-2.5 text-xs text-warning-900"
+              data-testid="change-plan-cancellation-notice"
+            >
+              <span className="flex items-start gap-1.5">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                This subscription is scheduled to cancel on{" "}
+                {formatDate(subscription.currentPeriodEndUtc)}. Undo the cancellation to change
+                plan.
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={undoCancellation}
+                disabled={busy}
+              >
+                Undo cancellation
+              </Button>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="change-plan-target">Target plan</Label>
             <Select value={targetPlanId} onValueChange={selectTargetPlan}>
@@ -428,7 +473,11 @@ export const ChangePlanDialog = ({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="outline" onClick={runPreview} disabled={busy}>
+          <Button
+            variant="outline"
+            onClick={runPreview}
+            disabled={busy || subscription.cancelAtPeriodEnd}
+          >
             {preview.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Preview
           </Button>
@@ -453,6 +502,9 @@ const formatDate = (isoDate: string) => new Date(isoDate).toLocaleString();
  */
 const describePlanChangeRefusal = (code: string | undefined): string | null => {
   switch (code) {
+    case "subscription_cancellation_scheduled":
+      return "This subscription is scheduled to cancel. Undo the cancellation before changing " +
+        "plan.";
     case "subscription_pending_quantity_change_exists":
       return "A quantity change is already scheduled for the end of this period. Cancel it on the " +
         "subscription first — only one change can be waiting at a time.";

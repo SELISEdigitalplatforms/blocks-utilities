@@ -892,6 +892,50 @@ public sealed class SubscriptionCancellationServiceTests
         }
     }
 
+    [Fact]
+    public async Task Withdrawing_a_scheduled_cancellation_clears_it_and_restores_the_renewal()
+    {
+        _subscription!.CancelAtPeriodEnd = true;
+        _subscription.CanCancelImmediately = true;
+        _subscription.CanceledAtUtc = new DateTime(2026, 8, 14, 9, 0, 0, DateTimeKind.Utc);
+        _subscription.CancellationReason = "changed my mind";
+        _subscription.NextFeeBillingAtUtc = null;
+
+        _subscriptions
+            .Setup(repository => repository.TryWithdrawScheduledCancellationAsync(
+                TenantId,
+                "sub-1",
+                _subscription.Version,
+                _subscription.CurrentPeriodEndUtc,
+                It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().WithdrawCancellationAsync(
+            "sub-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.CancelAtPeriodEnd.Should().BeFalse();
+        _subscription.CanCancelImmediately.Should().BeFalse();
+        _subscription.CanceledAtUtc.Should().BeNull();
+        _subscription.CancellationReason.Should().BeNull();
+        _subscription.NextFeeBillingAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc,
+            "undoing the cancellation must restore the renewal it cleared");
+    }
+
+    [Fact]
+    public async Task Withdrawing_when_nothing_is_scheduled_is_not_found()
+    {
+        _subscription!.CancelAtPeriodEnd = false;
+
+        var result = await Service().WithdrawCancellationAsync(
+            "sub-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+        result.ErrorCode.Should().Be("subscription_cancellation_not_scheduled");
+    }
+
     private SubscriptionCancellationService Service() => new(
         _subscriptions.Object,
         _links.Object,

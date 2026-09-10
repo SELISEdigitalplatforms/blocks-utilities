@@ -25,6 +25,22 @@ public interface ISubscriptionCancellationService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Undoes a cancellation scheduled for the end of the paid period, restoring the renewal it
+    /// cleared. <c>404</c> when nothing is scheduled — including once the promised boundary has
+    /// already passed, at which point the finalizing sweep owns what happens next.
+    /// </summary>
+    /// <param name="organizationId">
+    /// An organization named by the caller, if any. Trusted only for the platform console — see
+    /// <see cref="Subscription.DomainService.Requests.CreateSubscriptionRequest.OrganizationId"/>
+    /// for the full rule.
+    /// </param>
+    Task<SubscriptionOperationResult<SubscriptionResponse>> WithdrawCancellationAsync(
+        string subscriptionId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Recovers usage-closure reservations left <c>CloseReserved</c> longer than their configured
     /// timeout — the crash window between a cancellation's own transition landing (or losing) and
     /// the commit-or-release call that should have followed it ever actually running.
