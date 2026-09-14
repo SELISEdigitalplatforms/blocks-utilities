@@ -77,6 +77,9 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionUsageCurrentRepository,
             SubscriptionUsageCurrentRepository>();
         services.AddSingleton<
+            ISubscriptionEntitlementsCurrentRepository,
+            SubscriptionEntitlementsCurrentRepository>();
+        services.AddSingleton<
             ISubscriptionPaymentLinkRepository,
             SubscriptionPaymentLinkRepository>();
         services.AddSingleton<
