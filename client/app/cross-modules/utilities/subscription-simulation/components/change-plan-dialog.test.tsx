@@ -12,6 +12,7 @@ vi.mock("@/hooks/use-toast", () => ({ toast: (...args: unknown[]) => toast(...ar
 
 const previewPlanChange = vi.fn();
 const changePlan = vi.fn();
+const withdrawCancellation = vi.fn();
 
 vi.mock("../services/subscription-simulation.service", async () => {
   const actual = await vi.importActual<
@@ -23,6 +24,7 @@ vi.mock("../services/subscription-simulation.service", async () => {
     subscriptionSimulationService: {
       previewPlanChange: (...args: unknown[]) => previewPlanChange(...args),
       changePlan: (...args: unknown[]) => changePlan(...args),
+      withdrawCancellation: (...args: unknown[]) => withdrawCancellation(...args),
     },
   };
 });
@@ -141,13 +143,13 @@ const quote: SubscriptionPlanChangePreview = {
   quotedAtUtc: "2026-08-16T00:00:00Z",
 };
 
-const renderDialog = () => {
+const renderDialog = (subscriptionOverride: SimulatedSubscription = subscription) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(
     <QueryClientProvider client={client}>
       <ChangePlanDialog
-        subscription={subscription}
+        subscription={subscriptionOverride}
         currentPlan={currentPlan}
         plans={[currentPlan, premiumPlan]}
         organizationId="org-1"
@@ -341,6 +343,40 @@ describe("ChangePlanDialog", () => {
 
     expect(screen.getByRole("button", { name: /^Confirm change$/ })).toBeDisabled();
     expect(changePlan).not.toHaveBeenCalled();
+  });
+});
+
+describe("ChangePlanDialog scheduled cancellation", () => {
+  const cancelling: SimulatedSubscription = { ...subscription, cancelAtPeriodEnd: true };
+
+  it("shows the notice and the undo button, and keeps preview disabled", () => {
+    renderDialog(cancelling);
+
+    expect(screen.getByTestId("change-plan-cancellation-notice")).toHaveTextContent(
+      /scheduled to cancel/i,
+    );
+    expect(screen.getByRole("button", { name: /undo cancellation/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Preview$/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Confirm change$/ })).toBeDisabled();
+  });
+
+  it("undoes the cancellation from the dialog", async () => {
+    withdrawCancellation.mockResolvedValue({ ...subscription, cancelAtPeriodEnd: false });
+
+    renderDialog(cancelling);
+    click(/undo cancellation/i);
+
+    await waitFor(() => {
+      expect(withdrawCancellation).toHaveBeenCalledWith("sub-1", "org-1");
+    });
+  });
+
+  it("shows nothing when no cancellation is scheduled", () => {
+    renderDialog();
+
+    expect(
+      screen.queryByTestId("change-plan-cancellation-notice"),
+    ).not.toBeInTheDocument();
   });
 });
 

@@ -56,6 +56,8 @@ export const CurrentSubscriptionCard = ({
   isCancelingPendingQuantityChange,
   onCancelPendingPlanChange,
   isCancelingPendingPlanChange,
+  onWithdrawCancellation,
+  isWithdrawingCancellation,
   onViewAuditTrail,
   onAddPaymentMethod,
   isStartingPaymentMethodSetup,
@@ -73,6 +75,8 @@ export const CurrentSubscriptionCard = ({
   isCancelingPendingQuantityChange: boolean;
   onCancelPendingPlanChange: () => void;
   isCancelingPendingPlanChange: boolean;
+  onWithdrawCancellation: () => void;
+  isWithdrawingCancellation: boolean;
   onViewAuditTrail: () => void;
   /** Opens a card-collection session. Never a payment -- see the button labels below. */
   onAddPaymentMethod: () => void;
@@ -224,9 +228,6 @@ export const CurrentSubscriptionCard = ({
         {subscription.trialEndsAtUtc && (
           <span>Trial ends {formatDate(subscription.trialEndsAtUtc)}</span>
         )}
-        {subscription.cancelAtPeriodEnd && (
-          <span className="text-warning-800">Cancels at period end</span>
-        )}
         {subscription.quantities.length > 0 && (
           <span>
             {subscription.quantities
@@ -240,6 +241,31 @@ export const CurrentSubscriptionCard = ({
           <span>{describeTier(subscription.currentTier)}</span>
         )}
       </div>
+
+      {/* A cancellation already scheduled. The subscription stays Active and keeps granting until
+          the period ends, so this is the one place that says so and offers the one clear way
+          back: undo it. Change plan is refused server-side while this is showing -- see the
+          dialog's own notice. */}
+      {subscription.cancelAtPeriodEnd && (
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-300 bg-warning-50 p-2.5 text-xs"
+          data-testid="scheduled-cancellation"
+        >
+          <span className="flex items-center gap-1.5 text-warning-900">
+            <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+            Cancellation scheduled for {formatDate(subscription.currentPeriodEndUtc)}. You keep{" "}
+            {subscription.planName} until then.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onWithdrawCancellation}
+            disabled={isWithdrawingCancellation}
+          >
+            Keep subscription
+          </Button>
+        </div>
+      )}
 
       {/* A plan change already booked, shown for the same reason the reduction below is: without
           it a reload shows the current plan with nothing to say a different one is coming, and no

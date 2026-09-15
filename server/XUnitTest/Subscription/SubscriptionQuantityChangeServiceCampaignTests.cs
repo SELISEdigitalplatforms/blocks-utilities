@@ -65,6 +65,31 @@ public sealed class SubscriptionQuantityChangeServiceCampaignTests
     }
 
     [Fact]
+    public async Task A_quantity_change_is_refused_while_a_cancellation_is_scheduled()
+    {
+        _subscription.CancelAtPeriodEnd = true;
+
+        var result = await Service().ChangeAsync(
+            "sub-1", Request(2), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_cancellation_scheduled");
+    }
+
+    [Fact]
+    public async Task A_quantity_change_preview_reports_a_scheduled_cancellation_as_a_blocker()
+    {
+        _subscription.CancelAtPeriodEnd = true;
+
+        var result = await Service().PreviewAsync(
+            "sub-1", Request(2), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("a preview still prices the change");
+        result.Value!.Blockers.Should().Contain(
+            blocker => blocker.Code == "subscription_cancellation_scheduled");
+    }
+
+    [Fact]
     public async Task A_standard_discount_never_locks_a_quantity_change()
     {
         // Deliberately not asserting the whole change succeeds -- that needs a much larger mock

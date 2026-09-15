@@ -25,15 +25,19 @@ namespace Api.Controllers
     public class PdfGeneratorController : ControllerBase
     {
         private readonly IPdfGeneratorService _pdfGeneratorService;
+        private readonly ISinglePdfGeneratorService _singlePdfGeneratorService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PdfGeneratorController"/> class.
         /// </summary>
-        /// <param name="pdfGeneratorService">The service used for PDF generator operations.</param>
+        /// <param name="pdfGeneratorService">The service used for queued PDF generator operations.</param>
+        /// <param name="singlePdfGeneratorService">The service used for synchronous single-file HTML-to-PDF.</param>
         public PdfGeneratorController(
-            IPdfGeneratorService pdfGeneratorService)
+            IPdfGeneratorService pdfGeneratorService,
+            ISinglePdfGeneratorService singlePdfGeneratorService)
         {
             _pdfGeneratorService = pdfGeneratorService;
+            _singlePdfGeneratorService = singlePdfGeneratorService;
         }
 
         /// <summary>
@@ -77,6 +81,22 @@ namespace Api.Controllers
         public async Task<CreatePdfsFromHtmlResponse> CreatePdfsFromHtml([FromBody] CreatePdfsFromHtmlRequest request)
         {
             return await _pdfGeneratorService.CreatePdfsFromHtmlAsync(request);
+        }
+
+        /// <summary>
+        /// Render a single HTML document to PDF synchronously and return the stored file ID.
+        /// </summary>
+        /// <remarks>
+        /// Unlike CreatePdfsFromHtml, this action renders and stores in-process and returns the
+        /// File ID in the same response. Engine is hardcoded to PuppeteerSharp. HtmlContent is
+        /// inline only (no HtmlFileId). AccessModifier defaults to Private.
+        /// </remarks>
+        /// <returns>CreateSinglePdfFromHtmlResponse</returns>
+        [HttpPost]
+        [Authorize]
+        public async Task<CreateSinglePdfFromHtmlResponse> CreateSinglePdfFromHtml([FromBody] CreateSinglePdfFromHtmlRequest request)
+        {
+            return await _singlePdfGeneratorService.CreateSinglePdfFromHtmlAsync(request);
         }
 
         /// <summary>

@@ -53,6 +53,7 @@ namespace DomainService.Utilities
 
             // PDF Generator Services
             services.AddSingleton<IPdfGeneratorService, PdfGeneratorService>();
+            services.AddSingleton<ISinglePdfGeneratorService, SinglePdfGeneratorService>();
             services.AddSingleton<IPdfGeneratorRepository, PdfGeneratorRepository>();
             services.AddSingleton<IPdfGeneratorNotificationService, PdfGeneratorNotificationService>();
 

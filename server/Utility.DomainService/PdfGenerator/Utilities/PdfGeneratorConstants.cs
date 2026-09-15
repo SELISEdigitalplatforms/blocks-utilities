@@ -18,6 +18,12 @@ namespace Utility.DomainService.PdfGenerator.Utilities
         public const string StampIntoPdfQueue = "blocks_pdf_stamp_listener";
         public const string ConvertDocumentToPdfQueue = "blocks_pdf_convert_document_listener";
 
+        /// <summary>
+        /// Parent directory for files produced by the synchronous single-PDF endpoint.
+        /// Distinct from the bulk/queued flow's "Blocks-PDF-Generated-Files".
+        /// </summary>
+        public const string SinglePdfGeneratedFilesDirectory = "Blocks-Utilities-SinglePdf-Generated-Files";
+
         public static MessageConfiguration GetMessageConfiguration(string messageConnectionString)
         {
             return MessageConfigurationHelper.GetMessageConfiguration(

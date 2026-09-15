@@ -56,6 +56,8 @@ const renderCard = (subscription: SimulatedSubscription) =>
       onCancelPendingPlanChange={noop}
       isCancelingPendingPlanChange={false}
       isCancelingPendingQuantityChange={false}
+      onWithdrawCancellation={noop}
+      isWithdrawingCancellation={false}
       onViewAuditTrail={noop}
       onAddPaymentMethod={noop}
       isStartingPaymentMethodSetup={false}
@@ -165,6 +167,8 @@ describe("CurrentSubscriptionCard payment-method actions", () => {
         onCancelPendingPlanChange={noop}
         isCancelingPendingPlanChange={false}
         isCancelingPendingQuantityChange={false}
+        onWithdrawCancellation={noop}
+        isWithdrawingCancellation={false}
         onViewAuditTrail={noop}
         onAddPaymentMethod={onAddPaymentMethod}
         isStartingPaymentMethodSetup={false}
@@ -192,6 +196,8 @@ describe("CurrentSubscriptionCard payment-method actions", () => {
         onCancelPendingPlanChange={noop}
         isCancelingPendingPlanChange={false}
         isCancelingPendingQuantityChange={false}
+        onWithdrawCancellation={noop}
+        isWithdrawingCancellation={false}
         onViewAuditTrail={noop}
         onAddPaymentMethod={noop}
         isStartingPaymentMethodSetup
@@ -249,6 +255,8 @@ describe("CurrentSubscriptionCard scheduled plan change", () => {
         isCancelingPendingQuantityChange={false}
         onCancelPendingPlanChange={onCancelPendingPlanChange}
         isCancelingPendingPlanChange={false}
+        onWithdrawCancellation={noop}
+        isWithdrawingCancellation={false}
         onViewAuditTrail={noop}
         onAddPaymentMethod={noop}
         isStartingPaymentMethodSetup={false}
@@ -264,6 +272,53 @@ describe("CurrentSubscriptionCard scheduled plan change", () => {
     renderCard(baseSubscription);
 
     expect(screen.queryByTestId("pending-plan-change")).not.toBeInTheDocument();
+  });
+});
+
+describe("CurrentSubscriptionCard scheduled cancellation", () => {
+  const scheduled: SimulatedSubscription = {
+    ...baseSubscription,
+    cancelAtPeriodEnd: true,
+  };
+
+  it("shows the scheduled cancellation and offers to keep the subscription", () => {
+    const onWithdrawCancellation = vi.fn();
+
+    render(
+      <CurrentSubscriptionCard
+        subscription={scheduled}
+        isLoading={false}
+        isError={false}
+        error={null}
+        scopeLabel="Acme"
+        onRetry={noop}
+        onCancel={noop}
+        onChangePlan={noop}
+        onChangeQuantity={noop}
+        onCancelPendingQuantityChange={noop}
+        isCancelingPendingQuantityChange={false}
+        onCancelPendingPlanChange={noop}
+        isCancelingPendingPlanChange={false}
+        onWithdrawCancellation={onWithdrawCancellation}
+        isWithdrawingCancellation={false}
+        onViewAuditTrail={noop}
+        onAddPaymentMethod={noop}
+        isStartingPaymentMethodSetup={false}
+      />,
+    );
+
+    const banner = screen.getByTestId("scheduled-cancellation");
+    expect(banner).toHaveTextContent(/Cancellation scheduled/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /keep subscription/i }));
+
+    expect(onWithdrawCancellation).toHaveBeenCalledOnce();
+  });
+
+  it("shows nothing when no cancellation is scheduled", () => {
+    renderCard(baseSubscription);
+
+    expect(screen.queryByTestId("scheduled-cancellation")).not.toBeInTheDocument();
   });
 });
 
