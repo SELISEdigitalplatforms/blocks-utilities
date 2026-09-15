@@ -13,6 +13,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 
@@ -36,6 +37,7 @@ public sealed class SubscriptionCheckoutServiceTests
     private readonly Mock<IPaymentRepository> _paymentRepository = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
     private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
+    private readonly Mock<IUsageProjectionReconciler> _usageProjections = new();
 
     private SubscriptionDetail _subscription = NewSubscription();
     private MakePaymentRequest? _paymentRequest;
@@ -653,6 +655,32 @@ public sealed class SubscriptionCheckoutServiceTests
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
+
+        _usageProjections.Verify(
+            reconciler => reconciler.RefreshSubscriptionAsync(
+                TenantId, _subscription.ItemId, "corr-1", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the paid path publishes this from SubscriptionActivationProcessor.ActivateAsync, " +
+            "but a fully-discounted subscription never reaches that processor -- without this " +
+            "call SubscriptionUsageCurrent gets no row until cancellation writes one with a " +
+            "Canceled status that was never true while the subscription was live");
+    }
+
+    [Fact]
+    public async Task A_failed_usage_projection_publish_does_not_fail_a_free_subscribe()
+    {
+        _usageProjections
+            .Setup(reconciler => reconciler.RefreshSubscriptionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("projection store unavailable"));
+
+        var result = await Service().SubscribeAsync(
+            new CreateSubscriptionRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "the subscription is already active; a read-model publish failing must not turn a " +
+            "successful subscribe into an apparent failure the subscriber would retry");
     }
 
     [Fact]
@@ -974,7 +1002,8 @@ public sealed class SubscriptionCheckoutServiceTests
         _paymentRepository.Object,
         _currency.Object,
         _billingAccounts.Object,
-        NullLogger<SubscriptionCheckoutService>.Instance);
+        NullLogger<SubscriptionCheckoutService>.Instance,
+        usageProjections: _usageProjections.Object);
 
     private void ArrangePendingCheckout()
     {

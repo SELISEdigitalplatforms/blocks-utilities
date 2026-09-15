@@ -31,6 +31,7 @@ import { CloseUsagePeriodDialog } from "../components/close-usage-period-dialog"
 import { DataConsoleDialog } from "../components/data-console-dialog";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
 import { useCancelPendingPlanChange } from "../hooks/use-change-subscription-plan";
+import { useWithdrawCancellation } from "../hooks/use-cancel-subscription";
 import { useStartPaymentMethodSetup } from "../hooks/use-start-payment-method-setup";
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
 import { OverageTermsSection } from "../components/overage-terms-section";
@@ -125,6 +126,7 @@ export const SubscriptionSimulationPage = () => {
 
   const cancelPendingQuantity = useCancelPendingQuantityChange();
   const cancelPendingPlan = useCancelPendingPlanChange();
+  const withdrawCancellation = useWithdrawCancellation();
   const startPaymentMethodSetup = useStartPaymentMethodSetup();
 
   /**
@@ -220,6 +222,37 @@ export const SubscriptionSimulationPage = () => {
     }
   };
 
+  /**
+   * Undoes a cancellation scheduled for the end of the paid period. Reported as a toast for the
+   * same reason the reduction and plan-change withdrawals above are: the control that raised it
+   * disappears the moment the subscription is re-read without a scheduled cancellation.
+   */
+  const withdrawScheduledCancellation = async () => {
+    if (!currentSubscription) {
+      return;
+    }
+
+    try {
+      await withdrawCancellation.mutateAsync({
+        subscriptionId: currentSubscription.subscriptionId,
+        organizationId: organizationScope,
+      });
+
+      toast({
+        variant: "success",
+        title: "Cancellation undone",
+        description: "This subscription keeps renewing as before.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "The cancellation could not be undone",
+        description:
+          error instanceof Error ? error.message : "Reload and try again.",
+      });
+    }
+  };
+
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SubscriptionPlanPageHeader
@@ -291,6 +324,8 @@ export const SubscriptionSimulationPage = () => {
             isCancelingPendingQuantityChange={cancelPendingQuantity.isPending}
             onCancelPendingPlanChange={withdrawScheduledPlanChange}
             isCancelingPendingPlanChange={cancelPendingPlan.isPending}
+            onWithdrawCancellation={withdrawScheduledCancellation}
+            isWithdrawingCancellation={withdrawCancellation.isPending}
             onViewAuditTrail={() => setIsViewingAuditTrail(true)}
             onAddPaymentMethod={addPaymentMethod}
             isStartingPaymentMethodSetup={startPaymentMethodSetup.isPending}

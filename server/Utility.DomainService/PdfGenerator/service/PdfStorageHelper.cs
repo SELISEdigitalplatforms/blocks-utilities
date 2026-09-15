@@ -27,7 +27,7 @@ namespace Utility.DomainService.PdfGenerator.service
         /// <summary>
         /// Saves a PDF file to storage
         /// </summary>
-        public async Task<bool> SavePdfToStorage(Stream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-PDF-Generated-Files", string? projectKey = null)
+        public virtual async Task<bool> SavePdfToStorage(Stream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-PDF-Generated-Files", string? projectKey = null, string accessModifier = "Private")
         {
             _logger.LogInformation("SavePdfToStorage: Saving PDF to storage -- fileId={FileId}, fileName={FileName}", fileId, fileName);
 
@@ -51,7 +51,8 @@ namespace Utility.DomainService.PdfGenerator.service
                 MetaData = formattedMetadata.Count > 0 ? JsonConvert.SerializeObject(formattedMetadata) : string.Empty,
                 Name = fileName,
                 ParentDirectoryId = parentDirectoryId,
-                Tags = "[\"PDF\"]"
+                Tags = "[\"PDF\"]",
+                AccessModifier = string.IsNullOrWhiteSpace(accessModifier) ? "Private" : accessModifier
             };
 
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);

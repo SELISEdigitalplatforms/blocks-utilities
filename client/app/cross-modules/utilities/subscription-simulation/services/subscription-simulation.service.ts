@@ -219,6 +219,35 @@ class SubscriptionSimulationService {
   }
 
   /**
+   * Undoes a cancellation scheduled for the end of the paid period, restoring the renewal it
+   * cleared. A copy of {@link cancelPendingPlanChange} pointed at the cancellation endpoint.
+   */
+  async withdrawCancellation(
+    subscriptionId: string,
+    organizationId?: string,
+  ): Promise<SimulatedSubscription> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    try {
+      const response = await serviceInstances.utitlitiesService.delete<
+        SimulationApiResponse<SimulatedSubscription>
+      >(
+        `${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/cancellation${query}`,
+      );
+
+      if (!response.success || !response.data) {
+        throw operationError(response, "The cancellation could not be undone.");
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, "The cancellation could not be undone.");
+    }
+  }
+
+  /**
    * Moves an existing subscription to another price. The whole request is body-bound
    * (`[FromBody]` on the server), so — unlike the GET/DELETE endpoints — `organizationId` has to
    * travel as a field on `request`, not as a query parameter.
@@ -559,6 +588,7 @@ const QUANTITY_ERROR_CODES = [
   "subscription_quantity_charge_unresolved",
   "subscription_quantity_charge_failed",
   "subscription_quantity_change_in_flight",
+  "subscription_cancellation_scheduled",
   "subscription_version_conflict",
   "subscription_payment_method_missing",
   "subscription_quantity_change_not_allowed",
@@ -615,6 +645,7 @@ const PLAN_CHANGE_ERROR_CODES = [
   "subscription_plan_change_invalid",
   "subscription_not_found",
   "subscription_plan_change_not_eligible",
+  "subscription_cancellation_scheduled",
   "subscription_quantity_change_in_flight",
   // A prepaid opening stub no longer refuses a compatible plan change outright — see
   // change-plan-dialog's own remarks on the retired _prepaid code. Only an unpaid stub still

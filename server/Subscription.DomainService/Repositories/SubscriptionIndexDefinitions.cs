@@ -436,6 +436,24 @@ public static class SubscriptionIndexDefinitions
             })
     ];
 
+    public const string EntitlementsCurrentReadIndexName =
+        "ix_entitlements_current_org_subscription";
+
+    /// <summary>
+    /// The entitlement-terms projection's index. One document per subscription, addressed by its
+    /// own <c>_id</c>, so the only other query shape a direct consumer needs is the
+    /// organization-scoped one this covers.
+    /// </summary>
+    public static IReadOnlyCollection<CreateIndexModel<SubscriptionEntitlementsCurrent>>
+        CreateEntitlementsCurrentIndexes() =>
+    [
+        new(
+            Builders<SubscriptionEntitlementsCurrent>.IndexKeys
+                .Ascending(current => current.OrganizationId)
+                .Ascending(current => current.SubscriptionId),
+            new CreateIndexOptions { Name = EntitlementsCurrentReadIndexName })
+    ];
+
     public const string UsagePeriodClaimLookupIndexName =
         "ix_usage_period_claim_tenant_subscription_period";
     public const string UsagePeriodClaimRecoveryIndexName =

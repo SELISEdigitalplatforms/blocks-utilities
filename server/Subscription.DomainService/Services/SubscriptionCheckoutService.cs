@@ -10,6 +10,7 @@ using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
@@ -52,7 +53,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         IBillingAccountRepository billingAccounts,
         ILogger<SubscriptionCheckoutService> logger,
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        // Optional for the same reason documents already is: an existing caller or test that
+        // constructs this service unaware the usage projection exists must keep compiling and
+        // keep behaving as before.
+        IUsageProjectionReconciler? usageProjections = null)
     {
         _creation = creation;
         _subscriptions = subscriptions;
@@ -68,6 +73,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         _logger = logger;
         _documents = documents;
         _time = time ?? TimeProvider.System;
+        _usageProjections = usageProjections;
     }
 
     /// <summary>
@@ -75,6 +81,13 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// without announcing its document is one the repair sweep has to find, not one that failed.
     /// </summary>
     private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
+
+    /// <summary>
+    /// Optional for the same reason. Missing it means a free or card-free-trial subscription
+    /// waits for the repair sweep to publish its first usage projection row instead of getting
+    /// one immediately, not that the subscribe request should fail.
+    /// </summary>
+    private readonly IUsageProjectionReconciler? _usageProjections;
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> SubscribeAsync(
         CreateSubscriptionRequest request,
@@ -1055,6 +1068,35 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                     context.UserId,
                     context.UserName,
                     context.UserEmail));
+        }
+
+        if (_usageProjections is not null)
+        {
+            // Same reason ActivateAsync refreshes right after its own transition commits: this is
+            // what lets a reader discover the subscription's meters and allowances before any usage
+            // exists. The paid path gets this from the activation processor; this one never goes
+            // through it, so nothing else publishes the row. Best-effort -- the subscription is
+            // already active, and failing the subscribe response over a read-model publish would
+            // turn a successful subscription into an apparent failure the subscriber would retry.
+            try
+            {
+                await _usageProjections.RefreshSubscriptionAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    correlationId,
+                    cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(
+                    ex,
+                    "Failed to publish the initial usage projection for a subscription started " +
+                    "without payment; the repair sweep will catch it TenantHash={TenantHash} " +
+                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(subscription.TenantId),
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    correlationId);
+            }
         }
 
         _logger.LogInformation(

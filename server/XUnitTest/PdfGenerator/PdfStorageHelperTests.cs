@@ -140,5 +140,54 @@ namespace XUnitTest.PdfGenerator
             // CreateClient silently returns a default-configured client instead of failing.
             Assert.Equal("utility-storage", StorageHelperBase.StorageHttpClientName);
         }
+
+        [Fact]
+        public async Task SavePdfToStorage_ForwardsAccessModifier_OnTheUploadRequest()
+        {
+            GetPreSignedUrlForUploadRequest? captured = null;
+            _storageDriverMock
+                .Setup(x => x.GetPerSignedUrlForUploadAsync(It.IsAny<GetPreSignedUrlForUploadRequest>()))
+                .Callback<GetPreSignedUrlForUploadRequest>(r => captured = r)
+                .ReturnsAsync(new GetPreSignedUrlForUploadResponse
+                {
+                    UploadUrl = "https://storage.example/upload"
+                });
+
+            var handler = new FakeHttpMessageHandler(
+                _ => new HttpResponseMessage(HttpStatusCode.OK));
+            var helper = new PdfStorageHelper(
+                _loggerMock.Object, _storageDriverMock.Object, FactoryFor(handler));
+
+            var result = await helper.SavePdfToStorage(
+                new MemoryStream([1]), "file1", "test.pdf",
+                accessModifier: "Public");
+
+            Assert.True(result);
+            Assert.Equal("Public", captured!.AccessModifier);
+        }
+
+        [Fact]
+        public async Task SavePdfToStorage_DefaultsAccessModifierToPrivate()
+        {
+            GetPreSignedUrlForUploadRequest? captured = null;
+            _storageDriverMock
+                .Setup(x => x.GetPerSignedUrlForUploadAsync(It.IsAny<GetPreSignedUrlForUploadRequest>()))
+                .Callback<GetPreSignedUrlForUploadRequest>(r => captured = r)
+                .ReturnsAsync(new GetPreSignedUrlForUploadResponse
+                {
+                    UploadUrl = "https://storage.example/upload"
+                });
+
+            var handler = new FakeHttpMessageHandler(
+                _ => new HttpResponseMessage(HttpStatusCode.OK));
+            var helper = new PdfStorageHelper(
+                _loggerMock.Object, _storageDriverMock.Object, FactoryFor(handler));
+
+            var result = await helper.SavePdfToStorage(
+                new MemoryStream([1]), "file1", "test.pdf");
+
+            Assert.True(result);
+            Assert.Equal("Private", captured!.AccessModifier);
+        }
     }
 }
