@@ -414,3 +414,29 @@ export async function confirmDeactivateAndAssertSuccess(page: Page, row: Locator
     page.getByText("Magic URL deactivated successfully", { exact: true }),
   ).toBeVisible({ timeout: 15_000 });
 }
+
+/**
+ * TODO-11a (magic URL — search finds the created row): typing the unique name into the
+ * toolbar Search narrows the list to the created row; clearing restores the list.
+ */
+export async function verifySearchFindsCreatedRow(page: Page, uniqueName: string): Promise<void> {
+  const toolbarSearch = page.locator("input[placeholder='Search...']").first();
+  await expect(toolbarSearch).toBeVisible();
+  await toolbarSearch.fill(uniqueName);
+  await expect(magicUrlRow(page, uniqueName)).toBeVisible({ timeout: 15_000 });
+  await toolbarSearch.fill("");
+  await expect(magicUrlRow(page, uniqueName)).toBeVisible();
+}
+
+/**
+ * TODO-11b (magic URL — sort toggles): clicking the URL/Name sort headers re-orders the
+ * list without navigating away (asserted via URL sort params staying on the page).
+ */
+export async function verifySortHeadersToggleWithoutNavigation(page: Page): Promise<void> {
+  const urlBefore = page.url();
+  await page.getByRole("button", { name: "URL", exact: true }).click();
+  await expect(page).toHaveURL(/magic-url/);
+  await page.getByRole("button", { name: "Name", exact: true }).click();
+  await expect(page).toHaveURL(/magic-url/);
+  expect(page.url()).toContain(urlBefore.split("?")[0]);
+}

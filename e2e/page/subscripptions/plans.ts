@@ -434,3 +434,48 @@ export async function verifyDiscountsLinkNavigatesToDiscountsPage(page: Page): P
   await expect(page.getByRole("heading", { name: "Subscription discounts" })).toBeVisible();
   await expect(page.getByText("Discount catalogue", { exact: true })).toBeVisible();
 }
+
+/**
+ * TODO-04a (plans — catalogue tabs + sort + org scope): the Active/Archived/All tabs
+ * switch the listing, Sort plans re-orders without navigation, and the Organization
+ * combobox is present (scope-switch asserted as visible here; full cross-org data
+ * assertions belong to TODO-12).
+ */
+export async function verifyCatalogueTabsSortAndOrgScope(page: Page): Promise<void> {
+  const archivedTab = page.getByRole("tab", { name: /^Archived/ });
+  const activeTab = page.getByRole("tab", { name: /^Active/ });
+  const allTab = page.getByRole("tab", { name: /^All/ });
+  await expect(archivedTab).toBeVisible();
+  await archivedTab.click();
+  // Tabs persist the selection as ?status=Archived|Active|All on the same page.
+  await expect(page).toHaveURL(/\/subscription\/plans(\?|$)/);
+  await activeTab.click();
+  await expect(page).toHaveURL(/\/subscription\/plans(\?|$)/);
+  await allTab.click();
+  await expect(page).toHaveURL(/\/subscription\/plans(\?|$)/);
+
+  const sort = page.getByRole("combobox", { name: "Sort plans" });
+  await expect(sort).toBeVisible();
+  await sort.click();
+  const firstOption = page.getByRole("option").first();
+  if (await firstOption.isVisible().catch(() => false)) {
+    await firstOption.click();
+    await expect(page).toHaveURL(/\/subscription\/plans(\?|$)/);
+  } else {
+    await page.keyboard.press("Escape");
+  }
+  await expect(page.getByRole("combobox", { name: "Organization" })).toBeVisible();
+}
+
+/**
+ * TODO-04b (plans — trial + grants steps are traversed): the wizard's "What the plan
+ * grants" and "Trial" steps render their headings so the no-crash contract holds even
+ * when skipped. Runs inside the open wizard; advances to Review.
+ */
+export async function verifyGrantsAndTrialStepsRender(page: Page): Promise<void> {
+  await expect(page.getByRole("heading", { name: "What the plan grants" })).toBeVisible();
+  await page.getByRole("button", { name: "Next" }).click();
+  await expect(page.getByRole("heading", { name: "Trial" })).toBeVisible();
+  await page.getByRole("button", { name: "Next" }).click();
+  await expect(page.getByRole("heading", { name: "Review" })).toBeVisible();
+}

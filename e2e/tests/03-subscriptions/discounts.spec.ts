@@ -6,6 +6,7 @@ import {
   verifyEmptyCatalogueShowsNoDiscountsAuthoredYet,
   verifyNewDiscountOpensWizardAndCancelReturnsToList,
   verifyCodeFieldRejectsUppercaseLetters,
+  verifyAllOfferTypesAreSelectable,
   createStandardPercentageDiscount,
   verifyEditLoadsPrefilledWizardAndCancel,
   verifyRetireArchivesDiscount,
@@ -32,6 +33,8 @@ test.describe("flow: Subscriptions - Discounts", () => {
       verifyNewDiscountOpensWizardAndCancelReturnsToList(page));
     await test.step("[Negative] the Code field rejects uppercase letters and keeps Next disabled", () =>
       verifyCodeFieldRejectsUppercaseLetters(page));
+    await test.step("[Positive] all three offer types are selectable in the wizard", () =>
+      verifyAllOfferTypesAreSelectable(page));
     await test.step("[Positive] creating a Standard percentage discount adds it to the catalogue", () =>
       createStandardPercentageDiscount(page, code, name, "15"));
     await test.step("[Positive] Edit loads the wizard pre-filled with the discount's values", () =>
