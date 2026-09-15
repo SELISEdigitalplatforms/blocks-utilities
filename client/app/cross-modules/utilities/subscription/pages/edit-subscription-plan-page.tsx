@@ -12,10 +12,12 @@ import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-pri
 import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
 import { useUpdateSubscriptionPlan } from "../hooks/use-update-subscription-plan";
+import { useUpdateSubscriptionPlanMeterRates } from "../hooks/use-update-subscription-plan-meter-rates";
 import { useUpdateSubscriptionPriceDiscount } from "../hooks/use-update-subscription-price-discount";
 import { useUpdateSubscriptionPriceTax } from "../hooks/use-update-subscription-price-tax";
 import { toBasisPoints, type TaxMode } from "../utilities/subscription-tax";
 import type { AutomaticDiscountCombination } from "../utilities/subscription-discount";
+import type { MeterRateTable } from "../models/subscription-plan.model";
 import { planToFormValues, toUpdatePlanRequest } from "../utilities/plan-form-mapping";
 import { createPricesInTurn } from "../utilities/create-price-request";
 import { submitPlanWithPrices } from "../utilities/submit-plan-with-prices";
@@ -35,6 +37,7 @@ export const EditSubscriptionPlanPage = () => {
   const { mutateAsync: archivePrice } = useArchiveSubscriptionPrice();
   const { mutateAsync: updatePriceTax } = useUpdateSubscriptionPriceTax();
   const { mutateAsync: updatePriceDiscount } = useUpdateSubscriptionPriceDiscount();
+  const { mutateAsync: updateMeterRates } = useUpdateSubscriptionPlanMeterRates();
   const [retiringPriceId, setRetiringPriceId] = useState<string | null>(null);
 
   const detailPath = withOrganizationScope(
@@ -145,6 +148,23 @@ export const EditSubscriptionPlanPage = () => {
     });
   };
 
+  const updateMeterOverageRates = async (meterKey: string, rateTables: MeterRateTable[]) => {
+    await updateMeterRates({
+      planId: plan.planId,
+      meterKey,
+      request: {
+        organizationId: plan.organizationId ?? undefined,
+        rateTables,
+      },
+    });
+    toast({
+      variant: "success",
+      title: "Overage rates saved",
+      description:
+        "New subscriptions and future renewals use them; everyone already subscribed keeps their snapshot.",
+    });
+  };
+
   /**
    * An archived plan is closed to everything this page does.
    *
@@ -192,6 +212,7 @@ export const EditSubscriptionPlanPage = () => {
         onRetirePrice={retirePrice}
         onUpdatePriceTax={updatePriceTaxRate}
         onUpdatePriceDiscount={updateAutomaticDiscount}
+        onUpdateMeterRates={updateMeterOverageRates}
         onSubmit={async (values) => {
           const failures = await createPricesInTurn({
             prices: values.prices,

@@ -445,6 +445,18 @@ export interface UpdateSubscriptionPriceTaxRequest {
 }
 
 /**
+ * Rewrites one meter's overage rate tables, whether or not the plan already has subscribers.
+ * The deliberate exception to the plan's own terms being immutable once sold, alongside price tax
+ * and discount: overage is rated from the meter snapshot copied onto a subscription at signup, so
+ * this reaches only future subscriptions and future renewals.
+ */
+export interface UpdateSubscriptionPlanMeterRatesRequest {
+  organizationId?: string;
+  /** The meter's rate tables in full — this replaces the set, it does not merge it. */
+  rateTables: MeterRateTable[];
+}
+
+/**
  * What a discount is, beyond the ordinary percentage or fixed reduction: which billing periods it
  * is allowed to touch, and what else happens alongside the reduction.
  *
