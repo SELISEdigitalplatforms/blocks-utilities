@@ -4596,7 +4596,9 @@ Incorrect: CHF 214.52                 (stub charged without the yearly discount)
           status.</li>
         <li><strong>P-24.</strong> Give the trial its own grant of 50 against a meter the plan
           includes 450 of. Expect an allowance of 50 while <code>Trialing</code> and 450 in the first
-          paid window. Confirm a trial grant is refused on a lifetime meter.</li>
+          paid window. Repeat against a lifetime (<code>Never</code>-reset) meter granted 50 against
+          a plan quantity of 450: expect the same 50-then-450 widening at conversion, and confirm a
+          second, unrelated renewal afterward does not re-attempt the widening a second time.</li>
       </ol>
       <p class="prose">
         Assert conversion timing separately: a payment-free trial ending mid-month charges a stub from

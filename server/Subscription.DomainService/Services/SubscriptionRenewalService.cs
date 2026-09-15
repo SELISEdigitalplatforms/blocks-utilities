@@ -814,6 +814,17 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     var allowance = await _allowances.OpeningAllowanceAsync(
                         subscription, meter, period, cancellationToken);
 
+                    // A Never meter's one lifetime window never closes, so the guard above — a
+                    // window that opened before the trial ended — can never turn false the way a
+                    // periodic meter's does once its next window opens after conversion. Checked
+                    // here instead: once the counter already reads what a converted subscription's
+                    // allowance actually is, every later renewal would otherwise attempt the exact
+                    // same write, forever, for as long as the subscription keeps renewing.
+                    if (counter.LimitSnapshot == allowance)
+                    {
+                        continue;
+                    }
+
                     var retainedThresholds = counter.NotifiedThresholds
                         .Where(threshold => counter.Balance * 100 >= allowance * threshold)
                         .ToList();
