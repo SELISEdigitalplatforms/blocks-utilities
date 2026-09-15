@@ -33,6 +33,29 @@ public interface IUsageProjectionPublisher
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Applies one acting user's own delta to their row for a meter and period.
+    /// </summary>
+    /// <remarks>
+    /// A no-op, reported as <see cref="UsageProjectionOutcome.Published"/>, when
+    /// <paramref name="userId"/> is empty: usage recorded with no user in context cannot be attributed
+    /// to one, and the aggregate row published by <see cref="PublishAsync"/> already carries it.
+    /// <para>
+    /// Called only from the recording path that actually changed a balance — never from a replay,
+    /// which would otherwise double-count a retried idempotent request against this user even though
+    /// <see cref="PublishAsync"/>'s own republish of the aggregate is harmless to repeat.
+    /// </para>
+    /// </remarks>
+    Task<UsageProjectionOutcome> PublishUserDeltaAsync(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        BillingPeriod period,
+        string? userId,
+        decimal delta,
+        decimal allowance,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Creates zero-usage documents for every meter whose current window has none.
     /// </summary>
     /// <remarks>

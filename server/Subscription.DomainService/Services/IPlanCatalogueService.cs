@@ -100,6 +100,23 @@ public interface IPlanCatalogueService
         string correlationId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Rewrites one meter's overage rate tables. Answers with the plan as it now stands.
+    /// </summary>
+    /// <remarks>
+    /// Future-facing, like the price tax and discount editors beside it: a subscription rates its
+    /// overage from the meter snapshot copied onto it at signup and never reads the catalogue
+    /// again, so this reaches only future subscriptions and future renewals onto this plan.
+    /// Unlike <see cref="UpdatePlanAsync"/>, not refused once the plan has been subscribed to —
+    /// there is no history here for it to rewrite.
+    /// </remarks>
+    Task<SubscriptionOperationResult<PlanResponse>> UpdatePlanMeterRatesAsync(
+        string planId,
+        string meterKey,
+        UpdatePlanMeterRatesRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     /// <param name="organizationId">
     /// An organization named by the caller, if any. Trusted only for the platform console — see
     /// <see cref="Subscription.DomainService.Requests.CreateSubscriptionRequest.OrganizationId"/>

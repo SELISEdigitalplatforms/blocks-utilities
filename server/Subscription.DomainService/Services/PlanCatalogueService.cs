@@ -7,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Validators;
 
 namespace Subscription.DomainService.Services;
 
@@ -882,6 +883,106 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 "The price changed while its tax configuration was being saved.",
                 correlationId);
         }
+
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
+    }
+
+    public async Task<SubscriptionOperationResult<PlanResponse>> UpdatePlanMeterRatesAsync(
+        string planId,
+        string meterKey,
+        UpdatePlanMeterRatesRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!PlanDefinitionRequestValidator.HaveWellOrderedTiers(request.RateTables))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_meter_tiers_invalid",
+                "Rate tiers must ascend, and only the last may be unbounded — otherwise a " +
+                    "quantity falls into two bands and the bill depends on which is read first.",
+                correlationId);
+        }
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<PlanResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var plan = await _catalogue.GetPlanAsync(context.TenantId, planId, cancellationToken);
+
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return NotFound(correlationId);
+        }
+
+        var archivedRefusal = RefuseIfArchived(plan, correlationId);
+
+        if (archivedRefusal is not null)
+        {
+            return archivedRefusal;
+        }
+
+        if (!plan.Meters.Exists(meter =>
+                string.Equals(meter.MeterKey, meterKey, StringComparison.Ordinal)))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_meter_not_found",
+                "This plan does not define that meter.",
+                correlationId);
+        }
+
+        var rateTables = request.RateTables
+            .Select(table => new MeterRateTable
+            {
+                CurrencyCode = table.CurrencyCode.ToUpperInvariant(),
+                Tiers = table.Tiers
+                    .Select(tier => new MeterTier
+                    {
+                        UpToQuantity = tier.UpToQuantity,
+                        UnitAmountMinor = tier.UnitAmountMinor
+                    })
+                    .ToList()
+            })
+            .ToList();
+
+        if (!await _catalogue.TryUpdatePlanMeterRatesAsync(
+                context.TenantId,
+                plan.ItemId,
+                meterKey,
+                plan.Version,
+                rateTables,
+                DateTime.UtcNow,
+                cancellationToken))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_plan_changed",
+                "This plan changed while its overage rates were being saved. Reload it and " +
+                    "try again.",
+                correlationId);
+        }
+
+        _logger.LogInformation(
+            "Subscription plan meter rates updated TenantHash={TenantHash} PlanHash={PlanHash} " +
+                "MeterKey={MeterKey} CorrelationId={CorrelationId}",
+            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Hash(plan.ItemId),
+            PaymentLogValue.Label(meterKey),
+            correlationId);
 
         return await GetPlanAsync(
             plan.ItemId,

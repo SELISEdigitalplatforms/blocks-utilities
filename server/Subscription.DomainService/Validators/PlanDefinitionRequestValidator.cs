@@ -384,7 +384,13 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                last.MaximumQuantity >= item.MaxQuantity;
     }
 
-    private static bool HaveWellOrderedTiers(List<MeterRateTableRequest> rateTables) =>
+    /// <summary>
+    /// Also used by <see cref="Subscription.DomainService.Services.PlanCatalogueService"/> to
+    /// validate <see cref="Subscription.DomainService.Requests.UpdatePlanMeterRatesRequest"/>,
+    /// so a meter's rate tables are held to the same rule whether they arrive with the rest of
+    /// the plan or on their own.
+    /// </summary>
+    internal static bool HaveWellOrderedTiers(List<MeterRateTableRequest> rateTables) =>
         rateTables.TrueForAll(table =>
         {
             var tiers = table.Tiers;

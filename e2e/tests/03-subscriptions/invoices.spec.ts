@@ -8,6 +8,8 @@ import {
   verifyIssuedFromAndToComposeDateRange,
   verifyEmptyDateRangeShowsEmptyState,
   verifyShowDetailExpandsDocumentRow,
+  verifyDownloadPdfTriggersDownloadEvent,
+  verifyRetryQueuesAnotherAttempt,
   verifyBackToPlansLinkReturnsToPlans,
 } from "../../page/subscripptions/invoices";
 
@@ -33,6 +35,10 @@ test.describe("flow: Subscriptions - Invoices", () => {
       verifyEmptyDateRangeShowsEmptyState(page));
     await test.step("[Positive] Show detail expands a document row and surfaces its figures", () =>
       verifyShowDetailExpandsDocumentRow(page));
+    await test.step("[Positive] Download PDF on a document row triggers a download (stubbed)", () =>
+      verifyDownloadPdfTriggersDownloadEvent(page));
+    await test.step("[Positive] Generation-failed retry queues another attempt (stubbed)", () =>
+      verifyRetryQueuesAnotherAttempt(page));
     await test.step("[Positive] 'Back to plans' returns to the plans list", () =>
       verifyBackToPlansLinkReturnsToPlans(page));
   });

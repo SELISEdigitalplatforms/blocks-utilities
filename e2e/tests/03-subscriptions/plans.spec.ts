@@ -13,11 +13,14 @@ import {
   verifyBackIsEnabledOnStep2,
   verifyBackReturnsToIdentityPreservingValues,
   verifyBlankDisplayNameIsRejectedAtReview,
+  fillPricingStepAndAdvance,
   createFlatFeePlanThroughWizard,
   verifyLandsOnPlanDetailPage,
   verifyDetailPageActionsExposeDuplicateAndEdit,
   addSecondPriceThroughEditor,
   verifyDuplicatePlanPrefillsWizardWithBlankCode,
+  verifyCatalogueTabsSortAndOrgScope,
+  verifyGrantsAndTrialStepsRender,
   verifyEditOpensBuilderWithIdentityLocked,
   editDescriptionAndSaveReturnsToDetailPage,
   // verifyPlanIsDiscoverableFromListByCode,
@@ -43,6 +46,8 @@ test.describe("flow: Subscriptions - Plans", () => {
       verifyHeaderActionsIncludeDiscountsRefreshCreatePlan(page));
     await test.step("[Positive] catalogue renders Active/Archived/All tabs, Sort plans combobox and stats strip", () =>
       verifyCatalogueTabsAndSortAndStatsVisible(page));
+    await test.step("[Positive] catalogue tabs switch, sort re-orders, org scope is present", () =>
+      verifyCatalogueTabsSortAndOrgScope(page));
     await test.step("[Positive] empty catalogue shows the tenant-wide plans notice", () =>
       verifyEmptyCatalogueShowsTenantWideNotice(page));
     await test.step("[Positive] search narrows the plan catalogue", () =>
@@ -65,6 +70,12 @@ test.describe("flow: Subscriptions - Plans", () => {
       verifyBackReturnsToIdentityPreservingValues(page));
     await test.step("[Negative] clicking Next with a blank Display name is rejected at Identity", () =>
       verifyBlankDisplayNameIsRejectedAtReview(page));
+    await test.step("[Positive] grants and trial steps render before creating the plan", async () => {
+      // verifyBlankDisplayNameIsRejectedAtReview leaves the wizard on Pricing model;
+      // fill it, then walk grants -> trial -> review with the shared helper.
+      await fillPricingStepAndAdvance(page, "19.00");
+      await verifyGrantsAndTrialStepsRender(page);
+    });
     await test.step("[Positive] create a minimal flat-fee plan through the wizard", () =>
       createFlatFeePlanThroughWizard(page, displayName, code, "19.00"));
     await test.step("[Positive] lands on the plan detail page with the new plan's data", () =>

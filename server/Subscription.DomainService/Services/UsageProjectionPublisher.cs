@@ -112,6 +112,155 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         }
     }
 
+    public async Task<UsageProjectionOutcome> PublishUserDeltaAsync(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        BillingPeriod period,
+        string? userId,
+        decimal delta,
+        decimal allowance,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(meter);
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            return UsageProjectionOutcome.Published;
+        }
+
+        var seed = DescribeUserSeed(subscription, meter, period, userId, allowance);
+        var started = _time.GetTimestamp();
+
+        try
+        {
+            await WithTransientRetryAsync(
+                () => _current.ApplyUserDeltaAsync(seed, delta, cancellationToken),
+                cancellationToken);
+
+            _metrics.RecordPublish(UsageProjectionOutcome.Published, _time.GetElapsedTime(started));
+
+            return UsageProjectionOutcome.Published;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Per-user usage projection write failed after the usage committed; repairing from the " +
+                "ledger TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} Meter={Meter} " +
+                "Period={Period} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Label(meter.MeterKey),
+                PaymentLogValue.Label(period.Key),
+                correlationId);
+
+            return await RepairUserRowFromLedgerAsync(
+                subscription, meter, period, userId, seed, started, correlationId, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// The immediate self-heal for a failed per-user write: the ledger entry that caused it is already
+    /// committed, so its own truth is read straight back and set, rather than only queuing a repair
+    /// and leaving the row wrong until that repair runs.
+    /// </summary>
+    /// <remarks>
+    /// Only if this second write also fails does it fall back to the same queued repair the aggregate
+    /// row uses — <see cref="RefreshAsync"/> re-derives every current-window user row from the ledger
+    /// too, so a subscription-level repair still reaches this specific row eventually.
+    /// </remarks>
+    private async Task<UsageProjectionOutcome> RepairUserRowFromLedgerAsync(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        BillingPeriod period,
+        string userId,
+        SubscriptionUsageCurrent seed,
+        long started,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (used, recordCount) = await _usage.SummariseLedgerByUserAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                meter.MeterKey,
+                period.Key,
+                userId,
+                cancellationToken);
+
+            await _current.TryRepairUserRowAsync(
+                subscription.TenantId, seed, used, recordCount, cancellationToken);
+
+            _metrics.RecordPublish(UsageProjectionOutcome.Published, _time.GetElapsedTime(started));
+
+            return UsageProjectionOutcome.Published;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Per-user usage projection repair from the ledger also failed; scheduling a " +
+                "subscription-wide repair TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+                "Meter={Meter} Period={Period} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Label(meter.MeterKey),
+                PaymentLogValue.Label(period.Key),
+                correlationId);
+
+            _metrics.RecordPublish(UsageProjectionOutcome.RepairScheduled, _time.GetElapsedTime(started));
+
+            await ScheduleRepairAsync(subscription, correlationId, cancellationToken);
+
+            return UsageProjectionOutcome.RepairScheduled;
+        }
+    }
+
+    private SubscriptionUsageCurrent DescribeUserSeed(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        BillingPeriod period,
+        string userId,
+        decimal allowance) => new()
+    {
+        ItemId = SubscriptionUsageCurrent.CreateId(
+            subscription.ItemId,
+            meter.MeterKey,
+            period.Key,
+            userId),
+        TenantId = subscription.TenantId,
+        OrganizationId = subscription.OrganizationId,
+        SubscriptionId = subscription.ItemId,
+        UserId = userId,
+        SubscriptionStatus = subscription.Status,
+        PlanId = subscription.Plan.PlanId,
+        PlanCode = subscription.Plan.Code,
+        MeterKey = meter.MeterKey,
+        UnitLabel = meter.UnitLabel,
+        QuantityScale = meter.QuantityScale,
+        PeriodKey = period.Key,
+        PeriodStartUtc = period.StartUtc,
+        PeriodEndUtc = period.EndUtc,
+        Included = allowance,
+        OverageAllowed = meter.OverageAllowed,
+        SchemaVersion = SubscriptionUsageCurrent.CurrentSchemaVersion,
+        UpdatedAtUtc = _time.GetUtcNow().UtcDateTime,
+        ExpiresAtUtc = meter.ResetPolicy == MeterResetPolicy.Never
+            ? DateTime.MaxValue
+            : period.EndUtc.AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
+    };
+
     public async Task<int> SeedCurrentAsync(
         SubscriptionDetail subscription,
         DateTime asOfUtc,
@@ -252,6 +401,13 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
                     published++;
                 }
             }
+
+            // The per-user counterpart of everything above: every current window's rows re-derived
+            // from the ledger, which both catches drift in a row that exists and discovers one that
+            // was never written at all. Run from the same subscription-level repair every lifecycle
+            // change and publish-failure already schedules, so a user row heals on the same trigger
+            // the aggregate row's own "never published" case relies on.
+            published += await RefreshUserRowsAsync(subscription, windows, counters, cancellationToken);
         }
 
         // Plan-derived windows are what a busy meter republishes; stored rows are what is actually
@@ -280,6 +436,69 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             correlationId);
 
         return published;
+    }
+
+    /// <summary>
+    /// Re-derives every user's row for the given windows from the ledger, for whichever user has any
+    /// entry in each — which is what finds a row that was never written at all, not only one that
+    /// drifted.
+    /// </summary>
+    /// <remarks>
+    /// One allowance resolution and one ledger summary per user per window, so this scales with how
+    /// many distinct people used a meter rather than with how much they used it. Affordable here
+    /// because, unlike the aggregate republish above, this only ever runs from a targeted repair or
+    /// from the backfill's own rotation — never on the request path a usage recording waits on.
+    /// </remarks>
+    private async Task<int> RefreshUserRowsAsync(
+        SubscriptionDetail subscription,
+        IReadOnlyList<(PlanMeter Meter, BillingPeriod Period)> windows,
+        IReadOnlyDictionary<string, SubscriptionUsageCounter> counters,
+        CancellationToken cancellationToken)
+    {
+        var repaired = 0;
+
+        foreach (var (meter, period) in windows)
+        {
+            var userIds = await _usage.ListDistinctUsersAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                meter.MeterKey,
+                period.Key,
+                cancellationToken);
+
+            if (userIds.Count == 0)
+            {
+                continue;
+            }
+
+            counters.TryGetValue(
+                SubscriptionUsageCounter.CreateId(subscription.ItemId, meter.MeterKey, period.Key),
+                out var counter);
+
+            var allowance = await _allowances.EffectiveAsync(
+                subscription, meter, period, counter, cancellationToken);
+
+            foreach (var userId in userIds)
+            {
+                var (used, recordCount) = await _usage.SummariseLedgerByUserAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    meter.MeterKey,
+                    period.Key,
+                    userId,
+                    cancellationToken);
+
+                var seed = DescribeUserSeed(subscription, meter, period, userId, allowance);
+
+                if (await _current.TryRepairUserRowAsync(
+                        subscription.TenantId, seed, used, recordCount, cancellationToken))
+                {
+                    repaired++;
+                }
+            }
+        }
+
+        return repaired;
     }
 
     /// <summary>
@@ -663,8 +882,8 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
     /// every attempt, so retrying it just spends the caller's time before reaching the same repair.
     /// </para>
     /// </remarks>
-    private async Task<bool> WithTransientRetryAsync(
-        Func<Task<bool>> write,
+    private async Task<T> WithTransientRetryAsync<T>(
+        Func<Task<T>> write,
         CancellationToken cancellationToken)
     {
         const int attempts = 3;

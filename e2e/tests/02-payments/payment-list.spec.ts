@@ -30,6 +30,9 @@ import {
   verifyPaginationEnablesNext,
   verifyErrorStateSurfacesTryAgain,
   verifyRefundActionOpensDialog,
+  verifyRefundAmountAboveTotalIsRejected,
+  stubPaymentRefundEndpoint,
+  verifyRefundSubmitShowsSuccessToast,
   type PaymentsListHolder,
 } from "../../page/payments/payment-list";
 
@@ -97,5 +100,12 @@ test.describe("flow: Payments — Payment List", () => {
       verifyErrorStateSurfacesTryAgain(page, holder));
     await test.step("[Positive] Refund action on a CAPTURED row opens the refund dialog", () =>
       verifyRefundActionOpensDialog(page));
+    await test.step("[Negative] refund amount above the payment total is rejected in-dialog", () =>
+      verifyRefundAmountAboveTotalIsRejected(page));
+    await test.step("[Positive] stubbed refund submit shows the success toast and closes", async () => {
+      const captured: { amount?: number; reason?: string; url?: string } = {};
+      await stubPaymentRefundEndpoint(page, captured);
+      await verifyRefundSubmitShowsSuccessToast(page);
+    });
   });
 });

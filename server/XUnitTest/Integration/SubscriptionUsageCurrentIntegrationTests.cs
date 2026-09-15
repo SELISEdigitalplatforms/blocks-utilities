@@ -932,6 +932,67 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
             "which is what tells the reconciliation sweep to republish it");
     }
 
+    /// <summary>
+    /// A republish backfills the aggregate's own empty <see cref="SubscriptionUsageCurrent.UserId"/>
+    /// onto a document written before that field existed.
+    /// </summary>
+    /// <remarks>
+    /// The one property this pipeline cannot get away with getting wrong the way granularity's own
+    /// migration test above does: <c>UserId</c> being merely absent, rather than an empty string, is
+    /// exactly what would make <c>ListCurrentAsync</c>'s own filter exclude this row forever, and what
+    /// would make <c>ListUserRowsAsync</c>'s filter wrongly include it as if it were a user's row.
+    /// </remarks>
+    [Fact]
+    public async Task A_republish_backfills_the_missing_user_id_onto_a_pre_migration_document()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var documentId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09");
+
+        await _fixture.Database
+            .GetCollection<BsonDocument>("SubscriptionUsageCurrent")
+            .InsertOneAsync(new BsonDocument
+            {
+                ["_id"] = documentId,
+                ["TenantId"] = tenantId,
+                ["OrganizationId"] = "org-1",
+                ["SubscriptionId"] = Sub(tenantId),
+                ["MeterKey"] = "screening",
+                ["PeriodKey"] = "M2026-09",
+                ["PeriodStartUtc"] = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                ["PeriodEndUtc"] = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+                ["Used"] = new BsonInt64(40),
+                ["Included"] = new BsonInt64(100),
+                ["CounterVersion"] = new BsonInt64(1),
+                ["SubscriptionVersion"] = new BsonInt64(1),
+                // Written by the build before UserId existed, so it carries no field for it at all —
+                // not an empty string, genuinely absent, the same as every row this collection held
+                // before this change shipped.
+                ["SchemaVersion"] = 2,
+                ["UpdatedAtUtc"] = DateTime.UtcNow,
+                ["ExpiresAtUtc"] = new DateTime(2027, 12, 31, 0, 0, 0, DateTimeKind.Utc)
+            });
+
+        (await _current.TryPublishAsync(
+                Document(tenantId, used: 45, counterVersion: 2), CancellationToken.None))
+            .Should().BeTrue();
+
+        var stored = await _current.GetAsync(tenantId, documentId, CancellationToken.None);
+
+        stored!.UserId.Should().Be(
+            string.Empty,
+            "a $set pipeline never rewrites a document wholesale, so an omitted field would " +
+            "otherwise stay missing forever no matter how many times this republishes");
+
+        var currentWindow = (await _current.ListCurrentAsync(
+                tenantId, "org-1", Sub(tenantId), new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc),
+                CancellationToken.None))
+            .Should().ContainSingle(
+                "the aggregate row must be visible to the same query every existing caller already uses")
+            .Subject;
+
+        currentWindow.ItemId.Should().Be(documentId);
+    }
+
     private static string Sub(string tenantId) => $"sub-{tenantId}";
 
     private static SubscriptionUsageCurrent Document(

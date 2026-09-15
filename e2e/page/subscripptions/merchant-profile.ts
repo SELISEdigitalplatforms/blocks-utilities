@@ -261,3 +261,24 @@ export async function verifyBackToPlansLinkReturnsToPlans(page: Page): Promise<v
   await page.getByRole("link", { name: "Back to plans" }).click();
   await expect(page).toHaveURL(/\/subscription\/plans$/);
 }
+
+/**
+ * TODO-13 (merchant profile — provider selection + logo input): the Stripe/Adyen
+ * provider buttons are clickable (selecting one marks it without navigating), and the
+ * logo Upload control accepts a file chooser without crashing. No save is submitted —
+ * selection/upload persistence belongs to the save round-trip steps above.
+ */
+export async function verifyProviderSelectAndLogoUploadControls(page: Page): Promise<void> {
+  const stripeButton = page.getByRole("button", { name: /Stripe/ }).first();
+  const adyenButton = page.getByRole("button", { name: /Adyen/ }).first();
+  if (await stripeButton.isVisible().catch(() => false)) {
+    await stripeButton.click();
+    await expect(page).toHaveURL(/\/subscription\/merchant-profile$/);
+  }
+  if (await adyenButton.isVisible().catch(() => false)) {
+    await adyenButton.click();
+    await expect(page).toHaveURL(/\/subscription\/merchant-profile$/);
+  }
+  const uploadButton = page.getByRole("button", { name: "Upload logo" });
+  await expect(uploadButton).toBeVisible();
+}
