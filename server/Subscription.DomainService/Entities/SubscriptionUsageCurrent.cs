@@ -172,7 +172,7 @@ public sealed class SubscriptionUsageCurrent
     public DateTime ExpiresAtUtc { get; set; }
 
     /// <summary>
-    /// Raised to 2 by the addition of <see cref="QuantityScale"/>.
+    /// Raised to 2 by the addition of <see cref="QuantityScale"/>, and to 3 by <see cref="UserId"/>.
     /// </summary>
     /// <remarks>
     /// Raised rather than left alone because adding a field is invisible to both version
@@ -183,7 +183,7 @@ public sealed class SubscriptionUsageCurrent
     /// not end. The sweep treats a document below this as stale, so the ordinary cycle republishes
     /// it and no migration is needed.
     /// </remarks>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public static string CreateId(
         string subscriptionId,

@@ -380,6 +380,20 @@ public static class SubscriptionIndexDefinitions
     /// </summary>
     public const string UsageCurrentUniqueIndexName =
         "ux_usage_current_subscription_meter_period_user_v2";
+
+    /// <summary>
+    /// The pre-<see cref="SubscriptionUsageCurrent.UserId"/> unique index, kept only so
+    /// <see cref="SubscriptionUsageCurrentRepository.EnsureIndexesAsync"/> can drop it by name.
+    /// </summary>
+    /// <remarks>
+    /// It cannot be left in place beside <see cref="UsageCurrentUniqueIndexName"/>: this index is
+    /// still unique on <c>SubscriptionId</c>, <c>MeterKey</c> and <c>PeriodKey</c> alone, so it
+    /// rejects a per-user row as a duplicate of the aggregate row that already occupies that triple.
+    /// A brand-new tenant database never creates it, so failing to find it there is expected, not an
+    /// error.
+    /// </remarks>
+    public const string UsageCurrentLegacyUniqueIndexName =
+        "ux_usage_current_subscription_meter_period";
     public const string UsageCurrentReadIndexName =
         "ix_usage_current_org_subscription_status_period";
     public const string UsageCurrentStalenessIndexName =

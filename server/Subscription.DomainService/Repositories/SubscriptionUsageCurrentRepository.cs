@@ -26,7 +26,25 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             return;
         }
 
-        await Current(tenantId).Indexes.CreateManyAsync(
+        var collection = Current(tenantId);
+
+        // Dropped before the wider index is created, not after: a per-user row inserted in the
+        // window between the two would still be rejected by the old index, which is unique on
+        // subscription, meter and period alone and so treats a user's row as a duplicate of the
+        // aggregate row already occupying that triple. A tenant that never had the old index — every
+        // one created after this change — simply has nothing to drop.
+        try
+        {
+            await collection.Indexes.DropOneAsync(
+                SubscriptionIndexDefinitions.UsageCurrentLegacyUniqueIndexName, cancellationToken);
+        }
+        catch (MongoCommandException exception) when (exception.Code is 27 or 26)
+        {
+            // IndexNotFound (27) or NamespaceNotFound (26): nothing to drop, a fresh tenant or one
+            // already migrated by an earlier call.
+        }
+
+        await collection.Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateUsageCurrentIndexes(),
             cancellationToken);
 
@@ -145,6 +163,12 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             { "TenantId", incoming["TenantId"] },
             { "OrganizationId", incoming["OrganizationId"] },
             { "SubscriptionId", incoming["SubscriptionId"] },
+            // Always the aggregate's own empty sentinel — this pipeline only ever writes the
+            // aggregate row, never a per-user one (ApplyUserDeltaAsync writes those). Unconditional
+            // so a document published before UserId existed picks it up on its very next publish,
+            // rather than being permanently missing it: this $set pipeline never rewrites a document
+            // wholesale, so an omitted field would otherwise never be added at all.
+            { "UserId", incoming["UserId"] },
             { "MeterKey", incoming["MeterKey"] },
             { "PeriodKey", incoming["PeriodKey"] },
             { "PeriodStartUtc", incoming["PeriodStartUtc"] },
