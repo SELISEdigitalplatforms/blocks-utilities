@@ -301,24 +301,226 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         DateTime asOfUtc,
         CancellationToken cancellationToken) =>
         await Current(tenantId)
+            .Find(CurrentWindowFilter(tenantId, organizationId, subscriptionId, asOfUtc) &
+                  Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.UserId, string.Empty))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<SubscriptionUsageCurrent>> ListUserRowsAsync(
+        string tenantId,
+        string organizationId,
+        string subscriptionId,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken) =>
+        await Current(tenantId)
+            .Find(CurrentWindowFilter(tenantId, organizationId, subscriptionId, asOfUtc) &
+                  Builders<SubscriptionUsageCurrent>.Filter.Ne(current => current.UserId, string.Empty))
+            .ToListAsync(cancellationToken);
+
+    private static FilterDefinition<SubscriptionUsageCurrent> CurrentWindowFilter(
+        string tenantId,
+        string organizationId,
+        string subscriptionId,
+        DateTime asOfUtc) =>
+        Builders<SubscriptionUsageCurrent>.Filter.And(
+            Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                current => current.TenantId,
+                tenantId),
+            Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                current => current.OrganizationId,
+                organizationId),
+            Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                current => current.SubscriptionId,
+                subscriptionId),
+            Builders<SubscriptionUsageCurrent>.Filter.Lte(
+                current => current.PeriodStartUtc,
+                asOfUtc),
+            // Strictly after: a period ends the instant its successor begins, so an inclusive
+            // upper bound would return two windows for one meter at the boundary.
+            Builders<SubscriptionUsageCurrent>.Filter.Gt(
+                current => current.PeriodEndUtc,
+                asOfUtc));
+
+    public async Task<SubscriptionUsageCurrent> ApplyUserDeltaAsync(
+        SubscriptionUsageCurrent seed,
+        decimal delta,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(seed);
+
+        await EnsureIndexesAsync(seed.TenantId, cancellationToken);
+
+        var now = DateTime.UtcNow;
+
+        var update = Builders<SubscriptionUsageCurrent>.Update
+            .Inc(current => current.Used, delta)
+            .Inc(current => current.LedgerRecordCount, 1)
+            .Set(current => current.Included, seed.Included)
+            .Set(current => current.UpdatedAtUtc, now)
+            .Set(current => current.ExpiresAtUtc, seed.ExpiresAtUtc)
+            .SetOnInsert(current => current.TenantId, seed.TenantId)
+            .SetOnInsert(current => current.OrganizationId, seed.OrganizationId)
+            .SetOnInsert(current => current.SubscriptionId, seed.SubscriptionId)
+            .SetOnInsert(current => current.UserId, seed.UserId)
+            .SetOnInsert(current => current.SubscriptionStatus, seed.SubscriptionStatus)
+            .SetOnInsert(current => current.PlanId, seed.PlanId)
+            .SetOnInsert(current => current.PlanCode, seed.PlanCode)
+            .SetOnInsert(current => current.MeterKey, seed.MeterKey)
+            .SetOnInsert(current => current.UnitLabel, seed.UnitLabel)
+            .SetOnInsert(current => current.QuantityScale, seed.QuantityScale)
+            .SetOnInsert(current => current.PeriodKey, seed.PeriodKey)
+            .SetOnInsert(current => current.PeriodStartUtc, seed.PeriodStartUtc)
+            .SetOnInsert(current => current.PeriodEndUtc, seed.PeriodEndUtc)
+            .SetOnInsert(current => current.OverageAllowed, seed.OverageAllowed)
+            .SetOnInsert(current => current.SchemaVersion, seed.SchemaVersion);
+
+        // ReturnDocument.After so the derived fields below are computed from the balance this
+        // caller's own delta already landed in, the same guarantee ApplyDeltaAsync gives the
+        // authoritative counter.
+        var updated = await Current(seed.TenantId).FindOneAndUpdateAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.ItemId, seed.ItemId),
+            update,
+            new FindOneAndUpdateOptions<SubscriptionUsageCurrent>
+            {
+                IsUpsert = true,
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+
+        return await DeriveAsync(updated, cancellationToken);
+    }
+
+    /// <summary>
+    /// Recomputes <c>Remaining</c> and <c>Overage</c> from whatever <c>Used</c> and <c>Included</c>
+    /// just landed, and persists them.
+    /// </summary>
+    /// <remarks>
+    /// A second small write rather than folding this into <see cref="ApplyUserDeltaAsync"/>'s own
+    /// update: <c>$inc</c> and a pipeline-computed field cannot both apply in one
+    /// <c>FindOneAndUpdateAsync</c> call built from <see cref="UpdateDefinition{TDocument}"/>
+    /// combinators the way <see cref="ApplyUserDeltaAsync"/> is. The window between the two writes is
+    /// harmless: <c>Used</c> and <c>Included</c> are already final, so a reader in between sees a
+    /// correct balance with stale derived fields for, at most, one more round trip.
+    /// </remarks>
+    private async Task<SubscriptionUsageCurrent> DeriveAsync(
+        SubscriptionUsageCurrent document,
+        CancellationToken cancellationToken)
+    {
+        var remaining = Math.Max(0, document.Included - document.Used);
+        var overage = Math.Max(0, document.Used - document.Included);
+
+        await Current(document.TenantId).UpdateOneAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.ItemId, document.ItemId),
+            Builders<SubscriptionUsageCurrent>.Update
+                .Set(current => current.Remaining, remaining)
+                .Set(current => current.Overage, overage),
+            cancellationToken: cancellationToken);
+
+        document.Remaining = remaining;
+        document.Overage = overage;
+
+        return document;
+    }
+
+    public async Task<bool> TryRepairUserRowAsync(
+        string tenantId,
+        SubscriptionUsageCurrent seed,
+        decimal used,
+        long ledgerRecordCount,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(seed);
+
+        await EnsureIndexesAsync(tenantId, cancellationToken);
+
+        var remaining = Math.Max(0, seed.Included - used);
+        var overage = Math.Max(0, used - seed.Included);
+        var now = DateTime.UtcNow;
+
+        var collection = Current(tenantId);
+
+        var result = await collection.UpdateOneAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.ItemId, seed.ItemId),
+                Builders<SubscriptionUsageCurrent>.Filter.Lt(
+                    current => current.LedgerRecordCount,
+                    ledgerRecordCount)),
+            Builders<SubscriptionUsageCurrent>.Update
+                .Set(current => current.Used, used)
+                .Set(current => current.LedgerRecordCount, ledgerRecordCount)
+                .Set(current => current.Included, seed.Included)
+                .Set(current => current.Remaining, remaining)
+                .Set(current => current.Overage, overage)
+                .Set(current => current.ExpiresAtUtc, seed.ExpiresAtUtc)
+                .Set(current => current.UpdatedAtUtc, now),
+            cancellationToken: cancellationToken);
+
+        if (result.ModifiedCount == 1)
+        {
+            return true;
+        }
+
+        // Nothing to update means either the row is already current, or it does not exist yet — the
+        // one case TryRepairCounterAsync never has to handle, because the counter always exists once
+        // anything has been recorded against it. A user's row can be missing outright: a first
+        // ApplyUserDeltaAsync call that never landed at all, discovered here from the ledger instead.
+        seed.Used = used;
+        seed.LedgerRecordCount = ledgerRecordCount;
+        seed.Remaining = remaining;
+        seed.Overage = overage;
+        seed.UpdatedAtUtc = now;
+
+        try
+        {
+            await collection.InsertOneAsync(seed, cancellationToken: cancellationToken);
+
+            return true;
+        }
+        catch (MongoWriteException exception)
+            when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            // Already repaired, or written since by a real recording. Retried once against the
+            // guarded update rather than assumed stale, for the same reason TryPublishAsync retries
+            // its own insert fallback once: whichever writer got there first may not have been this
+            // one's own ledger figure.
+            result = await collection.UpdateOneAsync(
+                Builders<SubscriptionUsageCurrent>.Filter.And(
+                    Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.ItemId, seed.ItemId),
+                    Builders<SubscriptionUsageCurrent>.Filter.Lt(
+                        current => current.LedgerRecordCount,
+                        ledgerRecordCount)),
+                Builders<SubscriptionUsageCurrent>.Update
+                    .Set(current => current.Used, used)
+                    .Set(current => current.LedgerRecordCount, ledgerRecordCount)
+                    .Set(current => current.Included, seed.Included)
+                    .Set(current => current.Remaining, remaining)
+                    .Set(current => current.Overage, overage)
+                    .Set(current => current.ExpiresAtUtc, seed.ExpiresAtUtc)
+                    .Set(current => current.UpdatedAtUtc, now),
+                cancellationToken: cancellationToken);
+
+            return result.ModifiedCount == 1;
+        }
+    }
+
+    public async Task<IReadOnlyList<SubscriptionUsageCurrent>> ListUserRowsBehindAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
+        CancellationToken cancellationToken) =>
+        await Current(tenantId)
             .Find(Builders<SubscriptionUsageCurrent>.Filter.And(
                 Builders<SubscriptionUsageCurrent>.Filter.Eq(
                     current => current.TenantId,
                     tenantId),
-                Builders<SubscriptionUsageCurrent>.Filter.Eq(
-                    current => current.OrganizationId,
-                    organizationId),
-                Builders<SubscriptionUsageCurrent>.Filter.Eq(
-                    current => current.SubscriptionId,
-                    subscriptionId),
+                Builders<SubscriptionUsageCurrent>.Filter.Ne(current => current.UserId, string.Empty),
                 Builders<SubscriptionUsageCurrent>.Filter.Lte(
                     current => current.PeriodStartUtc,
                     asOfUtc),
-                // Strictly after: a period ends the instant its successor begins, so an inclusive
-                // upper bound would return two windows for one meter at the boundary.
                 Builders<SubscriptionUsageCurrent>.Filter.Gt(
                     current => current.PeriodEndUtc,
                     asOfUtc)))
+            .SortBy(current => current.UpdatedAtUtc)
+            .Limit(limit)
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<SubscriptionUsageCurrent>> ListBehindCountersAsync(

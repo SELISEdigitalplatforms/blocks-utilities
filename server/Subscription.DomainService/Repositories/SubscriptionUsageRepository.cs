@@ -226,6 +226,73 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
         return (records.Sum(), records.Count);
     }
 
+    public async Task<(decimal Balance, long RecordCount)> SummariseLedgerByUserAsync(
+        string tenantId,
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var records = await Records(tenantId)
+            .Find(Builders<SubscriptionUsageRecord>.Filter.And(
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.TenantId,
+                    tenantId),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.SubscriptionId,
+                    subscriptionId),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.MeterKey,
+                    meterKey),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.PeriodKey,
+                    periodKey),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.RecordedByUserId,
+                    userId)))
+            .Project(record => record.Delta)
+            .ToListAsync(cancellationToken);
+
+        return (records.Sum(), records.Count);
+    }
+
+    public async Task<IReadOnlyList<string>> ListDistinctUsersAsync(
+        string tenantId,
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        CancellationToken cancellationToken)
+    {
+        var userIds = await Records(tenantId).DistinctAsync(
+            record => record.RecordedByUserId,
+            Builders<SubscriptionUsageRecord>.Filter.And(
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.TenantId,
+                    tenantId),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.SubscriptionId,
+                    subscriptionId),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.MeterKey,
+                    meterKey),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(
+                    record => record.PeriodKey,
+                    periodKey),
+                Builders<SubscriptionUsageRecord>.Filter.Ne(record => record.RecordedByUserId, null)),
+            cancellationToken: cancellationToken);
+
+        var result = await userIds.ToListAsync(cancellationToken);
+
+        // Whoever recorded with no user in context wrote it as null, not empty — RecordedByUserId is
+        // nullable and Ne(null) above lets an empty string through if one was ever stored. Filtered
+        // here too so a caller of this method never has to special-case the aggregate's own sentinel.
+        return result
+            .Where(userId => !string.IsNullOrEmpty(userId))
+            .Select(userId => userId!)
+            .ToList();
+    }
+
     public async Task<bool> TryRepairCounterAsync(
         string tenantId,
         string counterId,

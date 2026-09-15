@@ -54,12 +54,73 @@ public interface ISubscriptionUsageCurrentRepository
     /// <remarks>
     /// Organization-scoped in the filter, not merely in the caller's intent. A projection read that
     /// omitted it would be a cross-organization read of billing state.
+    /// <para>
+    /// Restricted to the aggregate row (<see cref="SubscriptionUsageCurrent.UserId"/> empty), so this
+    /// keeps answering exactly what it always has now that per-user rows share the same window. See
+    /// <see cref="ListUserRowsAsync"/> for those.
+    /// </para>
     /// </remarks>
     Task<IReadOnlyList<SubscriptionUsageCurrent>> ListCurrentAsync(
         string tenantId,
         string organizationId,
         string subscriptionId,
         DateTime asOfUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One row per user who has recorded usage in the current window, for the same subscription.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart to <see cref="ListCurrentAsync"/>'s aggregate row. Never authoritative, same as
+    /// every other row in this collection — see the type's own remarks.
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionUsageCurrent>> ListUserRowsAsync(
+        string tenantId,
+        string organizationId,
+        string subscriptionId,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Applies one user's delta to their row for a meter and period, creating it if this is their
+    /// first recording in the window.
+    /// </summary>
+    /// <remarks>
+    /// A plain atomic increment, not the version-gated merge <see cref="TryPublishAsync"/> uses. That
+    /// machinery exists to arbitrate fields several writers can race on — plan terms, subscription
+    /// status — for the one aggregate row every recording shares. A user's own row has no such race:
+    /// only that user's own recordings, and this repair, ever write it.
+    /// </remarks>
+    Task<SubscriptionUsageCurrent> ApplyUserDeltaAsync(
+        SubscriptionUsageCurrent seed,
+        decimal delta,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Overwrites one user's row with what the ledger says is true, creating it if it does not exist.
+    /// </summary>
+    /// <remarks>
+    /// Guarded so it only writes when <paramref name="ledgerRecordCount"/> is newer than what is
+    /// stored — the same shape as <see cref="ISubscriptionUsageRepository.TryRepairCounterAsync"/>,
+    /// narrowed to one user. Upserts, unlike that repair, because a user's row can be missing
+    /// altogether: nothing else authoritative announces its existence the way the counter announces
+    /// the aggregate row's.
+    /// </remarks>
+    Task<bool> TryRepairUserRowAsync(
+        string tenantId,
+        SubscriptionUsageCurrent seed,
+        decimal used,
+        long ledgerRecordCount,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Per-user rows for a tenant, oldest-updated first, for the reconciliation sweep to check
+    /// against the ledger — the per-user counterpart to <see cref="ListBehindCountersAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionUsageCurrent>> ListUserRowsBehindAsync(
+        string tenantId,
+        DateTime asOfUtc,
+        int limit,
         CancellationToken cancellationToken);
 
     /// <summary>

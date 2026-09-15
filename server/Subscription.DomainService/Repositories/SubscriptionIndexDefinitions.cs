@@ -370,8 +370,16 @@ public static class SubscriptionIndexDefinitions
             })
     ];
 
+    /// <summary>
+    /// Versioned because adding <see cref="SubscriptionUsageCurrent.UserId"/> to the key changes it:
+    /// the old two-field key would reject a per-user row that shares its subscription, meter and
+    /// period with the aggregate row. Following the same convention as
+    /// <see cref="SubscriptionReservationIndexName"/> lets existing tenant databases pick up the wider
+    /// key the next time they touch <see cref="SubscriptionUsageCurrentRepository.EnsureIndexesAsync"/>,
+    /// rather than failing to create an index that already exists under this name with different keys.
+    /// </summary>
     public const string UsageCurrentUniqueIndexName =
-        "ux_usage_current_subscription_meter_period";
+        "ux_usage_current_subscription_meter_period_user_v2";
     public const string UsageCurrentReadIndexName =
         "ix_usage_current_org_subscription_status_period";
     public const string UsageCurrentStalenessIndexName =
@@ -411,7 +419,8 @@ public static class SubscriptionIndexDefinitions
             Builders<SubscriptionUsageCurrent>.IndexKeys
                 .Ascending(current => current.SubscriptionId)
                 .Ascending(current => current.MeterKey)
-                .Ascending(current => current.PeriodKey),
+                .Ascending(current => current.PeriodKey)
+                .Ascending(current => current.UserId),
             new CreateIndexOptions { Name = UsageCurrentUniqueIndexName, Unique = true }),
         new(
             Builders<SubscriptionUsageCurrent>.IndexKeys
