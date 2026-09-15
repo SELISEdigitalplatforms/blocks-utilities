@@ -401,9 +401,6 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       }
 
       const meterKeys = new Set(plan.meters.map((meter) => meter.meterKey));
-      const lifetimeMeterKeys = new Set(
-        plan.meters.filter((meter) => meter.resetPolicy === 1).map((meter) => meter.meterKey),
-      );
 
       plan.meters.forEach((meter, index) => {
         // A cap is what stops a dormant subscription banking allowance forever, so it is
@@ -509,12 +506,6 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
             code: z.ZodIssueCode.custom,
             path: ["trialGrants", index, "meterKey"],
             message: "This meter is not defined on this plan.",
-          });
-        } else if (lifetimeMeterKeys.has(grant.meterKey)) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["trialGrants", index, "meterKey"],
-            message: "A lifetime capacity cannot have a separate trial allowance.",
           });
         } else {
           // A grant replaces its meter's allowance, so it has to be a quantity that meter can hold.

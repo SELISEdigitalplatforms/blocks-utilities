@@ -193,17 +193,6 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
             .WithErrorCode("subscription_trial_grant_meter_unknown");
 
         RuleFor(request => request)
-            .Must(request => request.TrialGrants.All(grant =>
-                request.Meters.Any(meter =>
-                    string.Equals(meter.MeterKey, grant.MeterKey, StringComparison.Ordinal) &&
-                    // Any resetting meter, not Periodic alone: a carry-forward meter replenishes
-                    // per window too, so a trial may replace its allowance the same way.
-                    meter.ResetPolicy != MeterResetPolicy.Never)))
-            .WithName(nameof(PlanDefinitionRequest.TrialGrants))
-            .WithMessage("Trial allowances can only replace periodic meters, not lifetime capacity.")
-            .WithErrorCode("subscription_lifetime_meter_trial_grant_invalid");
-
-        RuleFor(request => request)
             .Must(EveryEntitlementLimitIsWithinItsMeterScale)
             .WithName(nameof(PlanDefinitionRequest.Entitlements))
             .WithMessage(

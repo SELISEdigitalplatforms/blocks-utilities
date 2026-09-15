@@ -426,6 +426,113 @@ public sealed class SubscriptionRenewalServiceTests
             Times.Never);
     }
 
+    private static SubscriptionDetail NewTrialingSubscriptionWithLifetimeMeter(
+        DateTime trialEndsAtUtc)
+    {
+        var subscription = NewTrialingSubscription(trialEndsAtUtc);
+        // A Never meter's one lifetime window starts at signup, not at any billing anchor — set
+        // explicitly rather than left at NewSubscription's real-clock default, since that default
+        // being after trialEndsAtUtc would make the window look like it opened after the trial had
+        // already ended.
+        subscription.CreatedAtUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "token",
+                UnitLabel = "token",
+                IncludedQuantity = 450,
+                OverageAllowed = false,
+                ResetPolicy = MeterResetPolicy.Never
+            }
+        ];
+
+        return subscription;
+    }
+
+    /// <summary>
+    /// The same widening as the periodic case above, but on a meter with no period to roll into —
+    /// <see cref="MeterPeriodResolver"/> gives a <c>Never</c> meter one fixed lifetime window, so
+    /// the per-window guard this method leans on for every other reset policy can never turn false
+    /// on its own for this one. This is the case that guard cannot self-limit for, which is exactly
+    /// why the counter's own snapshot is checked before writing.
+    /// </summary>
+    [Fact]
+    public async Task A_trial_conversion_resnapshots_a_lifetime_meters_counter_too()
+    {
+        var subscription = NewTrialingSubscriptionWithLifetimeMeter(
+            new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc));
+
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string counterId, CancellationToken _) => new SubscriptionUsageCounter
+            {
+                ItemId = counterId,
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                SubscriptionId = "sub-1",
+                MeterKey = "token",
+                Balance = 40,
+                LimitSnapshot = 250,
+                PeriodStartUtc = subscription.CreatedAtUtc,
+                PeriodEndUtc = DateTime.MaxValue
+            });
+
+        decimal? resnappedAllowance = null;
+        _usage
+            .Setup(repository => repository.TryResnapshotAllowanceAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<IReadOnlyList<int>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, decimal allowance, IReadOnlyList<int> _, CancellationToken _) =>
+                resnappedAllowance = allowance)
+            .ReturnsAsync(true);
+
+        await Service(withUsage: true).RenewAsync(subscription, CancellationToken.None);
+
+        resnappedAllowance.Should().Be(450, "the plan's own lifetime quantity, not the trial's grant");
+    }
+
+    /// <summary>
+    /// The corner case a lifetime meter's fixed window creates: without the counter-equality check
+    /// this method now has, every renewal for the rest of this subscription's life would attempt the
+    /// exact same write the test above already proved happens once — because a <c>Never</c> meter's
+    /// window never rolls past the trial's end the way a periodic meter's does. Proves the guard by
+    /// giving the counter the widened allowance already and asserting nothing is written a second time.
+    /// </summary>
+    [Fact]
+    public async Task A_later_renewal_does_not_rewiden_a_lifetime_meter_already_at_the_plans_quantity()
+    {
+        var subscription = NewTrialingSubscriptionWithLifetimeMeter(
+            new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc));
+
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string counterId, CancellationToken _) => new SubscriptionUsageCounter
+            {
+                ItemId = counterId,
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                SubscriptionId = "sub-1",
+                MeterKey = "token",
+                Balance = 40,
+                // Already the plan's own quantity — as if a previous renewal had already widened
+                // it, which is exactly the state a second and every later renewal finds it in.
+                LimitSnapshot = 450,
+                PeriodStartUtc = subscription.CreatedAtUtc,
+                PeriodEndUtc = DateTime.MaxValue
+            });
+
+        await Service(withUsage: true).RenewAsync(subscription, CancellationToken.None);
+
+        _usage.Verify(
+            repository => repository.TryResnapshotAllowanceAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     /// <summary>
     /// A plan change riding on the same renewal already re-anchors the usage schedule and opens a
     /// correct window of its own; re-snapshotting on top of that would be resolving an allowance for

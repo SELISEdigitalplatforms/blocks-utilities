@@ -714,6 +714,22 @@ describe("quantity discount bands", () => {
   });
 
   /**
+   * A lifetime-capacity meter's trial grant replaces the plan's own quantity the same way a
+   * periodic meter's does — SubscriptionRenewalService widens the meter's one lifetime counter
+   * back to the plan's quantity the moment the trial converts, so nothing here needs the meter to
+   * reset for the swap to be well-defined.
+   */
+  it("accepts a trial grant on a lifetime-capacity meter", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      meters: [meter({ resetPolicy: 1, overageAllowed: false })],
+      trialGrants: [{ meterKey: "storage-gb", includedQuantity: 100 }],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  /**
    * A meter's scale governs only its own quantities. A plan mixing a fractional storage meter with
    * a whole-unit screening meter is the case this whole design exists for.
    */
