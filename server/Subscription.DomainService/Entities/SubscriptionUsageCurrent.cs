@@ -44,6 +44,15 @@ public sealed class SubscriptionUsageCurrent
     public string SubscriptionId { get; set; } = string.Empty;
 
     /// <summary>
+    /// Empty for the organization's own aggregate row — the one every existing reader already
+    /// expects, keyed by <see cref="CreateId(string, string, string)"/> exactly as before. Populated
+    /// only on the additional per-user rows keyed by
+    /// <see cref="CreateId(string, string, string, string)"/>, which track one acting user's own
+    /// contribution to the same shared pool.
+    /// </summary>
+    public string UserId { get; set; } = string.Empty;
+
+    /// <summary>
     /// The subscription's status when this was published, so a reader can tell a live allowance from
     /// one frozen by cancellation without joining to the subscription.
     /// </summary>
@@ -118,6 +127,19 @@ public sealed class SubscriptionUsageCurrent
     public long CounterVersion { get; set; }
 
     /// <summary>
+    /// How many ledger entries this row's <see cref="Used"/> reflects. Zero and unused on the
+    /// organization's aggregate row, which is versioned by <see cref="CounterVersion"/> instead.
+    /// </summary>
+    /// <remarks>
+    /// A per-user row has no atomic counter of its own to compare against — the aggregate's
+    /// <see cref="CounterVersion"/> is the org-wide <c>SubscriptionUsageCounter.AppliedRecordCount</c>,
+    /// which counts every user's entries together. This is the same idea narrowed to one user: the
+    /// ledger's own count of that user's entries for this meter and period, which is what lets a
+    /// repair tell a row that already reflects every entry from one that is missing some.
+    /// </remarks>
+    public long LedgerRecordCount { get; set; }
+
+    /// <summary>
     /// <c>SubscriptionDetail.Version</c> at the moment this was published.
     /// </summary>
     /// <remarks>
@@ -150,7 +172,7 @@ public sealed class SubscriptionUsageCurrent
     public DateTime ExpiresAtUtc { get; set; }
 
     /// <summary>
-    /// Raised to 2 by the addition of <see cref="QuantityScale"/>.
+    /// Raised to 2 by the addition of <see cref="QuantityScale"/>, and to 3 by <see cref="UserId"/>.
     /// </summary>
     /// <remarks>
     /// Raised rather than left alone because adding a field is invisible to both version
@@ -161,11 +183,22 @@ public sealed class SubscriptionUsageCurrent
     /// not end. The sweep treats a document below this as stale, so the ordinary cycle republishes
     /// it and no migration is needed.
     /// </remarks>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public static string CreateId(
         string subscriptionId,
         string meterKey,
         string periodKey) =>
         SubscriptionUsageCounter.CreateId(subscriptionId, meterKey, periodKey);
+
+    /// <summary>
+    /// The id of one user's row for this meter and period. Suffixed onto the aggregate's own id
+    /// rather than composed independently, so the two can never collide by coincidence.
+    /// </summary>
+    public static string CreateId(
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        string userId) =>
+        $"{CreateId(subscriptionId, meterKey, periodKey)}:{userId}";
 }
