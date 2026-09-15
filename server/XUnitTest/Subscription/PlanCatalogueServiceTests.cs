@@ -595,6 +595,98 @@ public sealed class PlanCatalogueServiceTests
     }
 
     [Fact]
+    public async Task A_meters_rates_can_change_even_with_a_subscriber_on_the_plan()
+    {
+        var plan = StoredPlan();
+        plan.Meters = [new PlanMeter { MeterKey = "screening", DisplayName = "Screening" }];
+        _catalogue.Setup(repository => repository.GetPlanAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
+        _catalogue.Setup(repository => repository.TryUpdatePlanMeterRatesAsync(
+            TenantId, plan.ItemId, "screening", plan.Version,
+            It.IsAny<List<MeterRateTable>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        // A subscriber exists — the case UpdatePlanAsync would refuse outright. Nothing here
+        // reads AnySubscriberAsync before writing the new rates; the mapper below queries it only
+        // to render the response's hasSubscribers flag, after the write already went through.
+        _subscriptions.Setup(repository => repository.AnySubscriberAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await Service().UpdatePlanMeterRatesAsync(
+            plan.ItemId,
+            "screening",
+            new UpdatePlanMeterRatesRequest
+            {
+                RateTables =
+                [
+                    new MeterRateTableRequest
+                    {
+                        CurrencyCode = "usd",
+                        Tiers = [new MeterTierRequest { UnitAmountMinor = 25 }]
+                    }
+                ]
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        // The point of this test: unlike UpdatePlanAsync, nothing here asks whether the plan has
+        // ever been subscribed to, because a subscriber's overage bills from the meter snapshot
+        // copied onto it at signup and never reads the catalogue again.
+        result.IsSuccess.Should().BeTrue();
+        _catalogue.Verify(repository => repository.TryUpdatePlanMeterRatesAsync(
+            TenantId, plan.ItemId, "screening", plan.Version,
+            It.Is<List<MeterRateTable>>(tables =>
+                tables.Count == 1 && tables[0].CurrencyCode == "USD"),
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Rates_naming_a_meter_the_plan_does_not_define_are_refused()
+    {
+        var plan = StoredPlan();
+        _catalogue.Setup(repository => repository.GetPlanAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
+
+        var result = await Service().UpdatePlanMeterRatesAsync(
+            plan.ItemId,
+            "unknown-meter",
+            new UpdatePlanMeterRatesRequest(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+        result.ErrorCode.Should().Be("subscription_meter_not_found");
+    }
+
+    [Fact]
+    public async Task Out_of_order_rate_tiers_are_refused_before_anything_is_read()
+    {
+        var result = await Service().UpdatePlanMeterRatesAsync(
+            "plan-1",
+            "screening",
+            new UpdatePlanMeterRatesRequest
+            {
+                RateTables =
+                [
+                    new MeterRateTableRequest
+                    {
+                        CurrencyCode = "USD",
+                        Tiers =
+                        [
+                            new MeterTierRequest { UpToQuantity = null, UnitAmountMinor = 10 },
+                            new MeterTierRequest { UpToQuantity = 100, UnitAmountMinor = 5 }
+                        ]
+                    }
+                ]
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_meter_tiers_invalid");
+        _catalogue.Verify(repository => repository.GetPlanAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task An_existing_price_can_be_given_an_automatic_discount()
     {
         var plan = StoredPlan();

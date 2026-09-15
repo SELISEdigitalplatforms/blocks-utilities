@@ -76,6 +76,69 @@ public sealed class SubscriptionCatalogueRepositoryIntegrationTests
             "the legacy field must not survive an edit that moved the plan onto a current-style rule");
     }
 
+    /// <summary>
+    /// The array-filter update <see cref="SubscriptionCatalogueRepository.TryUpdatePlanMeterRatesAsync"/>
+    /// builds is the one part of that method a mocked repository cannot exercise: whether Mongo's
+    /// positional filtered identifier actually matches the meter this call named, and whether it
+    /// leaves every other meter's rate tables alone.
+    /// </summary>
+    [Fact]
+    public async Task Updating_one_meters_rates_leaves_every_other_meter_and_field_untouched()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var plan = NewPlan(tenantId);
+        plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screenings",
+                DisplayName = "Screenings",
+                RateTables = [new MeterRateTable
+                {
+                    CurrencyCode = "USD",
+                    Tiers = [new MeterTier { UnitAmountMinor = 10 }]
+                }]
+            },
+            new PlanMeter { MeterKey = "storage", DisplayName = "Storage" }
+        ];
+
+        (await _catalogue.TryCreatePlanAsync(plan, CancellationToken.None)).Should().BeTrue();
+
+        var newRates = new List<MeterRateTable>
+        {
+            new()
+            {
+                CurrencyCode = "EUR",
+                Tiers =
+                [
+                    new MeterTier { UpToQuantity = 100, UnitAmountMinor = 20 },
+                    new MeterTier { UnitAmountMinor = 15 }
+                ]
+            }
+        };
+
+        (await _catalogue.TryUpdatePlanMeterRatesAsync(
+                tenantId, plan.ItemId, "screenings", plan.Version, newRates, DateTime.UtcNow,
+                CancellationToken.None))
+            .Should().BeTrue();
+
+        var stored = await _catalogue.GetPlanAsync(tenantId, plan.ItemId, CancellationToken.None);
+
+        var screenings = stored!.Meters.Find(meter => meter.MeterKey == "screenings")!;
+        screenings.RateTables.Should().BeEquivalentTo(newRates,
+            "the named meter's rate tables must be replaced with exactly what was sent");
+        screenings.DisplayName.Should().Be("Screenings",
+            "the update touches only RateTables — the rest of the meter must survive unedited");
+
+        var storage = stored.Meters.Find(meter => meter.MeterKey == "storage")!;
+        storage.RateTables.Should().BeEmpty(
+            "the array filter must match only the named meter, or a sibling meter would gain " +
+            "rates nobody set on it");
+
+        stored.Version.Should().Be(plan.Version + 1,
+            "every catalogue write bumps the version a future snapshot is captured under");
+    }
+
     private static Plan NewPlan(string tenantId) => new()
     {
         TenantId = tenantId,

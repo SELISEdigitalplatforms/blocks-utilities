@@ -308,6 +308,45 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryUpdatePlanMeterRatesAsync(
+        string tenantId,
+        string planId,
+        string meterKey,
+        int expectedVersion,
+        List<MeterRateTable> rateTables,
+        DateTime updatedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<Plan>.Filter.And(
+            Builders<Plan>.Filter.Eq(plan => plan.TenantId, tenantId),
+            Builders<Plan>.Filter.Eq(plan => plan.ItemId, planId),
+            Builders<Plan>.Filter.Eq(plan => plan.Version, expectedVersion),
+            Builders<Plan>.Filter.ElemMatch(
+                plan => plan.Meters,
+                Builders<PlanMeter>.Filter.Eq(meter => meter.MeterKey, meterKey)));
+
+        var update = Builders<Plan>.Update
+            .Set("Meters.$[meter].RateTables", rateTables)
+            .Set(plan => plan.LastUpdatedDateUtc, updatedAtUtc)
+            .Inc(plan => plan.Version, 1);
+
+        var options = new UpdateOptions
+        {
+            ArrayFilters = [
+                new BsonDocumentArrayFilterDefinition<PlanMeter>(
+                    new MongoDB.Bson.BsonDocument("meter.MeterKey", meterKey))
+            ]
+        };
+
+        var result = await Plans(tenantId).UpdateOneAsync(
+            filter,
+            update,
+            options,
+            cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryCreatePriceAsync(
         Price price,
         CancellationToken cancellationToken)

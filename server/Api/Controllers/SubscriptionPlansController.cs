@@ -174,6 +174,36 @@ public sealed class SubscriptionPlansController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Rewrites one meter's overage rate tables. Future subscriptions and future renewals onto
+    /// this plan only — nobody already subscribed is repriced, whether or not anyone else has
+    /// ever subscribed to it.
+    /// </summary>
+    [HttpPut("{planId}/meters/{meterKey}/rates")]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-plan::manage")]
+    public async Task<IActionResult> UpdatePlanMeterRates(
+        string planId,
+        string meterKey,
+        [FromBody] UpdatePlanMeterRatesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _catalogue.UpdatePlanMeterRatesAsync(
+            planId,
+            meterKey,
+            request,
+            correlationId,
+            cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     [HttpPost("prices")]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]
