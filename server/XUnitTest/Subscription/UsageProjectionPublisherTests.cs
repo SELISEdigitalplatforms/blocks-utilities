@@ -76,6 +76,14 @@ public sealed class UsageProjectionPublisherTests
             .Callback((SubscriptionEntitlementsCurrent document, CancellationToken _) =>
                 _publishedEntitlements.Add(document))
             .ReturnsAsync(true);
+
+        // No users have recorded usage by default; tests covering the per-user repair set this up
+        // explicitly.
+        _usage
+            .Setup(repository => repository.ListDistinctUsersAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<string>)[]);
     }
 
     [Fact]
@@ -203,6 +211,139 @@ public sealed class UsageProjectionPublisherTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task Publishing_a_users_delta_with_no_user_in_context_is_a_no_op()
+    {
+        var outcome = await Publisher().PublishUserDeltaAsync(
+            Subscription(), Meter(), Period(), userId: null, delta: 1, allowance: 100, "corr-1",
+            CancellationToken.None);
+
+        outcome.Should().Be(UsageProjectionOutcome.Published);
+        _current.Verify(
+            repository => repository.ApplyUserDeltaAsync(
+                It.IsAny<SubscriptionUsageCurrent>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "usage recorded with no user in context cannot be attributed to one");
+    }
+
+    [Fact]
+    public async Task Publishing_a_users_delta_applies_it_to_that_users_own_row()
+    {
+        SubscriptionUsageCurrent? seed = null;
+
+        _current
+            .Setup(repository => repository.ApplyUserDeltaAsync(
+                It.IsAny<SubscriptionUsageCurrent>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionUsageCurrent, decimal, CancellationToken>((document, _, _) =>
+                seed = document)
+            .ReturnsAsync((SubscriptionUsageCurrent document, decimal _, CancellationToken _) => document);
+
+        await Publisher().PublishUserDeltaAsync(
+            Subscription(), Meter(), Period(), "user-1", delta: 3, allowance: 100, "corr-1",
+            CancellationToken.None);
+
+        seed.Should().NotBeNull();
+        seed!.UserId.Should().Be("user-1");
+        seed.ItemId.Should().Be(
+            SubscriptionUsageCurrent.CreateId("sub-1", "screening", "M2026-09", "user-1"));
+        seed.Included.Should().Be(100);
+    }
+
+    /// <summary>
+    /// The ledger entry that caused this write is already committed by the time it runs, so its own
+    /// truth is read straight back and set immediately, rather than leaving the row wrong until a
+    /// queued repair runs.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_per_user_write_self_heals_from_the_ledger_without_queuing_a_repair()
+    {
+        _current
+            .Setup(repository => repository.ApplyUserDeltaAsync(
+                It.IsAny<SubscriptionUsageCurrent>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the per-user write failed"));
+
+        _usage
+            .Setup(repository => repository.SummariseLedgerByUserAsync(
+                TenantId, "sub-1", "screening", "M2026-09", "user-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((7m, 3L));
+
+        var outcome = await Publisher().PublishUserDeltaAsync(
+            Subscription(), Meter(), Period(), "user-1", delta: 1, allowance: 100, "corr-1",
+            CancellationToken.None);
+
+        outcome.Should().Be(UsageProjectionOutcome.Published);
+        _current.Verify(
+            repository => repository.TryRepairUserRowAsync(
+                TenantId, It.IsAny<SubscriptionUsageCurrent>(), 7m, 3L, It.IsAny<CancellationToken>()),
+            Times.Once);
+        _scheduler.Verify(
+            scheduler => scheduler.ScheduleUsageProjectionRefreshAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the ledger self-heal already fixed the row; there is nothing left to repair");
+    }
+
+    [Fact]
+    public async Task When_the_ledger_self_heal_also_fails_a_subscription_wide_repair_is_scheduled()
+    {
+        _current
+            .Setup(repository => repository.ApplyUserDeltaAsync(
+                It.IsAny<SubscriptionUsageCurrent>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the per-user write failed"));
+
+        _usage
+            .Setup(repository => repository.SummariseLedgerByUserAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the ledger read also failed"));
+
+        var outcome = await Publisher().PublishUserDeltaAsync(
+            Subscription(), Meter(), Period(), "user-1", delta: 1, allowance: 100, "corr-1",
+            CancellationToken.None);
+
+        outcome.Should().Be(UsageProjectionOutcome.RepairScheduled);
+        _scheduler.Verify(
+            scheduler => scheduler.ScheduleUsageProjectionRefreshAsync(
+                TenantId, OrganizationId, "sub-1", "corr-1", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// The per-user counterpart of the aggregate's own backfill: a row that never made it onto the
+    /// projection at all has nothing to compare a version against, so it can only be found by walking
+    /// the ledger for who has activity in the window.
+    /// </summary>
+    [Fact]
+    public async Task Refreshing_discovers_and_repairs_a_per_user_row_that_was_never_written()
+    {
+        // Keyed off the meter rather than a hardcoded period key, same reasoning as
+        // Refreshing_publishes_the_counter_state_for_a_window_that_has_one: the schedule decides that
+        // format, and this test is about discovery, not about BillingPeriodCalculator.
+        _usage
+            .Setup(repository => repository.ListDistinctUsersAsync(
+                TenantId, "sub-1", "screening", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<string>)["user-1"]);
+
+        _usage
+            .Setup(repository => repository.SummariseLedgerByUserAsync(
+                TenantId, "sub-1", "screening", It.IsAny<string>(), "user-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((12m, 4L));
+
+        await Publisher().RefreshAsync(
+            Subscription(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.TryRepairUserRowAsync(
+                TenantId,
+                It.Is<SubscriptionUsageCurrent>(document =>
+                    document.UserId == "user-1" && document.MeterKey == "screening"),
+                12m,
+                4L,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     /// <summary>

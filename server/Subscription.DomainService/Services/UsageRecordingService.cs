@@ -251,6 +251,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId);
         }
 
+        // Fetched once regardless of readMode: there is no authoritative per-user counter to choose
+        // between, so a per-user breakdown always comes from the projection collection, the same
+        // source the "projection" readMode uses for the aggregate.
+        var userItems = await ListUserItemsAsync(context, subscription, now, cancellationToken);
+
         var fallback = UsageReadFallback.None;
 
         if (readMode == UsageReadMode.Projection)
@@ -265,6 +270,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             {
                 return ReadOf(
                     projected,
+                    userItems,
                     readMode,
                     UsageReadMode.Projection,
                     UsageReadFallback.None,
@@ -337,6 +343,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
         return authoritative.IsSuccess
             ? ReadOf(
                 authoritative.Value!,
+                userItems,
                 readMode,
                 UsageReadMode.Authoritative,
                 fallback,
@@ -503,8 +510,48 @@ public sealed class UsageRecordingService : IUsageRecordingService
         return results;
     }
 
+    /// <summary>
+    /// Every user's own row for the subscription's current windows, mapped to the same response shape
+    /// as the aggregate.
+    /// </summary>
+    /// <remarks>
+    /// Best-effort like every other read of this collection: <see cref="UserId"/> being empty on
+    /// every entry here would just mean no user has recorded usage yet, not that something is wrong.
+    /// </remarks>
+    private async Task<List<UsageResponse>> ListUserItemsAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _current.ListUserRowsAsync(
+            context.TenantId,
+            context.OrganizationId,
+            subscription.ItemId,
+            now,
+            cancellationToken);
+
+        return rows.Select(row => new UsageResponse
+        {
+            Allowed = true,
+            UserId = row.UserId,
+            MeterKey = row.MeterKey,
+            UnitLabel = row.UnitLabel,
+            QuantityScale = row.QuantityScale,
+            PeriodKey = row.PeriodKey,
+            PeriodStartUtc = row.PeriodStartUtc,
+            PeriodEndUtc = row.PeriodEndUtc,
+            Included = row.Included,
+            Used = row.Used,
+            Remaining = row.Remaining,
+            Overage = row.Overage,
+            Replayed = false
+        }).ToList();
+    }
+
     private SubscriptionOperationResult<UsageCurrentRead> ReadOf(
         List<(UsageResponse Response, DateTime UpdatedAtUtc)> projected,
+        List<UsageResponse> userItems,
         UsageReadMode requested,
         UsageReadMode actual,
         UsageReadFallback fallback,
@@ -521,6 +568,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         return ReadOf(
             projected.ConvertAll(entry => entry.Response),
+            userItems,
             requested,
             actual,
             fallback,
@@ -534,6 +582,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
     private SubscriptionOperationResult<UsageCurrentRead> ReadOf(
         List<UsageResponse> items,
+        List<UsageResponse> userItems,
         UsageReadMode requested,
         UsageReadMode actual,
         UsageReadFallback fallback,
@@ -546,6 +595,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
     {
         var duration = _time.GetElapsedTime(startedAt);
 
+        // Diagnostics describe the aggregate windows this read mode actually chose between — a
+        // per-user row is never what readMode or the staleness threshold are evaluated against, so
+        // it is appended after, not folded into DocumentCount or the fallback/staleness figures.
         var diagnostics = new UsageReadDiagnostics
         {
             RequestedMode = requested,
@@ -630,8 +682,10 @@ public sealed class UsageRecordingService : IUsageRecordingService
             span.SetTag("subscription.correlation_id", correlationId);
         }
 
+        var allItems = userItems.Count == 0 ? items : items.Concat(userItems).ToList();
+
         return SubscriptionOperationResult<UsageCurrentRead>.Success(
-            new UsageCurrentRead { Items = items, Diagnostics = diagnostics },
+            new UsageCurrentRead { Items = allItems, Diagnostics = diagnostics },
             correlationId);
     }
 
@@ -764,6 +818,19 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId,
                 cancellationToken);
 
+            // Only on the path that actually changed a balance, never on a replay — a retried
+            // idempotent request must not add this user's contribution a second time, even though
+            // the aggregate publish above is harmless to repeat.
+            await _projection.PublishUserDeltaAsync(
+                subscription,
+                meter,
+                period,
+                context.UserId,
+                request.Quantity,
+                allowance,
+                correlationId,
+                cancellationToken);
+
             _logger.LogInformation(
                 "Usage recorded TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
                 "SubscriptionHash={SubscriptionHash} Meter={Meter} Balance={Balance} " +
@@ -855,6 +922,18 @@ public sealed class UsageRecordingService : IUsageRecordingService
             meter,
             period,
             counter,
+            allowance,
+            correlationId,
+            cancellationToken);
+
+        // The compensating half of the increment ApplyAsync already sent this user's row, so the
+        // reversal has to be applied to it too or a refused call would still count against them.
+        await _projection.PublishUserDeltaAsync(
+            subscription,
+            meter,
+            period,
+            context.UserId,
+            -record.Delta,
             allowance,
             correlationId,
             cancellationToken);

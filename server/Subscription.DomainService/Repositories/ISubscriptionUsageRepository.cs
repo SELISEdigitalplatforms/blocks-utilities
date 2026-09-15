@@ -86,6 +86,35 @@ public interface ISubscriptionUsageRepository
         string periodKey,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The ledger's own view of one user's entries in a period, used to rebuild that user's row when
+    /// it has drifted or was never written.
+    /// </summary>
+    Task<(decimal Balance, long RecordCount)> SummariseLedgerByUserAsync(
+        string tenantId,
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        string userId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every user who has recorded usage against a meter and period, from the ledger rather than from
+    /// the per-user projection rows.
+    /// </summary>
+    /// <remarks>
+    /// What lets the per-user projection be completed rather than merely kept level: a row that was
+    /// never written at all has nothing in <c>SubscriptionUsageCurrent</c> to compare a version
+    /// against, the same reason <c>UsageProjectionReconciler</c>'s backfill walks live subscriptions
+    /// instead of the projection collection for the aggregate row's own missing-document case.
+    /// </remarks>
+    Task<IReadOnlyList<string>> ListDistinctUsersAsync(
+        string tenantId,
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        CancellationToken cancellationToken);
+
     Task<bool> TryRepairCounterAsync(
         string tenantId,
         string counterId,

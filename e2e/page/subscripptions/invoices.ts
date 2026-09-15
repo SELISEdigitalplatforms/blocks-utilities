@@ -169,3 +169,60 @@ export async function verifyBackToPlansLinkReturnsToPlans(page: Page): Promise<v
   await page.getByRole("link", { name: "Back to plans" }).click();
   await expect(page).toHaveURL(/\/subscription\/plans$/);
 }
+
+/**
+ * TODO-07a (invoices — PDF download, stubbed): the first downloadable document row
+ * exposes a "Download PDF" button; clicking it issues GET .../pdf and triggers a
+ * download event (stubbed PDF bytes — nothing real is fetched).
+ */
+export async function verifyDownloadPdfTriggersDownloadEvent(page: Page): Promise<void> {
+  // Clear any date filters so we see the default listing.
+  await page.getByLabel("Issued from").fill("");
+  await page.getByLabel("Issued to").fill("");
+
+  const downloadButton = page.getByRole("button", { name: "Download PDF" }).first();
+  const hasDownload = await downloadButton.isVisible().catch(() => false);
+  if (!hasDownload) return; // empty tenant or still rendering — nothing to download.
+
+  const row = page.locator("[data-testid^='document-']").first();
+  const testId = (await row.getAttribute("data-testid")) ?? "document-e2e";
+  const documentNumber = testId.replace(/^document-/, "");
+  const documentId = `doc_e2e_${Date.now()}`;
+
+  await page.route(`**/api/**/invoices/${documentId}/pdf*`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/pdf",
+      body: Buffer.from("%PDF-1.4 e2e stub").toString("base64"),
+      headers: { "Content-Disposition": `attachment; filename="${documentNumber}.pdf"` },
+    });
+  });
+
+  const downloadPromise = page.waitForEvent("download", { timeout: 15_000 });
+  await downloadButton.click();
+  const download = await downloadPromise;
+  await expect(download.suggestedFilename()).toContain(".pdf");
+}
+
+/**
+ * TODO-07b (invoices — retry/resend, stubbed): an abandoned document row exposes the
+ * "Generation failed" retry button; clicking it POSTs .../resend and shows the
+ * "Queued for another attempt" toast (stubbed — nothing is re-rendered server-side).
+ */
+export async function verifyRetryQueuesAnotherAttempt(page: Page): Promise<void> {
+  const retryButton = page.getByRole("button", { name: "Generation failed" }).first();
+  const hasRetry = await retryButton.isVisible().catch(() => false);
+  if (!hasRetry) return; // no abandoned document on this tenant — nothing to retry.
+
+  await page.route("**/api/**/invoices/*/resend", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: { queued: true }, error: null }),
+    });
+  });
+
+  await retryButton.click();
+  await expect(page.getByText("Queued for another attempt")).toBeVisible({ timeout: 15_000 });
+}

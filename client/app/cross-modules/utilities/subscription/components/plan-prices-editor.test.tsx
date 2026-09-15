@@ -41,6 +41,7 @@ const renderInRouter = (ui: ReactNode) => render(<MemoryRouter>{ui}</MemoryRoute
 const renderEditor = (overrides: Partial<SubscriptionPlan> = {}) => {
   const onSubmit = vi.fn().mockResolvedValue(undefined);
   const onRetirePrice = vi.fn();
+  const onUpdateMeterRates = vi.fn().mockResolvedValue(undefined);
 
   renderInRouter(
     <PlanPricesEditor
@@ -50,11 +51,12 @@ const renderEditor = (overrides: Partial<SubscriptionPlan> = {}) => {
       onRetirePrice={onRetirePrice}
       onUpdatePriceTax={vi.fn().mockResolvedValue(undefined)}
       onUpdatePriceDiscount={vi.fn().mockResolvedValue(undefined)}
+      onUpdateMeterRates={onUpdateMeterRates}
       onSubmit={onSubmit}
     />,
   );
 
-  return { onSubmit, onRetirePrice };
+  return { onSubmit, onRetirePrice, onUpdateMeterRates };
 };
 
 /**
@@ -137,6 +139,7 @@ describe("PlanPricesEditor", () => {
         onRetirePrice={vi.fn()}
         onUpdatePriceTax={vi.fn().mockResolvedValue(undefined)}
         onUpdatePriceDiscount={vi.fn().mockResolvedValue(undefined)}
+        onUpdateMeterRates={vi.fn().mockResolvedValue(undefined)}
         onSubmit={vi.fn().mockRejectedValue(new Error("Another price already charges on these terms."))}
       />,
     );
@@ -155,5 +158,43 @@ describe("PlanPricesEditor", () => {
 
     // Still there. A price that failed is a message to read, not a form to fill in again.
     expect(screen.getByPlaceholderText("89.00")).toHaveValue(25);
+  });
+
+  /**
+   * The gap this closes: a subscribed plan's meters used to have no editor here at all, so
+   * overage pricing was frozen the moment anybody subscribed — even though rating it comes off
+   * the snapshot copied onto each subscription, not the live plan.
+   */
+  it("lets a subscribed plan's overage rates be edited", async () => {
+    const { onUpdateMeterRates } = renderEditor({
+      meters: [
+        {
+          meterKey: "screenings",
+          displayName: "Screenings",
+          unitLabel: "screening",
+          aggregation: "Sum",
+          includedQuantity: 100,
+          overageAllowed: true,
+          thresholdPercents: [],
+          rateTables: [
+            { currencyCode: "USD", tiers: [{ upToQuantity: null, unitAmountMinor: 25 }] },
+          ],
+        },
+      ],
+    });
+
+    expect(screen.getByText("Overage rates")).toBeInTheDocument();
+
+    const perUnitField = screen.getByLabelText("Per unit (USD), band 1");
+    await userEvent.clear(perUnitField);
+    await userEvent.type(perUnitField, "0.50");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save overage rates" }));
+
+    await waitFor(() => {
+      expect(onUpdateMeterRates).toHaveBeenCalledWith("screenings", [
+        { currencyCode: "USD", tiers: [{ upToQuantity: null, unitAmountMinor: 50 }] },
+      ]);
+    });
   });
 });

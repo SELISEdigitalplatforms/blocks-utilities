@@ -89,6 +89,25 @@ public interface ISubscriptionCatalogueRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Rewrites one meter's rate tables, compare-and-set on the plan's version.
+    /// </summary>
+    /// <remarks>
+    /// Reaches future snapshots only, the same as
+    /// <see cref="TryUpdatePriceTaxAsync"/> and <see cref="TryUpdatePriceAutomaticDiscountAsync"/>:
+    /// a subscription rates overage from the meter copied onto it at signup and never reads the
+    /// catalogue again. False when the plan is gone, at another version, or defines no meter with
+    /// this key.
+    /// </remarks>
+    Task<bool> TryUpdatePlanMeterRatesAsync(
+        string tenantId,
+        string planId,
+        string meterKey,
+        int expectedVersion,
+        List<MeterRateTable> rateTables,
+        DateTime updatedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Moves an active plan to archived, if it is still active and still at
     /// <paramref name="expectedVersion"/>.
     /// </summary>

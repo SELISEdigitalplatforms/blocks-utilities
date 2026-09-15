@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Form } from "@/components/ui-kits/form/form";
-import type { SubscriptionPlan } from "../models/subscription-plan.model";
+import type { MeterRateTable, SubscriptionPlan } from "../models/subscription-plan.model";
 import {
   buildSubscriptionPlanSchema,
   type CreateSubscriptionPlanFormValues,
@@ -13,6 +13,7 @@ import {
 import type { AutomaticDiscountCombination } from "../utilities/subscription-discount";
 import type { TaxMode } from "../utilities/subscription-tax";
 import { planToFormValues } from "../utilities/plan-form-mapping";
+import { ExistingMeterRatesFields } from "./plan-builder/existing-meter-rates-fields";
 import { PlanPriceFields } from "./plan-builder/plan-price-fields";
 import { SubscriptionPlanPageHeader } from "./subscription-plan-page-header";
 
@@ -28,6 +29,7 @@ export interface PlanPricesEditorProps {
     discountPercent?: number,
     combination?: AutomaticDiscountCombination,
   ) => Promise<void>;
+  onUpdateMeterRates: (meterKey: string, rateTables: MeterRateTable[]) => Promise<void>;
   /** Adds the authored prices. Resolves with one line per price that did not land. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
 }
@@ -54,6 +56,7 @@ export const PlanPricesEditor = ({
   onRetirePrice,
   onUpdatePriceTax,
   onUpdatePriceDiscount,
+  onUpdateMeterRates,
   onSubmit,
 }: PlanPricesEditorProps) => {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
@@ -151,6 +154,8 @@ export const PlanPricesEditor = ({
               onUpdatePriceTax={onUpdatePriceTax}
               onUpdatePriceDiscount={onUpdatePriceDiscount}
             />
+
+            <ExistingMeterRatesFields meters={plan.meters} onSave={onUpdateMeterRates} />
 
             {submissionError && (
               <div

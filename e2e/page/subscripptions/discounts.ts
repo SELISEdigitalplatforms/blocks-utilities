@@ -235,3 +235,30 @@ export async function verifyRetireArchivesDiscount(page: Page, name: string, cod
   await expect(row.getByRole("button", { name: "Edit" })).toHaveCount(0);
   await expect(row).toContainText("Archived");
 }
+
+/**
+ * TODO-06 (discounts — non-Standard offer types render): the Identity step's offer-type
+ * radio group exposes all three options and each one is selectable without crashing
+ * the wizard. Cancels out so the suite state is unchanged.
+ */
+export async function verifyAllOfferTypesAreSelectable(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "New discount" }).click();
+  await expect(page.getByRole("heading", { name: "Identity" })).toBeVisible();
+
+  const standard = page.getByRole("radio", { name: /Standard discount/ });
+  const freeMonth = page.getByRole("radio", { name: /Free opening month/ });
+  const firstYear = page.getByRole("radio", { name: /First-year discount/ });
+  await expect(standard).toBeVisible();
+  await expect(freeMonth).toBeVisible();
+  await expect(firstYear).toBeVisible();
+
+  await freeMonth.click();
+  await expect(freeMonth).toBeChecked();
+  await firstYear.click();
+  await expect(firstYear).toBeChecked();
+  await standard.click();
+  await expect(standard).toBeChecked();
+
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("button", { name: "New discount" })).toBeVisible();
+}

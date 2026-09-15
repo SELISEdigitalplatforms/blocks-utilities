@@ -107,6 +107,16 @@ public sealed class UsageRecordingServiceTests
                 TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => []);
 
+        // No per-user rows by default; tests covering that breakdown set this up explicitly.
+        _current
+            .Setup(repository => repository.ListUserRowsAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => []);
+
         // The batch the current-usage read uses. Answers for whatever ids it is handed, so a meter
         // whose counter is absent is simply missing from the dictionary — which is how a window with
         // no usage reaches the response as a balance of zero.
@@ -215,6 +225,101 @@ public sealed class UsageRecordingServiceTests
             "the ledger is append-only, so a refusal is recorded rather than erased");
         _ledger[1].Delta.Should().Be(-1);
         _ledger[1].CompensatesRecordId.Should().Be(_ledger[0].ItemId);
+    }
+
+    [Fact]
+    public async Task Recording_publishes_this_users_own_delta_alongside_the_aggregate()
+    {
+        await Service().RecordAsync(NewRequest("usage-1"), "corr-1", CancellationToken.None);
+
+        _projection.Verify(
+            publisher => publisher.PublishUserDeltaAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<PlanMeter>(),
+                It.IsAny<BillingPeriod>(),
+                "user-1",
+                1,
+                It.IsAny<decimal>(),
+                "corr-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_replayed_request_does_not_publish_the_users_delta_again()
+    {
+        await Service().RecordAsync(NewRequest("usage-1"), "corr-1", CancellationToken.None);
+        await Service().RecordAsync(NewRequest("usage-1"), "corr-2", CancellationToken.None);
+
+        // Once, not twice: a retried idempotent request must not add this user's contribution a
+        // second time even though the ledger already refused the duplicate.
+        _projection.Verify(
+            publisher => publisher.PublishUserDeltaAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<PlanMeter>(),
+                It.IsAny<BillingPeriod>(),
+                It.IsAny<string?>(),
+                It.IsAny<decimal>(),
+                It.IsAny<decimal>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_refused_call_reverses_the_users_own_delta_too()
+    {
+        _subscription.Plan.Meters[0].OverageAllowed = false;
+        _balance = 500;
+
+        var request = NewRequest("usage-1");
+        request.Enforce = true;
+
+        await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        _projection.Verify(
+            publisher => publisher.PublishUserDeltaAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<PlanMeter>(),
+                It.IsAny<BillingPeriod>(),
+                "user-1",
+                -1,
+                It.IsAny<decimal>(),
+                "corr-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a refused call must leave this user's own row exactly where it started, same as the pool");
+    }
+
+    [Fact]
+    public async Task A_current_usage_read_includes_every_users_own_row_alongside_the_total()
+    {
+        _current
+            .Setup(repository => repository.ListUserRowsAsync(
+                TenantId, OrganizationId, "sub-1", It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)
+            [
+                new SubscriptionUsageCurrent
+                {
+                    ItemId = "sub-1:screening:P:user-1",
+                    UserId = "user-1",
+                    MeterKey = "screening",
+                    PeriodKey = "P",
+                    Included = 500,
+                    Used = 7,
+                    Remaining = 493
+                }
+            ]);
+
+        var result = await Service().GetCurrentUsageAsync(null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().ContainSingle(
+            item => item.UserId == "user-1" && item.Used == 7,
+            "the caller of an org-scoped read gets every user's own figure alongside the total");
+        result.Value.Should().Contain(
+            item => item.UserId == string.Empty,
+            "the organization's own total must still be there, unaffected");
     }
 
     [Fact]

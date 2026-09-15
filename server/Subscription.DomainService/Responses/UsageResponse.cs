@@ -11,6 +11,13 @@ public sealed class UsageResponse
     /// </summary>
     public bool Allowed { get; init; }
 
+    /// <summary>
+    /// Empty for the organization's own total — what this field has always meant on every entry this
+    /// endpoint has ever returned. Set only on the additional per-user entries a current-usage read
+    /// now also includes, one per user who has recorded usage against this meter and period.
+    /// </summary>
+    public string UserId { get; init; } = string.Empty;
+
     public string MeterKey { get; init; } = string.Empty;
 
     public string UnitLabel { get; init; } = string.Empty;
