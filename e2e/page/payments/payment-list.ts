@@ -806,3 +806,63 @@ export async function verifyRefundActionOpensDialog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("heading", { name: "Refund payment" })).toHaveCount(0);
 }
+
+/**
+ * TODO-08a (payment list — refund validation): an amount above the payment total is
+ * rejected inside the dialog with "The refund amount cannot exceed ...".
+ * Safe: no network call, dialog stays open.
+ */
+export async function verifyRefundAmountAboveTotalIsRejected(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Refund" }).first().click();
+  await expect(page.getByRole("heading", { name: "Refund payment" })).toBeVisible();
+  // Seeded recovery row is 50 USD — 9999 exceeds it.
+  await page.getByLabel("Refund amount").fill("9999");
+  await page.getByRole("button", { name: "Confirm refund" }).click();
+  await expect(page.getByText(/cannot exceed 50 USD/)).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("heading", { name: "Refund payment" })).toHaveCount(0);
+}
+
+/**
+ * Installs a stub for POST /api/payments/{id}/refunds returning a queued refund.
+ * Returns the captured request bodies so the spec can assert the payload.
+ */
+export async function stubPaymentRefundEndpoint(
+  page: Page,
+  captured: { amount?: number; reason?: string; url?: string },
+): Promise<void> {
+  await page.route("**/api/payments/**/refunds", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    captured.url = route.request().url();
+    try {
+      const body = route.request().postDataJSON() as { amount?: number; reason?: string };
+      captured.amount = body?.amount;
+      captured.reason = body?.reason;
+    } catch {
+      // Non-JSON body — leave captured empty; the status assertion still applies.
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: { refundId: "rf_e2e_stub_1", status: "PENDING" },
+      }),
+    });
+  });
+}
+
+/**
+ * TODO-08b (payment list — refund submit, stubbed): confirming the dialog POSTs to
+ * /refunds, shows the "Refund request submitted" toast and closes the dialog.
+ * No real money moves — the POST is stubbed above.
+ */
+export async function verifyRefundSubmitShowsSuccessToast(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Refund" }).first().click();
+  await expect(page.getByRole("heading", { name: "Refund payment" })).toBeVisible();
+  await page.getByLabel("Refund amount").fill("5");
+  await page.getByLabel(/^Reason/).fill("e2e stubbed refund");
+  await page.getByRole("button", { name: "Confirm refund" }).click();
+  await expect(page.getByText("Refund request submitted")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Refund payment" })).toHaveCount(0);
+}

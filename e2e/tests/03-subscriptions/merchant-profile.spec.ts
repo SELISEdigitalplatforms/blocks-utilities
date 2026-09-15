@@ -9,6 +9,7 @@ import {
   verifyAddressAndTaxFieldsVisible,
   verifySubscriptionPaymentProviderSectionVisible,
   verifyLogoUploadAndConsoleOnlyFooterVisible,
+  verifyProviderSelectAndLogoUploadControls,
   verifyBackToPlansLinkReturnsToPlans,
   // isSaveEnabled,
 } from "../../page/subscripptions/merchant-profile";
@@ -49,6 +50,8 @@ test.describe("flow: Subscriptions - Merchant profile", () => {
       verifyReloadPreservesSavedProfile(page, stamp));
     await test.step("[Positive] invoice branding colors can be edited and saved", () =>
       editBrandingColorsAndSave(page));
+    await test.step("[Positive] provider buttons select without navigating; logo upload renders", () =>
+      verifyProviderSelectAndLogoUploadControls(page));
     await test.step("[Positive] 'Back to plans' returns to the plans list without saving", () =>
       verifyBackToPlansLinkReturnsToPlans(page));
   });
