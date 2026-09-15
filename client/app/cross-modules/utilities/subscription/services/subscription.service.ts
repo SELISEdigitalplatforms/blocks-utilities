@@ -12,6 +12,7 @@ import type {
   SubscriptionPlan,
   UpdateSubscriptionPlanRequest,
   UpdateSubscriptionDiscountRequest,
+  UpdateSubscriptionPlanMeterRatesRequest,
   UpdateSubscriptionPriceDiscountRequest,
   UpdateSubscriptionPriceTaxRequest,
 } from "../models/subscription-plan.model";
@@ -224,6 +225,30 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || "The price tax could not be saved.");
+    }
+
+    return response.data;
+  }
+
+  /**
+   * Rewrites one meter's overage rate tables. Unlike {@link updatePlan}, not refused once the
+   * plan has subscribers — overage is rated from the meter snapshot copied onto a subscription at
+   * signup, so this reaches only future subscriptions and future renewals.
+   */
+  async updatePlanMeterRates(
+    planId: string,
+    meterKey: string,
+    request: UpdateSubscriptionPlanMeterRatesRequest,
+  ): Promise<SubscriptionPlan> {
+    const response = await serviceInstances.utitlitiesService.put<
+      SubscriptionApiResponse<SubscriptionPlan>
+    >(
+      `${SUBSCRIPTION_PLANS_ENDPOINT}/${encodeURIComponent(planId)}/meters/${encodeURIComponent(meterKey)}/rates`,
+      request,
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || "The overage rates could not be saved.");
     }
 
     return response.data;
