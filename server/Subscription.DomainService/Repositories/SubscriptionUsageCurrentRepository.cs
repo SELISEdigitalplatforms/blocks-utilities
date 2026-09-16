@@ -337,8 +337,25 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         CancellationToken cancellationToken) =>
         await Current(tenantId)
             .Find(CurrentWindowFilter(tenantId, organizationId, subscriptionId, asOfUtc) &
-                  Builders<SubscriptionUsageCurrent>.Filter.Ne(current => current.UserId, string.Empty))
+                  UserRowFilter())
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Matches a genuine per-user row, and only that.
+    /// </summary>
+    /// <remarks>
+    /// Not just <c>Ne(UserId, "")</c>: Mongo's <c>$ne</c> also matches a document where the field is
+    /// missing entirely, and every aggregate row written before <c>UserId</c> existed
+    /// (<see cref="SubscriptionUsageCurrent.SchemaVersion"/> below 3) has no such field in its BSON
+    /// at all. Without the explicit existence check, every one of those legacy aggregate rows was
+    /// returned here as if it were a per-user row — doubling every meter in a subscription's current
+    /// usage the moment it carried any pre-migration document, since the aggregate row was then read
+    /// twice: once as itself, once mistaken for a user row with an empty id.
+    /// </remarks>
+    private static FilterDefinition<SubscriptionUsageCurrent> UserRowFilter() =>
+        Builders<SubscriptionUsageCurrent>.Filter.And(
+            Builders<SubscriptionUsageCurrent>.Filter.Exists(current => current.UserId),
+            Builders<SubscriptionUsageCurrent>.Filter.Ne(current => current.UserId, string.Empty));
 
     private static FilterDefinition<SubscriptionUsageCurrent> CurrentWindowFilter(
         string tenantId,
@@ -536,7 +553,7 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                 Builders<SubscriptionUsageCurrent>.Filter.Eq(
                     current => current.TenantId,
                     tenantId),
-                Builders<SubscriptionUsageCurrent>.Filter.Ne(current => current.UserId, string.Empty),
+                UserRowFilter(),
                 Builders<SubscriptionUsageCurrent>.Filter.Lte(
                     current => current.PeriodStartUtc,
                     asOfUtc),
