@@ -81,7 +81,20 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                     document.CounterVersion),
                 Builders<SubscriptionUsageCurrent>.Filter.Lt(
                     current => current.SubscriptionVersion,
-                    document.SubscriptionVersion)));
+                    document.SubscriptionVersion),
+                // A stored row behind on schema, with nothing else to contribute. Adding a field
+                // moves neither version, so without this arm the reconciliation sweep that
+                // correctly identifies such a row as stale could never actually repair it — the
+                // publish it triggered lost both comparisons and wrote nothing, and the row was
+                // flagged again on every later pass. Held to a subscription version no older than
+                // the stored one so this cannot become a way for a stale writer to land terms.
+                Builders<SubscriptionUsageCurrent>.Filter.And(
+                    Builders<SubscriptionUsageCurrent>.Filter.Lt(
+                        current => current.SchemaVersion,
+                        document.SchemaVersion),
+                    Builders<SubscriptionUsageCurrent>.Filter.Lte(
+                        current => current.SubscriptionVersion,
+                        document.SubscriptionVersion))));
 
         var update = Builders<SubscriptionUsageCurrent>.Update.Pipeline(
             BuildMergePipeline(incoming));
@@ -153,6 +166,20 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         var subscriptionIsNewer = new BsonDocument(
             "$gt", new BsonArray { incoming["SubscriptionVersion"], storedSubscription });
 
+        // Missing on a row published before SchemaVersion existed, so absent is behind anything.
+        var storedSchema = new BsonDocument("$ifNull", new BsonArray { "$SchemaVersion", -1 });
+
+        var termsMayLand = new BsonDocument("$or", new BsonArray
+        {
+            subscriptionIsNewer,
+            new BsonDocument("$and", new BsonArray
+            {
+                new BsonDocument("$lt", new BsonArray { storedSchema, incoming["SchemaVersion"] }),
+                new BsonDocument(
+                    "$gte", new BsonArray { incoming["SubscriptionVersion"], storedSubscription })
+            })
+        });
+
         BsonDocument When(BsonDocument condition, string field) =>
             new("$cond", new BsonArray { condition, incoming[field], "$" + field });
 
@@ -191,6 +218,12 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             // format a figure to fewer places than it actually has.
             { "QuantityScale", When(subscriptionIsNewer, "QuantityScale") },
             { "OverageAllowed", When(subscriptionIsNewer, "OverageAllowed") },
+            // Both also land on a schema upgrade from a writer whose subscription view is at least
+            // as current as the stored one, because SchemaVersion above is written unconditionally:
+            // a row stamped with the schema that introduced these fields but missing them would
+            // tell a reader they were checked when they were not.
+            { "CancelAtPeriodEnd", When(termsMayLand, "CancelAtPeriodEnd") },
+            { "CurrentPeriodEndUtc", When(termsMayLand, "CurrentPeriodEndUtc") },
 
             // The allowance belongs to neither version on its own, so it moves on either.
             //
@@ -403,6 +436,8 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             .SetOnInsert(current => current.SubscriptionId, seed.SubscriptionId)
             .SetOnInsert(current => current.UserId, seed.UserId)
             .SetOnInsert(current => current.SubscriptionStatus, seed.SubscriptionStatus)
+            .SetOnInsert(current => current.CancelAtPeriodEnd, seed.CancelAtPeriodEnd)
+            .SetOnInsert(current => current.CurrentPeriodEndUtc, seed.CurrentPeriodEndUtc)
             .SetOnInsert(current => current.PlanId, seed.PlanId)
             .SetOnInsert(current => current.PlanCode, seed.PlanCode)
             .SetOnInsert(current => current.MeterKey, seed.MeterKey)

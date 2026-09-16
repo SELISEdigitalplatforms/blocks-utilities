@@ -1,4 +1,5 @@
-﻿using FluentAssertions;
+﻿using System.Text.Json;
+using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -21,6 +22,10 @@ public sealed class SubscriptionCancellationServiceTests
 {
     private const string TenantId = "tenant-1";
     private const string OrganizationId = "org-1";
+
+    /// <summary>The naming the outbox factory serializes with, so a payload round-trips.</summary>
+    private static readonly JsonSerializerOptions PayloadOptions =
+        new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<ISubscriptionPaymentLinkRepository> _links = new();
@@ -989,6 +994,121 @@ public sealed class SubscriptionCancellationServiceTests
         result.IsSuccess.Should().BeFalse();
         result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
         result.ErrorCode.Should().Be("subscription_cancellation_not_scheduled");
+    }
+
+    /// <summary>
+    /// What issue #512 was actually about: a subscriber cancels, keeps their allowance to the end
+    /// of the month by every rule this module enforces, and is refused by the product anyway.
+    /// </summary>
+    /// <remarks>
+    /// The product learns about the cancellation from this event, and could not previously tell a
+    /// requested cancellation from an effective one: the payload carried <c>Status</c>, which does
+    /// not move for a scheduled cancellation, and nothing at all about the boundary. Revoking on
+    /// receipt was the only thing a consumer could do with that — which is the one outcome
+    /// cancelling is documented never to cause.
+    /// </remarks>
+    [Fact]
+    public async Task A_scheduled_cancellation_tells_subscribers_when_access_actually_stops()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        var payload = LastEventPayload();
+
+        payload.EventType.Should().Be(SubscriptionConstants.SubscriptionCancellationRequested);
+        payload.CancelAtPeriodEnd.Should().BeTrue(
+            "a consumer that cannot see the cancellation is merely scheduled has no way to keep " +
+            "granting for the period already paid for");
+        payload.CurrentPeriodEndUtc.Should().Be(_subscription!.CurrentPeriodEndUtc,
+            "the boundary is the whole point: without it a subscriber loses the rest of a month " +
+            "they were charged for");
+        payload.Status.Should().Be(nameof(SubscriptionStatus.Active),
+            "status genuinely has not moved, which is exactly why it cannot carry this fact");
+    }
+
+    /// <remarks>
+    /// The event is appended inside the same compare-and-set that records the schedule, so the
+    /// subscription in hand is still the pre-write one — its own <c>CurrentPeriodEndUtc</c> is the
+    /// opening stub's end, not the prepaid year's. Building the payload from it would promise a
+    /// year's subscriber access until September.
+    /// </remarks>
+    [Fact]
+    public async Task A_cancellation_inside_a_prepaid_year_announces_the_year_end_not_the_stub_end()
+    {
+        var yearEndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        _subscription!.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = yearEndUtc,
+            IsPrepaid = true
+        };
+
+        await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        LastEventPayload().CurrentPeriodEndUtc.Should().Be(yearEndUtc,
+            "a year already paid for is a year the subscriber keeps, and the transition beside " +
+            "this event folds that year into CurrentPeriodEndUtc for the same reason");
+    }
+
+    [Fact]
+    public async Task An_immediate_cancellation_announces_that_access_stopped_now()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        var payload = LastEventPayload();
+
+        payload.EventType.Should().Be(SubscriptionConstants.SubscriptionCanceled);
+        payload.CancelAtPeriodEnd.Should().BeFalse(
+            "nothing is waiting for a boundary — this one has already ended");
+        payload.CurrentPeriodEndUtc.Should().Be(_time.GetUtcNow().UtcDateTime,
+            "entitlement stopped at the instant of the request, not at the period it abandoned");
+    }
+
+    [Fact]
+    public async Task Withdrawing_a_cancellation_announces_that_nothing_is_stopping_any_more()
+    {
+        _subscription!.CancelAtPeriodEnd = true;
+        _subscription.CanceledAtUtc = new DateTime(2026, 8, 14, 9, 0, 0, DateTimeKind.Utc);
+        _subscription.NextFeeBillingAtUtc = null;
+
+        SubscriptionOutboxEvent? announced = null;
+
+        _subscriptions
+            .Setup(repository => repository.TryWithdrawScheduledCancellationAsync(
+                TenantId,
+                "sub-1",
+                _subscription.Version,
+                _subscription.CurrentPeriodEndUtc,
+                It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, string, int, DateTime, SubscriptionOutboxEvent, CancellationToken>(
+                (_, _, _, _, outboxEvent, _) => announced = outboxEvent)
+            .ReturnsAsync(true);
+
+        await Service().WithdrawCancellationAsync(
+            "sub-1", null, "corr-1", CancellationToken.None);
+
+        var payload = PayloadOf(announced);
+
+        payload.CancelAtPeriodEnd.Should().BeFalse(
+            "the subscription in hand still carries the schedule this event undoes, so a payload " +
+            "read off it would announce the withdrawal and the cancellation at once");
+        payload.CurrentPeriodEndUtc.Should().BeNull(
+            "there is no boundary left to stop at — the subscription renews as it did before");
+    }
+
+    private SubscriptionLifecycleEvent LastEventPayload() => PayloadOf(_transition?.Event);
+
+    private static SubscriptionLifecycleEvent PayloadOf(SubscriptionOutboxEvent? outboxEvent)
+    {
+        outboxEvent.Should().NotBeNull("the state change must announce itself");
+
+        return JsonSerializer.Deserialize<SubscriptionLifecycleEvent>(
+            outboxEvent!.Payload,
+            PayloadOptions)!;
     }
 
     private SubscriptionCancellationService Service() => new(
