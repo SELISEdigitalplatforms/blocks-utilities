@@ -334,6 +334,15 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 AmountMinor = charge.AmountMinor + convertingAnnual.AmountMinor,
                 NetAmountMinor = charge.NetAmountMinor + convertingAnnual.NetAmountMinor,
                 TaxAmountMinor = charge.TaxAmountMinor + convertingAnnual.TaxAmountMinor,
+                // What the pair is made of, summed with the pair. These three are what the payment
+                // records for the invoice to explain itself from, and a gross that covered only the
+                // stub beside a net that covered both would state a bill whose own subtotal is
+                // smaller than its net of discounts.
+                GrossAmountMinor = charge.GrossAmountMinor + convertingAnnual.GrossAmountMinor,
+                BuiltInDiscountMinor =
+                    charge.BuiltInDiscountMinor + convertingAnnual.BuiltInDiscountMinor,
+                PromotionalDiscountMinor =
+                    charge.PromotionalDiscountMinor + convertingAnnual.PromotionalDiscountMinor,
                 DiscountApplied = charge.DiscountApplied || convertingAnnual.DiscountApplied
             };
 

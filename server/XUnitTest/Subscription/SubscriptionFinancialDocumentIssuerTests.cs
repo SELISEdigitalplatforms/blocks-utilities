@@ -1539,6 +1539,311 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document.Merchant.TaxRegistrationId.Should().Be("DE811234567");
     }
 
+    /// <summary>
+    /// The opening invoice for a calendar-aligned yearly signup that paid for its year up front.
+    /// </summary>
+    /// <remarks>
+    /// The charge is two things — the stub, priced without the code, and the year the code belongs
+    /// to — and the invoice has to explain both. Recomposing only the stub, with the code, reconciles
+    /// against nothing and drops the customer onto a single gross line: an invoice for a 15% coupon
+    /// and 8.1% VAT that shows neither, which is issue #509.
+    /// </remarks>
+    [Fact]
+    public async Task A_prepaid_year_and_its_stub_are_invoiced_as_one_breakdown_with_tax_and_coupon()
+    {
+        CalendarYearlySubscribed();
+        OpeningCharge(PrepaidOpeningTotalMinor);
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        // Both halves, added: CHF 466.13 of stub gross beside the CHF 10,488.00 year.
+        document!.Amounts.GrossSubtotalMinor.Should().Be(StubGrossMinor + AnnualGrossMinor,
+            "the subscriber bought the rest of September and the year that follows it");
+
+        // The line the customer opened the ticket about.
+        document.Amounts.PromotionalDiscountMinor.Should().Be(AnnualPromotionalDiscountMinor,
+            "the coupon took 15% off the year, and an invoice that omits it understates what the " +
+            "code was worth");
+        document.Amounts.PromotionCode.Should().Be("save15");
+
+        // And the other one.
+        document.Amounts.TaxAmountMinor.Should().Be(StubTaxMinor + AnnualTaxMinor);
+        document.Amounts.TaxRateBasisPoints.Should().Be(810);
+        document.Amounts.TaxMode.Should().Be(nameof(TaxMode.Exclusive));
+
+        document.Amounts.NetSubtotalMinor.Should().Be(StubNetMinor + AnnualNetMinor);
+        document.Amounts.AutomaticDiscountMinor.Should().Be(0);
+        document.Amounts.QuantityDiscountMinor.Should().Be(0);
+
+        // The whole point of the reconciliation guard: a breakdown that does not add up to what
+        // the bank took would be worse than no breakdown at all.
+        document.Amounts.TotalMinor.Should().Be(PrepaidOpeningTotalMinor);
+        (document.Amounts.NetSubtotalMinor + document.Amounts.TaxAmountMinor)
+            .Should().Be(document.Amounts.TotalMinor);
+        (document.Amounts.GrossSubtotalMinor -
+                document.Amounts.AutomaticDiscountMinor -
+                document.Amounts.QuantityDiscountMinor -
+                document.Amounts.PromotionalDiscountMinor)
+            .Should().Be(document.Amounts.NetSubtotalMinor);
+    }
+
+    /// <summary>
+    /// Two periods were bought, so two lines describe them.
+    /// </summary>
+    /// <remarks>
+    /// One line would price a whole year against the sixteen dates in the document's header — an
+    /// invoice reading "Tier 3, 15 September to 1 October, CHF 10,488.00", which is the reading that
+    /// makes a subscriber think they were charged a year for a fortnight.
+    /// </remarks>
+    [Fact]
+    public async Task A_prepaid_year_is_its_own_line_over_its_own_dates()
+    {
+        CalendarYearlySubscribed();
+        OpeningCharge(PrepaidOpeningTotalMinor);
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Lines.Should().HaveCount(2);
+
+        // The stub, priced from the monthly basis the yearly price names rather than from the year.
+        document.Lines[0].Description.Should().Be("Tier 3 (2026-09-15 to 2026-10-01)");
+        document.Lines[0].UnitAmountMinor.Should().Be(87_400,
+            "the days before the first are worth a fraction of a month, not a fraction of a year");
+        document.Lines[0].AmountMinor.Should().Be(StubGrossMinor);
+
+        // And the year, over the year's own dates.
+        document.Lines[1].Description.Should().Be("Tier 3 (2026-10-01 to 2027-10-01)");
+        document.Lines[1].UnitAmountMinor.Should().Be(AnnualGrossMinor);
+        document.Lines[1].AmountMinor.Should().Be(AnnualGrossMinor);
+
+        // The lines are the subtotal, item by item, exactly as they are for a one-period invoice.
+        document.Lines.Sum(line => line.AmountMinor)
+            .Should().Be(document.Amounts.GrossSubtotalMinor);
+    }
+
+    /// <summary>
+    /// The same signup on a price that bills its year at the boundary instead: only the stub was
+    /// paid for, and only the stub is invoiced — with its tax.
+    /// </summary>
+    /// <remarks>
+    /// This one carried no coupon at all on the money, and still lost its tax line: the stub is
+    /// priced without the code either way, so recomposing it with the code missed by the coupon's
+    /// worth and fell through to the gross-only fallback.
+    /// </remarks>
+    [Fact]
+    public async Task A_year_billed_at_its_boundary_leaves_an_opening_invoice_for_the_stub_alone()
+    {
+        CalendarYearlySubscribed(subscription =>
+        {
+            subscription.Price.CalendarAnnualChargeTiming = CalendarAnnualChargeTiming.AtBoundary;
+            subscription.PendingAnnualPeriod!.CollectedWithCheckout = false;
+            subscription.InitialChargeAmountMinor = StubTotalMinor;
+        });
+
+        OpeningCharge(StubTotalMinor);
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.GrossSubtotalMinor.Should().Be(StubGrossMinor);
+        document.Amounts.TaxAmountMinor.Should().Be(StubTaxMinor);
+        document.Amounts.TaxRateBasisPoints.Should().Be(810);
+        document.Amounts.TotalMinor.Should().Be(StubTotalMinor);
+
+        // The code belongs to the year, which nobody has paid for yet. Showing it here would claim
+        // a reduction this charge never had.
+        document.Amounts.PromotionalDiscountMinor.Should().Be(0);
+        document.Amounts.PromotionCode.Should().BeNull();
+
+        // One period was paid for, so one line describes it — and it carries no dates of its own,
+        // because the document's own period already states them.
+        document.Lines.Should().ContainSingle()
+            .Which.Description.Should().Be("Tier 3");
+    }
+
+    /// <summary>
+    /// A plan change, an upgrade, a downgrade or a re-activation onto other terms between the
+    /// charge and the document.
+    /// </summary>
+    /// <remarks>
+    /// The recomposition is only ever allowed to describe the terms the charge was priced on. Once
+    /// the subscription has moved, the honest answer is the gross line — a breakdown recomputed
+    /// against the new price would be a breakdown of a charge nobody made, and it would look
+    /// authoritative.
+    /// </remarks>
+    [Fact]
+    public async Task An_opening_invoice_issued_after_the_plan_moved_states_only_what_was_taken()
+    {
+        var subscription = CalendarYearlySubscribed();
+        OpeningCharge(PrepaidOpeningTotalMinor);
+
+        // The obligation froze the terms at the charge; the subscription has since been moved onto
+        // another price, which is what every upgrade, downgrade and re-activation does.
+        subscription.Price.PriceId = "price-yearly-tier-4";
+        subscription.Price.UnitAmountMinor = 1_500_000;
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.TotalMinor.Should().Be(PrepaidOpeningTotalMinor,
+            "whatever else is unknown, what the bank took is not");
+        document.Amounts.GrossSubtotalMinor.Should().Be(PrepaidOpeningTotalMinor);
+        document.Amounts.NetSubtotalMinor.Should().Be(PrepaidOpeningTotalMinor);
+        document.Amounts.TaxAmountMinor.Should().Be(0,
+            "no tax figure can be stated for terms that are no longer on the subscription");
+        document.Amounts.PromotionalDiscountMinor.Should().Be(0);
+
+        // Nothing is known about how this total divides, so it is not divided. A year line beside a
+        // total that cannot account for it would invent the split it failed to recover.
+        document.Lines.Should().ContainSingle()
+            .Which.AmountMinor.Should().Be(PrepaidOpeningTotalMinor);
+    }
+
+    /// <summary>
+    /// A composition that does not add up to the frozen amount is never published as a breakdown.
+    /// </summary>
+    [Fact]
+    public async Task An_opening_invoice_never_publishes_a_breakdown_that_misses_the_frozen_amount()
+    {
+        CalendarYearlySubscribed(subscription =>
+            subscription.PendingAnnualPeriod!.AmountMinor = AnnualTotalMinor + 5_000);
+
+        OpeningCharge(PrepaidOpeningTotalMinor);
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.TotalMinor.Should().Be(PrepaidOpeningTotalMinor);
+        document.Amounts.TaxAmountMinor.Should().Be(0);
+        document.Amounts.PromotionalDiscountMinor.Should().Be(0,
+            "the two halves disagree about what the year cost, so neither may be stated");
+    }
+
+    /// <summary>CHF 10,488.00 a year, the price the coupon and the tax are applied to.</summary>
+    private const long AnnualGrossMinor = 1_048_800;
+
+    /// <summary>15% of the year.</summary>
+    private const long AnnualPromotionalDiscountMinor = 157_320;
+
+    private const long AnnualNetMinor = AnnualGrossMinor - AnnualPromotionalDiscountMinor;
+
+    /// <summary>8.1% of the discounted year, half-up.</summary>
+    private const long AnnualTaxMinor = 72_210;
+
+    private const long AnnualTotalMinor = AnnualNetMinor + AnnualTaxMinor;
+
+    /// <summary>CHF 874.00 a month, 16 of September's 30 dates, priced without the code.</summary>
+    private const long StubGrossMinor = 46_613;
+
+    private const long StubNetMinor = StubGrossMinor;
+
+    private const long StubTaxMinor = 3_776;
+
+    private const long StubTotalMinor = StubNetMinor + StubTaxMinor;
+
+    /// <summary>What a signup on this price actually pays at checkout: the stub and the year.</summary>
+    private const long PrepaidOpeningTotalMinor = StubTotalMinor + AnnualTotalMinor;
+
+    /// <summary>
+    /// The subscription issue #509 was raised against: a calendar-aligned yearly price joined
+    /// mid-September, collecting its year with the checkout, under a 15% code and 8.1% VAT.
+    /// </summary>
+    /// <remarks>
+    /// Every figure the issuer needs is frozen the way signup freezes it — the opening total, the
+    /// day fraction, and the year waiting to start — because that is exactly the state the
+    /// recomposition has to be able to read back.
+    /// </remarks>
+    private SubscriptionDetail CalendarYearlySubscribed(
+        Action<SubscriptionDetail>? customize = null) =>
+        Subscribed(subscription =>
+        {
+            subscription.Plan = new PlanSnapshot { Code = "tier-3", DisplayName = "Tier 3" };
+            subscription.Price = new PriceSnapshot
+            {
+                PriceId = "price-yearly",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = AnnualGrossMinor,
+                Interval = BillingInterval.Year,
+                IntervalCount = 1,
+                BillingAlignment = BillingAlignment.CalendarMonth,
+                CalendarStubBasePriceId = "price-monthly",
+                CalendarStubBaseUnitAmountMinor = 87_400,
+                CalendarAnnualChargeTiming = CalendarAnnualChargeTiming.AtCheckout,
+                TaxRateBasisPoints = 810,
+                TaxMode = TaxMode.Exclusive
+            };
+
+            subscription.Discount = new DiscountTerms
+            {
+                Code = "save15",
+                Kind = DiscountKind.Percent,
+                PercentBasisPoints = 1_500
+            };
+
+            subscription.CreatedAtUtc = new DateTime(2026, 9, 15, 6, 20, 49, DateTimeKind.Utc);
+            subscription.CurrentPeriodStartUtc = subscription.CreatedAtUtc;
+            subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 30, 22, 0, 0, DateTimeKind.Utc);
+            subscription.InitialChargeAmountMinor = PrepaidOpeningTotalMinor;
+            subscription.InitialChargeProrated = true;
+            subscription.InitialChargeDiscountApplied = true;
+            subscription.ProrationDays = 16;
+            subscription.ProrationTotalDays = 30;
+
+            subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+            {
+                StartUtc = new DateTime(2026, 9, 30, 22, 0, 0, DateTimeKind.Utc),
+                EndUtc = new DateTime(2027, 9, 30, 22, 0, 0, DateTimeKind.Utc),
+                AmountMinor = AnnualTotalMinor,
+                NetAmountMinor = AnnualNetMinor,
+                TaxAmountMinor = AnnualTaxMinor,
+                GrossAmountMinor = AnnualGrossMinor,
+                PromotionalDiscountMinor = AnnualPromotionalDiscountMinor,
+                DiscountApplied = true,
+                CollectedWithCheckout = true,
+                IsPrepaid = true
+            };
+
+            customize?.Invoke(subscription);
+
+            // Appended after the customisation, so the obligation freezes the terms the charge was
+            // actually priced on rather than terms a test moved afterwards.
+            Owing(subscription, SubscriptionDocumentSourceFactory.ForCharge(
+                subscription,
+                "pay-1",
+                SubscriptionChargeKind.Initial,
+                periodKey: null,
+                initiatedBy: null,
+                occurredAtUtc: SettledAt,
+                correlationId: "corr-1"));
+        });
+
+    /// <summary>
+    /// The opening charge as hosted checkout records it: a settled payment and no breakdown.
+    /// </summary>
+    /// <remarks>
+    /// Checkout composes no invoice of its own, so every one of these fields is null in production
+    /// — which is the whole reason the breakdown has to be recomposed from the subscription.
+    /// </remarks>
+    private PaymentDetail OpeningCharge(long totalMinor) =>
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.OrderIdFor(SubscriptionId);
+            payment.PreciseAmount = totalMinor / 100m;
+            payment.SubscriptionGrossAmountMinor = null;
+            payment.SubscriptionBuiltInDiscountMinor = null;
+            payment.SubscriptionPromotionalDiscountMinor = null;
+            payment.SubscriptionNetAmountMinor = null;
+            payment.SubscriptionTaxAmountMinor = null;
+            payment.SubscriptionCreditAmountMinor = null;
+            payment.SubscriptionTaxRateBasisPoints = null;
+            payment.SubscriptionTaxMode = null;
+            payment.SubscriptionAutomaticDiscountBasisPoints = null;
+            payment.SubscriptionQuantityDiscountBasisPoints = null;
+            payment.SubscriptionDiscountCombination = null;
+        });
+
     private ISubscriptionFinancialDocumentIssuer Issuer() =>
         new SubscriptionFinancialDocumentIssuer(
             _documents,

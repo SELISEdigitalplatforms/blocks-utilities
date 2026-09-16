@@ -28,6 +28,7 @@ public sealed class CalendarAnnualTrialAndCancellationTests
     private const string OrganizationId = "org-1";
     private const string Zurich = "Europe/Zurich";
     private const long MonthlyMinor = 95_000;
+    private const long AnnualMinor = 1_140_000;
     private const long DiscountedAnnualMinor = 1_048_800;
 
     private readonly Mock<ISubscriptionCatalogueRepository> _catalogue = new();
@@ -170,6 +171,18 @@ public sealed class CalendarAnnualTrialAndCancellationTests
         await Convert();
 
         _charge!.AmountMinor.Should().Be(32_047 + DiscountedAnnualMinor);
+
+        // What the pair is made of travels with it. These three are what the payment records and
+        // the invoice explains itself from, so a gross covering only the stub would print a
+        // subtotal smaller than the net beneath it — and the 8% off the year would go unstated.
+        _charge.NetAmountMinor.Should().Be(32_047 + DiscountedAnnualMinor);
+        _charge.GrossAmountMinor.Should().Be(34_833 + AnnualMinor);
+        _charge.BuiltInDiscountMinor.Should().Be(
+            34_833 - 32_047 + (AnnualMinor - DiscountedAnnualMinor));
+        (_charge.GrossAmountMinor -
+                _charge.BuiltInDiscountMinor -
+                _charge.PromotionalDiscountMinor)
+            .Should().Be(_charge.NetAmountMinor);
 
         var held = _transition!.PendingAnnualPeriod;
         held!.IsPrepaid.Should().BeTrue("this charge is the one that collected it");
