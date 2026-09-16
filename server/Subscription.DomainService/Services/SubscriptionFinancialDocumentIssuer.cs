@@ -71,6 +71,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     private readonly IOptions<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionFinancialDocumentIssuer> _logger;
     private readonly ISubscriptionWorkScheduler? _scheduler;
+    private readonly ISubscriptionUsageInvoiceRepository? _usageInvoices;
     private readonly TimeProvider _time;
 
     public SubscriptionFinancialDocumentIssuer(
@@ -86,6 +87,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         IOptions<SubscriptionOptions> options,
         ILogger<SubscriptionFinancialDocumentIssuer> logger,
         ISubscriptionWorkScheduler? scheduler = null,
+        ISubscriptionUsageInvoiceRepository? usageInvoices = null,
         TimeProvider? time = null)
     {
         _documents = documents;
@@ -100,6 +102,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         _options = options;
         _logger = logger;
         _scheduler = scheduler;
+        _usageInvoices = usageInvoices;
         _time = time ?? TimeProvider.System;
     }
 
@@ -191,13 +194,21 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         var period = source?.Period ??
             SubscriptionDocumentSourceFactory.PeriodFor(subscription, charge);
 
+        // Only a usage charge has a meter breakdown to recover, and it is recovered before
+        // composition so the document is built from it in one piece. Null where there is none, or
+        // where it could not be reconciled against what was charged — LinesFor then says the one
+        // thing it has always said.
+        var usageLines = charge.Kind == SubscriptionChargeKind.Usage
+            ? await MeteredLinesAsync(subscription, terms, period, amounts, cancellationToken)
+            : null;
+
         var document = await ComposeAndIssueAsync(
             subscription,
             FinancialDocumentType.Invoice,
             sourceKey,
             payment.PaymentDate == default ? _time.GetUtcNow().UtcDateTime : payment.PaymentDate,
             amounts,
-            LinesFor(terms, charge.Kind, amounts, subscription, period, opening),
+            LinesFor(terms, charge.Kind, amounts, subscription, period, opening, usageLines),
             period,
             terms,
             correlationId,
@@ -867,7 +878,10 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 {
                     ItemKey = line.ItemKey!,
                     UnitLabel = line.Description,
-                    Quantity = line.Quantity ?? 0,
+                    // Only lines carrying an item key reach here, and those are seat lines, whose
+                    // quantities are whole by construction. A metered line counts in its meter's
+                    // own scale and never claims to be a quantity item.
+                    Quantity = (long)(line.Quantity ?? 0),
                     UnitAmountMinor = line.UnitAmountMinor ?? 0
                 })
                 .ToList())
@@ -1652,6 +1666,137 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     }
 
     /// <summary>
+    /// A usage charge's lines: one per rate band the period's overage actually fell into.
+    /// </summary>
+    /// <remarks>
+    /// The rating processor prices every meter through <see cref="SubscriptionUsageRater"/> and
+    /// then keeps only each meter's total, so the bands that produced it — "the first 500
+    /// screenings at CHF 1.50" — are gone by the time a document is issued. They are recomputed
+    /// here from the plan the subscription still holds rather than persisted a second time, which
+    /// is also what lets an invoice issued before this existed describe itself on a re-render.
+    /// <para>
+    /// Recomputation is trusted only while it still produces the figures that were charged. A plan
+    /// re-rated between rating and issuance would otherwise print prices the subscriber's card
+    /// never saw, so every disagreement returns null and the charge states its total alone —
+    /// incomplete, but never contradicting the money.
+    /// </para>
+    /// <para>
+    /// Amounts are gross, before discount, the convention <see cref="PeriodLines"/> already
+    /// follows: a discount appears once as its own figure rather than smeared across lines that
+    /// would then stop adding up.
+    /// </para>
+    /// </remarks>
+    private async Task<List<FinancialDocumentLine>?> MeteredLinesAsync(
+        SubscriptionDetail subscription,
+        DocumentTerms terms,
+        FinancialDocumentPeriod period,
+        FinancialDocumentAmounts amounts,
+        CancellationToken cancellationToken)
+    {
+        if (_usageInvoices is null || period.PeriodKey is not { Length: > 0 } periodKey)
+        {
+            return null;
+        }
+
+        var invoice = await _usageInvoices.GetAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            periodKey,
+            cancellationToken);
+
+        if (invoice is null || invoice.Lines.Count == 0)
+        {
+            return null;
+        }
+
+        // The meters have to account for the whole gross subtotal before any one of them is broken
+        // down, because a breakdown of part of a charge reads as a breakdown of all of it.
+        if (invoice.Lines.Sum(line => line.AmountMinor) != amounts.GrossSubtotalMinor)
+        {
+            return null;
+        }
+
+        var meters = subscription.Plan.Meters.ToDictionary(
+            meter => meter.MeterKey,
+            StringComparer.Ordinal);
+
+        var lines = new List<FinancialDocumentLine>();
+
+        foreach (var line in invoice.Lines)
+        {
+            if (!meters.TryGetValue(line.MeterKey, out var meter))
+            {
+                return null;
+            }
+
+            UsageTierAllocationResult rated;
+
+            try
+            {
+                rated = SubscriptionUsageRater.OverageAllocations(
+                    meter,
+                    line.OverageQuantity,
+                    invoice.CurrencyCode);
+            }
+            catch (OverflowException)
+            {
+                // The same very-large-but-valid rate that makes the rating processor defer a whole
+                // period. There it costs a retry; here it costs only the breakdown.
+                return null;
+            }
+
+            if (rated.Allocations.Count == 0 || rated.TotalAmountMinor != line.AmountMinor)
+            {
+                return null;
+            }
+
+            // A band's exact amount is fractional in general and only the meter's total was ever
+            // rounded, so that rounded total is what gets apportioned. Re-rounding each band
+            // independently would leave the lines summing to a figure nobody was charged.
+            var weights = rated.Allocations
+                .Select(allocation => MeterQuantity.ToMinorUnits(allocation.AmountMinor))
+                .ToList();
+
+            if (weights.Sum() <= 0)
+            {
+                // Every band rounds away to nothing while the meter as a whole did not. There is no
+                // apportionment left that is not an invention.
+                return null;
+            }
+
+            var banded = ProportionalAllocation.Split(line.AmountMinor, weights);
+            var namesBands = rated.Allocations.Count > 1;
+
+            for (var index = 0; index < rated.Allocations.Count; index++)
+            {
+                var allocation = rated.Allocations[index];
+
+                // Named only where there is more than one, because "units 1-500" beside a plan
+                // that has exactly one rate answers a question nobody asked.
+                var band = namesBands
+                    ? $" (units {MeterQuantity.Describe(allocation.FromOverageQuantity)}" +
+                        $"–{MeterQuantity.Describe(allocation.ToOverageQuantity)})"
+                    : string.Empty;
+
+                lines.Add(new FinancialDocumentLine
+                {
+                    Description =
+                        $"Metered usage on {terms.Subject.PlanName} — {MeterLabel(meter)}{band}",
+                    Quantity = allocation.Units,
+                    UnitAmountMinor = allocation.UnitAmountMinor,
+                    AmountMinor = banded[index]
+                });
+            }
+        }
+
+        return lines.Count > 0 ? lines : null;
+    }
+
+    /// <summary>What a meter is called on an invoice: its display name, or its key where it has none.</summary>
+    private static string MeterLabel(PlanMeter meter) =>
+        meter.DisplayName is { Length: > 0 } name ? name : meter.MeterKey;
+
+    /// <summary>
     /// The lines a charge breaks into: one per purchased quantity item, or one for the whole plan.
     /// </summary>
     /// <remarks>
@@ -1665,13 +1810,19 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// other charge, and for an opening charge whose breakdown could not be recomposed — which is
     /// the case that must keep saying one thing, because nothing is known about how it divides.
     /// </param>
+    /// <param name="usageLines">
+    /// A usage charge's per-meter, per-rate-band breakdown, where <see cref="MeteredLinesAsync"/>
+    /// could recover one that reconciles against what was charged. Null otherwise, and a usage
+    /// charge then states its total alone, exactly as it did before the breakdown existed.
+    /// </param>
     private static List<FinancialDocumentLine> LinesFor(
         DocumentTerms terms,
         SubscriptionChargeKind chargeKind,
         FinancialDocumentAmounts amounts,
         SubscriptionDetail? subscription = null,
         FinancialDocumentPeriod? period = null,
-        OpeningCharge opening = default)
+        OpeningCharge opening = default,
+        List<FinancialDocumentLine>? usageLines = null)
     {
         if (chargeKind is SubscriptionChargeKind.PlanChange or
             SubscriptionChargeKind.QuantityChange)
@@ -1690,6 +1841,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         if (chargeKind == SubscriptionChargeKind.Usage)
         {
+            if (usageLines is { Count: > 0 })
+            {
+                return usageLines;
+            }
+
             return
             [
                 new FinancialDocumentLine
