@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
 
@@ -319,7 +320,7 @@ public static class FinancialDocumentHtmlTemplate
             html.Append("</td>");
             html.Append("<td class=\"num\">")
                 .Append(line.Quantity is { } quantity
-                    ? Escape(quantity.ToString(CultureInfo.InvariantCulture))
+                    ? Escape(MeterQuantity.Describe(quantity))
                     : "&mdash;")
                 .Append("</td>");
             html.Append("<td class=\"num\">")
