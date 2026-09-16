@@ -292,7 +292,8 @@ public sealed class SubscriptionRenewalServiceTests
 
     private SubscriptionRenewalService Service(
         ISubscriptionWorkScheduler? scheduler = null,
-        bool withUsage = false) => new(
+        bool withUsage = false,
+        ISubscriptionDiscountRepository? discounts = null) => new(
         _subscriptions.Object,
         _billingAccounts.Object,
         _gateway.Object,
@@ -304,7 +305,8 @@ public sealed class SubscriptionRenewalServiceTests
         audit: null,
         scheduler: scheduler,
         usage: withUsage ? _usage.Object : null,
-        allowances: withUsage ? new MeterAllowanceResolver(_usage.Object) : null);
+        allowances: withUsage ? new MeterAllowanceResolver(_usage.Object) : null,
+        discounts: discounts);
 
     // ---- Re-snapshotting a converted trial's allowance ----------------------------------------
 
@@ -834,6 +836,67 @@ public sealed class SubscriptionRenewalServiceTests
         charged.AutomaticDiscountBasisPoints.Should().Be(800);
         charged.DiscountCombination.Should().Be("Additive");
         charged.AmountMinor.Should().Be(82_800);
+    }
+
+    /// <summary>
+    /// The bug this guards against: an admin fixes a discount's precedence to "replace the price's
+    /// own discount" after subscribers already redeemed it. Without a resync, the frozen terms held
+    /// on the subscription keep whatever precedence was in force at signup, and the plan's Stack
+    /// policy keeps applying both reductions renewal after renewal -- exactly the customer-visible
+    /// overcharge the report described.
+    /// </summary>
+    [Fact]
+    public async Task A_renewal_resyncs_a_held_discounts_campaign_precedence_from_the_catalogue()
+    {
+        SubscriptionChargeRequest? charged = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string __, CancellationToken ___) =>
+                charged = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.Price.UnitAmountMinor = 100_000;
+        subscription.Price.AutomaticDiscountBasisPoints = 800;
+        subscription.Plan.QuantityDiscountCombinationPolicy =
+            QuantityDiscountCombinationPolicy.Stack;
+        subscription.Discount = new DiscountTerms
+        {
+            Code = "extra10",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 1_000,
+            DiscountId = "discount-1",
+            // Redeemed before the catalogue entry ever named a precedence -- today's
+            // stacking-under-the-plan's-policy behaviour, frozen at signup.
+            Campaign = new CampaignTerms()
+        };
+
+        var discounts = new Mock<ISubscriptionDiscountRepository>();
+        discounts
+            .Setup(repository => repository.FindByIdAsync(
+                TenantId, "discount-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ItemId = "discount-1",
+                TenantId = TenantId,
+                Status = CatalogueStatus.Active,
+                Campaign = new CampaignTerms
+                {
+                    Precedence = CampaignPrecedence.ReplaceBuiltIn,
+                    PrecedenceConfigured = true
+                }
+            });
+
+        await Service(discounts: discounts.Object).RenewAsync(subscription, CancellationToken.None);
+
+        charged.Should().NotBeNull();
+        charged!.BuiltInDiscountMinor.Should().Be(0, "the resynced precedence replaces it rather than stacking");
+        charged.PromotionalDiscountMinor.Should().Be(10_000, "10% of the raw gross, not what the 8% left");
+        charged.AmountMinor.Should().Be(90_000);
     }
 
     [Fact]
