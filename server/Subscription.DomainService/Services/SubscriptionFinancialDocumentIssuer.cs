@@ -167,7 +167,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         var source = SourceFor(subscription, sourceKey);
         var terms = TermsFor(subscription, source, charge, paymentDetailId);
 
-        var amounts = AmountsFor(payment, subscription, charge, terms);
+        var (amounts, opening) = AmountsFor(payment, subscription, charge, terms);
         if (amounts.TotalMinor <= 0 && payment.SubscriptionSettlement is null)
         {
             // A zero charge that is not a settlement never reached the provider, so there is no
@@ -188,14 +188,17 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 FinancialDocumentIssueOutcome.ZeroAmount);
         }
 
+        var period = source?.Period ??
+            SubscriptionDocumentSourceFactory.PeriodFor(subscription, charge);
+
         var document = await ComposeAndIssueAsync(
             subscription,
             FinancialDocumentType.Invoice,
             sourceKey,
             payment.PaymentDate == default ? _time.GetUtcNow().UtcDateTime : payment.PaymentDate,
             amounts,
-            LinesFor(terms, charge.Kind, amounts),
-            source?.Period ?? SubscriptionDocumentSourceFactory.PeriodFor(subscription, charge),
+            LinesFor(terms, charge.Kind, amounts, subscription, period, opening),
+            period,
             terms,
             correlationId,
             paymentDetailId: paymentDetailId,
@@ -747,13 +750,29 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             new SubscriptionChargeReference(subscription.ItemId, SubscriptionChargeKind.Initial, null),
             subscription.ItemId);
 
+        // Recomposed again only to recover how the frozen figures split between the stub and the
+        // year, and trusted only while it still produces the figures that were frozen. The document
+        // states the source's amounts either way; this decides how many lines explain them.
+        var opening =
+            RecomposeOpening(subscription) is { Year: not null, Amounts: { } figures } recomposed &&
+            figures.TotalMinor == amounts.TotalMinor &&
+            figures.GrossSubtotalMinor == amounts.GrossSubtotalMinor
+                ? recomposed
+                : default;
+
         var document = await ComposeAndIssueAsync(
             subscription,
             FinancialDocumentType.Invoice,
             source.SourceKey,
             source.OccurredAtUtc,
             amounts,
-            LinesFor(terms, SubscriptionChargeKind.Initial, amounts),
+            LinesFor(
+                terms,
+                SubscriptionChargeKind.Initial,
+                amounts,
+                subscription,
+                source.Period,
+                opening),
             source.Period,
             terms,
             correlationId,
@@ -1233,7 +1252,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// be asked again and its answer checked against the frozen figure. Anything older than all three
     /// is reported as a single gross line, which is all that can honestly be said about it.
     /// </remarks>
-    private FinancialDocumentAmounts AmountsFor(
+    private (FinancialDocumentAmounts Amounts, OpeningCharge Opening) AmountsFor(
         PaymentDetail payment,
         SubscriptionDetail subscription,
         SubscriptionChargeReference charge,
@@ -1241,7 +1260,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     {
         if (payment.SubscriptionSettlement is { } settlement)
         {
-            return SettlementAmounts(payment, settlement);
+            return (SettlementAmounts(payment, settlement), default);
         }
 
         if (payment.SubscriptionNetAmountMinor is { } net)
@@ -1255,7 +1274,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             var tax = payment.SubscriptionTaxAmountMinor ?? 0;
             var credit = payment.SubscriptionCreditAmountMinor ?? 0;
 
-            return new FinancialDocumentAmounts
+            return (new FinancialDocumentAmounts
             {
                 GrossSubtotalMinor = payment.SubscriptionGrossAmountMinor ?? net,
                 AutomaticDiscountMinor = automatic,
@@ -1271,7 +1290,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 QuantityDiscountBasisPoints = payment.SubscriptionQuantityDiscountBasisPoints,
                 DiscountCombination = payment.SubscriptionDiscountCombination,
                 PromotionCode = subscription.Discount?.Code
-            };
+            }, default);
         }
 
         // Recomputed only while the subscription still holds the terms the charge was priced on. Once
@@ -1279,12 +1298,12 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         // and its answer would be a breakdown of a charge nobody made.
         if (charge.Kind == SubscriptionChargeKind.Initial &&
             DescribesCurrentTerms(terms, subscription) &&
-            RecomposeInitialCharge(subscription) is { } initial)
+            RecomposeOpening(subscription) is { Amounts: not null } initial)
         {
-            return initial;
+            return (initial.Amounts, initial);
         }
 
-        return SingleGrossLine(payment);
+        return (SingleGrossLine(payment), default);
     }
 
     /// <summary>Whether the frozen terms and the live subscription still say the same thing.</summary>
@@ -1315,13 +1334,33 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// called at the moment of activation instead of at issue, while <c>subscription</c> is still
     /// exactly the terms the customer was quoted.
     /// </para>
+    /// <para>
+    /// Composed the way the opening charge was composed, which for a calendar-aligned yearly price
+    /// is two things and not one: the opening stub, priced without the subscriber's code because an
+    /// ordinary code belongs to the year, plus the year itself when it was collected with the
+    /// checkout. Recomposing the stub alone, with the code, describes a charge nobody made — it
+    /// cannot reconcile, and the invoice silently loses its tax and discount lines to
+    /// <see cref="SingleGrossLine"/>.
+    /// </para>
     /// </remarks>
     internal static FinancialDocumentAmounts? RecomposeInitialCharge(
-        SubscriptionDetail subscription)
+        SubscriptionDetail subscription) =>
+        RecomposeOpening(subscription).Amounts;
+
+    /// <summary>
+    /// The same recomposition, keeping the halves it was composed from.
+    /// </summary>
+    /// <remarks>
+    /// The split is what lets the document show the year as its own line. It cannot be worked out
+    /// from the finished figures — a gross that happens to exceed the year's gross says nothing
+    /// about whether the year is inside it — so it travels with them from the one place that
+    /// knows: the composition that reconciled against the frozen amount.
+    /// </remarks>
+    private static OpeningCharge RecomposeOpening(SubscriptionDetail subscription)
     {
         if (subscription.InitialChargeAmountMinor is not { } frozen)
         {
-            return null;
+            return default;
         }
 
         var fraction = subscription.ProrationDays is { } covered &&
@@ -1329,46 +1368,75 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             ? new BillingDayFraction(covered, total)
             : default;
 
-        var charge = SubscriptionAmountCalculator.FirstPeriodCharge(
-            subscription,
-            fraction,
-            subscription.CreatedAtUtc);
+        // The year a calendar-aligned yearly signup bought alongside its stub, and null for every
+        // other subscription. Only a year collected with the opening charge is part of what was
+        // frozen — one billed at its own boundary is a charge that has not happened yet.
+        var annual = subscription.PendingAnnualPeriod;
+        var prepaid = annual is { CollectedWithCheckout: true } ? annual : null;
+        var prepaidMinor = prepaid?.AmountMinor ?? 0;
 
-        if (charge.AmountMinor != frozen)
+        // Whether the code was spent on the stub: it was when no year stands behind it, and when a
+        // FirstAnnualPeriod campaign explicitly bought both. The other reading is tried after it
+        // rather than instead of it, because a trial that converted priced its stub without the
+        // code under every campaign — and because reconciling against the frozen amount is what
+        // settles which reading was the real one, not this guess.
+        var stubHoldsCode = annual is null ||
+            subscription.Discount?.Campaign.Kind == CampaignKind.FirstAnnualPeriod;
+
+        if ((Reconciled(stubHoldsCode) ?? (annual is null ? null : Reconciled(!stubHoldsCode)))
+            is not { } charge)
         {
-            return null;
+            return default;
         }
 
+        var quantityBasisPoints = QuantityDiscountCalculator.ResolveFrom(
+            subscription.Plan,
+            subscription.Price,
+            subscription.QuantityItems).Tier?.DiscountBasisPoints;
+
+        // The two components add. Both were priced from the same snapshotted price — a stub basis
+        // copies its rates verbatim, see CalendarBillingAlignment.TryStubBasis — so one rate, one
+        // mode and one combination describe the pair.
         var (automatic, quantity) = BuiltInDiscountAttribution.Split(
-            charge.BuiltInDiscountMinor,
+            charge.BuiltInDiscountMinor + (prepaid?.BuiltInDiscountMinor ?? 0),
             SubscriptionDiscountPresentation.RateOf(subscription.Price),
-            QuantityDiscountCalculator.ResolveFrom(
-                subscription.Plan,
-                subscription.Price,
-                subscription.QuantityItems).Tier?.DiscountBasisPoints,
+            quantityBasisPoints,
             SubscriptionDiscountPresentation.Describe(subscription.Price));
 
-        return new FinancialDocumentAmounts
+        return new OpeningCharge(new FinancialDocumentAmounts
         {
-            GrossSubtotalMinor = charge.GrossAmountMinor,
+            GrossSubtotalMinor = charge.GrossAmountMinor + (prepaid?.GrossAmountMinor ?? 0),
             AutomaticDiscountMinor = automatic,
             QuantityDiscountMinor = quantity,
-            PromotionalDiscountMinor = charge.PromotionalDiscountMinor,
-            NetSubtotalMinor = charge.NetAmountMinor,
+            PromotionalDiscountMinor =
+                charge.PromotionalDiscountMinor + (prepaid?.PromotionalDiscountMinor ?? 0),
+            NetSubtotalMinor = charge.NetAmountMinor + (prepaid?.NetAmountMinor ?? 0),
             TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
             TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price),
-            TaxAmountMinor = charge.TaxAmountMinor,
+            TaxAmountMinor = charge.TaxAmountMinor + (prepaid?.TaxAmountMinor ?? 0),
             CreditAppliedMinor = 0,
-            TotalMinor = charge.AmountMinor,
+            TotalMinor = charge.AmountMinor + prepaidMinor,
             AutomaticDiscountBasisPoints =
                 SubscriptionDiscountPresentation.RateOf(subscription.Price),
-            QuantityDiscountBasisPoints = QuantityDiscountCalculator.ResolveFrom(
-                subscription.Plan,
-                subscription.Price,
-                subscription.QuantityItems).Tier?.DiscountBasisPoints,
+            QuantityDiscountBasisPoints = quantityBasisPoints,
             DiscountCombination = SubscriptionDiscountPresentation.Describe(subscription.Price),
-            PromotionCode = charge.DiscountApplied ? subscription.Discount?.Code : null
-        };
+            PromotionCode = charge.DiscountApplied || prepaid is { DiscountApplied: true }
+                ? subscription.Discount?.Code
+                : null
+        }, prepaid, charge.GrossAmountMinor);
+
+        // The stub as it would have been priced under one reading of the code, or null when the
+        // pair it belongs to does not add up to what was actually charged.
+        PeriodCharge? Reconciled(bool includePromotionalDiscount)
+        {
+            var candidate = SubscriptionAmountCalculator.FirstPeriodCharge(
+                subscription,
+                fraction,
+                subscription.CreatedAtUtc,
+                includePromotionalDiscount);
+
+            return candidate.AmountMinor + prepaidMinor == frozen ? candidate : null;
+        }
     }
 
     /// <summary>
@@ -1592,10 +1660,18 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// line and defers to its two-sided breakdown, because "3 seats" is not what a mid-period plan
     /// change charged for.
     /// </remarks>
+    /// <param name="opening">
+    /// The opening charge's halves, when it bought a year alongside its stub. Default for every
+    /// other charge, and for an opening charge whose breakdown could not be recomposed — which is
+    /// the case that must keep saying one thing, because nothing is known about how it divides.
+    /// </param>
     private static List<FinancialDocumentLine> LinesFor(
         DocumentTerms terms,
         SubscriptionChargeKind chargeKind,
-        FinancialDocumentAmounts amounts)
+        FinancialDocumentAmounts amounts,
+        SubscriptionDetail? subscription = null,
+        FinancialDocumentPeriod? period = null,
+        OpeningCharge opening = default)
     {
         if (chargeKind is SubscriptionChargeKind.PlanChange or
             SubscriptionChargeKind.QuantityChange)
@@ -1624,6 +1700,70 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             ];
         }
 
+        // A calendar-aligned yearly signup paid for two periods at once: the days before the first
+        // of the month, and the year that starts on it. One line for both would price a year's
+        // worth of service against a fortnight's dates — the invoice the customer receives says
+        // CHF 10,488.00 for sixteen days — so each period is stated as its own line, over its own
+        // dates.
+        if (opening is { Year: { } year } &&
+            subscription is not null &&
+            period is not null)
+        {
+            var zone = period.TimeZoneId;
+
+            // The stub was priced from the monthly basis the yearly price names, so that is the
+            // unit price its line has to show. A price that no longer resolves one falls back to
+            // the plan's own, which is what the rest of this method would have shown anyway.
+            var stubUnitAmountMinor = CalendarBillingAlignment.TryStubBasis(
+                subscription.Price,
+                terms.QuantityItems,
+                out var stubPrice,
+                out var stubQuantityItems)
+                ? stubPrice.UnitAmountMinor
+                : terms.Subject.UnitAmountMinor;
+
+            return
+            [
+                .. PeriodLines(
+                    terms,
+                    stubQuantityItems ?? terms.QuantityItems,
+                    stubUnitAmountMinor,
+                    opening.StubGrossMinor,
+                    $"{LocalDate(period.StartUtc, zone)} to {LocalDate(period.EndUtc, zone)}"),
+                .. PeriodLines(
+                    terms,
+                    terms.QuantityItems,
+                    terms.Subject.UnitAmountMinor,
+                    year.GrossAmountMinor,
+                    $"{LocalDate(year.StartUtc, zone)} to {LocalDate(year.EndUtc, zone)}")
+            ];
+        }
+
+        return PeriodLines(
+            terms,
+            terms.QuantityItems,
+            terms.Subject.UnitAmountMinor,
+            amounts.GrossSubtotalMinor,
+            periodLabel: null);
+    }
+
+    /// <summary>
+    /// One period's lines: per priced unit where the price charges by units, one flat line where it
+    /// does not.
+    /// </summary>
+    /// <param name="periodLabel">
+    /// The dates this period covers, named on every line, for a charge that covers more than one.
+    /// Null where the document's own period already says it.
+    /// </param>
+    private static List<FinancialDocumentLine> PeriodLines(
+        DocumentTerms terms,
+        IReadOnlyList<SubscriptionQuantityItem> quantityItems,
+        long unitAmountMinor,
+        long grossMinor,
+        string? periodLabel)
+    {
+        var suffix = periodLabel is { Length: > 0 } label ? $" ({label})" : string.Empty;
+
         // Quantity items can describe capacity without pricing it. A flat-fee plan commonly carries
         // a seat/user item for entitlement enforcement while the selected price has no
         // QuantityItemKey; SubscriptionQuantityBuilder correctly snapshots that item's unit amount
@@ -1631,7 +1771,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         // CHF 0.00 beside a non-zero subtotal. Only items that actually carry money belong in the
         // financial line table. If none do, this is a flat-price plan regardless of its capacity
         // metadata and the plan price is the unit price.
-        var pricedItems = terms.QuantityItems
+        var pricedItems = quantityItems
             .Where(item => item.UnitAmountMinor != 0)
             .ToList();
 
@@ -1641,10 +1781,10 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             [
                 new FinancialDocumentLine
                 {
-                    Description = terms.Subject.PlanName,
+                    Description = $"{terms.Subject.PlanName}{suffix}",
                     Quantity = 1,
-                    UnitAmountMinor = terms.Subject.UnitAmountMinor,
-                    AmountMinor = amounts.GrossSubtotalMinor
+                    UnitAmountMinor = unitAmountMinor,
+                    AmountMinor = grossMinor
                 }
             ];
         }
@@ -1655,7 +1795,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         return pricedItems
             .Select(item => new FinancialDocumentLine
             {
-                Description = $"{terms.Subject.PlanName} — {item.UnitLabel}",
+                Description = $"{terms.Subject.PlanName} — {item.UnitLabel}{suffix}",
                 Quantity = item.Quantity,
                 UnitAmountMinor = item.UnitAmountMinor,
                 AmountMinor = item.UnitAmountMinor * item.Quantity,
@@ -1784,6 +1924,23 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         return local.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
+
+    /// <summary>
+    /// A recomposed opening charge: its figures, and the halves they were composed from.
+    /// </summary>
+    /// <param name="Amounts">Null when the charge could not be recomposed at all.</param>
+    /// <param name="Year">
+    /// The year collected with the charge, where one was. Null for an ordinary opening charge,
+    /// which is one period and needs no splitting.
+    /// </param>
+    /// <param name="StubGrossMinor">
+    /// The opening period's own undiscounted amount — what is left of the gross subtotal once the
+    /// year's share of it is taken out.
+    /// </param>
+    private readonly record struct OpeningCharge(
+        FinancialDocumentAmounts? Amounts = null,
+        PendingAnnualPeriod? Year = null,
+        long StubGrossMinor = 0);
 
     /// <summary>
     /// What a document says the money was for, as of the event rather than as of now.
