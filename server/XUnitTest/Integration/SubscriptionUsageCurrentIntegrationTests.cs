@@ -1042,6 +1042,67 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
 
     private static string Sub(string tenantId) => $"sub-{tenantId}";
 
+    /// <summary>
+    /// A stored row behind only on schema is upgraded, and carries the fields that schema is about.
+    /// </summary>
+    /// <remarks>
+    /// Adding a field moves neither version, so the reconciliation sweep that correctly flags such a
+    /// row as stale used to trigger a publish that lost both comparisons and wrote nothing — the row
+    /// stayed behind forever and was re-flagged on every pass. The pair asserted here is the one a
+    /// reader needs to tell a cancellation that has taken effect from one still running out the
+    /// period it was paid for; stamping the new schema without them would claim they were published.
+    /// </remarks>
+    [Fact]
+    public async Task A_row_behind_only_on_schema_is_upgraded_with_the_fields_that_schema_added()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var stale = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 7);
+        stale.SchemaVersion = SubscriptionUsageCurrent.CurrentSchemaVersion - 1;
+
+        await _current.TryPublishAsync(stale, CancellationToken.None);
+
+        var upgraded = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 7);
+        upgraded.CancelAtPeriodEnd = true;
+        upgraded.CurrentPeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        (await _current.TryPublishAsync(upgraded, CancellationToken.None))
+            .Should().BeTrue("neither version moved, so only the schema can carry this repair");
+
+        var stored = await _current.GetAsync(tenantId, upgraded.ItemId, CancellationToken.None);
+
+        stored!.SchemaVersion.Should().Be(SubscriptionUsageCurrent.CurrentSchemaVersion);
+        stored.CancelAtPeriodEnd.Should().BeTrue();
+        stored.CurrentPeriodEndUtc.Should().Be(new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+        stored.Used.Should().Be(10, "a schema upgrade is not licence to touch the balance");
+    }
+
+    /// <remarks>
+    /// The version bound beside the schema comparison. Without it, a schema upgrade would be a way
+    /// for a writer holding older plan terms to replace a newer row wholesale.
+    /// </remarks>
+    [Fact]
+    public async Task A_schema_upgrade_from_an_older_subscription_version_is_still_refused()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var current = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 9);
+        current.SchemaVersion = SubscriptionUsageCurrent.CurrentSchemaVersion - 1;
+
+        await _current.TryPublishAsync(current, CancellationToken.None);
+
+        var stale = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 8);
+        stale.Included = 25;
+
+        (await _current.TryPublishAsync(stale, CancellationToken.None))
+            .Should().BeFalse("its view of the subscription is older than what is stored");
+
+        var stored = await _current.GetAsync(tenantId, stale.ItemId, CancellationToken.None);
+
+        stored!.Included.Should().Be(100, "the stale writer's terms must not land");
+        stored.SubscriptionVersion.Should().Be(9);
+    }
+
     private static SubscriptionUsageCurrent Document(
         string tenantId,
         long used,

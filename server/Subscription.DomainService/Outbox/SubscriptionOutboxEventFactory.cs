@@ -153,6 +153,28 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreateCancellation(
+        SubscriptionDetail subscription,
+        string eventType,
+        bool cancelAtPeriodEnd,
+        DateTime? effectiveAtUtc,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        var payload = NewPayload(subscription, eventType);
+        payload.CancelAtPeriodEnd = cancelAtPeriodEnd;
+        payload.CurrentPeriodEndUtc = effectiveAtUtc;
+
+        return Build(
+            subscription,
+            eventType,
+            $"{subscription.ItemId}:{eventType}",
+            payload,
+            correlationId,
+            null);
+    }
+
     private static SubscriptionOutboxEvent Build(
         SubscriptionDetail subscription,
         string eventType,
@@ -185,6 +207,11 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
         SubscriptionId = subscription.ItemId,
         PlanCode = subscription.Plan.Code,
         Status = subscription.Status.ToString(),
+        // Read off the subscription, which is right for every event whose payload is built from a
+        // subscription already carrying the change it describes. A cancellation's is not — see
+        // CreateCancellation, which overrides both.
+        CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
+        CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
         OccurredAtUtc = DateTime.UtcNow
     };
 }
