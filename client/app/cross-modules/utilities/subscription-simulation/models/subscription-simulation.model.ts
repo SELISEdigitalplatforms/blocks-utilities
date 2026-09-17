@@ -399,6 +399,22 @@ export interface SubscriptionPurchasePreview {
   quoteValidUntilUtc: string | null;
 }
 
+/**
+ * The verdict on one discount code, and the quote it produced.
+ *
+ * `Applied` is the only status whose quote carries the code; for every other status the quote is
+ * the standard, undiscounted price, so the two can be read side by side. Statuses the server
+ * distinguishes: `Applied`, `NotFound`, `NotStarted`, `Expired`, `NotApplicable`,
+ * `AlreadyRedeemed`, `Unavailable`.
+ */
+export interface DiscountCodePreview {
+  status: string;
+  /** The same error code a confirming subscribe call would fail with. Null when applied. */
+  reasonCode: string | null;
+  message: string | null;
+  quote: SubscriptionPurchasePreview;
+}
+
 export interface SubscribeToPlanRequest {
   /** The plan's stable code, not its planId — sending the id reads as "plan not found". */
   planCode: string;

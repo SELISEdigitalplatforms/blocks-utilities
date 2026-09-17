@@ -1,5 +1,11 @@
 export const SUBSCRIPTIONS_ENDPOINT = "/api/subscriptions";
 export const SUBSCRIPTIONS_CURRENT_ENDPOINT = "/api/subscriptions/current";
+/**
+ * Buyer-facing, read-only validation of a discount code: it prices the code against a plan and
+ * price without reserving a redemption or writing anything. A rejected code is data here, not an
+ * error — the standard, undiscounted quote comes back alongside the reason.
+ */
+export const SUBSCRIPTION_DISCOUNTS_PREVIEW_ENDPOINT = "/api/subscription-discounts/preview";
 export const ENTITLEMENTS_ENDPOINT = "/api/entitlements";
 export const SUBSCRIPTION_USAGE_ENDPOINT = "/api/subscription-usage";
 export const SUBSCRIPTION_USAGE_CURRENT_ENDPOINT = "/api/subscription-usage/current";
