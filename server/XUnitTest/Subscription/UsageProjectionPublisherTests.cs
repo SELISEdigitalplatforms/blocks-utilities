@@ -857,6 +857,39 @@ public sealed class UsageProjectionPublisherTests
             new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
             "M2026-09");
 
+    /// <summary>
+    /// Both read models carry the cancellation boundary, not just the status.
+    /// </summary>
+    /// <remarks>
+    /// A direct-Mongo reader holding only <c>SubscriptionStatus</c> cannot tell a cancellation that
+    /// has taken effect from one still running out the period it was paid for — the status reads
+    /// <c>Active</c> in both cases. Left to guess, such a reader stops honouring the allowance on
+    /// the day someone cancels, which is the one thing cancelling is documented not to do.
+    /// </remarks>
+    [Fact]
+    public async Task A_scheduled_cancellation_is_published_with_the_boundary_it_stops_at()
+    {
+        var subscription = Subscription();
+        subscription.CancelAtPeriodEnd = true;
+        subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        // Seeded rather than published: no counter exists for these windows, which is the path a
+        // lifecycle refresh takes for a meter nothing has been recorded against yet.
+        _seeded.Should().NotBeEmpty();
+        _seeded.Should().OnlyContain(document =>
+            document.CancelAtPeriodEnd &&
+            document.CurrentPeriodEndUtc == new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            "a usage row whose status says Active and whose boundary is unknown is a row a reader " +
+            "must either over-grant or under-grant from");
+
+        var terms = _publishedEntitlements.Should().ContainSingle().Subject;
+        terms.CancelAtPeriodEnd.Should().BeTrue();
+        terms.CurrentPeriodEndUtc.Should().Be(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
     private static SubscriptionDetail Subscription() => new()
     {
         ItemId = "sub-1",

@@ -188,7 +188,8 @@ public sealed class FinancialDocumentLineResponse
 {
     public string Description { get; init; } = string.Empty;
 
-    public long? Quantity { get; init; }
+    /// <summary>Decimal, because a metered line counts in whatever scale its meter counts.</summary>
+    public decimal? Quantity { get; init; }
 
     public long? UnitAmountMinor { get; init; }
 

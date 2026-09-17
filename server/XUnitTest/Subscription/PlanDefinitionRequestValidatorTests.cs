@@ -31,16 +31,22 @@ public sealed class PlanDefinitionRequestValidatorTests
             error.ErrorCode == "subscription_lifetime_meter_overage_invalid");
     }
 
+    /// <summary>
+    /// A trial grant on a lifetime meter replaces the plan's own quantity for the trial, the same
+    /// as it does for a periodic meter — <see cref="MeterAllowance.Base"/> makes no distinction by
+    /// reset policy. The renewal service's trial-conversion resnapshot widens the meter's one
+    /// lifetime counter back to the plan's quantity the moment the trial converts, so nothing here
+    /// needs the meter to reset for the swap to be well-defined.
+    /// </summary>
     [Fact]
-    public async Task A_lifetime_capacity_cannot_have_a_separate_trial_allowance()
+    public async Task A_lifetime_capacity_can_have_a_separate_trial_allowance()
     {
         var request = RequestWithLifetimeMeter();
         request.TrialGrants = [new TrialGrantRequest { MeterKey = "storage", IncludedQuantity = 1_000 }];
 
         var result = await new PlanDefinitionRequestValidator().ValidateAsync(request);
 
-        result.Errors.Should().Contain(error =>
-            error.ErrorCode == "subscription_lifetime_meter_trial_grant_invalid");
+        result.IsValid.Should().BeTrue();
     }
 
     [Fact]

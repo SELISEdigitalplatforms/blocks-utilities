@@ -43,9 +43,22 @@ public sealed class SubscriptionEntitlementsCurrentRepository : ISubscriptionEnt
             Builders<SubscriptionEntitlementsCurrent>.Filter.Eq(
                 current => current.ItemId,
                 document.ItemId),
-            Builders<SubscriptionEntitlementsCurrent>.Filter.Lt(
-                current => current.SubscriptionVersion,
-                document.SubscriptionVersion));
+            Builders<SubscriptionEntitlementsCurrent>.Filter.Or(
+                Builders<SubscriptionEntitlementsCurrent>.Filter.Lt(
+                    current => current.SubscriptionVersion,
+                    document.SubscriptionVersion),
+                // Or behind on schema with nothing else to contribute: adding a field moves no
+                // version, so a version comparison alone can never upgrade a row that is otherwise
+                // current. This is a whole-document replace, so the guard that keeps it safe is the
+                // version bound beside it — a writer whose subscription view is older than the
+                // stored row may not replace it just because the schema moved on.
+                Builders<SubscriptionEntitlementsCurrent>.Filter.And(
+                    Builders<SubscriptionEntitlementsCurrent>.Filter.Lt(
+                        current => current.SchemaVersion,
+                        document.SchemaVersion),
+                    Builders<SubscriptionEntitlementsCurrent>.Filter.Lte(
+                        current => current.SubscriptionVersion,
+                        document.SubscriptionVersion))));
 
         var result = await collection.ReplaceOneAsync(
             filter,

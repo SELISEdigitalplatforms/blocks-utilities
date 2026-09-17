@@ -19,7 +19,12 @@ public static class MeterPeriodResolver
             period = new BillingPeriod(
                 0,
                 subscription.CreatedAtUtc,
-                DateTime.MaxValue,
+                // Marked Utc explicitly: DateTime.MaxValue alone carries Kind.Unspecified, which
+                // System.Text.Json serializes with no trailing "Z" — the same instant read back
+                // from Mongo (whose driver marks every DateTime Utc on the way out) serializes
+                // with one. Two textual forms of one value in the same response is confusing on
+                // its own, even though nothing here reads Kind back to decide anything.
+                DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc),
                 LifetimePeriodKey);
             return true;
         }

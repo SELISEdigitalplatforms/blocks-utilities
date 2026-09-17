@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -28,6 +29,10 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
 
     private IReadOnlyList<SubscriptionDetail> _due = [];
     private SubscriptionTransition? _transition;
+
+    /// <summary>The naming the outbox factory serializes with, so a payload round-trips.</summary>
+    private static readonly JsonSerializerOptions PayloadOptions =
+        new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public SubscriptionCancellationEffectiveProcessorTests()
     {
@@ -90,6 +95,17 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
         _transition.OutgoingUsagePeriod!.PeriodEndUtc.Should().Be(
             new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
             "an invoice through September 4 would claim three days of service never granted");
+
+        var payload = JsonSerializer.Deserialize<SubscriptionLifecycleEvent>(
+            _transition.Event!.Payload,
+            PayloadOptions)!;
+
+        payload.CancelAtPeriodEnd.Should().BeFalse(
+            "nothing is waiting on a boundary any more — this pass is the boundary arriving");
+        payload.CurrentPeriodEndUtc.Should().Be(
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            "a consumer reconciling its own access must be told the same instant the invoice " +
+            "was priced to, or it revokes three days early or three days late");
     }
 
     /// <summary>

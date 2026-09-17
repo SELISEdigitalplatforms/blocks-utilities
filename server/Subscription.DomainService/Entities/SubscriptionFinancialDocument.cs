@@ -354,7 +354,13 @@ public sealed class FinancialDocumentLine
     public string Description { get; set; } = string.Empty;
 
     /// <summary>Seats, units, metered events. Null for a line that is not counted.</summary>
-    public long? Quantity { get; set; }
+    /// <remarks>
+    /// Decimal rather than integral because a metered line counts what its meter counts, and
+    /// <see cref="PlanMeter.QuantityScale"/> lets a meter count in fractions. Seat lines still
+    /// carry whole numbers; documents written before this widened hold a BSON <c>Int64</c> here and
+    /// deserialize into it unchanged, so no stored document needed rewriting.
+    /// </remarks>
+    public decimal? Quantity { get; set; }
 
     public long? UnitAmountMinor { get; set; }
 

@@ -58,6 +58,26 @@ public sealed class SubscriptionUsageCurrent
     /// </summary>
     public SubscriptionStatus SubscriptionStatus { get; set; }
 
+    /// <summary>
+    /// Whether the subscription is running out a scheduled cancellation, and the instant that
+    /// cancellation stops entitlement.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SubscriptionStatus"/> cannot answer this on its own: a subscriber who cancels
+    /// keeps what they paid for, so the status stays <c>Active</c> right up to the boundary. A
+    /// reader holding only the status therefore cannot tell a cancellation that has taken effect
+    /// from one still running out its paid period — and revoking on the first sight of a
+    /// cancellation takes access away on the day someone cancels, which this module does not do.
+    /// <para>
+    /// Absent on a row published before these fields existed, which reads as "no cancellation
+    /// scheduled" and a null boundary — the same answer the status alone used to give.
+    /// </para>
+    /// </remarks>
+    public bool CancelAtPeriodEnd { get; set; }
+
+    /// <inheritdoc cref="CancelAtPeriodEnd"/>
+    public DateTime? CurrentPeriodEndUtc { get; set; }
+
     public string PlanId { get; set; } = string.Empty;
 
     public string PlanCode { get; set; } = string.Empty;
@@ -172,7 +192,8 @@ public sealed class SubscriptionUsageCurrent
     public DateTime ExpiresAtUtc { get; set; }
 
     /// <summary>
-    /// Raised to 2 by the addition of <see cref="QuantityScale"/>, and to 3 by <see cref="UserId"/>.
+    /// Raised to 2 by the addition of <see cref="QuantityScale"/>, to 3 by <see cref="UserId"/>,
+    /// and to 4 by <see cref="CancelAtPeriodEnd"/> and <see cref="CurrentPeriodEndUtc"/>.
     /// </summary>
     /// <remarks>
     /// Raised rather than left alone because adding a field is invisible to both version
@@ -183,7 +204,7 @@ public sealed class SubscriptionUsageCurrent
     /// not end. The sweep treats a document below this as stale, so the ordinary cycle republishes
     /// it and no migration is needed.
     /// </remarks>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     public static string CreateId(
         string subscriptionId,
