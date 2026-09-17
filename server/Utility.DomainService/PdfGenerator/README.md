@@ -41,27 +41,28 @@ All requests implement `IProjectKey` for multi-tenancy support.
 - `IPdfGeneratorNotificationService` / `PdfGeneratorNotificationService` - Handles notifications
 
 #### Utilities
-- `Constants.cs` - Queue names and message configuration
+- `Utilities/PdfGeneratorConstants.cs` - Queue names and message configuration
 
 ### 2. **API Layer** (`src/Api/`)
 
 #### Controller
-- `PdfGeneratorController.cs` - 9 endpoints:
-  1. `MergePdfs` - POST
-  2. `CreatePdfsFromHtml` - POST
-  3. `ExtractTextFromPdfs` - POST
-  4. `CreatePdfsFromHtmlUsingTemplateEngine` - POST
-  5. `CreatePdfsFromHtmlUsingTemplateEngineBulk` - POST
-  6. `FixPdfs` - POST
-  7. `StampImageToPdf` - POST
-  8. `StampTextToPdf` - POST
-  9. `StampIntoPdf` - POST
+- `PdfGeneratorController.cs` - 9 endpoints, all POST:
+  1. `MergePdfs`
+  2. `CreatePdfsFromHtml`
+  3. `CreateSinglePdfFromHtml`
+  4. `CreatePdfsFromHtmlUsingTemplateEngine`
+  5. `CreatePdfsFromHtmlUsingTemplateEngineBulk`
+  6. `FixPdfs`
+  7. `StampImageToPdf`
+  8. `StampTextToPdf`
+  9. `StampIntoPdf`
 
-All endpoints use `[Authorize]` attribute and `ChangeControllerContext` for tenant context management.
+All endpoints carry `[Authorize]`.
 
 ### 3. **Service Registration**
-- Updated `Api/ServiceRegistry.cs` with PDF Generator services
-- Updated `Worker/ServiceRegistry.cs` with PDF Generator services (consumers commented out)
+- `Api/Program.cs` registers the PDF Generator services
+- `Worker/Program.cs` registers them and calls `RegisterPdfGeneratorConsumers()`
+  (`Worker/Consumers/PdfGenerator/PdfGeneratorConsumerRegistration.cs`)
 
 ## MongoDB Collections Accessed
 
@@ -151,7 +152,8 @@ Consider creating a `PdfStorageHelper` similar to the TemplateEngine's `StorageH
 - Managing temporary files during processing
 
 ### 4. **Constants Update**
-Update `Worker/Constants.cs` to include PDF Generator queue names in the message configuration.
+Queue names live in `Utilities/PdfGeneratorConstants.cs`; `Worker/Program.cs` aggregates each
+module's `GetMessageConfiguration(connectionString)` into the worker's consumer subscriptions.
 
 ### 5. **Testing**
 - Create unit tests for services

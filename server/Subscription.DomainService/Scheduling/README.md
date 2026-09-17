@@ -257,7 +257,7 @@ Every transition logs the item id, work type, occurrence key, tenant, subscripti
 ids, correlation and operation ids, lease id, attempt count, and duration. Identifiers are written in
 clear rather than hashed — they name records, not people, and `PaymentLogValue` says as much: an
 operator holding a subscription id has to be able to find its lines without recomputing a digest.
-Personal data still goes through `Hash`. See [TRACE.md](TRACE.md) for the whole chain from an API call
+Personal data still goes through `Hash`. See [the tracing guide](../../../docs/subscription/tracing/README.md) for the whole chain from an API call
 to a provider charge, including what it does *not* guarantee. An idle pass logs queue depth
 and the oldest due age per work type, which is the shape that shows a queue that is not draining.
 
