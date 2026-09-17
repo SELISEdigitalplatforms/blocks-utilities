@@ -291,9 +291,14 @@ export interface SubscriptionPreviewRenewal {
 /**
  * The charge actually due next, and the period it covers — which can be a shorter, prorated stub
  * than {@link SubscriptionPreviewRenewal}'s full period, for a calendar-aligned trial converting
- * mid-month. For a subscription with no trial pending conversion, this describes the exact same
- * full period `nextRenewal` does; check `prorated` to tell the two cases apart, since the amount
- * alone cannot.
+ * mid-month.
+ *
+ * This is the authoritative figure whenever the two differ, and `prorated` is not enough to tell
+ * when that is: the same full period, on the same date, can carry a different amount here,
+ * because this one projects the discount periods the opening payment will have consumed while
+ * `nextRenewal` prices against the count as it stands today. A code limited to one period is
+ * spent by then, so `nextRenewal` reads lower than what is actually taken. Compare the amounts —
+ * see `nextChargeDiffersFromRenewal`.
  */
 export interface SubscriptionPreviewNextCharge {
   /** When this charge actually happens — the trial's own end, for a converting trial. */
@@ -376,9 +381,9 @@ export interface SubscriptionPurchasePreview {
    */
   nextRenewal: SubscriptionPreviewRenewal;
   /**
-   * The charge actually due next — the same full period `nextRenewal` describes, unless the
-   * subscription is a calendar-aligned trial converting mid-month, in which case this is the
-   * shorter, prorated stub the conversion actually buys.
+   * The charge actually due next. Usually the same full period `nextRenewal` describes, but not
+   * the same amount once a limited discount is spent by then — and a shorter, prorated stub
+   * entirely when a calendar-aligned trial converts mid-month.
    */
   nextCharge: SubscriptionPreviewNextCharge;
   /** Set only for a subscription that opens on a trial. */

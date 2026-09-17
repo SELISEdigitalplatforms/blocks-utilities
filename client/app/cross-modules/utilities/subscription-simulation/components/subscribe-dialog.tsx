@@ -37,6 +37,7 @@ import {
 } from "../../subscription/utilities/subscription-api-failure";
 import { BillingProfileIncompleteNotice } from "./billing-profile-incomplete-notice";
 import { MoneyBreakdown, formatDate, formatDay } from "./money-breakdown";
+import { nextChargeDiffersFromRenewal } from "../utilities/next-charge";
 
 /**
  * Subscribing to a plan.
@@ -198,6 +199,7 @@ export const SubscribeDialog = ({
   };
 
   const blocked = (quote?.blockers.length ?? 0) > 0;
+  const nextChargeDiffers = quote ? nextChargeDiffersFromRenewal(quote) : false;
   const previewProfileGap = quote?.blockers
     .map((blocker) =>
       billingProfileGapOf({
@@ -299,10 +301,17 @@ export const SubscribeDialog = ({
                 totalMinor={quote.totalDueNowMinor}
               />
 
-              {quote.nextCharge.prorated ? (
-                <div className="border-t pt-2">
+              {/* The figure actually taken next, whenever it is not the recurring price below --
+                  a prorated trial-conversion stub, or a full period a limited discount will have
+                  been spent by. Shown for both, because a subscriber who reads only "Next
+                  renewal" on a quote whose code expires after one period is reading less than
+                  what their card will be charged. */}
+              {nextChargeDiffers ? (
+                <div className="border-t pt-2" data-testid="subscribe-quote-next-charge">
                   <MoneyBreakdown
-                    label="First charge after trial"
+                    label={
+                      quote.nextCharge.prorated ? "First charge after trial" : "Charged next"
+                    }
                     labelValue={formatDay(quote.nextCharge.chargeAtUtc)}
                     currencyCode={quote.currencyCode}
                     subtotalMinor={quote.nextCharge.subtotalMinor}
@@ -314,8 +323,9 @@ export const SubscribeDialog = ({
                     totalMinor={quote.nextCharge.totalMinor}
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {quote.nextCharge.coveredDays}/{quote.nextCharge.totalDays} days — the trial
-                    ends mid-month, so this first charge covers only the days left in it.
+                    {quote.nextCharge.prorated
+                      ? `${quote.nextCharge.coveredDays}/${quote.nextCharge.totalDays} days — the trial ends mid-month, so this first charge covers only the days left in it.`
+                      : "This is what is actually charged on that date. The recurring price below prices a full period on today's discount, which no longer applies by then."}
                   </p>
                 </div>
               ) : null}
@@ -323,7 +333,7 @@ export const SubscribeDialog = ({
               <div className="border-t pt-2">
                 <MoneyBreakdown
                   label={
-                    quote.nextCharge.prorated
+                    nextChargeDiffers
                       ? "Recurring price"
                       : quote.trialEndsAtUtc
                         ? "First renewal"

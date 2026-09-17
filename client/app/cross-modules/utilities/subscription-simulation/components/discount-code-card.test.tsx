@@ -198,4 +198,45 @@ describe("DiscountCodeCard", () => {
     expect(await screen.findByText("The plan could not be found.")).toBeInTheDocument();
     expect(screen.queryByTestId("discount-verdict")).not.toBeInTheDocument();
   });
+
+  it("shows the charge actually taken next when the code is spent by then", async () => {
+    previewDiscountCode.mockResolvedValue({
+      ...applied,
+      quote: {
+        ...quote,
+        nextRenewal: { ...quote.nextRenewal, promotionalDiscountMinor: 2_000, totalMinor: 6_900 },
+        nextCharge: { ...quote.nextCharge, promotionalDiscountMinor: 0, totalMinor: 8_900 },
+      },
+    });
+    renderCard();
+
+    typeCode("LAUNCH20");
+    fireEvent.click(screen.getByRole("button", { name: "Test code" }));
+
+    expect(await screen.findByTestId("discount-next-charge")).toBeInTheDocument();
+    const panel = screen.getByTestId("discount-verdict");
+    expect(panel.textContent).toContain("Charged next");
+    expect(panel.textContent).toContain("89.00");
+    expect(panel.textContent).toContain("Recurring price");
+    expect(panel.textContent).not.toContain("Next renewal");
+  });
+
+  it("shows one figure when the code survives to the next renewal", async () => {
+    previewDiscountCode.mockResolvedValue({
+      ...applied,
+      quote: {
+        ...quote,
+        nextRenewal: { ...quote.nextRenewal, promotionalDiscountMinor: 2_000, totalMinor: 6_900 },
+        nextCharge: { ...quote.nextCharge, promotionalDiscountMinor: 2_000, totalMinor: 6_900 },
+      },
+    });
+    renderCard();
+
+    typeCode("LAUNCH20");
+    fireEvent.click(screen.getByRole("button", { name: "Test code" }));
+
+    await screen.findByTestId("discount-verdict");
+    expect(screen.queryByTestId("discount-next-charge")).not.toBeInTheDocument();
+    expect(screen.getByTestId("discount-verdict").textContent).toContain("Next renewal");
+  });
 });

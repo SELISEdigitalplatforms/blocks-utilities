@@ -17,7 +17,8 @@ import { usePreviewDiscountCode } from "../hooks/use-preview-discount-code";
 import type { DiscountCodePreview } from "../models/subscription-simulation.model";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
 import { formatMoney, formatPrice } from "../../subscription/utilities/subscription-format";
-import { MoneyBreakdown, formatDate } from "./money-breakdown";
+import { MoneyBreakdown, formatDate, formatDay } from "./money-breakdown";
+import { nextChargeDiffersFromRenewal } from "../utilities/next-charge";
 
 /**
  * How each verdict reads. The server's own status strings, kept verbatim as keys — an unmapped
@@ -220,9 +221,39 @@ export const DiscountCodeCard = ({
               />
             </div>
 
+            {/* What is actually taken next, when that is not the recurring figure below. A code
+                limited to one period is exactly the case this card exists to test, and it is the
+                case where the two disagree -- so leaving it out would let this screen quote a
+                renewal cheaper than the charge itself. */}
+            {nextChargeDiffersFromRenewal(quote) ? (
+              <div className="border-t pt-2" data-testid="discount-next-charge">
+                <MoneyBreakdown
+                  label="Charged next"
+                  labelValue={formatDay(quote.nextCharge.chargeAtUtc)}
+                  currencyCode={quote.currencyCode}
+                  subtotalMinor={quote.nextCharge.subtotalMinor}
+                  builtInDiscountMinor={quote.nextCharge.builtInDiscountMinor}
+                  promotionalDiscountMinor={quote.nextCharge.promotionalDiscountMinor}
+                  netSubtotalMinor={quote.nextCharge.netSubtotalMinor}
+                  tax={quote.nextCharge.tax}
+                  totalLabel="Total"
+                  totalMinor={quote.nextCharge.totalMinor}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This code does not survive to the period below.
+                </p>
+              </div>
+            ) : null}
+
             <div className="border-t pt-2">
               <MoneyBreakdown
-                label={quote.trialEndsAtUtc ? "First renewal" : "Next renewal"}
+                label={
+                  nextChargeDiffersFromRenewal(quote)
+                    ? "Recurring price"
+                    : quote.trialEndsAtUtc
+                      ? "First renewal"
+                      : "Next renewal"
+                }
                 labelValue={
                   quote.nextRenewal.renewalAtUtc
                     ? formatDate(quote.nextRenewal.renewalAtUtc)

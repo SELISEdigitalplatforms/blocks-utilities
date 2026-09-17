@@ -424,6 +424,14 @@ describe("SubscribeDialog", () => {
         totalMinor: 9_621,
         renewalAtUtc: "2026-09-16T00:00:00Z",
       },
+      // The same period at the same price, so the charge due next is the renewal figure. Left at
+      // the fixture's untaxed total it would read as a *different* charge and be broken out as
+      // one -- which no server returns for one un-prorated period with a surviving discount.
+      nextCharge: {
+        ...quote.nextCharge,
+        tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 721 },
+        totalMinor: 9_621,
+      },
     });
 
     renderDialog();
@@ -539,5 +547,64 @@ describe("SubscribeDialog", () => {
     // The recurring price is shown too, relabeled and unaffected by the stub above it.
     expect(panel.textContent).toContain("Recurring price");
     expect(panel.textContent).toContain("89.00");
+  });
+  it("shows the charge actually taken next when a spent discount makes it dearer than the recurring price", async () => {
+    // The reported case: a one-period code against a yearly price. Nothing is prorated and both
+    // figures describe the same full period on the same date -- but nextRenewal still prices
+    // today's discount, so on its own it quotes a renewal cheaper than what the card is charged.
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      nextRenewalAtUtc: "2027-09-30T18:00:00Z",
+      nextRenewalAmountMinor: 97_290,
+      nextRenewal: {
+        subtotalMinor: 100_000,
+        builtInDiscountMinor: 0,
+        promotionalDiscountMinor: 10_000,
+        discountMinor: 10_000,
+        netSubtotalMinor: 90_000,
+        tax: null,
+        totalMinor: 97_290,
+        renewalAtUtc: "2027-09-30T18:00:00Z",
+      },
+      nextCharge: {
+        chargeAtUtc: "2027-09-30T18:00:00Z",
+        periodStartUtc: "2027-09-30T18:00:00Z",
+        periodEndUtc: "2028-09-30T18:00:00Z",
+        prorated: false,
+        coveredDays: null,
+        totalDays: null,
+        subtotalMinor: 100_000,
+        builtInDiscountMinor: 5_000,
+        promotionalDiscountMinor: 0,
+        discountMinor: 5_000,
+        netSubtotalMinor: 95_000,
+        tax: null,
+        totalMinor: 102_695,
+      },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    const panel = await screen.findByTestId("subscribe-quote");
+    expect(screen.getByTestId("subscribe-quote-next-charge")).toBeInTheDocument();
+    expect(panel.textContent).toContain("Charged next");
+    expect(panel.textContent).toContain("1,026.95");
+    // Not the trial wording: nothing here is prorated.
+    expect(panel.textContent).not.toContain("days — the trial ends mid-month");
+    // And the lower figure is relabeled, so it no longer reads as the next renewal.
+    expect(panel.textContent).toContain("Recurring price");
+    expect(panel.textContent).not.toContain("Next renewal");
+  });
+
+  it("shows one figure when the next charge and the recurring price agree", async () => {
+    previewSubscription.mockResolvedValue(quote);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    const panel = await screen.findByTestId("subscribe-quote");
+    expect(screen.queryByTestId("subscribe-quote-next-charge")).not.toBeInTheDocument();
+    expect(panel.textContent).toContain("Next renewal");
   });
 });
