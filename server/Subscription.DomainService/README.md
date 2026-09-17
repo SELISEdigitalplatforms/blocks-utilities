@@ -1446,6 +1446,34 @@ double-billing guard.
   cancellation clears `NextUsageBillingAtUtc` the moment entitlement stops, so any usage recorded
   in that unrated final stretch has no billing path today.
 
+### What the overage invoice says
+
+The charge is one aggregate, but the document breaks it down. `SubscriptionFinancialDocumentIssuer`
+emits one line per meter per rate band, each stating the units counted and the per-unit rate the
+plan configures — a plan authored as "up to 500 at CHF 1.50" invoices an overage of three as
+`Qty 3 · CHF 1.50 · CHF 4.50`, and an overage of 600 as two lines, each at its own configured rate
+rather than one line at a blended rate nobody authored.
+
+The bands are not persisted. `UsageInvoiceLine` keeps only the meter key, the overage quantity and
+the amount, so the issuer recomputes the bands through `SubscriptionUsageRater.OverageAllocations`
+against the plan the subscription still holds — which is also what lets a document issued before
+this existed describe itself on a re-render. Band amounts are apportioned from the meter's charged
+total by `ProportionalAllocation`, so the lines always sum to the gross subtotal rather than to an
+independently re-rounded figure.
+
+Recomputation is trusted only while it still produces the figures that were charged. A missing
+usage invoice, a meter no longer on the plan, meter totals that do not account for the whole
+subtotal, a plan re-rated between rating and issuance, or a pricing overflow each fall back to a
+single unpriced line — incomplete, but never contradicting what the card was charged.
+
+Line quantities are `decimal`, because `PlanMeter.QuantityScale` lets a meter count in fractions.
+Seat lines still carry whole numbers.
+
+One thing the document cannot state: the allowance, or total consumed. `UsageInvoiceLine` records
+the billable excess alone, so an invoice can say "3 units at CHF 1.50" but not "103 used of 100
+included". Anything wanting that context has to read `GET /api/subscription-usage/current`, which
+only covers the open window.
+
 ## Metered overage preview
 
 ```http
