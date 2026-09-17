@@ -44,6 +44,26 @@ public sealed class SubscriptionEntitlementsCurrent
     /// </summary>
     public SubscriptionStatus SubscriptionStatus { get; set; }
 
+    /// <summary>
+    /// Whether the subscription is running out a scheduled cancellation, and the instant that
+    /// cancellation stops entitlement.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SubscriptionStatus"/> cannot answer this on its own: a subscriber who cancels
+    /// keeps what they paid for, so the status stays <c>Active</c> right up to the boundary. A
+    /// reader holding only the status therefore cannot tell a cancellation that has taken effect
+    /// from one still running out its paid period — and revoking on the first sight of a
+    /// cancellation takes access away on the day someone cancels, which this module does not do.
+    /// <para>
+    /// Absent on a row published before these fields existed, which reads as "no cancellation
+    /// scheduled" and a null boundary — the same answer the status alone used to give.
+    /// </para>
+    /// </remarks>
+    public bool CancelAtPeriodEnd { get; set; }
+
+    /// <inheritdoc cref="CancelAtPeriodEnd"/>
+    public DateTime? CurrentPeriodEndUtc { get; set; }
+
     public string PlanId { get; set; } = string.Empty;
 
     public string PlanCode { get; set; } = string.Empty;
@@ -76,7 +96,14 @@ public sealed class SubscriptionEntitlementsCurrent
 
     public DateTime UpdatedAtUtc { get; set; }
 
-    public const int CurrentSchemaVersion = 1;
+    /// <summary>
+    /// Raised to 2 by the addition of <see cref="CancelAtPeriodEnd"/> and
+    /// <see cref="CurrentPeriodEndUtc"/>. A stored row below this is upgraded by the next publish —
+    /// see <c>SubscriptionEntitlementsCurrentRepository.TryPublishAsync</c>, which accepts a schema
+    /// upgrade as well as a newer subscription version, because adding a field moves neither
+    /// version.
+    /// </summary>
+    public const int CurrentSchemaVersion = 2;
 }
 
 /// <summary>One entitlement's terms, copied from <see cref="PlanEntitlement"/>.</summary>

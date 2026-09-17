@@ -29,6 +29,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionRenewalService> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionDiscountRepository? _discounts;
 
     /// <summary>
     /// Where the next renewal is announced, when the queue is in use.
@@ -55,7 +56,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         ISubscriptionWorkScheduler? scheduler = null,
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
         ISubscriptionUsageRepository? usage = null,
-        IMeterAllowanceResolver? allowances = null)
+        IMeterAllowanceResolver? allowances = null,
+        ISubscriptionDiscountRepository? discounts = null)
     {
         _usage = usage;
         _allowances = allowances;
@@ -70,6 +72,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         _time = time ?? TimeProvider.System;
         _audit = audit;
         _documents = documents;
+        _discounts = discounts;
     }
 
     /// <summary>Optional for the reason the scheduler beside it is: a renewal must not need one.</summary>
@@ -283,6 +286,14 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 pricingInstantUtc)
             : null;
 
+        // Picks up a precedence (or other combination-behaviour) edit made to the catalogue entry
+        // since this discount was redeemed. DiscountTerms.Campaign is otherwise frozen at
+        // redemption forever -- see its own remarks -- which is right for the discount's rate and
+        // eligibility, but wrong for "how it meets the price's own discount": an admin who fixes a
+        // campaign's precedence after subscribers already hold it expects the next renewal to bill
+        // correctly, not to keep stacking under whatever the plan's fallback policy was.
+        await ResyncDiscountCampaignAsync(subscription, cancellationToken);
+
         var charge = openingAnnualPeriod is { } annual
             ? new PeriodCharge(
                 // Settled means the money came in with the opening charge, so this boundary moves
@@ -323,6 +334,15 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 AmountMinor = charge.AmountMinor + convertingAnnual.AmountMinor,
                 NetAmountMinor = charge.NetAmountMinor + convertingAnnual.NetAmountMinor,
                 TaxAmountMinor = charge.TaxAmountMinor + convertingAnnual.TaxAmountMinor,
+                // What the pair is made of, summed with the pair. These three are what the payment
+                // records for the invoice to explain itself from, and a gross that covered only the
+                // stub beside a net that covered both would state a bill whose own subtotal is
+                // smaller than its net of discounts.
+                GrossAmountMinor = charge.GrossAmountMinor + convertingAnnual.GrossAmountMinor,
+                BuiltInDiscountMinor =
+                    charge.BuiltInDiscountMinor + convertingAnnual.BuiltInDiscountMinor,
+                PromotionalDiscountMinor =
+                    charge.PromotionalDiscountMinor + convertingAnnual.PromotionalDiscountMinor,
                 DiscountApplied = charge.DiscountApplied || convertingAnnual.DiscountApplied
             };
 
@@ -420,6 +440,49 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             PaymentLogValue.Label(outcome.ErrorCode ?? "unknown"));
 
         await ApplyFailureAsync(subscription, period.Key, attemptNumber, now, cancellationToken);
+    }
+
+    /// <summary>
+    /// Refreshes this subscription's held <see cref="CampaignTerms"/> from the catalogue entry it
+    /// was redeemed from, in memory, just before this renewal prices it.
+    /// </summary>
+    /// <remarks>
+    /// Best-effort and read-only: a missing repository, a discount that has since been archived, or
+    /// a lookup failure all leave the frozen terms exactly as they were, so a resync that cannot
+    /// complete degrades to today's behaviour rather than blocking a renewal over it. Nothing here
+    /// is persisted back onto the stored subscription -- the next renewal resyncs again the same
+    /// way, which costs one extra lookup a period and keeps this from needing its own write path or
+    /// migration.
+    /// </remarks>
+    private async Task ResyncDiscountCampaignAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        if (_discounts is null ||
+            subscription.Discount is not { DiscountId: { Length: > 0 } discountId } terms)
+        {
+            return;
+        }
+
+        try
+        {
+            var current = await _discounts.FindByIdAsync(
+                subscription.TenantId, discountId, cancellationToken);
+
+            if (current is not null && current.Status == CatalogueStatus.Active)
+            {
+                terms.Campaign = current.Campaign;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Could not resync a held discount's campaign terms before renewal; pricing with " +
+                "the terms redeemed at signup TenantHash={TenantHash} SubscriptionHash={SubscriptionHash}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId));
+        }
     }
 
     private Task AuditAsync(
@@ -813,6 +876,17 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
                     var allowance = await _allowances.OpeningAllowanceAsync(
                         subscription, meter, period, cancellationToken);
+
+                    // A Never meter's one lifetime window never closes, so the guard above — a
+                    // window that opened before the trial ended — can never turn false the way a
+                    // periodic meter's does once its next window opens after conversion. Checked
+                    // here instead: once the counter already reads what a converted subscription's
+                    // allowance actually is, every later renewal would otherwise attempt the exact
+                    // same write, forever, for as long as the subscription keeps renewing.
+                    if (counter.LimitSnapshot == allowance)
+                    {
+                        continue;
+                    }
 
                     var retainedThresholds = counter.NotifiedThresholds
                         .Where(threshold => counter.Balance * 100 >= allowance * threshold)

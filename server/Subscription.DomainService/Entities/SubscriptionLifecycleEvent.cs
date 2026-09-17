@@ -29,6 +29,26 @@ public sealed class SubscriptionLifecycleEvent
 
     public string Status { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether the subscription is running out a scheduled cancellation rather than having already
+    /// ended.
+    /// </summary>
+    /// <remarks>
+    /// Carried on every lifecycle event because <see cref="Status"/> alone cannot express it: a
+    /// subscriber who cancels keeps what they paid for, so the status stays <c>Active</c> until the
+    /// boundary passes. A consumer told only that a cancellation was requested, with no way to see
+    /// this pair, has nothing to do but revoke on receipt — which takes access away on the day
+    /// someone cancels, the very thing this module refuses to do.
+    /// </remarks>
+    public bool CancelAtPeriodEnd { get; set; }
+
+    /// <summary>
+    /// The instant entitlement actually stops — the paid period's end for a scheduled cancellation,
+    /// the moment it ended for one that has taken effect. Null only where the event says nothing
+    /// about a boundary.
+    /// </summary>
+    public DateTime? CurrentPeriodEndUtc { get; set; }
+
     /// <summary>Set on usage events; absent on lifecycle transitions.</summary>
     public string? MeterKey { get; set; }
 

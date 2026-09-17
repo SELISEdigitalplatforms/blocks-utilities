@@ -174,7 +174,8 @@ export const StepTrial = () => {
           <p className="text-xs text-muted-foreground">
             Give a trial its own allowance for a meter instead of the plan&apos;s normal one —
             useful when the regular allowance would be an open invitation to sign up, consume and
-            leave.
+            leave. Works on a lifetime-capacity meter too: the grant governs the trial, and the
+            plan&apos;s own quantity takes over the moment it converts.
           </p>
           <CardListShell
             addLabel="Add trial grant"
@@ -196,7 +197,7 @@ export const StepTrial = () => {
                         </FormControl>
                         <SelectContent>
                           {(meters ?? [])
-                            .filter((meter) => meter.meterKey && meter.resetPolicy !== 1)
+                            .filter((meter) => meter.meterKey)
                             .map((meter) => (
                               <SelectItem key={meter.meterKey} value={meter.meterKey}>
                                 {meter.displayName || meter.meterKey}

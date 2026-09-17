@@ -948,29 +948,7 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
         var documentId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09");
 
-        await _fixture.Database
-            .GetCollection<BsonDocument>("SubscriptionUsageCurrent")
-            .InsertOneAsync(new BsonDocument
-            {
-                ["_id"] = documentId,
-                ["TenantId"] = tenantId,
-                ["OrganizationId"] = "org-1",
-                ["SubscriptionId"] = Sub(tenantId),
-                ["MeterKey"] = "screening",
-                ["PeriodKey"] = "M2026-09",
-                ["PeriodStartUtc"] = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
-                ["PeriodEndUtc"] = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
-                ["Used"] = new BsonInt64(40),
-                ["Included"] = new BsonInt64(100),
-                ["CounterVersion"] = new BsonInt64(1),
-                ["SubscriptionVersion"] = new BsonInt64(1),
-                // Written by the build before UserId existed, so it carries no field for it at all —
-                // not an empty string, genuinely absent, the same as every row this collection held
-                // before this change shipped.
-                ["SchemaVersion"] = 2,
-                ["UpdatedAtUtc"] = DateTime.UtcNow,
-                ["ExpiresAtUtc"] = new DateTime(2027, 12, 31, 0, 0, 0, DateTimeKind.Utc)
-            });
+        await InsertPreMigrationDocumentAsync(tenantId, documentId);
 
         (await _current.TryPublishAsync(
                 Document(tenantId, used: 45, counterVersion: 2), CancellationToken.None))
@@ -993,7 +971,137 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         currentWindow.ItemId.Should().Be(documentId);
     }
 
+    /// <summary>
+    /// The bug the remark on the test above predicted, caught directly rather than only through
+    /// the republish path that happens to correct it: a document written before <c>UserId</c>
+    /// existed has no such field in its BSON at all, and Mongo's <c>$ne</c> matches a missing field
+    /// the same as one holding anything but the excluded value. Left unguarded, every one of a
+    /// subscription's pre-migration aggregate rows was returned here as if each were a per-user
+    /// row — doubling every meter in a "current usage" response for any subscription carrying so
+    /// much as one document from before this feature shipped, for as long as it takes the
+    /// reconciliation sweep to republish it.
+    /// </summary>
+    [Fact]
+    public async Task Listing_user_rows_excludes_a_pre_migration_document_with_no_user_id_field()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var documentId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09");
+
+        await InsertPreMigrationDocumentAsync(tenantId, documentId);
+
+        var userRows = await _current.ListUserRowsAsync(
+            tenantId, "org-1", Sub(tenantId), new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        userRows.Should().BeEmpty(
+            "the document is the subscription's own aggregate row, not anybody's per-user row, " +
+            "and a missing field is not the same claim as an empty one");
+    }
+
+    /// <summary>The same gap in the repair sweep's own listing, which would otherwise attempt to
+    /// "catch up" a per-user row that does not exist by writing one for the aggregate's meter key
+    /// instead.</summary>
+    [Fact]
+    public async Task Listing_user_rows_behind_excludes_a_pre_migration_document_with_no_user_id_field()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var documentId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09");
+
+        await InsertPreMigrationDocumentAsync(tenantId, documentId);
+
+        var behind = await _current.ListUserRowsBehindAsync(
+            tenantId, new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), limit: 100,
+            CancellationToken.None);
+
+        behind.Should().BeEmpty();
+    }
+
+    private async Task InsertPreMigrationDocumentAsync(string tenantId, string documentId) =>
+        await _fixture.Database
+            .GetCollection<BsonDocument>("SubscriptionUsageCurrent")
+            .InsertOneAsync(new BsonDocument
+            {
+                ["_id"] = documentId,
+                ["TenantId"] = tenantId,
+                ["OrganizationId"] = "org-1",
+                ["SubscriptionId"] = Sub(tenantId),
+                ["MeterKey"] = "screening",
+                ["PeriodKey"] = "M2026-09",
+                ["PeriodStartUtc"] = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                ["PeriodEndUtc"] = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+                ["Used"] = new BsonInt64(40),
+                ["Included"] = new BsonInt64(100),
+                ["CounterVersion"] = new BsonInt64(1),
+                ["SubscriptionVersion"] = new BsonInt64(1),
+                // No UserId field at all — the exact shape of every document this collection held
+                // before the field existed, not an empty string standing in for it.
+                ["SchemaVersion"] = 2,
+                ["UpdatedAtUtc"] = DateTime.UtcNow,
+                ["ExpiresAtUtc"] = new DateTime(2027, 12, 31, 0, 0, 0, DateTimeKind.Utc)
+            });
+
     private static string Sub(string tenantId) => $"sub-{tenantId}";
+
+    /// <summary>
+    /// A stored row behind only on schema is upgraded, and carries the fields that schema is about.
+    /// </summary>
+    /// <remarks>
+    /// Adding a field moves neither version, so the reconciliation sweep that correctly flags such a
+    /// row as stale used to trigger a publish that lost both comparisons and wrote nothing — the row
+    /// stayed behind forever and was re-flagged on every pass. The pair asserted here is the one a
+    /// reader needs to tell a cancellation that has taken effect from one still running out the
+    /// period it was paid for; stamping the new schema without them would claim they were published.
+    /// </remarks>
+    [Fact]
+    public async Task A_row_behind_only_on_schema_is_upgraded_with_the_fields_that_schema_added()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var stale = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 7);
+        stale.SchemaVersion = SubscriptionUsageCurrent.CurrentSchemaVersion - 1;
+
+        await _current.TryPublishAsync(stale, CancellationToken.None);
+
+        var upgraded = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 7);
+        upgraded.CancelAtPeriodEnd = true;
+        upgraded.CurrentPeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        (await _current.TryPublishAsync(upgraded, CancellationToken.None))
+            .Should().BeTrue("neither version moved, so only the schema can carry this repair");
+
+        var stored = await _current.GetAsync(tenantId, upgraded.ItemId, CancellationToken.None);
+
+        stored!.SchemaVersion.Should().Be(SubscriptionUsageCurrent.CurrentSchemaVersion);
+        stored.CancelAtPeriodEnd.Should().BeTrue();
+        stored.CurrentPeriodEndUtc.Should().Be(new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+        stored.Used.Should().Be(10, "a schema upgrade is not licence to touch the balance");
+    }
+
+    /// <remarks>
+    /// The version bound beside the schema comparison. Without it, a schema upgrade would be a way
+    /// for a writer holding older plan terms to replace a newer row wholesale.
+    /// </remarks>
+    [Fact]
+    public async Task A_schema_upgrade_from_an_older_subscription_version_is_still_refused()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var current = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 9);
+        current.SchemaVersion = SubscriptionUsageCurrent.CurrentSchemaVersion - 1;
+
+        await _current.TryPublishAsync(current, CancellationToken.None);
+
+        var stale = Document(tenantId, used: 10, counterVersion: 4, subscriptionVersion: 8);
+        stale.Included = 25;
+
+        (await _current.TryPublishAsync(stale, CancellationToken.None))
+            .Should().BeFalse("its view of the subscription is older than what is stored");
+
+        var stored = await _current.GetAsync(tenantId, stale.ItemId, CancellationToken.None);
+
+        stored!.Included.Should().Be(100, "the stale writer's terms must not land");
+        stored.SubscriptionVersion.Should().Be(9);
+    }
 
     private static SubscriptionUsageCurrent Document(
         string tenantId,

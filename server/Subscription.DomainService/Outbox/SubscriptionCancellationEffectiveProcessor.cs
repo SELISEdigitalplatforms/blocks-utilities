@@ -159,9 +159,11 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                 // compare-and-set that would otherwise let it be forgotten.
                 OutgoingUsagePeriod = await OutgoingUsagePeriodOfAsync(
                     subscription, effectiveAtUtc, cancellationToken),
-                Event = _events.Create(
+                Event = _events.CreateCancellation(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
+                    cancelAtPeriodEnd: false,
+                    effectiveAtUtc,
                     subscription.CorrelationId)
             },
             cancellationToken);

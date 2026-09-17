@@ -318,8 +318,12 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 correlationId);
         }
 
-        var outboxEvent = _events.Create(
-            subscription, SubscriptionConstants.SubscriptionCancellationWithdrawn, correlationId);
+        var outboxEvent = _events.CreateCancellation(
+            subscription,
+            SubscriptionConstants.SubscriptionCancellationWithdrawn,
+            cancelAtPeriodEnd: false,
+            effectiveAtUtc: null,
+            correlationId);
 
         if (!await _subscriptions.TryWithdrawScheduledCancellationAsync(
                 subscription.TenantId,
@@ -505,8 +509,16 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         DateTime now,
         bool canCancelImmediately,
         string correlationId,
-        CancellationToken cancellationToken) =>
-        await _subscriptions.TryTransitionAsync(
+        CancellationToken cancellationToken)
+    {
+        // The instant entitlement will actually stop, named once: the transition below persists it
+        // only when it moves, while the event has to carry it either way — a subscriber told a
+        // cancellation was requested and not told when it bites has nothing to do but assume now.
+        var effectiveAtUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidPeriod
+            ? prepaidPeriod.EndUtc
+            : subscription.CurrentPeriodEndUtc;
+
+        return await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
             // The status does not move: the customer paid through the end of the period and
@@ -544,12 +556,15 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // find a year nobody is going to pay for. Also why WithdrawCancellationAsync cannot
                 // restore it on an undo — see its own remarks.
                 ClearPendingAnnualPeriod = subscription.PendingAnnualPeriod is not null,
-                Event = _events.Create(
+                Event = _events.CreateCancellation(
                     subscription,
                     SubscriptionConstants.SubscriptionCancellationRequested,
+                    cancelAtPeriodEnd: true,
+                    effectiveAtUtc,
                     correlationId)
             },
             cancellationToken);
+    }
 
     private async Task<bool> EndNowAsync(
         SubscriptionDetail subscription,
@@ -599,9 +614,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 OutgoingUsagePeriod = closure is { Reserved: true }
                     ? await OutgoingUsagePeriodOfAsync(subscription, now, cancellationToken)
                     : null,
-                Event = _events.Create(
+                Event = _events.CreateCancellation(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
+                    cancelAtPeriodEnd: false,
+                    now,
                     correlationId)
             },
             cancellationToken);

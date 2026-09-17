@@ -292,7 +292,8 @@ public sealed class SubscriptionRenewalServiceTests
 
     private SubscriptionRenewalService Service(
         ISubscriptionWorkScheduler? scheduler = null,
-        bool withUsage = false) => new(
+        bool withUsage = false,
+        ISubscriptionDiscountRepository? discounts = null) => new(
         _subscriptions.Object,
         _billingAccounts.Object,
         _gateway.Object,
@@ -304,7 +305,8 @@ public sealed class SubscriptionRenewalServiceTests
         audit: null,
         scheduler: scheduler,
         usage: withUsage ? _usage.Object : null,
-        allowances: withUsage ? new MeterAllowanceResolver(_usage.Object) : null);
+        allowances: withUsage ? new MeterAllowanceResolver(_usage.Object) : null,
+        discounts: discounts);
 
     // ---- Re-snapshotting a converted trial's allowance ----------------------------------------
 
@@ -423,6 +425,113 @@ public sealed class SubscriptionRenewalServiceTests
             work => work.ScheduleUsageProjectionRefreshAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    private static SubscriptionDetail NewTrialingSubscriptionWithLifetimeMeter(
+        DateTime trialEndsAtUtc)
+    {
+        var subscription = NewTrialingSubscription(trialEndsAtUtc);
+        // A Never meter's one lifetime window starts at signup, not at any billing anchor — set
+        // explicitly rather than left at NewSubscription's real-clock default, since that default
+        // being after trialEndsAtUtc would make the window look like it opened after the trial had
+        // already ended.
+        subscription.CreatedAtUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "token",
+                UnitLabel = "token",
+                IncludedQuantity = 450,
+                OverageAllowed = false,
+                ResetPolicy = MeterResetPolicy.Never
+            }
+        ];
+
+        return subscription;
+    }
+
+    /// <summary>
+    /// The same widening as the periodic case above, but on a meter with no period to roll into —
+    /// <see cref="MeterPeriodResolver"/> gives a <c>Never</c> meter one fixed lifetime window, so
+    /// the per-window guard this method leans on for every other reset policy can never turn false
+    /// on its own for this one. This is the case that guard cannot self-limit for, which is exactly
+    /// why the counter's own snapshot is checked before writing.
+    /// </summary>
+    [Fact]
+    public async Task A_trial_conversion_resnapshots_a_lifetime_meters_counter_too()
+    {
+        var subscription = NewTrialingSubscriptionWithLifetimeMeter(
+            new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc));
+
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string counterId, CancellationToken _) => new SubscriptionUsageCounter
+            {
+                ItemId = counterId,
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                SubscriptionId = "sub-1",
+                MeterKey = "token",
+                Balance = 40,
+                LimitSnapshot = 250,
+                PeriodStartUtc = subscription.CreatedAtUtc,
+                PeriodEndUtc = DateTime.MaxValue
+            });
+
+        decimal? resnappedAllowance = null;
+        _usage
+            .Setup(repository => repository.TryResnapshotAllowanceAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<IReadOnlyList<int>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, decimal allowance, IReadOnlyList<int> _, CancellationToken _) =>
+                resnappedAllowance = allowance)
+            .ReturnsAsync(true);
+
+        await Service(withUsage: true).RenewAsync(subscription, CancellationToken.None);
+
+        resnappedAllowance.Should().Be(450, "the plan's own lifetime quantity, not the trial's grant");
+    }
+
+    /// <summary>
+    /// The corner case a lifetime meter's fixed window creates: without the counter-equality check
+    /// this method now has, every renewal for the rest of this subscription's life would attempt the
+    /// exact same write the test above already proved happens once — because a <c>Never</c> meter's
+    /// window never rolls past the trial's end the way a periodic meter's does. Proves the guard by
+    /// giving the counter the widened allowance already and asserting nothing is written a second time.
+    /// </summary>
+    [Fact]
+    public async Task A_later_renewal_does_not_rewiden_a_lifetime_meter_already_at_the_plans_quantity()
+    {
+        var subscription = NewTrialingSubscriptionWithLifetimeMeter(
+            new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc));
+
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string counterId, CancellationToken _) => new SubscriptionUsageCounter
+            {
+                ItemId = counterId,
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                SubscriptionId = "sub-1",
+                MeterKey = "token",
+                Balance = 40,
+                // Already the plan's own quantity — as if a previous renewal had already widened
+                // it, which is exactly the state a second and every later renewal finds it in.
+                LimitSnapshot = 450,
+                PeriodStartUtc = subscription.CreatedAtUtc,
+                PeriodEndUtc = DateTime.MaxValue
+            });
+
+        await Service(withUsage: true).RenewAsync(subscription, CancellationToken.None);
+
+        _usage.Verify(
+            repository => repository.TryResnapshotAllowanceAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -727,6 +836,67 @@ public sealed class SubscriptionRenewalServiceTests
         charged.AutomaticDiscountBasisPoints.Should().Be(800);
         charged.DiscountCombination.Should().Be("Additive");
         charged.AmountMinor.Should().Be(82_800);
+    }
+
+    /// <summary>
+    /// The bug this guards against: an admin fixes a discount's precedence to "replace the price's
+    /// own discount" after subscribers already redeemed it. Without a resync, the frozen terms held
+    /// on the subscription keep whatever precedence was in force at signup, and the plan's Stack
+    /// policy keeps applying both reductions renewal after renewal -- exactly the customer-visible
+    /// overcharge the report described.
+    /// </summary>
+    [Fact]
+    public async Task A_renewal_resyncs_a_held_discounts_campaign_precedence_from_the_catalogue()
+    {
+        SubscriptionChargeRequest? charged = null;
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((SubscriptionChargeRequest request, string _, string __, CancellationToken ___) =>
+                charged = request)
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-1", "corr-1"));
+
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.Price.UnitAmountMinor = 100_000;
+        subscription.Price.AutomaticDiscountBasisPoints = 800;
+        subscription.Plan.QuantityDiscountCombinationPolicy =
+            QuantityDiscountCombinationPolicy.Stack;
+        subscription.Discount = new DiscountTerms
+        {
+            Code = "extra10",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 1_000,
+            DiscountId = "discount-1",
+            // Redeemed before the catalogue entry ever named a precedence -- today's
+            // stacking-under-the-plan's-policy behaviour, frozen at signup.
+            Campaign = new CampaignTerms()
+        };
+
+        var discounts = new Mock<ISubscriptionDiscountRepository>();
+        discounts
+            .Setup(repository => repository.FindByIdAsync(
+                TenantId, "discount-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ItemId = "discount-1",
+                TenantId = TenantId,
+                Status = CatalogueStatus.Active,
+                Campaign = new CampaignTerms
+                {
+                    Precedence = CampaignPrecedence.ReplaceBuiltIn,
+                    PrecedenceConfigured = true
+                }
+            });
+
+        await Service(discounts: discounts.Object).RenewAsync(subscription, CancellationToken.None);
+
+        charged.Should().NotBeNull();
+        charged!.BuiltInDiscountMinor.Should().Be(0, "the resynced precedence replaces it rather than stacking");
+        charged.PromotionalDiscountMinor.Should().Be(10_000, "10% of the raw gross, not what the 8% left");
+        charged.AmountMinor.Should().Be(90_000);
     }
 
     [Fact]
