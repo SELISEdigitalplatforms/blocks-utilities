@@ -57,7 +57,7 @@ l2-net-blocks-utilities/
 │   │   │   │   ├── ITemplateEngineNotificationService.cs
 │   │   │   │   └── TemplateEngineNotificationService.cs
 │   │   │   └── Utilities/
-│   │   │       └── Constants.cs                     # Queue names
+│   │   │       └── TemplateEngineConstants.cs       # Queue names
 │   │   └── Shared/
 │   │       ├── DTOs/
 │   │       │   └── NotificationResponse.cs
@@ -73,8 +73,7 @@ l2-net-blocks-utilities/
 │       │   ├── CreateFileWithFilteredMongoQueryConsumer.cs
 │       │   ├── CreateFileWithFilteredMongoQueryBulkConsumer.cs
 │       │   └── CreateMultipleFileWithFilteredMongoQueryConsumer.cs
-│       ├── Constants.cs                             # Aggregated queue config
-│       └── ServiceRegistry.cs
+│       └── Program.cs                               # Aggregates queue config, registers services
 ```
 
 ## API Endpoints
@@ -184,7 +183,7 @@ Creates file using MongoDB filtered queries (replaces Platform Data Service).
   "filteredMongoQueryDatas": [
     {
       "entityName": "Orders",
-      "text": "status = 'completed'",
+      "text": "{\"status\": \"completed\"}",
       "key": "completedOrders",
       "orderBy": "createdAt",
       "sortOrder": 1,
@@ -198,11 +197,16 @@ Creates file using MongoDB filtered queries (replaces Platform Data Service).
 }
 ```
 
+`text` is a MongoDB query document, as JSON — `{"status": "completed"}`, or
+`{"amount": {"$gt": 100}}`, or `{"$and": [{"status": "active"}, {"age": {"$gte": 18}}]}`. An empty
+or omitted `text` matches every document in the collection. Anything that is not valid MongoDB
+query JSON is rejected with `ArgumentException`; it is not silently treated as "match all".
+
 **Features:**
 - ✅ MongoDB collection querying
 - ✅ Pagination support
 - ✅ Sorting support
-- ⚠️ Query parsing (TODO - currently uses empty filter)
+- ✅ Query parsing (MongoDB query JSON; an empty query still matches all documents)
 - ⚠️ Connection expansion (TODO)
 
 ### 6. CreateFileWithFilteredMongoQueryBulk ✅
@@ -323,11 +327,12 @@ var result = parsedTemplate.Render(Hash.FromDictionary(data));
 - `GetEntityListFromData()` - Execute queries and return entity lists ✅
 - `GetConnectionsWithEntityFromData()` - Expand entity connections ⚠️ (TODO)
 - `GetMetaDataListFromData()` - Process metadata ✅
-- `BuildMongoFilter()` - Parse query text to MongoDB filter ⚠️ (TODO)
+- `BuildMongoFilter()` - Parse query text to MongoDB filter ✅
 
 **Current Limitations:**
-- Query parsing not implemented (uses empty filter = all documents)
-- Connection expansion not fully implemented
+- Connection expansion not fully implemented: the entities are fetched, but each one logs
+  "connection expansion not fully implemented" and contributes a placeholder rather than its
+  related records.
 
 ### TemplateEngineNotificationService ✅
 **Responsibility:** Send notifications via HTTP
@@ -410,7 +415,7 @@ public const string FilteredMongoQueryQueue = "blocks_template_filtered_mongo_qu
 public const string BulkOperationsQueue = "blocks_template_bulk_operations_listener";
 ```
 
-**Note:** The Worker project (`Worker/Constants.cs`) aggregates queue configurations from all utility services, not just Template Engine.
+**Note:** `Worker/Program.cs` aggregates queue configurations from all utility services, not just Template Engine, by combining each module's `GetMessageConfiguration(connectionString)` into one set of consumer subscriptions.
 
 ### Required appsettings.json
 
@@ -502,11 +507,11 @@ curl -X POST https://localhost:5001/TemplateEngine/RenderWithJSON \
 
 ### High Priority ⚠️
 
-1. **Query Parsing in `BuildMongoFilter()`**
-   - Location: `MongoQueryHelper.cs:186`
-   - Currently: Returns empty filter (matches all documents)
-   - Needed: Parse query text like `"status = 'completed' AND amount > 100"` into MongoDB `FilterDefinition<BsonDocument>`
-   - Suggestion: Use expression parser or support MongoDB query JSON format
+1. **Connection expansion in `GetConnectionsWithEntityFromData()`**
+   - Location: `MongoQueryHelper.cs:228`
+   - Currently: fetches the matching entities, then emits a placeholder per entity instead of its
+     related records
+   - Needed: resolve each entity's connections and return them under the entity name
 
 2. **Connection Expansion Logic**
    - Location: `MongoQueryHelper.cs:252`
@@ -556,7 +561,7 @@ When migrating from l2-net-generic-templating:
 
 - [x] Replace `Command` → `Request` class names
 - [x] Replace `CommandHandler` → `Consumer` class names
-- [x] Update service registrations in `ServiceRegistry.cs`
+- [x] Update service registrations (now in `Api/Program.cs` and `Worker/Program.cs`)
 - [x] Update queue names to framework defaults
 - [x] Change `IMongoDbConnection` → `IDbContextProvider`
 - [x] Update `SecurityContext` → `BlocksContext.GetContext()`

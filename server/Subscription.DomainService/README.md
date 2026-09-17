@@ -1437,14 +1437,30 @@ renewal's dunning retry already follows.
 re-reading the same record. Its uniqueness index on `(TenantId, SubscriptionId, PeriodKey)` is the
 double-billing guard.
 
-**Known gaps, stated rather than built around:**
+**Known gap, stated rather than built around:** one aggregated charge per period, not one per
+meter. `ISubscriptionBillingGateway.ChargeAsync` takes one amount and one description; per-meter
+line items are still recorded on the invoice itself for support traceability, but the actual charge
+is always the total.
 
-- **One aggregated charge per period, not one per meter.** `ISubscriptionBillingGateway.ChargeAsync`
-  takes one amount and one description; per-meter line items are still recorded on the invoice
-  itself for support traceability, but the actual charge is always the total.
-- **A `Canceled` subscription's still-open final period is never rated.** An immediate
-  cancellation clears `NextUsageBillingAtUtc` the moment entitlement stops, so any usage recorded
-  in that unrated final stretch has no billing path today.
+### Cancellation and the final window
+
+**A cancelled subscription's final usage window is rated**, and the mechanism is worth knowing
+because the field it does *not* rely on is the obvious one. An immediate cancellation still clears
+`NextUsageBillingAtUtc` — nothing more will be metered once entitlement stops — but the window that
+was open at that moment is queued as a `PendingUsagePeriod` in the same compare-and-set that moves
+the status, cut to the effective instant so it cannot bill for service the subscriber never had.
+Both paths do it: `SubscriptionCancellationService` for an interactive immediate cancel, and
+`SubscriptionCancellationEffectiveProcessor` for a scheduled one reaching its boundary.
+
+The due query is what makes it reachable afterwards. Alongside the live branch it carries a second
+one matching `Status == Canceled` while `PendingUsagePeriods` is non-empty, so an ended
+subscription keeps surfacing for exactly as long as it holds a window nothing else would rate.
+`CloseSubscriptionAsync` rates those snapshots first, against the frozen allowances captured before
+the transition — the live resolver cannot reconstruct the terms of a window whose subscription has
+already moved on.
+
+Only an `Incomplete` subscription is skipped, by `CouldHaveAccruedUsage`: it never activated, so
+there is nothing to rate.
 
 ## Metered overage preview
 

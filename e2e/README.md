@@ -1,8 +1,8 @@
 # Blocks Utilities — End-to-End Tests (Playwright)
 
-Follows the shared Blocks product e2e template
-([`e2e-spec/SPEC-blocks-e2e-suite-template.md`](/home/noor/Office-Projects/e2e-spec/SPEC-blocks-e2e-suite-template.md)),
-same shape as `blocks-data/e2e` and `blocks-logic/e2e`.
+Follows the shared Blocks product e2e template (`e2e-spec/SPEC-blocks-e2e-suite-template.md`, kept
+in the internal `e2e-spec` repository rather than here), same shape as `blocks-data/e2e` and
+`blocks-logic/e2e`.
 
 ## One-time setup
 
