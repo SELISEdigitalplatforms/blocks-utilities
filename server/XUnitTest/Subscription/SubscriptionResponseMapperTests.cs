@@ -110,6 +110,66 @@ public sealed class SubscriptionResponseMapperTests
             "the unit amount stays what the price says, undiscounted");
     }
 
+    /// <summary>
+    /// <c>RecurringAmountMinor</c> answers what the next full period will cost, so it is priced at
+    /// the instant that period is charged -- not at the moment the subscription happens to be read.
+    /// </summary>
+    /// <remarks>
+    /// The bug this pins down: priced as of now, a promotional code that expires between the read
+    /// and the renewal was still shown reducing it. Observed on a CHF 1,000/yr price with a code
+    /// expiring two days out -- reported 972.90 against an actual renewal of 1,026.95 -- and it
+    /// reached the subscribe response, the plan-change preview's next-period figure and the
+    /// Subscribe audit event alike, every one of them under-quoting what the subscriber will pay.
+    /// </remarks>
+    [Fact]
+    public void The_recurring_amount_is_priced_at_the_renewal_not_at_the_read()
+    {
+        var undiscounted = _mapper.ToResponse(NewSubscription(10)).RecurringAmountMinor;
+
+        var expiring = NewSubscription(10);
+        expiring.NextFeeBillingAtUtc = PeriodEnd;
+        expiring.Discount = new DiscountTerms
+        {
+            Code = "earlybird",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 1_000,
+            // Live at the read (16 August), gone by the renewal (1 September).
+            ExpiresAtUtc = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        var response = _mapper.ToResponse(expiring);
+
+        response.RecurringAmountMinor.Should().Be(
+            undiscounted,
+            "the code expires before the period this figure is quoting, so it cannot reduce it");
+    }
+
+    /// <summary>The other half: a code still live at the renewal does reduce it.</summary>
+    [Fact]
+    public void A_discount_still_live_at_the_renewal_reduces_the_recurring_amount()
+    {
+        var undiscounted = _mapper.ToResponse(NewSubscription(10)).RecurringAmountMinor;
+
+        var ongoing = NewSubscription(10);
+        ongoing.NextFeeBillingAtUtc = PeriodEnd;
+        ongoing.Discount = new DiscountTerms
+        {
+            Code = "stays",
+            Kind = DiscountKind.Percent,
+            // Larger than the plan's own 10% band: under the default BestDiscount policy the two
+            // are compared and only the larger applies, so a code merely equal to the band would
+            // tie and prove nothing about whether it was considered at all.
+            PercentBasisPoints = 2_000,
+            ExpiresAtUtc = null
+        };
+
+        var response = _mapper.ToResponse(ongoing);
+
+        response.RecurringAmountMinor.Should().BeLessThan(
+            undiscounted,
+            "an unbounded code is still in force at the renewal it is quoted for");
+    }
+
     [Fact]
     public void Usage_cadence_is_reported_independently_of_billing_cadence()
     {
