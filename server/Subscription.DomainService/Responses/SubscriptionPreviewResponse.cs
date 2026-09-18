@@ -239,6 +239,18 @@ public sealed class SubscriptionPreviewAnnualPeriodResponse
 
     public DateTime EndUtc { get; init; }
 
+    /// <summary>
+    /// The year's own undiscounted amount -- its share of the quote's <c>subtotalMinor</c>.
+    /// </summary>
+    /// <remarks>
+    /// Exposed so a buyer-facing subtotal can name what it is made of. A calendar-aligned yearly
+    /// signup adds a stub priced from the linked *monthly* price to a whole year priced from the
+    /// annual one, and presenting their sum as a single figure under a heading that says "CHF
+    /// 1,000.00 every year" reads as an arithmetic error. The stub's own share is this subtracted
+    /// from that subtotal -- derivable rather than sent twice, so the two cannot disagree.
+    /// </remarks>
+    public long GrossAmountMinor { get; init; }
+
     public long AmountMinor { get; init; }
 
     public long NetAmountMinor { get; init; }

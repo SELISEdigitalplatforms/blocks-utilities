@@ -245,6 +245,12 @@ export interface SubscriptionPreviewBlocker {
 export interface SubscriptionPreviewAnnualPeriod {
   startUtc: string;
   endUtc: string;
+  /**
+   * The year's own undiscounted amount — its share of the quote's `subtotalMinor`. The opening
+   * stub's share is the remainder, and is priced from the linked monthly amount rather than the
+   * annual one, which is why the two are worth naming separately rather than summing silently.
+   */
+  grossAmountMinor: number;
   amountMinor: number;
   netAmountMinor: number;
   taxAmountMinor: number;
