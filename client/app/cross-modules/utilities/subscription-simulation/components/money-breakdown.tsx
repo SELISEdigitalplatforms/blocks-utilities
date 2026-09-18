@@ -42,6 +42,7 @@ export const formatDay = (isoDate: string) => new Date(isoDate).toLocaleDateStri
 export const MoneyBreakdown = ({
   label,
   labelValue,
+  subtotalParts,
   currencyCode,
   subtotalMinor,
   builtInDiscountMinor,
@@ -58,6 +59,15 @@ export const MoneyBreakdown = ({
    * which reads as a row whose own value failed to load rather than as a heading.
    */
   labelValue?: string;
+  /**
+   * What the subtotal is made of, when it is made of more than one thing. A calendar-aligned
+   * yearly signup adds a stub priced from the linked monthly amount to a whole year priced from
+   * the annual one; shown as a single figure under a heading reading "CHF 1,000.00 every year",
+   * their sum looks like an arithmetic error, and the small built-in discount on the stub alone
+   * looks like a rounding bug. Named, both read as what they are. Omitted everywhere else, where
+   * the subtotal is one period at one price and naming it twice would be noise.
+   */
+  subtotalParts?: { label: string; amountMinor: number }[];
   currencyCode: string;
   subtotalMinor: number;
   builtInDiscountMinor: number;
@@ -76,6 +86,13 @@ export const MoneyBreakdown = ({
         ) : null}
       </div>
     ) : null}
+    {subtotalParts?.map((part) => (
+      <Row
+        key={part.label}
+        label={part.label}
+        value={formatMoney(part.amountMinor, currencyCode)}
+      />
+    ))}
     <Row label="Subtotal" value={formatMoney(subtotalMinor, currencyCode)} />
     {builtInDiscountMinor > 0 ? (
       <Row

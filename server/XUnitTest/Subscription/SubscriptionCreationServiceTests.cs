@@ -1127,6 +1127,85 @@ public sealed class SubscriptionCreationServiceTests
             "the actual next charge occurs after the code expires");
     }
 
+    /// <summary>
+    /// The renewal breakdown carries a date, so it has to carry the money that lands on that date.
+    /// Priced as of signup -- the bug -- a code that expires days later still appeared in it, while
+    /// NextCharge, priced at its own boundary, did not: two different totals for the same instant,
+    /// with the buyer shown the cheaper one and charged the dearer.
+    /// </summary>
+    [Fact]
+    public async Task An_ordinary_renewal_is_priced_at_its_own_date_not_at_signup()
+    {
+        ArrangeCalendarAlignedMonthlyPrice();
+        var request = NewRequest();
+        request.DiscountCode = "short-lived";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "short-lived", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "short-lived",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    ExpiresAtUtc = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc)
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.PromotionalDiscountMinor.Should().BeGreaterThan(0,
+            "the opening charge occurs before the code expires");
+        result.Value.NextRenewal.RenewalAtUtc.Should().BeAfter(
+            new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc));
+        result.Value.NextRenewal.PromotionalDiscountMinor.Should().Be(0,
+            "the renewal this row is dated for occurs after the code expires");
+        result.Value.NextRenewalAmountMinor.Should().Be(result.Value.NextRenewal.TotalMinor,
+            "the legacy field and its own breakdown must still describe the same period");
+        result.Value.NextRenewal.TotalMinor.Should().Be(result.Value.NextCharge.TotalMinor,
+            "an ordinary renewal IS the next charge -- one date cannot carry two totals");
+    }
+
+    /// <summary>
+    /// The same rule for a duration-limited code as for an expiring one: the renewal row must be
+    /// priced against the period count its own date will be reached with, not the count standing
+    /// at signup.
+    /// </summary>
+    [Fact]
+    public async Task A_one_period_discount_consumed_by_the_opening_charge_is_absent_from_the_renewal_row()
+    {
+        ArrangeCalendarAlignedMonthlyPrice();
+        var request = NewRequest();
+        request.DiscountCode = "opening-only";
+        _discounts.Setup(repository => repository.FindActiveByCodeAsync(
+                TenantId, OrganizationId, "opening-only", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount
+            {
+                ApplicablePlanCodes = ["professional"],
+                ApplicablePriceIds = ["price-1"],
+                Terms = new DiscountTerms
+                {
+                    Code = "opening-only",
+                    Kind = DiscountKind.Percent,
+                    PercentBasisPoints = 800,
+                    DurationPeriods = 1
+                }
+            });
+
+        var result = await Service().PreviewAsync(
+            request, Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the preview should succeed");
+        result.Value!.PromotionalDiscountMinor.Should().BeGreaterThan(0);
+        result.Value.NextRenewal.PromotionalDiscountMinor.Should().Be(0,
+            "the opening charge spends the code's one period before this renewal is reached");
+        result.Value.NextRenewal.TotalMinor.Should().Be(result.Value.NextCharge.TotalMinor);
+    }
+
     [Fact]
     public async Task A_one_period_discount_consumed_by_the_opening_charge_is_absent_from_next_charge()
     {

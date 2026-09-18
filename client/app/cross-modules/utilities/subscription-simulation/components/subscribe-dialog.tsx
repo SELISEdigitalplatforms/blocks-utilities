@@ -69,6 +69,9 @@ export const SubscribeDialog = ({
   );
   const [discountCode, setDiscountCode] = useState("");
   const [quote, setQuote] = useState<SubscriptionPurchasePreview | null>(null);
+  // A rejected code is not an error here -- the quote beside it is the same subscription priced
+  // without the code, and is still worth showing. Only the notice tells the subscriber why.
+  const [discountNotice, setDiscountNotice] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmationProfileGap, setConfirmationProfileGap] =
     useState<BillingProfileGap | null>(null);
@@ -78,18 +81,21 @@ export const SubscribeDialog = ({
   const editPrice = (value: string) => {
     setPriceId(value);
     setQuote(null);
+    setDiscountNotice(null);
     setConfirmationProfileGap(null);
   };
 
   const editQuantity = (itemKey: string, value: string) => {
     setQuantities((current) => ({ ...current, [itemKey]: value }));
     setQuote(null);
+    setDiscountNotice(null);
     setConfirmationProfileGap(null);
   };
 
   const editDiscount = (value: string) => {
     setDiscountCode(value);
     setQuote(null);
+    setDiscountNotice(null);
     setConfirmationProfileGap(null);
   };
 
@@ -147,12 +153,23 @@ export const SubscribeDialog = ({
     setConfirmationProfileGap(null);
 
     try {
-      setQuote(await preview.mutateAsync(parsed.request));
+      const { status, message, quote: previewed } = await preview.mutateAsync(parsed.request);
+
+      setQuote(previewed);
+      // "Applied" is the only status that reduced anything; every other one leaves the quote
+      // standing and needs saying, or the subscriber reads the undiscounted price as the
+      // discounted one.
+      setDiscountNotice(
+        status && status !== "Applied"
+          ? message || "That discount code could not be applied."
+          : null,
+      );
     } catch (error) {
       setFormError(
         error instanceof Error ? error.message : "The subscription could not be previewed.",
       );
       setQuote(null);
+      setDiscountNotice(null);
     }
   };
 
@@ -194,10 +211,21 @@ export const SubscribeDialog = ({
       // What was shown no longer describes what a retry would charge — the failed attempt may
       // itself have changed something a fresh quote needs to account for.
       setQuote(null);
+      setDiscountNotice(null);
     }
   };
 
   const blocked = (quote?.blockers.length ?? 0) > 0;
+  // A row carrying a date must quote the charge that lands on that date. nextRenewal is the
+  // steady-state recurring price; nextCharge is priced at its own instant. The trial-stub case
+  // keeps nextRenewal: there this row is the recurring price that follows the dated stub charge
+  // rendered above it, not the next charge itself.
+  const recurring = quote
+    ? quote.nextCharge.prorated
+      ? quote.nextRenewal
+      : quote.nextCharge
+    : null;
+  const dueNowParts = subtotalPartsOf(quote);
   const previewProfileGap = quote?.blockers
     .map((blocker) =>
       billingProfileGapOf({
@@ -271,6 +299,15 @@ export const SubscribeDialog = ({
               onChange={(event) => editDiscount(event.target.value)}
               placeholder="e.g. LAUNCH20"
             />
+            {discountNotice ? (
+              <p
+                className="flex items-start gap-1.5 text-xs text-warning-900"
+                data-testid="subscribe-discount-notice"
+              >
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{discountNotice} The price below excludes it.</span>
+              </p>
+            ) : null}
           </div>
 
           {profileGap && (
@@ -290,6 +327,7 @@ export const SubscribeDialog = ({
 
               <MoneyBreakdown
                 currencyCode={quote.currencyCode}
+                subtotalParts={dueNowParts}
                 subtotalMinor={quote.subtotalMinor}
                 builtInDiscountMinor={quote.builtInDiscountMinor}
                 promotionalDiscountMinor={quote.promotionalDiscountMinor}
@@ -320,30 +358,32 @@ export const SubscribeDialog = ({
                 </div>
               ) : null}
 
-              <div className="border-t pt-2">
-                <MoneyBreakdown
-                  label={
-                    quote.nextCharge.prorated
-                      ? "Recurring price"
-                      : quote.trialEndsAtUtc
-                        ? "First renewal"
-                        : "Next renewal"
-                  }
-                  labelValue={
-                    quote.nextRenewal.renewalAtUtc
-                      ? formatDay(quote.nextRenewal.renewalAtUtc)
-                      : undefined
-                  }
-                  currencyCode={quote.currencyCode}
-                  subtotalMinor={quote.nextRenewal.subtotalMinor}
-                  builtInDiscountMinor={quote.nextRenewal.builtInDiscountMinor}
-                  promotionalDiscountMinor={quote.nextRenewal.promotionalDiscountMinor}
-                  netSubtotalMinor={quote.nextRenewal.netSubtotalMinor}
-                  tax={quote.nextRenewal.tax}
-                  totalLabel="Total"
-                  totalMinor={quote.nextRenewal.totalMinor}
-                />
-              </div>
+              {recurring ? (
+                <div className="border-t pt-2">
+                  <MoneyBreakdown
+                    label={
+                      quote.nextCharge.prorated
+                        ? "Recurring price"
+                        : quote.trialEndsAtUtc
+                          ? "First renewal"
+                          : "Next renewal"
+                    }
+                    labelValue={
+                      quote.nextRenewal.renewalAtUtc
+                        ? formatDay(quote.nextRenewal.renewalAtUtc)
+                        : undefined
+                    }
+                    currencyCode={quote.currencyCode}
+                    subtotalMinor={recurring.subtotalMinor}
+                    builtInDiscountMinor={recurring.builtInDiscountMinor}
+                    promotionalDiscountMinor={recurring.promotionalDiscountMinor}
+                    netSubtotalMinor={recurring.netSubtotalMinor}
+                    tax={recurring.tax}
+                    totalLabel="Total"
+                    totalMinor={recurring.totalMinor}
+                  />
+                </div>
+              ) : null}
 
               {quote.requiresCardSetup && quote.totalDueNowMinor === 0 ? (
                 <p className="text-xs text-muted-foreground">
@@ -418,4 +458,36 @@ export const SubscribeDialog = ({
       </DialogContent>
     </Dialog>
   );
+};
+
+/**
+ * The two things a calendar-aligned yearly subtotal is actually made of, or nothing.
+ *
+ * Only when the year is collected at checkout alongside a prorated opening stub: that is the one
+ * case where one subtotal covers two periods, at two amounts, on two cadences. The stub's share is
+ * the remainder once the year's own gross is taken off -- derived rather than read from a second
+ * field, so it cannot disagree with the subtotal it is explaining.
+ */
+const subtotalPartsOf = (
+  quote: SubscriptionPurchasePreview | null,
+): { label: string; amountMinor: number }[] | undefined => {
+  const annual = quote?.pendingAnnualPeriod;
+
+  if (!quote || !annual?.collectedWithCheckout || !quote.prorated) {
+    return undefined;
+  }
+
+  const stubMinor = quote.subtotalMinor - annual.grossAmountMinor;
+
+  if (stubMinor <= 0) {
+    return undefined;
+  }
+
+  return [
+    {
+      label: `${formatDay(quote.periodStartUtc)}–${formatDay(quote.periodEndUtc)} (pro-rated)`,
+      amountMinor: stubMinor,
+    },
+    { label: `Year from ${formatDay(annual.startUtc)}`, amountMinor: annual.grossAmountMinor },
+  ];
 };
