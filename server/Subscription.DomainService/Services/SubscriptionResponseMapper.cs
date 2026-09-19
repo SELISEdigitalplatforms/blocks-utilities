@@ -40,10 +40,31 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             subscription.QuantityItems);
 
         // Priced through the same path the renewal itself uses, so what is shown cannot drift from
-        // what is taken.
+        // what is taken -- and at the instant that renewal actually charges, not at the moment
+        // this response happened to be built.
+        //
+        // RecurringAmountMinor answers "what will the next full period cost". Priced as of now, a
+        // promotional code that expires between now and then is still shown reducing it, so the
+        // subscribe response, the plan-change preview's next-period figure and the Subscribe audit
+        // event all quoted a discount the subscriber will never receive -- a CHF 1,000/yr price
+        // with a code expiring in two days reported 972.90 against an actual renewal of 1,026.95.
+        // The purchase preview's NextRenewal had to learn this same lesson; this is the identical
+        // question asked of a live subscription.
+        //
+        // Still the full, un-prorated period: only the pricing instant moves, so a subscription
+        // mid-stub keeps reporting the steady-state figure this field has always meant.
+        // Falls back to now only when the subscription carries no boundary to price against at
+        // all, which is the shape a record has before a schedule is built rather than a real
+        // renewal date: pricing that at default(DateTime) would read as "before every discount
+        // started" and quote an undiscounted period at a subscriber holding a live code.
+        var recurringAtUtc = subscription.NextFeeBillingAtUtc
+            ?? (subscription.CurrentPeriodEndUtc == default
+                ? _time.GetUtcNow().UtcDateTime
+                : subscription.CurrentPeriodEndUtc);
+
         var recurring = SubscriptionAmountCalculator.PeriodAmountMinor(
             subscription,
-            _time.GetUtcNow().UtcDateTime);
+            recurringAtUtc);
 
         return new SubscriptionResponse
         {
