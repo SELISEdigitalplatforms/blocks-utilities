@@ -59,6 +59,9 @@ public sealed class SubscriptionReportsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<UsageReportResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<UsageReportResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<UsageReportResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetUsage(
         [FromQuery] GetUsageReportRequest request,
@@ -89,6 +92,9 @@ public sealed class SubscriptionReportsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<RecurringRevenueReportResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<UsageReportResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetRecurringRevenue(CancellationToken cancellationToken)
     {
@@ -117,6 +123,9 @@ public sealed class SubscriptionReportsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<RevenueReportResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<RevenueReportResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetRevenue(
         [FromQuery] GetRevenueReportRequest request,
@@ -146,6 +155,9 @@ public sealed class SubscriptionReportsController : ControllerBase
     [HttpGet("dunning")]
     [ProducesResponseType(typeof(ApiResponse<DunningReportResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<DunningReportResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetDunning(CancellationToken cancellationToken)
     {
@@ -177,6 +189,9 @@ public sealed class SubscriptionReportsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<SubscriptionRosterReportResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<DunningReportResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetSubscriptions(
         [FromQuery] GetSubscriptionReportRequest request,
@@ -208,6 +223,9 @@ public sealed class SubscriptionReportsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<CouponReportResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<CouponReportResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetCoupons(
         [FromQuery] GetRevenueReportRequest request,

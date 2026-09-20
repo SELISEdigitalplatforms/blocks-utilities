@@ -2136,7 +2136,10 @@ event pipeline. Every figure is a MongoDB aggregation run at request time agains
 operational data, so a report is never stale and there is nothing to rebuild when one looks
 wrong.
 
-Six endpoints, all under the scope `blocks-utilities::subscription-report::read`:
+Six endpoints, all under the scope `blocks-utilities::subscription-report::read`. Query
+parameters are bound from objects, so OpenAPI names them in PascalCase (`FromUtc`, `MeterKey`,
+`PageSize`) exactly as every other endpoint in this API does; model binding itself is
+case-insensitive, so `fromUtc` works too:
 
 | Endpoint | Reads | Answers |
 | --- | --- | --- |
@@ -2186,7 +2189,7 @@ the report forgot.
 
 ### Usage reports name no meter
 
-`GET /usage` takes a `meterKey` parameter and defaults to every meter. A meter key is a tenant's
+`GET /usage` takes a `MeterKey` parameter and defaults to every meter. A meter key is a tenant's
 own word, and the rule this module is built on is that the platform never learns one. The report
 is also four figures per bucket rather than one — consumption, reversals, the net, and grants —
 because a quiet month and a corrected month are different facts, and because a grant raises an
