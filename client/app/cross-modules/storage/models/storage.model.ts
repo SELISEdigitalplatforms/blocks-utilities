@@ -69,11 +69,37 @@ export interface IGetPreSignedUrlForUploadPayload {
   moduleName: number;
 }
 
+/** Mirrors `Storage.DomainService.Enums.FileVerificationStatus` server-side. */
+export type FileVerificationStatus = "Unverified" | "Quarantined" | "Verified" | "Rejected";
+
 export interface IGetPreSignedUrlForUploadResponse {
   errors: null | unknown;
   isSuccess: boolean;
   fileId: string;
   uploadUrl: string;
+  /** Identifies the exact version this upload created; required to call `completeUpload` when completion is required. */
+  fileVersionId?: string;
+  uploadUrlExpiresAtUtc?: string | null;
+  /** Headers the client must send with the provider PUT (e.g. Azure's blob-type header). */
+  requiredHeaders?: Record<string, string> | null;
+  /** True when the client must call `completeUpload` after the provider PUT succeeds. */
+  uploadCompletionRequired?: boolean;
+  verificationStatus?: FileVerificationStatus;
+}
+
+export interface ICompleteUploadPayload {
+  fileId: string;
+  fileVersionId: string;
+}
+
+export interface ICompleteUploadResponse {
+  errors: null | unknown;
+  isSuccess: boolean;
+  fileId: string;
+  fileVersionId: string;
+  verificationStatus: FileVerificationStatus;
+  /** Safe, non-sensitive explanation set only when `verificationStatus` is "Rejected". */
+  rejectionReason?: string | null;
 }
 
 export interface IGetFileByFileIDPayload {

@@ -15,6 +15,7 @@ vi.mock("@blocks-idp/authentication/hooks/use-auth-oidc", () => ({
 vi.mock("@blocks-storage/hooks/use-storage-file", () => ({
   useGetPreSignedUrlForUpload: () => ({ mutateAsync: vi.fn() }),
   useUploadFile: () => ({ mutateAsync: vi.fn() }),
+  useCompleteUpload: () => ({ mutateAsync: vi.fn() }),
 }));
 vi.mock("@blocks-storage/services/storage.service", () => ({
   storageService: { file: { getFileByFileId: vi.fn() } },
