@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using DomainService.Storage;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Storage.DomainService.Enums;
 using StorageDriver;
 using Utility.DomainService.Storage;
 
@@ -76,14 +77,34 @@ namespace Utility.DomainService.PdfGenerator.service
             var httpResponseMessage = await httpClient.SendAsync(request);
             stream.Close();
 
-            if (httpResponseMessage.IsSuccessStatusCode)
+            if (!httpResponseMessage.IsSuccessStatusCode)
             {
-                _logger.LogInformation("SavePdfToStorage: Successfully saved PDF fileId={FileId}", fileId);
+                _logger.LogError("SavePdfToStorage: Failed to upload PDF fileId={FileId}, StatusCode={StatusCode}", fileId, httpResponseMessage.StatusCode);
+                return false;
+            }
+
+            _logger.LogInformation("SavePdfToStorage: Successfully saved PDF fileId={FileId}", fileId);
+
+            if (!fileInfo.UploadCompletionRequired)
+            {
                 return true;
             }
 
-                _logger.LogError("SavePdfToStorage: Failed to upload PDF fileId={FileId}, StatusCode={StatusCode}", fileId, httpResponseMessage.StatusCode);
-            return false;
+            var completion = await _storageDriverService.CompleteUploadAsync(new CompleteUploadRequest
+            {
+                FileId = fileId,
+                FileVersionId = fileInfo.FileVersionId,
+            });
+
+            if (completion?.VerificationStatus != FileVerificationStatus.Verified)
+            {
+                _logger.LogError(
+                    "SavePdfToStorage: Upload completion rejected fileId={FileId}, reason={RejectionReason}",
+                    fileId, completion?.RejectionReason);
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>

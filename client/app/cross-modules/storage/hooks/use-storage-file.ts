@@ -19,6 +19,13 @@ export const useGetPreSignedUrlForUpload = () => {
   });
 };
 
+export const useCompleteUpload = () => {
+  return useMutation({
+    mutationKey: ["storage", "file", "completeUpload"],
+    mutationFn: storageService.file.completeUpload,
+  });
+};
+
 export const useUploadFile = () => {
   return useMutation({
     mutationKey: ["storage", "file", "getPresignedUrl"],

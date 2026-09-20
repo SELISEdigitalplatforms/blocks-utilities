@@ -1,5 +1,7 @@
 import { serviceInstances } from "@/lib/http-client";
 import {
+  ICompleteUploadPayload,
+  ICompleteUploadResponse,
   IDeleteFilePayload,
   IDeleteFolderPayload,
   IDeleteResourceResponse,
@@ -39,6 +41,10 @@ export class StorageFile {
     payload: IGetPreSignedUrlForUploadPayload,
   ): Promise<IGetPreSignedUrlForUploadResponse> {
     return serviceInstances.logicService.post(STORAGE_CONFIG_ENDPOINTS.GET_PRESIGNED_URL, payload);
+  }
+
+  completeUpload(payload: ICompleteUploadPayload): Promise<ICompleteUploadResponse> {
+    return serviceInstances.logicService.post(STORAGE_CONFIG_ENDPOINTS.COMPLETE_UPLOAD, payload);
   }
 
   getFilesInfoUrlForUpload(

@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using DomainService.Storage;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Storage.DomainService.Enums;
 using StorageDriver;
 using Utility.DomainService.Storage;
 
@@ -48,7 +49,8 @@ namespace Utility.DomainService.TemplateEngine.service
                 MetaData = formattedMetadata.Count > 0 ? JsonConvert.SerializeObject(formattedMetadata) : string.Empty,
                 Name = fileName,
                 ParentDirectoryId = parentDirectoryId,
-                Tags = "[\"File\"]"
+                Tags = "[\"File\"]",
+                AccessModifier = "Private",
             };
 
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
@@ -71,14 +73,34 @@ namespace Utility.DomainService.TemplateEngine.service
             var httpResponseMessage = await httpClient.SendAsync(request);
             stream.Close();
 
-            if (httpResponseMessage.IsSuccessStatusCode)
+            if (!httpResponseMessage.IsSuccessStatusCode)
             {
-                _logger.LogInformation("SaveFileToStorage: Successfully saved file fileId={FileId}", fileId);
+                _logger.LogError("SaveFileToStorage: Failed to upload file fileId={FileId}, StatusCode={StatusCode}", fileId, httpResponseMessage.StatusCode);
+                return false;
+            }
+
+            _logger.LogInformation("SaveFileToStorage: Successfully saved file fileId={FileId}", fileId);
+
+            if (!fileInfo.UploadCompletionRequired)
+            {
                 return true;
             }
 
-            _logger.LogError("SaveFileToStorage: Failed to upload file fileId={FileId}, StatusCode={StatusCode}", fileId, httpResponseMessage.StatusCode);
-            return false;
+            var completion = await _storageDriverService.CompleteUploadAsync(new CompleteUploadRequest
+            {
+                FileId = fileId,
+                FileVersionId = fileInfo.FileVersionId,
+            });
+
+            if (completion?.VerificationStatus != FileVerificationStatus.Verified)
+            {
+                _logger.LogError(
+                    "SaveFileToStorage: Upload completion rejected fileId={FileId}, reason={RejectionReason}",
+                    fileId, completion?.RejectionReason);
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>
