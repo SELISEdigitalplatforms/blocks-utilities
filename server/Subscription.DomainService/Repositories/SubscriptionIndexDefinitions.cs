@@ -100,6 +100,31 @@ public static class SubscriptionIndexDefinitions
         "ix_subscription_usageinvoice_tenant_state_next_attempt";
 
     /// <summary>
+    /// What a tenant-wide usage report queries: one meter over a span of time, across every
+    /// organization.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="UsagePeriodIndexName"/> cannot serve it. That index leads with the subscription,
+    /// which a report does not name — it asks about the whole tenant — so without this one the
+    /// question is a collection scan of the ledger, which is the largest collection here and the
+    /// one that only ever grows.
+    /// </remarks>
+    public const string UsageRecordReportingIndexName =
+        "ix_subscription_usage_tenant_meter_occurred";
+
+    /// <summary>
+    /// What a tenant-wide revenue or coupon report queries: documents issued in a window, across
+    /// every organization.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="FinancialDocumentOrganizationIndexName"/> leads with the organization, so a
+    /// report that deliberately spans all of them can use only its tenant prefix and then has to
+    /// walk every organization's keys to find the date range inside each.
+    /// </remarks>
+    public const string FinancialDocumentReportingIndexName =
+        "ix_subscription_document_tenant_issued";
+
+    /// <summary>
     /// One open subscription attempt per organization, enforced before checkout by the database
     /// rather than by a read-then-write, so two concurrent signups cannot both reach payment.
     /// </summary>
@@ -290,6 +315,14 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(document => document.SubscriptionId)
                 .Descending(document => document.IssuedAtUtc),
             new CreateIndexOptions { Name = FinancialDocumentSubscriptionIndexName }),
+        // The same shape as the organization index with the organization removed, which is exactly
+        // what a report needs: it spans every organization deliberately, so naming one is not an
+        // omission it can be asked to supply.
+        new(
+            Builders<SubscriptionFinancialDocument>.IndexKeys
+                .Ascending(document => document.TenantId)
+                .Descending(document => document.IssuedAtUtc),
+            new CreateIndexOptions { Name = FinancialDocumentReportingIndexName }),
         // Partial, so the sweep reads a small index rather than every document ever issued. The
         // overwhelming majority are delivered and will never be looked at again.
         new(
@@ -351,7 +384,17 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(record => record.SubscriptionId)
                 .Ascending(record => record.MeterKey)
                 .Ascending(record => record.PeriodKey),
-            new CreateIndexOptions { Name = UsagePeriodIndexName })
+            new CreateIndexOptions { Name = UsagePeriodIndexName }),
+        // Declared here rather than in a reporting-only set so that the repository owning this
+        // collection and the reporting repository create the same index from the same definition.
+        // Two definitions of one index name is a disagreement waiting to be discovered in
+        // production, where whichever repository touched a tenant database first decides.
+        new(
+            Builders<SubscriptionUsageRecord>.IndexKeys
+                .Ascending(record => record.TenantId)
+                .Ascending(record => record.MeterKey)
+                .Ascending(record => record.OccurredAtUtc),
+            new CreateIndexOptions { Name = UsageRecordReportingIndexName })
     ];
 
     /// <summary>

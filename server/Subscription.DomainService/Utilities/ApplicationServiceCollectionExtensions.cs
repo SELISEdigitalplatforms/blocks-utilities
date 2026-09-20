@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Reporting;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Scheduling;
@@ -104,6 +105,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionFinancialDocumentRepository,
             SubscriptionFinancialDocumentRepository>();
+        // Reads every collection above and writes to none of them. A separate repository rather
+        // than report methods added to each one, so that the query shapes reporting needs - wide,
+        // tenant-spanning, aggregating - cannot be reached from the code paths that bill people.
+        services.AddSingleton<
+            ISubscriptionReportingRepository,
+            SubscriptionReportingRepository>();
         services.AddSingleton<
             IFinancialDocumentNumberAllocator,
             FinancialDocumentNumberAllocator>();
@@ -237,6 +244,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionMerchantProfileService,
             SubscriptionMerchantProfileService>();
+        services.AddScoped<
+            ISubscriptionReportingService,
+            SubscriptionReportingService>();
         // Singleton, matching every dependency it composes (the catalog, the provider repository
         // and the secret hydrator are all singletons themselves): it holds no per-request state,
         // reading a live document and live secrets on every call.

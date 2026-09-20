@@ -518,6 +518,7 @@
       <li><a href="#api-documents" class="sub">Invoices &amp; credit notes</a></li>
       <li><a href="#api-usage" class="sub">Usage</a></li>
       <li><a href="#api-ent" class="sub">Entitlements</a></li>
+      <li><a href="#api-reports" class="sub">Reports</a></li>
       <li><a href="#envelope">Envelope &amp; status codes</a></li>
       <li><a href="#errors">Error codes</a></li>
       <li><a href="#gotchas">Rules that bite</a></li>
@@ -3902,6 +3903,335 @@ POST /api/subscriptions
           <code>reason</code> when denied — a denial is an answer, not an error.</p>
         </div>
       </div>
+      <h3 id="api-reports">Reports</h3>
+
+      <p>Read-only reporting over the subscription book, served under
+      <code>/api/subscription-reports</code>. Every endpoint answers for the caller's own tenant
+      <em>across all of its organizations</em> &mdash; wider than every other endpoint here, which is
+      why they sit behind their own scope, <code>blocks-utilities::subscription-report::read</code>.
+      A client permitted to read its own subscription is not thereby permitted to read everyone's.</p>
+
+      <p>Figures are computed at request time from the live collections: no rollup, no staleness,
+      nothing to rebuild. <strong>Money is always grouped by currency and never summed across
+      currencies</strong> &mdash; this module holds no exchange rates and a subscription's currency is
+      fixed for its life, so a combined total would be an addition of unlike things.</p>
+
+      <p>Date windows are half-open: <code>fromUtc</code> inclusive, <code>toUtc</code> exclusive, so
+      consecutive windows tile exactly. Both default to the current calendar month. A window wider
+      than <strong>366 days</strong> is refused.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-reports/usage</span></div>
+        <div class="endpoint-body">
+          <p>Metered volume over time. Two months at <code>granularity=month</code> is a
+          month-over-month comparison; one day is today's total. There is no separate comparison
+          endpoint because there is no separate question.</p>
+          <h4>Query</h4>
+          <p><code>meterKey</code> &mdash; one meter; omit for all of them. A meter key is your own
+          word, never one this API knows.<br>
+          <code>fromUtc</code>, <code>toUtc</code> &mdash; the window.<br>
+          <code>granularity</code> &mdash; <code>day</code> or <code>month</code> (default
+          <code>month</code>). Anything else is refused rather than guessed at.</p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "fromUtc": "2026-02-01T00:00:00Z",
+    "toUtc": "2026-04-01T00:00:00Z",
+    "granularity": "month",
+    "buckets": [
+      {
+        "meterKey": "screenings",
+        "bucketStartUtc": "2026-02-01T00:00:00Z",
+        "consumedQuantity": 1240,
+        "reversedQuantity": 15,
+        "netQuantity": 1225,
+        "grantedQuantity": 0,
+        "recordCount": 1255
+      },
+      {
+        "meterKey": "screenings",
+        "bucketStartUtc": "2026-03-01T00:00:00Z",
+        "consumedQuantity": 1480,
+        "reversedQuantity": 0,
+        "netQuantity": 1480,
+        "grantedQuantity": 500,
+        "recordCount": 1481
+      }
+    ]
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…" }
+}</code></pre>
+          <p>Four figures, not one. Consumption and reversals are reported apart so a quiet month
+          can be told from a corrected one. <code>grantedQuantity</code> is excluded from
+          <code>netQuantity</code>: a grant raises an allowance, it is not something anybody
+          consumed.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> unknown granularity, inverted window, or a window
+          wider than 366 days.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-reports/recurring-revenue</span></div>
+        <div class="endpoint-body">
+          <p>Monthly and annual run-rate, by currency and seat tier. Computed from the live
+          subscriptions themselves, so it is forward-looking &mdash; a subscription that signed up
+          yesterday counts in full. Use <code>/revenue</code> for what was actually collected.</p>
+          <p>Gross is list price; net is after any promotional discount still being honoured, decided
+          by the same expression renewal charges through. The gap between them is what the live
+          discounts cost. Every tier is returned including the empty ones, so tier counts sum to the
+          subscription count.</p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "subscriptionCount": 128,
+    "currencies": [
+      {
+        "currencyCode": "CHF",
+        "grossMonthlyMinor": 4820000,
+        "netMonthlyMinor": 4515000,
+        "grossAnnualMinor": 57840000,
+        "netAnnualMinor": 54180000,
+        "subscriptionCount": 96,
+        "tiers": [
+          {
+            "tier": "1",
+            "minimumSeats": 1,
+            "maximumSeats": 1,
+            "subscriptionCount": 41,
+            "seatCount": 41,
+            "grossMonthlyMinor": 410000,
+            "netMonthlyMinor": 389000,
+            "grossAnnualMinor": 4920000,
+            "netAnnualMinor": 4668000
+          },
+          { "tier": "2-3", "minimumSeats": 2, "maximumSeats": 3, "…": "…" },
+          { "tier": "41+", "minimumSeats": 41, "maximumSeats": null, "…": "…" }
+        ]
+      }
+    ]
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…" }
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>503</code> organization unresolved.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-reports/revenue</span></div>
+        <div class="endpoint-body">
+          <p>Billed revenue over a window, split between the recurring fee and metered overage. The
+          split is exact rather than inferred: fees produce financial documents and overage produces
+          usage invoices, so the two are counted from different collections and no line item has to
+          be interpreted.</p>
+          <h4>Query</h4>
+          <p><code>fromUtc</code>, <code>toUtc</code> &mdash; the window.</p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "fromUtc": "2026-03-01T00:00:00Z",
+    "toUtc": "2026-04-01T00:00:00Z",
+    "currencies": [
+      {
+        "currencyCode": "CHF",
+        "subscriptionRevenueMinor": 4610000,
+        "overageRevenueMinor": 382000,
+        "totalRevenueMinor": 4992000,
+        "creditNoteMinor": 71000,
+        "subscriptionDocumentCount": 96,
+        "overageInvoiceCount": 23
+      }
+    ]
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…" }
+}</code></pre>
+          <p>Credit notes are reported beside the revenue, never subtracted from it: one commonly
+          refunds a charge from an earlier window, and netting it here would reduce a month that
+          never earned it.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> inverted or over-wide window.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-reports/dunning</span></div>
+        <div class="endpoint-body">
+          <p>What is failing to collect: subscriptions inside their dunning cycle, and usage invoices
+          still being retried.</p>
+          <p>Named for dunning rather than for overdue invoices because this module has no accounts
+          receivable. A financial document is issued only <em>after</em> a charge settles and has no
+          unpaid state &mdash; an invoice here is a receipt. These two lists are what is genuinely
+          outstanding.</p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "subscriptions": [
+      {
+        "subscriptionId": "…",
+        "organizationId": "…",
+        "status": "PastDue",
+        "planCode": "clinic",
+        "currencyCode": "CHF",
+        "periodAmountMinor": 29000,
+        "pastDueSinceUtc": "2026-03-04T02:11:00Z",
+        "dunningAttemptCount": 3,
+        "nextFeeBillingAtUtc": "2026-03-18T02:00:00Z",
+        "currentPeriodEndUtc": "2026-04-04T00:00:00Z"
+      }
+    ],
+    "usageInvoices": [
+      {
+        "usageInvoiceId": "…",
+        "subscriptionId": "…",
+        "organizationId": "…",
+        "periodKey": "2026-02",
+        "currencyCode": "CHF",
+        "totalAmountMinor": 14500,
+        "attemptCount": 2,
+        "nextAttemptAtUtc": "2026-03-16T09:00:00Z",
+        "lastError": "card_declined",
+        "createdAtUtc": "2026-03-01T02:00:00Z"
+      }
+    ],
+    "subscriptionCount": 7,
+    "usageInvoiceCount": 12
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…" }
+}</code></pre>
+          <p>The invoice list is capped at 200; <code>usageInvoiceCount</code> is not, so the true
+          size of a provider outage stays visible once the list has been truncated.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>503</code> organization unresolved.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-reports/subscriptions</span></div>
+        <div class="endpoint-body">
+          <p>Every subscription in the tenant with its plan, seat tier, run-rate and usage against
+          quota.</p>
+          <h4>Query</h4>
+          <p><code>pageSize</code> &mdash; 1&ndash;100, default 25.<br>
+          <code>after</code> &mdash; the opaque cursor from the previous page. A cursor is bound to
+          the tenant it was issued for and is refused anywhere else.</p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "subscriptionId": "…",
+        "organizationId": "…",
+        "status": "Active",
+        "planCode": "clinic",
+        "planName": "Clinic",
+        "seatTier": "10-24",
+        "seatCount": 14,
+        "currencyCode": "CHF",
+        "grossMonthlyMinor": 140000,
+        "netMonthlyMinor": 133000,
+        "cancelAtPeriodEnd": false,
+        "currentPeriodEndUtc": "2026-04-01T00:00:00Z",
+        "createdAtUtc": "2025-11-02T10:14:00Z",
+        "meters": [
+          {
+            "meterKey": "screenings",
+            "periodKey": "2026-03",
+            "included": 500,
+            "used": 412,
+            "remaining": 88,
+            "overage": 0,
+            "usedPercentOfQuota": 82.40,
+            "overageAllowed": true,
+            "updatedAtUtc": "2026-03-15T11:58:02Z"
+          }
+        ]
+      }
+    ],
+    "pageInfo": { "pageSize": 25, "hasNextPage": true, "nextCursor": "eyJWZXJzaW9u…" }
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…" }
+}</code></pre>
+          <p>Usage comes from the published current-usage projection, which can lag or have published
+          nothing yet. A subscription with no published row returns <code>meters: []</code> rather
+          than zeroed figures &mdash; an absent projection and a genuinely unused meter mean opposite
+          things. <code>updatedAtUtc</code> makes staleness visible instead of assumed, and
+          <code>usedPercentOfQuota</code> is <code>null</code> where the allowance is zero or
+          unlimited, since a zero there would read as &ldquo;unused&rdquo;.</p>
+          <p>Projection rows expire with their period, so this report covers the current period only.
+          It is never an entitlement check: only <code>POST /api/subscription-usage</code> settles
+          whether a unit may be consumed.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> page size out of bounds, or a cursor that is invalid
+          or was issued to another tenant.</p>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-reports/coupons</span></div>
+        <div class="endpoint-body">
+          <p>Coupon uptake, and what each code earned and gave away.</p>
+          <h4>Query</h4>
+          <p><code>fromUtc</code>, <code>toUtc</code> &mdash; the window. Uptake is dated by when the
+          subscription was created; revenue by when the document was issued.</p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": {
+    "fromUtc": "2026-03-01T00:00:00Z",
+    "toUtc": "2026-04-01T00:00:00Z",
+    "coupons": [
+      {
+        "code": "SPRING",
+        "redeemingOrganizations": 34,
+        "subscriptionCount": 37,
+        "campaignStates": [],
+        "currencies": [
+          {
+            "currencyCode": "CHF",
+            "revenueMinor": 812000,
+            "discountGivenMinor": 203000,
+            "documentCount": 37
+          }
+        ]
+      },
+      {
+        "code": "LAUNCH",
+        "redeemingOrganizations": 12,
+        "subscriptionCount": 12,
+        "campaignStates": [
+          { "state": "Redeemed", "count": 11 },
+          { "state": "Released", "count": 1 }
+        ],
+        "currencies": [ { "currencyCode": "CHF", "…": "…" } ]
+      }
+    ]
+  },
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…" }
+}</code></pre>
+          <p>Uptake is counted from the discount recorded on subscriptions, not from the campaign
+          redemption ledger. Redemptions are written only for campaign-kind discounts, so a count
+          taken from there would report zero for every ordinary promotional code &mdash; a wrong
+          answer indistinguishable from a real one. <code>campaignStates</code> is therefore empty for
+          an ordinary code: a real distinction, not missing data.</p>
+          <p><code>redeemingOrganizations</code> counts organizations, which is what every record
+          involved is keyed to.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> · <code>400</code> inverted or over-wide window.</p>
+        </div>
+      </div>
+
     </section>
 
     <!-- ================= ENVELOPE ================= -->
