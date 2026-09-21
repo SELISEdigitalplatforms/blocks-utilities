@@ -97,6 +97,13 @@ public sealed class PaymentDetail
     public string? RedirectUrl { get; set; }
     public string? PspReference { get; set; }
     public string? CustomerOrganizationId { get; set; }
+
+    /// <summary>
+    /// The organization a card this payment saves is filed under, when that is not the merchant
+    /// scope in <see cref="OrganizationId"/>. Set only by callers inside the process; see
+    /// <see cref="Utilities.PaymentMethodOwnership"/>.
+    /// </summary>
+    public string? PaymentMethodOwnerOrganizationId { get; set; }
     public string? CaptureId { get; set; }
     public string? SiteId { get; set; }
     public string? OrderId { get; set; }

@@ -308,7 +308,9 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
                         StripeInvoiceOutcome.Success,
                         invoice.Id,
                         invoice.Status,
-                        AmountMinor: invoice.AmountDue);
+                        AmountMinor: invoice.AmountDue,
+                        TotalMinor: invoice.Total,
+                        StartingBalanceMinor: invoice.StartingBalance);
                 }
 
                 return new StripeInvoiceCallResult(
@@ -316,7 +318,9 @@ public sealed class StripeInvoiceClient : IStripeInvoiceClient
                     invoice.Id,
                     invoice.Status,
                     ProviderRejectionParser.SanitizeErrorCode(invoice.Status),
-                    invoice.AmountDue);
+                    invoice.AmountDue,
+                    invoice.Total,
+                    invoice.StartingBalance);
             }
 
             return Classify(provider, invoice?.Error, error, operation);

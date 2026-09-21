@@ -56,5 +56,11 @@ public sealed class EntitlementResponse
 
     public decimal? Remaining { get; init; }
 
+    /// <summary>
+    /// Whether use past <see cref="Limit"/> is permitted and billed as overage. When true,
+    /// <see cref="Remaining"/> is what is left before overage starts, not a stopping point.
+    /// </summary>
+    public bool OverageAllowed { get; init; }
+
     public string? UnitLabel { get; init; }
 }

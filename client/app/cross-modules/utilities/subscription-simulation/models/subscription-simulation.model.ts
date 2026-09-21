@@ -554,6 +554,8 @@ export interface EntitlementDecision {
   limit: number | null;
   used?: number | null;
   remaining?: number | null;
+  /** Use past `limit` is permitted and billed as overage, so `remaining` is not a stopping point. */
+  overageAllowed?: boolean;
   unitLabel: string | null;
 }
 
