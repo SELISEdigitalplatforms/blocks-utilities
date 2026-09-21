@@ -273,7 +273,9 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
         // the amount never reached Stripe as intended — a line left off leaves nothing owed, and
         // "nothing owed" arrives here indistinguishable from "already settled". Failing closed
         // keeps the subscription unpaid and visible instead of advancing a period for free.
-        if (finalized.AmountMinor is { } owed && owed != request.AmountMinor)
+        if (finalized.AmountMinor is { } owed &&
+            owed != request.AmountMinor &&
+            !IsCarriedBalanceOnly(finalized, request.AmountMinor))
         {
             paymentMethodId = string.Empty;
             await _invoices.VoidInvoiceAsync(provider, invoice.InvoiceOrItemId!, cancellationToken);
@@ -287,6 +289,19 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
                 owed);
 
             return Unavailable("subscription_invoice_amount_mismatch", correlationId);
+        }
+
+        if (finalized.AmountMinor is { } collecting && collecting != request.AmountMinor)
+        {
+            _logger.LogWarning(
+                "A Stripe invoice is also collecting a balance the customer already owed; charged " +
+                "as asked, with that balance on top ProviderInvoiceId={ProviderInvoiceId} " +
+                "ExpectedMinor={ExpectedMinor} InvoicedMinor={InvoicedMinor} " +
+                "CarriedBalanceMinor={CarriedBalanceMinor}",
+                PaymentLogValue.Id(invoice.InvoiceOrItemId!),
+                request.AmountMinor,
+                collecting,
+                finalized.StartingBalanceMinor);
         }
 
         if (IsPaid(finalized.Status))
@@ -520,6 +535,27 @@ public sealed class StripeInvoiceBillingGateway : ISubscriptionBillingGateway
     /// </summary>
     private static bool IsPaid(string? status) =>
         string.Equals(status, "paid", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether an invoice owes more than was asked only because Stripe added a balance the
+    /// customer already owed.
+    /// </summary>
+    /// <remarks>
+    /// Stripe will not charge a card less than its minimum. An invoice below that is marked paid
+    /// with its amount moved to the customer's balance, and the next invoice collects it. Every
+    /// charge after such an invoice then came out a few cents over what was asked, was voided by
+    /// the exact-amount check, and retried into the same mismatch forever.
+    /// <para>
+    /// Accepted only when the invoice's own lines total exactly what was asked, and the whole
+    /// difference is a positive starting balance. A line dropped or mispriced still changes the
+    /// total and still fails closed. Credit still fails too: it would collect less than the
+    /// charge records, the case the check exists to catch.
+    /// </para>
+    /// </remarks>
+    private static bool IsCarriedBalanceOnly(StripeInvoiceCallResult finalized, long askedMinor) =>
+        finalized is { AmountMinor: { } owed, TotalMinor: { } total, StartingBalanceMinor: > 0 and var carried } &&
+        total == askedMinor &&
+        owed == total + carried;
 
     /// <summary>
     /// Names the tax line, with its rate where one is known.

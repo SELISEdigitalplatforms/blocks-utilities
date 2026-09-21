@@ -129,7 +129,14 @@ public sealed record StripeInvoiceCallResult(
     /// The invoice's <c>amount_due</c>, so a caller can check Stripe is about to collect what was
     /// asked for. Null on calls that answer with something other than an invoice.
     /// </summary>
-    long? AmountMinor = null)
+    long? AmountMinor = null,
+    /// <summary>The invoice's <c>total</c>: its own lines, before any customer balance.</summary>
+    long? TotalMinor = null,
+    /// <summary>
+    /// The invoice's <c>starting_balance</c>: positive when the customer already owed that much
+    /// and Stripe is collecting it here, negative for credit.
+    /// </summary>
+    long? StartingBalanceMinor = null)
 {
     public bool IsSuccess => Outcome == StripeInvoiceOutcome.Success;
 }

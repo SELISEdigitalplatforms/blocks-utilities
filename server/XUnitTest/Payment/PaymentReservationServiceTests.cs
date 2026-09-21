@@ -100,6 +100,36 @@ public sealed class PaymentReservationServiceTests
     }
 
     /// <summary>
+    /// The organization a saved card is filed under travels onto the payment, where the webhook
+    /// that stores the card reads it.
+    /// </summary>
+    [Fact]
+    public async Task ReserveAsync_CarriesTheSavedCardsOwnerOntoThePayment()
+    {
+        SetupCreate(true);
+        _request.PaymentMethodOwnerOrganizationId = "subscriber-org";
+
+        await RunAsync();
+
+        Created().PaymentMethodOwnerOrganizationId.Should().Be("subscriber-org");
+    }
+
+    /// <summary>
+    /// Decides whose card a token becomes, so an HTTP caller must not be able to name it -- unlike
+    /// CustomerOrganizationId, which is shopper data a caller sets freely.
+    /// </summary>
+    [Fact]
+    public void A_request_body_cannot_name_the_saved_cards_owner()
+    {
+        var request = System.Text.Json.JsonSerializer.Deserialize<MakePaymentRequest>(
+            """{"paymentMethodOwnerOrganizationId":"victim-org","customerOrganizationId":"victim-org"}""",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        request!.PaymentMethodOwnerOrganizationId.Should().BeNull();
+        request.CustomerOrganizationId.Should().Be("victim-org");
+    }
+
+    /// <summary>
     /// The console runs as one organization but may need to pay through another's merchant
     /// account. Provider lookup keys off the payment's organization, so stamping the named
     /// one is what makes that provider reachable — without it the payment reports

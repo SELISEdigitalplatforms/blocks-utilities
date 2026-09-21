@@ -409,8 +409,8 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
         string providerName,
         CancellationToken cancellationToken)
     {
-        // Scoped to this payment's organization, which is what the card was stamped with when
-        // it was saved. A payer identity minted for one organization means nothing to another,
+        // Scoped to the organization the card was stamped with when it was saved -- see
+        // PaymentMethodOwnership. A payer identity minted for one organization means nothing to another,
         // and naming it there would attach this payment to a customer that has never been seen.
         //
         // Asked of every card the shopper has saved, not only the ones still active: removing
@@ -426,7 +426,7 @@ public sealed class HostedCheckoutInitiationService : IPaymentInitiationService
             [
                 new StoredPaymentMethodLookupScope(
                     shopperReference,
-                    payment.OrganizationId)
+                    PaymentMethodOwnership.OrganizationOf(payment))
             ],
             providerName,
             cancellationToken);

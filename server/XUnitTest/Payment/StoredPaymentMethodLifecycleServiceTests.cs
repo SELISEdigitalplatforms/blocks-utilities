@@ -490,6 +490,78 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
     }
 
     /// <summary>
+    /// A subscriber pays through the tenant's merchant scope, so its payment carries the merchant
+    /// organization. Filing the card there left the subscriber's billing account -- which adopts
+    /// its card by the subscriber -- with nothing to adopt, and a zero-amount signup never
+    /// activated. The card is the subscriber's; only its encryption follows the merchant.
+    /// </summary>
+    [Fact]
+    public async Task A_card_saved_for_a_subscriber_is_filed_under_the_subscriber_and_sealed_by_the_merchant()
+    {
+        var fixture = new Fixture();
+        fixture.Providers
+            .Setup(cache => cache.GetAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync(new PaymentProvider
+            {
+                TenantId = "tenant-1",
+                OrganizationId = "merchant-org"
+            });
+
+        var payment = PaymentWith(rememberCard: true);
+        payment.OrganizationId = "merchant-org";
+        payment.PaymentMethodOwnerOrganizationId = "subscriber-org";
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(
+            fixture.TokenWebhook("AUTHORISATION"), payment, CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.UpsertFromProviderAsync(
+                It.Is<StoredPaymentMethod>(method =>
+                    method.OrganizationId == "subscriber-org" &&
+                    method.EncryptionOrganizationId == "merchant-org"),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// The same card saved for a second organization must not be merged into the first one's
+    /// record. On dev one shopper's card setup for a new organization swapped its token into the
+    /// console organization's card, because both were filed under the merchant.
+    /// </summary>
+    [Fact]
+    public async Task The_same_card_saved_for_another_organization_is_matched_only_within_that_organization()
+    {
+        var fixture = new Fixture();
+        fixture.ArrangeSameCardAlreadySaved("card-fp", "console-org-card");
+        var payment = PaymentWith(rememberCard: true);
+        payment.OrganizationId = "merchant-org";
+        payment.PaymentMethodOwnerOrganizationId = "subscriber-org";
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(
+            fixture.TokenWebhook("AUTHORISATION"), payment, CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.GetByCardFingerprintAsync(
+                It.IsAny<string>(),
+                "subscriber-org",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                "card-fp",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.Methods.Verify(repository => repository.GetByCardFingerprintAsync(
+                It.IsAny<string>(),
+                "merchant-org",
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "another organization's record of the same card is not this one's to take over");
+    }
+
+    /// <summary>
     /// Organizations that are subscribers of one tenant-level account, not merchants in their
     /// own right, must have their cards encrypted under the tenant's ring — never a ring named
     /// for the organization, which does not exist and never will.
