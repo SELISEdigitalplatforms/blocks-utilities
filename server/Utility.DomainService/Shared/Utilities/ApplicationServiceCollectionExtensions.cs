@@ -109,6 +109,10 @@ namespace DomainService.Utilities
             // Register Storage Driver Services (required for StorageHelper)
             services.AddTransient<AwsS3CompatibleStorageService>();
             services.RegisterBlocksStorageServices();
+            // Not registered by the driver, but needed to create the directories uploads go into:
+            // driver 4.1.2 refuses an upload whose parent directory does not exist.
+            services.TryAddSingleton<IFileDirectoryManagementService, FileDirectoryManagementService>();
+            services.TryAddSingleton<Utility.DomainService.Storage.StorageDirectoryResolver>();
             services.AddTransient<IValidator<UpdateFileRequest>, UpdateFileRequestValidator>();
 
             // Workflow Services (registered via extension method)

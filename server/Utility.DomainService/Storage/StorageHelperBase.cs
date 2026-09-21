@@ -20,12 +20,27 @@ namespace Utility.DomainService.Storage
 
         protected readonly ILogger _logger;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly StorageDirectoryResolver? _directories;
 
-        protected StorageHelperBase(ILogger logger, IHttpClientFactory httpClientFactory)
+        protected StorageHelperBase(
+            ILogger logger,
+            IHttpClientFactory httpClientFactory,
+            StorageDirectoryResolver? directories = null)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
+            _directories = directories;
         }
+
+        /// <summary>
+        /// The real parent directory id for a logical directory name -- see
+        /// <see cref="StorageDirectoryResolver"/>. Passed through unchanged when no resolver was
+        /// supplied, which only a hand-constructed helper lacks; the container always supplies one.
+        /// </summary>
+        protected Task<string?> ResolveParentDirectoryAsync(string logicalName) =>
+            _directories is null
+                ? Task.FromResult<string?>(logicalName)
+                : _directories.ResolveAsync(logicalName);
 
         /// <summary>
         /// Creates a storage <see cref="HttpClient"/> from the factory.

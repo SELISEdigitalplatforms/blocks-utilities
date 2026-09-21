@@ -16,8 +16,9 @@ namespace Utility.DomainService.TemplateEngine.service
         public StorageHelper(
             ILogger<StorageHelper> logger,
             IStorageDriverService storageDriverService,
-            IHttpClientFactory httpClientFactory)
-            : base(logger, httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            StorageDirectoryResolver? directories = null)
+            : base(logger, httpClientFactory, directories)
         {
             _storageDriverService = storageDriverService;
         }
@@ -43,12 +44,19 @@ namespace Utility.DomainService.TemplateEngine.service
                 }
             }
 
+            var parentDirectory = await ResolveParentDirectoryAsync(parentDirectoryId);
+            if (parentDirectory is null)
+            {
+                _logger.LogError("SaveFileToStorage: No storage directory for {Directory}, fileId={FileId}", parentDirectoryId, fileId);
+                return false;
+            }
+
             var payload = new GetPreSignedUrlForUploadRequest
             {
                 ItemId = fileId,
                 MetaData = formattedMetadata.Count > 0 ? JsonConvert.SerializeObject(formattedMetadata) : string.Empty,
                 Name = fileName,
-                ParentDirectoryId = parentDirectoryId,
+                ParentDirectoryId = parentDirectory,
                 Tags = "[\"File\"]",
                 AccessModifier = "Private",
             };

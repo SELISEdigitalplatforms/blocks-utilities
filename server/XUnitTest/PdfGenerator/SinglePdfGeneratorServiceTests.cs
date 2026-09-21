@@ -24,7 +24,8 @@ namespace XUnitTest.PdfGenerator
             _storageMock = new Mock<PdfStorageHelper>(
                 Mock.Of<ILogger<PdfStorageHelper>>(),
                 Mock.Of<IStorageDriverService>(),
-                Mock.Of<IHttpClientFactory>());
+                Mock.Of<IHttpClientFactory>(),
+                (Utility.DomainService.Storage.StorageDirectoryResolver?)null);
 
             _loggerMock = new Mock<ILogger<SinglePdfGeneratorService>>();
         }
