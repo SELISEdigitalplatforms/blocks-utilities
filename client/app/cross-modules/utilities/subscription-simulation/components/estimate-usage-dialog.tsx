@@ -11,23 +11,28 @@ import {
 } from "@/components/ui-kits/dialog/dialog";
 import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
+import {
+  isWithinMagnitude,
+  isWithinScale,
+  stepFor,
+} from "../../subscription/utilities/meter-quantity";
 import { formatMoney } from "../../subscription/utilities/subscription-format";
 import { usePreviewUsageOverage } from "../hooks/use-preview-usage-overage";
 import type { MeterTerms, UsageOveragePreviewResult } from "../models/subscription-simulation.model";
 
 /**
- * A whole, positive number of additional units -- anything else answers nothing, so the call is
- * never made for it. Parsed rather than validated with a regex: the input is a number field, and
- * what actually reaches the server has to survive `Number.isInteger`, not merely look like digits.
+ * A positive quantity the meter can actually hold -- anything else answers nothing, so the call is
+ * never made for it. Held to the meter's own `quantityScale`, the same rule the server applies, so
+ * a fractional meter accepts 500.5 and a whole-unit meter still refuses it.
  */
-const parseWholeQuantity = (raw: string): number | null => {
+const parseQuantity = (raw: string, scale: number): number | null => {
   if (raw.trim() === "") {
     return null;
   }
 
   const parsed = Number(raw);
 
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return parsed > 0 && isWithinScale(parsed, scale) && isWithinMagnitude(parsed) ? parsed : null;
 };
 
 const ChargeLine = ({
@@ -146,11 +151,17 @@ export const EstimateUsageDialog = ({
   const [quantity, setQuantity] = useState("1");
   const [formError, setFormError] = useState<string | null>(null);
 
+  const scale = meter.quantityScale ?? 0;
+
   const submit = async () => {
-    const parsedQuantity = parseWholeQuantity(quantity);
+    const parsedQuantity = parseQuantity(quantity, scale);
 
     if (parsedQuantity === null) {
-      setFormError("Enter a whole number of additional units greater than zero.");
+      setFormError(
+        scale === 0
+          ? "Enter a whole number of additional units greater than zero."
+          : `Enter a quantity greater than zero with at most ${scale} decimal places.`,
+      );
       return;
     }
 
@@ -196,8 +207,8 @@ export const EstimateUsageDialog = ({
             <Input
               id="estimate-usage-quantity"
               type="number"
-              min={1}
-              step={1}
+              min={stepFor(scale)}
+              step={stepFor(scale)}
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
             />
