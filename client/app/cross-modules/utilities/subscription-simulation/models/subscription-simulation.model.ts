@@ -143,6 +143,11 @@ export interface MeterTerms {
   unitLabel: string;
   /** Per period, or for the subscription's lifetime when `resetPolicy` is `"Never"`. */
   includedQuantity: number;
+  /**
+   * What the trial includes instead of `includedQuantity`, while the subscription is `"Trialing"`
+   * and its trial grants this meter. Null (or absent) otherwise.
+   */
+  trialIncludedQuantity?: number | null;
   resetPolicy: "Periodic" | "Never" | "CarryForward";
   /** The most that may roll into one window under `"CarryForward"`. Null otherwise. */
   carryForwardCap: number | null;
