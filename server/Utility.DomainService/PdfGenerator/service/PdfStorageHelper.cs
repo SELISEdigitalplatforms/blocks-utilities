@@ -29,7 +29,7 @@ namespace Utility.DomainService.PdfGenerator.service
         /// <summary>
         /// Saves a PDF file to storage
         /// </summary>
-        public virtual async Task<bool> SavePdfToStorage(Stream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-PDF-Generated-Files", string? projectKey = null, string accessModifier = "Private")
+        public virtual async Task<bool> SavePdfToStorage(Stream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-PDF-Generated-Files", string? projectKey = null, string accessModifier = "Private", string? objectAccessLevel = null)
         {
             _logger.LogInformation("SavePdfToStorage: Saving PDF to storage -- fileId={FileId}, fileName={FileName}", fileId, fileName);
 
@@ -47,7 +47,7 @@ namespace Utility.DomainService.PdfGenerator.service
                 }
             }
 
-            var parentDirectory = await ResolveParentDirectoryAsync(parentDirectoryId);
+            var parentDirectory = await ResolveParentDirectoryAsync(parentDirectoryId, objectAccessLevel);
             if (parentDirectory is null)
             {
                 _logger.LogError("SavePdfToStorage: No storage directory for {Directory}, fileId={FileId}", parentDirectoryId, fileId);
@@ -61,14 +61,17 @@ namespace Utility.DomainService.PdfGenerator.service
                 Name = fileName,
                 ParentDirectoryId = parentDirectory,
                 Tags = "[\"PDF\"]",
-                AccessModifier = string.IsNullOrWhiteSpace(accessModifier) ? "Private" : accessModifier
+                AccessModifier = string.IsNullOrWhiteSpace(accessModifier) ? "Private" : accessModifier,
+                // Who, besides the storage ACL's own rules, may use the file. "Creator" confines it to
+                // the principal that uploaded it -- see StorageServiceIdentity.
+                ObjectAccessLevel = objectAccessLevel
             };
 
             _logger.LogInformation(
                 "SavePdfToStorage: Requesting upload URL fileId={FileId}, name={Name}, parentDirectory={ParentDirectory}, " +
-                "accessModifier={AccessModifier}, tags={Tags}, metadataKeys={MetadataKeys}",
-                fileId, payload.Name, payload.ParentDirectoryId, payload.AccessModifier, payload.Tags,
-                formattedMetadata.Count);
+                "accessModifier={AccessModifier}, objectAccessLevel={ObjectAccessLevel}, tags={Tags}, metadataKeys={MetadataKeys}",
+                fileId, payload.Name, payload.ParentDirectoryId, payload.AccessModifier, payload.ObjectAccessLevel ?? "none",
+                payload.Tags, formattedMetadata.Count);
 
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
             if (fileInfo == null || string.IsNullOrEmpty(fileInfo.UploadUrl))

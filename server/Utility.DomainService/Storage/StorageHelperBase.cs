@@ -37,20 +37,11 @@ namespace Utility.DomainService.Storage
         /// <see cref="StorageDirectoryResolver"/>. Passed through unchanged when no resolver was
         /// supplied, which only a hand-constructed helper lacks; the container always supplies one.
         /// </summary>
-        protected Task<string?> ResolveParentDirectoryAsync(string logicalName) =>
+        protected Task<string?> ResolveParentDirectoryAsync(string logicalName, string? objectAccessLevel = null) =>
             _directories is null
                 ? Task.FromResult<string?>(logicalName)
-                : _directories.ResolveAsync(logicalName);
+                : _directories.ResolveAsync(logicalName, objectAccessLevel);
 
-        /// <summary>
-        /// Creates a storage <see cref="HttpClient"/> from the factory.
-        /// </summary>
-        /// <remarks>
-        /// The factory owns the underlying handler and its connection pool, so the returned client
-        /// is cheap to create per call and must not be disposed — that is the whole point of going
-        /// through the factory rather than <c>new HttpClient()</c>, which leaks a socket pool per
-        /// instance and exhausts ports under load.
-        /// </remarks>
         /// <summary>
         /// A driver response's own account of itself, for a log line.
         /// </summary>
@@ -110,11 +101,26 @@ namespace Utility.DomainService.Storage
         public static string Redact(string text) =>
             SignatureLikeValue().Replace(text, match => $"{match.Groups[1].Value}=<redacted>");
 
+        /// <summary>A URL with its query string and fragment removed, for logging.</summary>
+        public static string WithoutQuery(string url) =>
+            Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                ? uri.GetLeftPart(UriPartial.Path)
+                : Redact(url);
+
         [System.Text.RegularExpressions.GeneratedRegex(
             """(sig|signature|x-amz-signature|x-amz-credential|awsaccesskeyid|skoid|sktid|sks|se|st|sp|sv)=([^&\s"'<]+)""",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
         private static partial System.Text.RegularExpressions.Regex SignatureLikeValue();
 
+        /// <summary>
+        /// Creates a storage <see cref="HttpClient"/> from the factory.
+        /// </summary>
+        /// <remarks>
+        /// The factory owns the underlying handler and its connection pool, so the returned client
+        /// is cheap to create per call and must not be disposed — that is the whole point of going
+        /// through the factory rather than <c>new HttpClient()</c>, which leaks a socket pool per
+        /// instance and exhausts ports under load.
+        /// </remarks>
         protected HttpClient CreateHttpClient() =>
             _httpClientFactory.CreateClient(StorageHttpClientName);
 
@@ -123,7 +129,9 @@ namespace Utility.DomainService.Storage
         /// </summary>
         protected async Task<Stream?> GetFileStreamFromUrl(string fileUrl)
         {
-            _logger.LogInformation("GetFileStreamFromUrl: Downloading file from URL={FileUrl}", fileUrl);
+            // Never the whole URL: for a private file it is a signed link, and the query string is
+            // the signature. Anyone reading the log could otherwise fetch the file themselves.
+            _logger.LogInformation("GetFileStreamFromUrl: Downloading file from URL={FileUrl}", WithoutQuery(fileUrl));
 
             var httpClient = CreateHttpClient();
 

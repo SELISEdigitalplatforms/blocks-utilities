@@ -59,7 +59,15 @@ namespace Utility.DomainService.Storage
         /// The real directory id for <paramref name="logicalName"/>, or null when it could neither be
         /// found nor created.
         /// </summary>
-        public virtual async Task<string?> ResolveAsync(string logicalName, CancellationToken cancellationToken = default)
+        /// <param name="objectAccessLevel">
+        /// The driver's object access level to create the directory with -- e.g. <c>"Creator"</c> for
+        /// one only its creating principal may use. Applied on creation only: an existing directory is
+        /// never rewritten, only reported when it does not match.
+        /// </param>
+        public virtual async Task<string?> ResolveAsync(
+            string logicalName,
+            string? objectAccessLevel = null,
+            CancellationToken cancellationToken = default)
         {
             var name = NameFor(logicalName);
 
@@ -81,7 +89,19 @@ namespace Utility.DomainService.Storage
                     logicalName);
             }
 
-            var id = (await _repository.GetDefaultDirectoryByModuleNameAsync(name, cancellationToken))?.ItemId;
+            var existing = await _repository.GetDefaultDirectoryByModuleNameAsync(name, cancellationToken);
+            var id = existing?.ItemId;
+
+            if (existing is not null &&
+                !string.Equals(existing.ObjectAccessLevel?.ToString(), objectAccessLevel, StringComparison.OrdinalIgnoreCase) &&
+                !(existing.ObjectAccessLevel is null && string.IsNullOrEmpty(objectAccessLevel)))
+            {
+                // Not corrected here: changing who may use a directory is an access decision, not
+                // something to do silently on the upload path. Loud, so it is noticed.
+                _logger.LogWarning(
+                    "StorageDirectoryResolver: directory Name={Name} Id={Id} has access level {Actual}, expected {Expected}",
+                    name, id, existing.ObjectAccessLevel?.ToString() ?? "none", objectAccessLevel ?? "none");
+            }
 
             if (id is null)
             {
@@ -90,6 +110,7 @@ namespace Utility.DomainService.Storage
                     parentDirectoryId: null,
                     description: name,
                     moduleName: name,
+                    objectAccessLevel: objectAccessLevel,
                     cancellationToken: cancellationToken);
 
                 // NameConflict: another worker created it between the lookup and the insert. Theirs stands.

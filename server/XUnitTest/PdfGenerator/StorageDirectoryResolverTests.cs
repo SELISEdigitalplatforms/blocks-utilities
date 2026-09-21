@@ -86,6 +86,18 @@ namespace XUnitTest.PdfGenerator
         }
 
         [Fact]
+        public async Task A_directory_is_created_with_the_access_level_asked_for()
+        {
+            Existing(Configured, null);
+            CreateReturns(DirectoryOperationResult.Success("dir-locked"));
+
+            (await Resolver().ResolveAsync(Logical, "Creator")).Should().Be("dir-locked");
+
+            _directories.Verify(x => x.CreateDirectoryAsync(
+                Configured, null, Configured, null, Configured, null, "Creator", It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
         public async Task Losing_the_creation_race_uses_the_directory_the_winner_created()
         {
             _repository
