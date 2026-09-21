@@ -131,36 +131,21 @@ public sealed class SubscriptionRepairAnnouncer
         // here by comparing versions rather than reported by whoever caused it.
         if (_usageProjections is not null)
         {
-            var repaired = await _usageProjections.SweepTenantAsync(
-                tenantId,
-                $"sweep:{tenantId}",
-                stoppingToken);
-
-            if (repaired > 0)
+            // Contained, not propagated: everything below schedules billing work -- renewals,
+            // trial conversions, cancellations, usage closures -- and a read model nobody bills
+            // from must never be what stops it. Before this, one projection row that could not be
+            // written threw out of here on every pass, and from 2026-09-16 a dev tenant had no
+            // renewal or trial conversion scheduled at all.
+            try
             {
-                _logger.LogInformation(
-                    "Repair sweep republished usage projections that were behind their counters " +
-                    "RepairedCount={RepairedCount} TenantId={TenantId}",
-                    repaired,
-                    PaymentLogValue.Id(tenantId));
+                await RepairUsageProjectionsAsync(_usageProjections, tenantId, stoppingToken);
             }
-
-            // The sweep above compares rows that already exist, so it can never find a subscription
-            // whose row was never written -- exactly what an activation path that skips the
-            // publish (see StartWithoutPaymentAsync) leaves behind. Nothing else in this codebase
-            // ever schedules a tenant-wide UsageProjectionRefresh work item, so without this call
-            // the backfill this class's own remarks call "the durable path" never actually runs.
-            var backfilled = await _usageProjections.BackfillTenantAsync(
-                tenantId,
-                $"backfill:{tenantId}",
-                stoppingToken);
-
-            if (backfilled.Written > 0)
+            catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                _logger.LogInformation(
-                    "Repair sweep backfilled missing usage projections " +
-                    "WrittenCount={WrittenCount} TenantId={TenantId}",
-                    backfilled.Written,
+                _logger.LogWarning(
+                    exception,
+                    "Repair sweep could not repair usage projections; scheduling due work anyway " +
+                    "TenantId={TenantId}",
                     PaymentLogValue.Id(tenantId));
             }
         }
@@ -227,6 +212,45 @@ public sealed class SubscriptionRepairAnnouncer
         }
 
         return scheduled;
+    }
+
+    private async Task RepairUsageProjectionsAsync(
+        IUsageProjectionReconciler usageProjections,
+        string tenantId,
+        CancellationToken stoppingToken)
+    {
+        var repaired = await usageProjections.SweepTenantAsync(
+            tenantId,
+            $"sweep:{tenantId}",
+            stoppingToken);
+
+        if (repaired > 0)
+        {
+            _logger.LogInformation(
+                "Repair sweep republished usage projections that were behind their counters " +
+                "RepairedCount={RepairedCount} TenantId={TenantId}",
+                repaired,
+                PaymentLogValue.Id(tenantId));
+        }
+
+        // The sweep above compares rows that already exist, so it can never find a subscription
+        // whose row was never written -- exactly what an activation path that skips the
+        // publish (see StartWithoutPaymentAsync) leaves behind. Nothing else in this codebase
+        // ever schedules a tenant-wide UsageProjectionRefresh work item, so without this call
+        // the backfill this class's own remarks call "the durable path" never actually runs.
+        var backfilled = await usageProjections.BackfillTenantAsync(
+            tenantId,
+            $"backfill:{tenantId}",
+            stoppingToken);
+
+        if (backfilled.Written > 0)
+        {
+            _logger.LogInformation(
+                "Repair sweep backfilled missing usage projections " +
+                "WrittenCount={WrittenCount} TenantId={TenantId}",
+                backfilled.Written,
+                PaymentLogValue.Id(tenantId));
+        }
     }
 
     private async Task<IReadOnlyCollection<SubscriptionWorkType>> FindDueWorkTypesAsync(

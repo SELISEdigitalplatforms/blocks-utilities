@@ -259,6 +259,29 @@ public sealed class SubscriptionQueueMandatoryTests
         });
     }
 
+    /// <summary>
+    /// The usage projection is a read model nobody bills from, so a repair of it that throws must
+    /// not stop the sweep scheduling what is actually owed. On dev one unwritable projection row
+    /// did exactly that from 2026-09-16: no renewal and no trial conversion was scheduled again.
+    /// </summary>
+    [Fact]
+    public async Task A_failing_usage_projection_repair_does_not_stop_due_renewals_being_announced()
+    {
+        DueForRenewal();
+
+        var projections = new Mock<IUsageProjectionReconciler>();
+        projections
+            .Setup(reconciler => reconciler.SweepTenantAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("duplicate key"));
+
+        var announced = await Announcer(projections.Object)
+            .AnnounceAsync(TenantId, CancellationToken.None);
+
+        announced.Should().Be(1);
+        _announced.Should().Equal(SubscriptionWorkType.Renewal);
+    }
+
     [Fact]
     public async Task A_tenant_owing_nothing_is_announced_for_nothing()
     {
@@ -518,7 +541,8 @@ public sealed class SubscriptionQueueMandatoryTests
             Options.Create(options),
             NullLogger<SubscriptionQueueMandate>.Instance);
 
-    private SubscriptionRepairAnnouncer Announcer() => new(
+    private SubscriptionRepairAnnouncer Announcer(
+        IUsageProjectionReconciler? usageProjections = null) => new(
         _scheduler.Object,
         _subscriptions.Object,
         _links.Object,
@@ -529,7 +553,8 @@ public sealed class SubscriptionQueueMandatoryTests
         _cancellation.Object,
         new OptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionRepairAnnouncer>.Instance,
-        _time);
+        _time,
+        usageProjections: usageProjections);
 
     private SubscriptionQueueHealthCheck Health(
         Mock<ISubscriptionWorkQueue> queue,
