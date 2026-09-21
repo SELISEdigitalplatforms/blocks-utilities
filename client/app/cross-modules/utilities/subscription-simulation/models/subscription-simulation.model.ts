@@ -143,6 +143,8 @@ export interface MeterTerms {
   unitLabel: string;
   /** Per period, or for the subscription's lifetime when `resetPolicy` is `"Never"`. */
   includedQuantity: number;
+  /** How many decimal places this meter's quantities may carry. Zero (or absent) means whole units. */
+  quantityScale?: number;
   /**
    * What the trial includes instead of `includedQuantity`, while the subscription is `"Trialing"`
    * and its trial grants this meter. Null (or absent) otherwise.
