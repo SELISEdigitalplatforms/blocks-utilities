@@ -274,7 +274,11 @@ public sealed class EntitlementService : IEntitlementService
     /// A trial's grant replaces the plan's limit, matching how usage recording measures it.
     /// The two must agree or a caller is told it may act and then refused.
     /// </summary>
-    private static decimal LimitFor(
+    /// <remarks>
+    /// Internal so the published entitlements read model reports the same figure; it copied the
+    /// plan's raw limit and showed a trialing subscription the paid allowance, not its grant.
+    /// </remarks>
+    internal static decimal LimitFor(
         SubscriptionDetail subscription,
         PlanEntitlement entitlement,
         DateTime now)
