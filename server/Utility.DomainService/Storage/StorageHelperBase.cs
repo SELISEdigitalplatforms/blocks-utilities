@@ -6,7 +6,7 @@ namespace Utility.DomainService.Storage
     /// <summary>
     /// Base class for storage helper operations - provides common functionality for file operations
     /// </summary>
-    public abstract class StorageHelperBase
+    public abstract partial class StorageHelperBase
     {
         /// <summary>
         /// Name of the pooled <see cref="HttpClient"/> every storage helper uploads and downloads
@@ -68,22 +68,52 @@ namespace Utility.DomainService.Storage
                     : string.Join("; ", response.Errors.Select(error => $"{error.Key}={error.Value}")))}]";
 
         /// <summary>
-        /// A failed upload's response body, trimmed: the provider explains a rejected PUT there
-        /// (Azure and S3 both answer with XML) and nothing else carries that reason.
+        /// A failed upload's reason, as the provider gives it: its error code header plus a bounded,
+        /// redacted slice of the body.
         /// </summary>
+        /// <remarks>
+        /// The body is the only place a rejected PUT explains itself (Azure and S3 both answer with
+        /// XML), but it can quote the request that failed -- Azure's AuthenticationFailed detail
+        /// carries the string-to-sign, S3 echoes query parameters -- so anything signature-shaped is
+        /// masked before it reaches a log. Read bounded rather than whole: this is an untrusted
+        /// response, and its length is the provider's choice, not ours.
+        /// </remarks>
         protected static async Task<string> DescribeFailureAsync(HttpResponseMessage response)
         {
+            const int Limit = 500;
+
+            var codes = string.Join(
+                ", ",
+                new[] { "x-ms-error-code", "x-amz-request-id" }
+                    .Where(header => response.Headers.Contains(header))
+                    .Select(header => $"{header}={response.Headers.GetValues(header).FirstOrDefault()}"));
+
             try
             {
-                var body = await response.Content.ReadAsStringAsync();
+                using var stream = await response.Content.ReadAsStreamAsync();
+                var buffer = new byte[Limit];
+                var read = await stream.ReadAtLeastAsync(buffer, Limit, throwOnEndOfStream: false);
+                var body = Redact(System.Text.Encoding.UTF8.GetString(buffer, 0, read));
 
-                return body.Length <= 500 ? body : body[..500];
+                return codes.Length == 0 ? body : $"{codes}; {body}";
             }
             catch (Exception exception)
             {
-                return $"unreadable: {exception.Message}";
+                return $"{codes}; unreadable: {exception.Message}";
             }
         }
+
+        /// <summary>
+        /// Masks the values of signature-shaped parameters anywhere in a string. Public so the tests
+        /// that pin what must never be logged can call it directly.
+        /// </summary>
+        public static string Redact(string text) =>
+            SignatureLikeValue().Replace(text, match => $"{match.Groups[1].Value}=<redacted>");
+
+        [System.Text.RegularExpressions.GeneratedRegex(
+            """(sig|signature|x-amz-signature|x-amz-credential|awsaccesskeyid|skoid|sktid|sks|se|st|sp|sv)=([^&\s"'<]+)""",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+        private static partial System.Text.RegularExpressions.Regex SignatureLikeValue();
 
         protected HttpClient CreateHttpClient() =>
             _httpClientFactory.CreateClient(StorageHttpClientName);

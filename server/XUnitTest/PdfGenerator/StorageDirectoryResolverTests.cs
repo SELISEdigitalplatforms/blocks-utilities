@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using FluentAssertions;
 using DomainService.Storage;
 using Microsoft.Extensions.Configuration;
@@ -64,8 +65,19 @@ namespace XUnitTest.PdfGenerator
             CreateReturns(DirectoryOperationResult.Success("dir-new"));
             var resolver = Resolver();
 
-            (await resolver.ResolveAsync(Logical)).Should().Be("dir-new");
-            (await resolver.ResolveAsync(Logical)).Should().Be("dir-new", "the id is cached for the tenant");
+            BlocksContext.SetContext(BlocksContext.Create(
+                "tenant-1", null, "user-1", true, null, "org-1",
+                DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
+
+            try
+            {
+                (await resolver.ResolveAsync(Logical)).Should().Be("dir-new");
+                (await resolver.ResolveAsync(Logical)).Should().Be("dir-new", "the id is cached for the tenant");
+            }
+            finally
+            {
+                BlocksContext.SetContext(null);
+            }
 
             _directories.Verify(x => x.CreateDirectoryAsync(
                 Configured, null, Configured, null, Configured, null, null, It.IsAny<CancellationToken>()), Times.Once);
@@ -118,6 +130,45 @@ namespace XUnitTest.PdfGenerator
 
             driver.Verify(x => x.GetPerSignedUrlForUploadAsync(
                 It.Is<GetPreSignedUrlForUploadRequest>(r => r.ParentDirectoryId == "dir-1")), Times.Once);
+        }
+
+        /// <summary>
+        /// A directory id means nothing outside the tenant whose database holds it. Without a tenant
+        /// in context there is no safe cache key, so nothing is remembered -- otherwise the first
+        /// contextless resolve would answer for every tenant after it.
+        /// </summary>
+        [Fact]
+        public async Task A_resolve_with_no_tenant_in_context_is_not_cached()
+        {
+            Existing(Configured, "dir-1");
+            var resolver = Resolver();
+
+            // No BlocksContext is established in a unit test, which is the contextless case itself.
+            (await resolver.ResolveAsync(Logical)).Should().Be("dir-1");
+            (await resolver.ResolveAsync(Logical)).Should().Be("dir-1");
+
+            _repository.Verify(
+                x => x.GetDefaultDirectoryByModuleNameAsync(Configured, It.IsAny<CancellationToken>()),
+                Times.Exactly(2),
+                "each call must look the directory up again rather than trust a shared cache entry");
+        }
+
+        /// <summary>
+        /// A rejected upload's body is the provider quoting the request back: Azure's
+        /// AuthenticationFailed detail carries the string-to-sign and S3 echoes query parameters, so
+        /// the signed URL must not reach a log by way of the error that mentions it.
+        /// </summary>
+        [Theory]
+        [InlineData(
+            "<Error><AuthenticationErrorDetail>sig=abc123XYZ&se=2026-09-21</AuthenticationErrorDetail></Error>",
+            "abc123XYZ")]
+        [InlineData("<Error><Message>X-Amz-Signature=deadbeef expired</Message></Error>", "deadbeef")]
+        public void A_providers_error_body_is_logged_with_its_signature_masked(string body, string secret)
+        {
+            var redacted = StorageHelperBase.Redact(body);
+
+            redacted.Should().NotContain(secret);
+            redacted.Should().Contain("<redacted>");
         }
 
         /// <summary>

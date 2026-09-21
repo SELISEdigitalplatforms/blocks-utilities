@@ -62,11 +62,23 @@ namespace Utility.DomainService.Storage
         public virtual async Task<string?> ResolveAsync(string logicalName, CancellationToken cancellationToken = default)
         {
             var name = NameFor(logicalName);
-            var key = (BlocksContext.GetContext()?.TenantId ?? string.Empty, name);
 
-            if (_ids.TryGetValue(key, out var cached))
+            // Never cached under a shared key. A directory id means nothing outside the tenant whose
+            // database holds it, so caching one against an unknown tenant would hand tenant A's
+            // directory to tenant B's upload the moment the ambient context is missing.
+            var tenantId = BlocksContext.GetContext()?.TenantId;
+            var key = string.IsNullOrEmpty(tenantId) ? null : (string?)tenantId;
+
+            if (key is not null && _ids.TryGetValue((key, name), out var cached))
             {
                 return cached;
+            }
+
+            if (key is null)
+            {
+                _logger.LogWarning(
+                    "StorageDirectoryResolver: resolving {LogicalName} with no tenant in context; not cached",
+                    logicalName);
             }
 
             var id = (await _repository.GetDefaultDirectoryByModuleNameAsync(name, cancellationToken))?.ItemId;
@@ -98,7 +110,10 @@ namespace Utility.DomainService.Storage
                 _logger.LogInformation("StorageDirectoryResolver: created directory Name={Name} Id={Id}", name, id);
             }
 
-            _ids[key] = id;
+            if (key is not null)
+            {
+                _ids[(key, name)] = id;
+            }
 
             _logger.LogInformation(
                 "StorageDirectoryResolver: resolved {LogicalName} to directory Name={Name} Id={Id}",
