@@ -1259,6 +1259,131 @@ public sealed class SubscriptionPlanChangeServiceTests
     /// lands on the first, where no stub exists, and the whole year is charged. Quoting the stub
     /// understated the recurring price by roughly the ratio of a month to a year.
     /// </remarks>
+    /// <summary>
+    /// A settlement too small for any payment provider to accept is absorbed, not charged.
+    /// </summary>
+    /// <remarks>
+    /// The bug this pins down, and it strands live subscriptions: a cadence change between two
+    /// prices sharing a stub base settles only the sliver of time elapsed since the period opened,
+    /// because the outgoing side is prorated across the window it was sold for while the target's
+    /// stub is priced whole for the shorter window that remains. That lands at a few minor units --
+    /// 1, 3 and 16 were all observed on dev -- and no card network will take them. The charge then
+    /// failed as indeterminate, which by design holds the settlement reservation so a retry cannot
+    /// double-charge; and while a reservation stands every transition is refused, so the subscriber
+    /// could not even cancel. Three subscriptions had to be freed by editing the database.
+    /// <para>
+    /// Absorbing costs the merchant at most the floor. Stranding costs a customer their account.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_settlement_below_the_provider_minimum_applies_without_being_charged()
+    {
+        // 30 minor units apart, so the whole-period settlement lands under the 50 default.
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(
+                TenantId, "price-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NewPrice(1_030));
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            result.ErrorCode ?? "an unchargeable remainder must not fail the change");
+
+        _reserved.Should().BeNull(
+            "reserving for a charge that can never succeed is what stranded the subscription");
+
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the provider would refuse an amount this small");
+    }
+
+    /// <summary>The control: a settlement worth collecting is still reserved and charged.</summary>
+    [Fact]
+    public async Task A_settlement_above_the_provider_minimum_is_still_charged()
+    {
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorCode ?? "the upgrade should apply");
+
+        _reserved.Should().NotBeNull("a collectable settlement is reserved before it is charged");
+
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// The recurring price a plan change quotes is priced at the boundary it recurs from, not at
+    /// the instant of the quote.
+    /// </summary>
+    /// <remarks>
+    /// The bug this pins down: a promotional code still live today but expired by the next boundary
+    /// was shown reducing a period it will never touch. Observed on dev quoting CHF 729.68 for a
+    /// period that will charge 770.21, and -- because a code whose rate is smaller than the price's
+    /// own suppresses the larger one while it applies -- overquoting by the same mechanism in the
+    /// other direction. Corrected for the purchase preview's NextRenewal and for
+    /// RecurringAmountMinor before this; the plan-change preview was the third place it lived.
+    /// </remarks>
+    [Fact]
+    public async Task NextRenewalAmountMinor_ignores_a_discount_that_expires_before_the_boundary()
+    {
+        var undiscounted = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        undiscounted.IsSuccess.Should().BeTrue();
+
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "earlybird",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 2_000,
+            // Live now (1 August in this fixture), gone by the 1 September boundary.
+            ExpiresAtUtc = new DateTime(2026, 8, 10, 0, 0, 0, DateTimeKind.Utc)
+        };
+
+        var expiring = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        expiring.IsSuccess.Should().BeTrue();
+        expiring.Value!.NextRenewalAmountMinor.Should().Be(
+            undiscounted.Value!.NextRenewalAmountMinor,
+            "the code has expired by the period this figure quotes, so it cannot reduce it");
+    }
+
+    /// <summary>The other half: a code still live at the boundary does reduce the quote.</summary>
+    [Fact]
+    public async Task NextRenewalAmountMinor_keeps_a_discount_that_outlives_the_boundary()
+    {
+        var undiscounted = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        _subscription.Discount = new DiscountTerms
+        {
+            Code = "stays",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 2_000,
+            ExpiresAtUtc = null
+        };
+
+        var ongoing = await Service().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        ongoing.Value!.NextRenewalAmountMinor.Should().BeLessThan(
+            undiscounted.Value!.NextRenewalAmountMinor,
+            "an unbounded code is still in force at the boundary it is quoted for");
+    }
+
     [Fact]
     public async Task NextRenewalAmountMinor_is_the_whole_year_for_a_calendar_aligned_yearly_target()
     {

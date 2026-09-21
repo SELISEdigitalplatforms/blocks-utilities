@@ -49,6 +49,32 @@ public sealed class SubscriptionOptions
     public int UsageProjectionReconciliationBatchSize { get; set; } = 200;
 
     /// <summary>
+    /// The smallest settlement worth presenting to a payment provider, in minor units. A plan
+    /// change worth less than this applies without being charged.
+    /// </summary>
+    /// <remarks>
+    /// Card networks refuse amounts below roughly half a major unit, so a settlement under this
+    /// floor cannot be collected anywhere -- and a plan change that tries leaves a settlement
+    /// reservation held for a charge that can never succeed, after which the subscriber cannot
+    /// even cancel. Absorbing it costs the merchant at most this many minor units on a cadence
+    /// change; stranding a live subscription costs considerably more.
+    /// <para>
+    /// These settlements are not hypothetical: switching between two prices that share a stub base
+    /// settles only the sliver of time elapsed since the period opened, because the outgoing side
+    /// is prorated over the window it was sold for while the target's stub is priced whole for the
+    /// shorter window that remains. Observed at 1, 3 and 16 minor units on live subscriptions --
+    /// see the note on this option in the PR that introduced it. Aligning the two windows is the
+    /// deeper fix and is deliberately not attempted here; this stops the damage.
+    /// </para>
+    /// <para>
+    /// Expressed in minor units rather than per currency because it guards a provider floor, not a
+    /// price. A tenant selling in a zero-decimal currency such as JPY should set this to 0, where
+    /// every whole unit is chargeable and nothing needs absorbing.
+    /// </para>
+    /// </remarks>
+    public long MinimumSettlementChargeMinor { get; set; } = 50;
+
+    /// <summary>
     /// How many live subscriptions one projection backfill pass walks per tenant.
     /// </summary>
     /// <remarks>
