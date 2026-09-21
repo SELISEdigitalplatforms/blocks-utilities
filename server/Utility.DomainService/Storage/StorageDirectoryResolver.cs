@@ -99,6 +99,11 @@ namespace Utility.DomainService.Storage
             }
 
             _ids[key] = id;
+
+            _logger.LogInformation(
+                "StorageDirectoryResolver: resolved {LogicalName} to directory Name={Name} Id={Id}",
+                logicalName, name, id);
+
             return id;
         }
     }

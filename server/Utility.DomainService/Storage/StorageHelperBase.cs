@@ -51,6 +51,40 @@ namespace Utility.DomainService.Storage
         /// through the factory rather than <c>new HttpClient()</c>, which leaks a socket pool per
         /// instance and exhausts ports under load.
         /// </remarks>
+        /// <summary>
+        /// A driver response's own account of itself, for a log line.
+        /// </summary>
+        /// <remarks>
+        /// The storage driver logs nothing and reports failure only through these two fields, so a
+        /// caller that drops them leaves no trace of why anything failed: the upgrade to driver
+        /// 4.1.2 refused every upload with <c>access=forbidden</c> and all that reached the log was
+        /// "failed to get pre-signed URL".
+        /// </remarks>
+        protected static string Describe(BaseResponse? response) =>
+            response is null
+                ? "no response"
+                : $"isSuccess={response.IsSuccess}, errors=[{(response.Errors is null or { Count: 0 }
+                    ? "none"
+                    : string.Join("; ", response.Errors.Select(error => $"{error.Key}={error.Value}")))}]";
+
+        /// <summary>
+        /// A failed upload's response body, trimmed: the provider explains a rejected PUT there
+        /// (Azure and S3 both answer with XML) and nothing else carries that reason.
+        /// </summary>
+        protected static async Task<string> DescribeFailureAsync(HttpResponseMessage response)
+        {
+            try
+            {
+                var body = await response.Content.ReadAsStringAsync();
+
+                return body.Length <= 500 ? body : body[..500];
+            }
+            catch (Exception exception)
+            {
+                return $"unreadable: {exception.Message}";
+            }
+        }
+
         protected HttpClient CreateHttpClient() =>
             _httpClientFactory.CreateClient(StorageHttpClientName);
 

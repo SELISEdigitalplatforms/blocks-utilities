@@ -61,14 +61,27 @@ namespace Utility.DomainService.TemplateEngine.service
                 AccessModifier = "Private",
             };
 
+            _logger.LogInformation(
+                "SaveFileToStorage: Requesting upload URL fileId={FileId}, name={Name}, parentDirectory={ParentDirectory}, " +
+                "accessModifier={AccessModifier}, tags={Tags}, metadataKeys={MetadataKeys}",
+                fileId, payload.Name, payload.ParentDirectoryId, payload.AccessModifier, payload.Tags,
+                formattedMetadata.Count);
+
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
             if (fileInfo == null || string.IsNullOrEmpty(fileInfo.UploadUrl))
             {
-                _logger.LogError("SaveFileToStorage: Failed to get pre-signed URL for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "SaveFileToStorage: Failed to get pre-signed URL for fileId={FileId}, response: {Response}",
+                    fileId, Describe(fileInfo));
                 return false;
             }
 
-            _logger.LogInformation("SaveFileToStorage: Got upload URL for fileId={FileId}", fileId);
+            // The URL itself is a signed credential and is never logged; what it allows is.
+            _logger.LogInformation(
+                "SaveFileToStorage: Got upload URL fileId={FileId}, fileVersionId={FileVersionId}, " +
+                "expiresAtUtc={ExpiresAtUtc}, completionRequired={CompletionRequired}, requiredHeaders={RequiredHeaders}",
+                fileId, fileInfo.FileVersionId, fileInfo.UploadUrlExpiresAtUtc, fileInfo.UploadCompletionRequired,
+                fileInfo.RequiredHeaders is null ? "none" : string.Join(",", fileInfo.RequiredHeaders.Keys));
 
             var httpClient = CreateHttpClient();
             using var request = new HttpRequestMessage(HttpMethod.Put, fileInfo.UploadUrl)
@@ -83,7 +96,9 @@ namespace Utility.DomainService.TemplateEngine.service
 
             if (!httpResponseMessage.IsSuccessStatusCode)
             {
-                _logger.LogError("SaveFileToStorage: Failed to upload file fileId={FileId}, StatusCode={StatusCode}", fileId, httpResponseMessage.StatusCode);
+                _logger.LogError(
+                    "SaveFileToStorage: Failed to upload file fileId={FileId}, StatusCode={StatusCode}, body: {Body}",
+                    fileId, httpResponseMessage.StatusCode, await DescribeFailureAsync(httpResponseMessage));
                 return false;
             }
 
@@ -103,8 +118,9 @@ namespace Utility.DomainService.TemplateEngine.service
             if (completion?.VerificationStatus != FileVerificationStatus.Verified)
             {
                 _logger.LogError(
-                    "SaveFileToStorage: Upload completion rejected fileId={FileId}, reason={RejectionReason}",
-                    fileId, completion?.RejectionReason);
+                    "SaveFileToStorage: Upload completion rejected fileId={FileId}, status={VerificationStatus}, " +
+                    "reason={RejectionReason}, response: {Response}",
+                    fileId, completion?.VerificationStatus, completion?.RejectionReason, Describe(completion));
                 return false;
             }
 
@@ -126,7 +142,9 @@ namespace Utility.DomainService.TemplateEngine.service
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))
             {
-                _logger.LogError("GetFileContentAsString: File data is null or URL is empty for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "GetFileContentAsString: File data is null or URL is empty for fileId={FileId}, response: {Response}",
+                    fileId, Describe(fileData));
                 return null;
             }
 

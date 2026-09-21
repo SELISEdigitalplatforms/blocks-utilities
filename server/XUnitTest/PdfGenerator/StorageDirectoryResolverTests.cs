@@ -120,6 +120,40 @@ namespace XUnitTest.PdfGenerator
                 It.Is<GetPreSignedUrlForUploadRequest>(r => r.ParentDirectoryId == "dir-1")), Times.Once);
         }
 
+        /// <summary>
+        /// The driver has no logger of its own and reports failure only through the response it
+        /// returns, so a helper that drops it leaves nobody able to say why an upload failed --
+        /// which is exactly what "access=forbidden" looked like on dev after the 4.1.2 upgrade.
+        /// </summary>
+        [Fact]
+        public async Task A_refused_upload_url_is_logged_with_the_drivers_own_reason()
+        {
+            Existing(Configured, "dir-1");
+            var logger = new Mock<ILogger<PdfStorageHelper>>();
+            var driver = new Mock<IStorageDriverService>();
+            driver
+                .Setup(x => x.GetPerSignedUrlForUploadAsync(It.IsAny<GetPreSignedUrlForUploadRequest>()))
+                .ReturnsAsync(new GetPreSignedUrlForUploadResponse
+                {
+                    IsSuccess = false,
+                    Errors = new Dictionary<string, string> { ["access"] = "forbidden" }
+                });
+
+            var helper = new PdfStorageHelper(
+                logger.Object, driver.Object, Mock.Of<IHttpClientFactory>(), Resolver());
+
+            await helper.SavePdfToStorage(new MemoryStream([1]), "file1", "a.pdf", parentDirectoryId: Logical);
+
+            logger.Verify(
+                x => x.Log(
+                    LogLevel.Error,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("access=forbidden")),
+                    It.IsAny<Exception?>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+
         [Fact]
         public async Task An_upload_with_no_resolvable_directory_fails_without_asking_the_driver()
         {

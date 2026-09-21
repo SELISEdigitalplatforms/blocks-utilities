@@ -64,14 +64,27 @@ namespace Utility.DomainService.PdfGenerator.service
                 AccessModifier = string.IsNullOrWhiteSpace(accessModifier) ? "Private" : accessModifier
             };
 
+            _logger.LogInformation(
+                "SavePdfToStorage: Requesting upload URL fileId={FileId}, name={Name}, parentDirectory={ParentDirectory}, " +
+                "accessModifier={AccessModifier}, tags={Tags}, metadataKeys={MetadataKeys}",
+                fileId, payload.Name, payload.ParentDirectoryId, payload.AccessModifier, payload.Tags,
+                formattedMetadata.Count);
+
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
             if (fileInfo == null || string.IsNullOrEmpty(fileInfo.UploadUrl))
             {
-                _logger.LogError("SavePdfToStorage: Failed to get pre-signed URL for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "SavePdfToStorage: Failed to get pre-signed URL for fileId={FileId}, response: {Response}",
+                    fileId, Describe(fileInfo));
                 return false;
             }
 
-            _logger.LogInformation("SavePdfToStorage: Got upload URL for fileId={FileId}", fileId);
+            // The URL itself is a signed credential and is never logged; what it allows is.
+            _logger.LogInformation(
+                "SavePdfToStorage: Got upload URL fileId={FileId}, fileVersionId={FileVersionId}, " +
+                "expiresAtUtc={ExpiresAtUtc}, completionRequired={CompletionRequired}, requiredHeaders={RequiredHeaders}",
+                fileId, fileInfo.FileVersionId, fileInfo.UploadUrlExpiresAtUtc, fileInfo.UploadCompletionRequired,
+                fileInfo.RequiredHeaders is null ? "none" : string.Join(",", fileInfo.RequiredHeaders.Keys));
 
             var httpClient = CreateHttpClient();
             using var request = new HttpRequestMessage(HttpMethod.Put, fileInfo.UploadUrl)
@@ -87,7 +100,9 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (!httpResponseMessage.IsSuccessStatusCode)
             {
-                _logger.LogError("SavePdfToStorage: Failed to upload PDF fileId={FileId}, StatusCode={StatusCode}", fileId, httpResponseMessage.StatusCode);
+                _logger.LogError(
+                    "SavePdfToStorage: Failed to upload PDF fileId={FileId}, StatusCode={StatusCode}, body: {Body}",
+                    fileId, httpResponseMessage.StatusCode, await DescribeFailureAsync(httpResponseMessage));
                 return false;
             }
 
@@ -107,8 +122,9 @@ namespace Utility.DomainService.PdfGenerator.service
             if (completion?.VerificationStatus != FileVerificationStatus.Verified)
             {
                 _logger.LogError(
-                    "SavePdfToStorage: Upload completion rejected fileId={FileId}, reason={RejectionReason}",
-                    fileId, completion?.RejectionReason);
+                    "SavePdfToStorage: Upload completion rejected fileId={FileId}, status={VerificationStatus}, " +
+                    "reason={RejectionReason}, response: {Response}",
+                    fileId, completion?.VerificationStatus, completion?.RejectionReason, Describe(completion));
                 return false;
             }
 
@@ -129,7 +145,9 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))
             {
-                _logger.LogError("GetPdfStream: File data is null or URL is empty for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "GetPdfStream: File data is null or URL is empty for fileId={FileId}, response: {Response}",
+                    fileId, Describe(fileData));
                 return null;
             }
 
@@ -152,7 +170,9 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))
             {
-                _logger.LogError("GetHtmlContentAsString: File data is null or URL is empty for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "GetHtmlContentAsString: File data is null or URL is empty for fileId={FileId}, response: {Response}",
+                    fileId, Describe(fileData));
                 return null;
             }
 
@@ -193,7 +213,9 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))
             {
-                _logger.LogError("GetFileRecord: File data is null or URL is empty for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "GetFileRecord: File data is null or URL is empty for fileId={FileId}, response: {Response}",
+                    fileId, Describe(fileData));
                 return null;
             }
 
