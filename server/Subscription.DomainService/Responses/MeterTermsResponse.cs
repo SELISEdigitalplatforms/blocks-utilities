@@ -29,6 +29,14 @@ public sealed class MeterTermsResponse
 
     public decimal IncludedQuantity { get; init; }
 
+    /// <summary>
+    /// What the trial includes instead of <see cref="IncludedQuantity"/>, while the subscription is
+    /// <c>"Trialing"</c> and its trial grants this meter. Null otherwise -- including after the
+    /// trial, when <see cref="IncludedQuantity"/> is what applies. A grant replaces the plan's
+    /// allowance rather than adding to it; see <c>MeterAllowance.Base</c>.
+    /// </summary>
+    public decimal? TrialIncludedQuantity { get; init; }
+
     /// <summary>"Periodic", "Never", or "CarryForward".</summary>
     public string ResetPolicy { get; init; } = string.Empty;
 

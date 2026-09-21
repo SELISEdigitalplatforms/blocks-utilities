@@ -307,6 +307,29 @@ public sealed class SubscriptionResponseMapperTests
         meter.OveragePricing.Tiers[1].UnitAmount.Should().Be("0.80");
     }
 
+    [Fact]
+    public void A_trialing_meter_reports_its_trial_grant_alongside_the_paid_allowance()
+    {
+        var subscription = NewSubscription(10);
+        subscription.CurrencyCode = "CHF";
+        subscription.Plan.Meters = [Meter("screening", (null, "1.00"))];
+        subscription.Status = SubscriptionStatus.Trialing;
+        subscription.Trial = new TrialTerms
+        {
+            Grants = [new TrialMeterGrant { MeterKey = "screening", IncludedQuantity = 7 }]
+        };
+
+        var trialing = PricedMapper().ToResponse(subscription).Meters.Single();
+
+        trialing.TrialIncludedQuantity.Should().Be(7);
+        trialing.IncludedQuantity.Should().Be(150, "the paid allowance is still what follows the trial");
+
+        subscription.Status = SubscriptionStatus.Active;
+
+        PricedMapper().ToResponse(subscription).Meters.Single().TrialIncludedQuantity
+            .Should().BeNull("once the trial is over its grant no longer applies");
+    }
+
     [Theory]
     [InlineData("CHF", 2, 100, "1.00")]
     [InlineData("JPY", 0, 100, "100")]

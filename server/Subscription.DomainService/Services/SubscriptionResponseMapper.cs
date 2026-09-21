@@ -166,25 +166,29 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             PendingCheckout = pendingCheckout,
             HasPaymentMethod = hasPaymentMethod,
             Meters = subscription.Plan.Meters
-                .Select(meter => ToMeterTerms(meter, subscription.CurrencyCode))
+                .Select(meter => ToMeterTerms(subscription, meter))
                 .ToList(),
             Version = subscription.Version,
             ProviderName = providerName
         };
     }
 
-    private MeterTermsResponse ToMeterTerms(PlanMeter meter, string currencyCode) => new()
+    private MeterTermsResponse ToMeterTerms(SubscriptionDetail subscription, PlanMeter meter) => new()
     {
         MeterKey = meter.MeterKey,
         DisplayName = meter.DisplayName,
         UnitLabel = meter.UnitLabel,
         QuantityScale = meter.QuantityScale,
         IncludedQuantity = meter.IncludedQuantity,
+        TrialIncludedQuantity = subscription.Status == SubscriptionStatus.Trialing
+            ? subscription.Trial?.Grants.Find(grant =>
+                string.Equals(grant.MeterKey, meter.MeterKey, StringComparison.Ordinal))?.IncludedQuantity
+            : null,
         ResetPolicy = meter.ResetPolicy.ToString(),
         CarryForwardCap = meter.CarryForwardCap,
         OverageAllowed = meter.OverageAllowed,
         OveragePricing = meter.OverageAllowed
-            ? ResolveOveragePricing(meter, currencyCode)
+            ? ResolveOveragePricing(meter, subscription.CurrencyCode)
             : null
     };
 
