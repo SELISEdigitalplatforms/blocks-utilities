@@ -1,5 +1,6 @@
 using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
+using Utility.DomainService.Shared.Utilities;
 
 namespace Utility.DomainService.Storage
 {
@@ -50,13 +51,17 @@ namespace Utility.DomainService.Storage
         /// caller that drops them leaves no trace of why anything failed: the upgrade to driver
         /// 4.1.2 refused every upload with <c>access=forbidden</c> and all that reached the log was
         /// "failed to get pre-signed URL".
+        /// <para>
+        /// Scrubbed like any caller-supplied value: an error's text can quote what was sent, the file
+        /// name included, and a newline in it would forge a log entry (CWE-117).
+        /// </para>
         /// </remarks>
         protected static string Describe(BaseResponse? response) =>
-            response is null
+            LogSanitizer.Scrub(response is null
                 ? "no response"
                 : $"isSuccess={response.IsSuccess}, errors=[{(response.Errors is null or { Count: 0 }
                     ? "none"
-                    : string.Join("; ", response.Errors.Select(error => $"{error.Key}={error.Value}")))}]";
+                    : string.Join("; ", response.Errors.Select(error => $"{error.Key}={error.Value}")))}]");
 
         /// <summary>
         /// A failed upload's reason, as the provider gives it: its error code header plus a bounded,
@@ -86,11 +91,12 @@ namespace Utility.DomainService.Storage
                 var read = await stream.ReadAtLeastAsync(buffer, Limit, throwOnEndOfStream: false);
                 var body = Redact(System.Text.Encoding.UTF8.GetString(buffer, 0, read));
 
-                return codes.Length == 0 ? body : $"{codes}; {body}";
+                // The provider's body can echo the request, file name included: scrubbed (CWE-117).
+                return LogSanitizer.Scrub(codes.Length == 0 ? body : $"{codes}; {body}");
             }
             catch (Exception exception)
             {
-                return $"{codes}; unreadable: {exception.Message}";
+                return LogSanitizer.Scrub($"{codes}; unreadable: {exception.Message}");
             }
         }
 
@@ -103,9 +109,9 @@ namespace Utility.DomainService.Storage
 
         /// <summary>A URL with its query string and fragment removed, for logging.</summary>
         public static string WithoutQuery(string url) =>
-            Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            LogSanitizer.Scrub(Uri.TryCreate(url, UriKind.Absolute, out var uri)
                 ? uri.GetLeftPart(UriPartial.Path)
-                : Redact(url);
+                : Redact(url));
 
         [System.Text.RegularExpressions.GeneratedRegex(
             """(sig|signature|x-amz-signature|x-amz-credential|awsaccesskeyid|skoid|sktid|sks|se|st|sp|sv)=([^&\s"'<]+)""",

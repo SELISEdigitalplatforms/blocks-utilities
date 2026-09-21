@@ -23,6 +23,10 @@ namespace XUnitTest.PdfGenerator
         private const string Logical = "Blocks-Subscription-Financial-Documents";
         private const string Configured = "Blocks-Subscription-Financial-Documents_dev";
 
+        // Spelled as char codes so no editor or tool can turn them into the real line breaks under test.
+        private static readonly string Cr = ((char)13).ToString();
+        private static readonly string Lf = ((char)10).ToString();
+
         private readonly Mock<IFileDirectoryRepository> _repository = new();
         private readonly Mock<IFileDirectoryManagementService> _directories = new();
 
@@ -215,6 +219,41 @@ namespace XUnitTest.PdfGenerator
                     It.IsAny<Exception?>(),
                     It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
                 Times.Once);
+        }
+
+        /// <summary>
+        /// File ids and names arrive in request bodies. A newline in one would split its log line and
+        /// let the caller forge entries that look like the service's own (CWE-117), including through
+        /// the driver's error text, which can quote what was sent.
+        /// </summary>
+        [Fact]
+        public async Task A_newline_in_a_caller_supplied_value_never_reaches_a_log_line()
+        {
+            Existing(Configured, "dir-1");
+            var messages = new List<string>();
+            var logger = new Mock<ILogger<PdfStorageHelper>>();
+            logger
+                .Setup(x => x.Log(
+                    It.IsAny<LogLevel>(), It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(),
+                    It.IsAny<Exception?>(), It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
+                .Callback(new InvocationAction(invocation => messages.Add(invocation.Arguments[2].ToString()!)));
+            var driver = new Mock<IStorageDriverService>();
+            driver
+                .Setup(x => x.GetPerSignedUrlForUploadAsync(It.IsAny<GetPreSignedUrlForUploadRequest>()))
+                .ReturnsAsync(new GetPreSignedUrlForUploadResponse
+                {
+                    IsSuccess = false,
+                    Errors = new Dictionary<string, string> { ["name"] = $"bad{Lf}ERROR forged" }
+                });
+
+            var helper = new PdfStorageHelper(
+                logger.Object, driver.Object, Mock.Of<IHttpClientFactory>(), Resolver());
+
+            await helper.SavePdfToStorage(
+                new MemoryStream([1]), $"id{Cr}{Lf}ERROR forged", $"a{Lf}ERROR forged.pdf", parentDirectoryId: Logical);
+
+            messages.Should().NotBeEmpty();
+            messages.Should().OnlyContain(message => !message.Contains(Lf) && !message.Contains(Cr));
         }
 
         [Fact]

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Blocks.Genesis;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Utility.DomainService.Shared.Utilities;
 using Storage.DomainService.Enums;
 using Storage.DomainService.Services;
 
@@ -86,7 +87,7 @@ namespace Utility.DomainService.Storage
             {
                 _logger.LogWarning(
                     "StorageDirectoryResolver: resolving {LogicalName} with no tenant in context; not cached",
-                    logicalName);
+                    LogSanitizer.Scrub(logicalName));
             }
 
             var existing = await _repository.GetDefaultDirectoryByModuleNameAsync(name, cancellationToken);
@@ -100,7 +101,7 @@ namespace Utility.DomainService.Storage
                 // something to do silently on the upload path. Loud, so it is noticed.
                 _logger.LogWarning(
                     "StorageDirectoryResolver: directory Name={Name} Id={Id} has access level {Actual}, expected {Expected}",
-                    name, id, existing.ObjectAccessLevel?.ToString() ?? "none", objectAccessLevel ?? "none");
+                    LogSanitizer.Scrub(name), LogSanitizer.Scrub(id), LogSanitizer.Scrub(existing.ObjectAccessLevel?.ToString() ?? "none"), LogSanitizer.Scrub(objectAccessLevel ?? "none"));
             }
 
             if (id is null)
@@ -124,11 +125,11 @@ namespace Utility.DomainService.Storage
                 {
                     _logger.LogError(
                         "StorageDirectoryResolver: could not create directory Name={Name} Status={Status}",
-                        name, created.Status);
+                        LogSanitizer.Scrub(name), created.Status);
                     return null;
                 }
 
-                _logger.LogInformation("StorageDirectoryResolver: created directory Name={Name} Id={Id}", name, id);
+                _logger.LogInformation("StorageDirectoryResolver: created directory Name={Name} Id={Id}", LogSanitizer.Scrub(name), LogSanitizer.Scrub(id));
             }
 
             if (key is not null)
@@ -138,7 +139,7 @@ namespace Utility.DomainService.Storage
 
             _logger.LogInformation(
                 "StorageDirectoryResolver: resolved {LogicalName} to directory Name={Name} Id={Id}",
-                logicalName, name, id);
+                LogSanitizer.Scrub(logicalName), LogSanitizer.Scrub(name), LogSanitizer.Scrub(id));
 
             return id;
         }

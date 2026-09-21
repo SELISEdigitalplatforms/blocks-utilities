@@ -1,6 +1,7 @@
 using Blocks.Genesis;
 using DomainService.Storage;
 using Microsoft.Extensions.Logging;
+using Utility.DomainService.Shared.Utilities;
 using Newtonsoft.Json;
 using Storage.DomainService.Enums;
 using StorageDriver;
@@ -28,7 +29,7 @@ namespace Utility.DomainService.TemplateEngine.service
         /// </summary>
         public async Task<bool> SaveFileToStorage(MemoryStream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-Template-Files")
         {
-            _logger.LogInformation("SaveFileToStorage: Saving file to storage -- fileId={FileId}, fileName={FileName}", fileId, fileName);
+            _logger.LogInformation("SaveFileToStorage: Saving file to storage -- fileId={FileId}, fileName={FileName}", LogSanitizer.Scrub(fileId), LogSanitizer.Scrub(fileName));
 
             Stream stream = new MemoryStream();
             await stream.WriteAsync(inputStream.ToArray(), 0, inputStream.ToArray().Length);
@@ -47,7 +48,7 @@ namespace Utility.DomainService.TemplateEngine.service
             var parentDirectory = await ResolveParentDirectoryAsync(parentDirectoryId);
             if (parentDirectory is null)
             {
-                _logger.LogError("SaveFileToStorage: No storage directory for {Directory}, fileId={FileId}", parentDirectoryId, fileId);
+                _logger.LogError("SaveFileToStorage: No storage directory for {Directory}, fileId={FileId}", LogSanitizer.Scrub(parentDirectoryId), LogSanitizer.Scrub(fileId));
                 return false;
             }
 
@@ -64,7 +65,7 @@ namespace Utility.DomainService.TemplateEngine.service
             _logger.LogInformation(
                 "SaveFileToStorage: Requesting upload URL fileId={FileId}, name={Name}, parentDirectory={ParentDirectory}, " +
                 "accessModifier={AccessModifier}, tags={Tags}, metadataKeys={MetadataKeys}",
-                fileId, payload.Name, payload.ParentDirectoryId, payload.AccessModifier, payload.Tags,
+                LogSanitizer.Scrub(fileId), LogSanitizer.Scrub(payload.Name), LogSanitizer.Scrub(payload.ParentDirectoryId), LogSanitizer.Scrub(payload.AccessModifier), LogSanitizer.Scrub(payload.Tags),
                 formattedMetadata.Count);
 
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
@@ -72,7 +73,7 @@ namespace Utility.DomainService.TemplateEngine.service
             {
                 _logger.LogError(
                     "SaveFileToStorage: Failed to get pre-signed URL for fileId={FileId}, response: {Response}",
-                    fileId, Describe(fileInfo));
+                    LogSanitizer.Scrub(fileId), Describe(fileInfo));
                 return false;
             }
 
@@ -80,8 +81,8 @@ namespace Utility.DomainService.TemplateEngine.service
             _logger.LogInformation(
                 "SaveFileToStorage: Got upload URL fileId={FileId}, fileVersionId={FileVersionId}, " +
                 "expiresAtUtc={ExpiresAtUtc}, completionRequired={CompletionRequired}, requiredHeaders={RequiredHeaders}",
-                fileId, fileInfo.FileVersionId, fileInfo.UploadUrlExpiresAtUtc, fileInfo.UploadCompletionRequired,
-                fileInfo.RequiredHeaders is null ? "none" : string.Join(",", fileInfo.RequiredHeaders.Keys));
+                LogSanitizer.Scrub(fileId), LogSanitizer.Scrub(fileInfo.FileVersionId), fileInfo.UploadUrlExpiresAtUtc, fileInfo.UploadCompletionRequired,
+                LogSanitizer.Scrub(fileInfo.RequiredHeaders is null ? "none" : string.Join(",", fileInfo.RequiredHeaders.Keys)));
 
             var httpClient = CreateHttpClient();
             using var request = new HttpRequestMessage(HttpMethod.Put, fileInfo.UploadUrl)
@@ -98,11 +99,11 @@ namespace Utility.DomainService.TemplateEngine.service
             {
                 _logger.LogError(
                     "SaveFileToStorage: Failed to upload file fileId={FileId}, StatusCode={StatusCode}, body: {Body}",
-                    fileId, httpResponseMessage.StatusCode, await DescribeFailureAsync(httpResponseMessage));
+                    LogSanitizer.Scrub(fileId), httpResponseMessage.StatusCode, await DescribeFailureAsync(httpResponseMessage));
                 return false;
             }
 
-            _logger.LogInformation("SaveFileToStorage: Successfully saved file fileId={FileId}", fileId);
+            _logger.LogInformation("SaveFileToStorage: Successfully saved file fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             if (!fileInfo.UploadCompletionRequired)
             {
@@ -120,7 +121,7 @@ namespace Utility.DomainService.TemplateEngine.service
                 _logger.LogError(
                     "SaveFileToStorage: Upload completion rejected fileId={FileId}, status={VerificationStatus}, " +
                     "reason={RejectionReason}, response: {Response}",
-                    fileId, completion?.VerificationStatus, completion?.RejectionReason, Describe(completion));
+                    LogSanitizer.Scrub(fileId), completion?.VerificationStatus, LogSanitizer.Scrub(completion?.RejectionReason), Describe(completion));
                 return false;
             }
 
@@ -132,7 +133,7 @@ namespace Utility.DomainService.TemplateEngine.service
         /// </summary>
         public async Task<string?> GetFileContentAsString(string fileId, string projectKey)
         {
-            _logger.LogInformation("GetFileContentAsString: Getting file content for fileId={FileId}", fileId);
+            _logger.LogInformation("GetFileContentAsString: Getting file content for fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             // Get file metadata and URL
             var fileData = await _storageDriverService.GetUrlForDownloadFileAsync(new GetFileRequest
@@ -144,11 +145,11 @@ namespace Utility.DomainService.TemplateEngine.service
             {
                 _logger.LogError(
                     "GetFileContentAsString: File data is null or URL is empty for fileId={FileId}, response: {Response}",
-                    fileId, Describe(fileData));
+                    LogSanitizer.Scrub(fileId), Describe(fileData));
                 return null;
             }
 
-            _logger.LogInformation("GetFileContentAsString: Got file URL for fileId={FileId}", fileId);
+            _logger.LogInformation("GetFileContentAsString: Got file URL for fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             // Download file content
             var stream = await GetFileStreamFromUrl(fileData.Url);
