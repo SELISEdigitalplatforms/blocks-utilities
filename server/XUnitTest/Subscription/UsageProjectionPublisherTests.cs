@@ -470,6 +470,34 @@ public sealed class UsageProjectionPublisherTests
     }
 
     /// <summary>
+    /// A trialing subscription is published with its trial grant, the limit the entitlements API
+    /// enforces -- not the plan's paid allowance. On dev a 1000-unit trial read 550.55 here while
+    /// the API allowed 1000.
+    /// </summary>
+    [Fact]
+    public async Task A_trialing_subscription_is_published_with_its_trial_grant_not_the_plans_limit()
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+        var subscription = Subscription();
+        subscription.Status = SubscriptionStatus.Trialing;
+        subscription.Trial = new TrialTerms
+        {
+            StartsAtUtc = now.AddHours(-1),
+            EndsAtUtc = now.AddDays(1),
+            Grants = [new TrialMeterGrant { MeterKey = "screening", IncludedQuantity = 7 }]
+        };
+
+        await Publisher().RefreshAsync(subscription, now, "corr-1", CancellationToken.None);
+
+        var document = _publishedEntitlements.Should().ContainSingle().Subject;
+        document.Entitlements.Should().Contain(entitlement =>
+            entitlement.Key == "screening" && entitlement.Limit == 7);
+        document.Entitlements.Should().Contain(entitlement =>
+            entitlement.Key == "sso" && entitlement.Limit == null,
+            "a limitless entitlement must not be published as a zero limit");
+    }
+
+    /// <summary>
     /// A plan whose only entitlements are boolean has no metered window to piggyback this on, so the
     /// publish must not be conditioned on <c>CurrentWindows</c> yielding anything.
     /// </summary>
