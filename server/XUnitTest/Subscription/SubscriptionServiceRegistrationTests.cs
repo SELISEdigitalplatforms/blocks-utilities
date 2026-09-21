@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Moq;
+using Subscription.DomainService.Reporting;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
@@ -37,12 +38,30 @@ public sealed class SubscriptionServiceRegistrationTests
     [InlineData(typeof(ISubscriptionUsageRepository))]
     [InlineData(typeof(ISubscriptionPaymentLinkRepository))]
     [InlineData(typeof(ISubscriptionSimulationRunRepository))]
+    [InlineData(typeof(ISubscriptionReportingRepository))]
     public void Repositories_are_singletons(Type serviceType)
     {
         var descriptor = Subscriptions()
             .Single(candidate => candidate.ServiceType == serviceType);
 
         descriptor.Lifetime.Should().Be(ServiceLifetime.Singleton);
+    }
+
+    /// <summary>
+    /// Reporting reads the caller's context to learn which tenant is asking, so it must be scoped.
+    /// </summary>
+    /// <remarks>
+    /// A singleton would capture the first request's context resolver and then answer every later
+    /// request from it — which for these endpoints means reporting one tenant's commercial
+    /// position to another. The wrong lifetime here is a data leak, not a performance problem.
+    /// </remarks>
+    [Fact]
+    public void The_reporting_service_is_scoped()
+    {
+        Subscriptions()
+            .Single(candidate => candidate.ServiceType == typeof(ISubscriptionReportingService))
+            .Lifetime
+            .Should().Be(ServiceLifetime.Scoped);
     }
 
     [Fact]
