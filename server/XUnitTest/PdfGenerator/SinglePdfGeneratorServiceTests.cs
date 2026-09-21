@@ -24,7 +24,8 @@ namespace XUnitTest.PdfGenerator
             _storageMock = new Mock<PdfStorageHelper>(
                 Mock.Of<ILogger<PdfStorageHelper>>(),
                 Mock.Of<IStorageDriverService>(),
-                Mock.Of<IHttpClientFactory>());
+                Mock.Of<IHttpClientFactory>(),
+                (Utility.DomainService.Storage.StorageDirectoryResolver?)null);
 
             _loggerMock = new Mock<ILogger<SinglePdfGeneratorService>>();
         }
@@ -66,7 +67,7 @@ namespace XUnitTest.PdfGenerator
                     It.IsAny<Dictionary<string, string>?>(),
                     It.IsAny<string>(),
                     It.IsAny<string?>(),
-                    It.IsAny<string>()))
+                    It.IsAny<string>(), It.IsAny<string?>()))
                 .ReturnsAsync(true);
         }
 
@@ -89,7 +90,7 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<Dictionary<string, string>?>(),
                 PdfGeneratorConstants.SinglePdfGeneratedFilesDirectory,
                 "proj_1",
-                "Private"), Times.Once);
+                "Private", It.IsAny<string?>()), Times.Once);
             _engineMock.Verify(e => e.ConvertHtmlToPdfAsync(It.IsAny<string>(), It.IsAny<PdfGenerationOptions>()), Times.Once);
         }
 
@@ -115,7 +116,7 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<Dictionary<string, string>?>(),
                 PdfGeneratorConstants.SinglePdfGeneratedFilesDirectory,
                 "proj_1",
-                "Public"), Times.Once);
+                "Public", It.IsAny<string?>()), Times.Once);
         }
 
         [Fact]
@@ -244,7 +245,7 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<Dictionary<string, string>?>(),
                 It.IsAny<string>(),
                 It.IsAny<string?>(),
-                It.IsAny<string>()), Times.Never);
+                It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
         }
 
         [Fact]
@@ -266,7 +267,7 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<Dictionary<string, string>?>(),
                 It.IsAny<string>(),
                 It.IsAny<string?>(),
-                It.IsAny<string>()), Times.Never);
+                It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
         }
 
         [Fact]
@@ -291,7 +292,7 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<Dictionary<string, string>?>(),
                 It.IsAny<string>(),
                 It.IsAny<string?>(),
-                It.IsAny<string>()), Times.Never);
+                It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
         }
 
         [Fact]
@@ -306,7 +307,7 @@ namespace XUnitTest.PdfGenerator
                     It.IsAny<Dictionary<string, string>?>(),
                     It.IsAny<string>(),
                     It.IsAny<string?>(),
-                    It.IsAny<string>()))
+                    It.IsAny<string>(), It.IsAny<string?>()))
                 .ReturnsAsync(false);
             var sut = CreateSut();
 
@@ -340,7 +341,7 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<Dictionary<string, string>?>(),
                 It.IsAny<string>(),
                 It.IsAny<string?>(),
-                It.IsAny<string>()), Times.Never);
+                It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
         }
 
         [Fact]
@@ -362,7 +363,7 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<Dictionary<string, string>?>(),
                 It.IsAny<string>(),
                 It.IsAny<string?>(),
-                "Private"), Times.Once);
+                "Private", It.IsAny<string?>()), Times.Once);
         }
 
         private void VerifyNoRenderOrStorage()
@@ -377,7 +378,7 @@ namespace XUnitTest.PdfGenerator
                 It.IsAny<Dictionary<string, string>?>(),
                 It.IsAny<string>(),
                 It.IsAny<string?>(),
-                It.IsAny<string>()), Times.Never);
+                It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
         }
     }
 }

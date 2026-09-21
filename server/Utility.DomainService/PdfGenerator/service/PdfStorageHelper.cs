@@ -1,6 +1,7 @@
 using Blocks.Genesis;
 using DomainService.Storage;
 using Microsoft.Extensions.Logging;
+using Utility.DomainService.Shared.Utilities;
 using Newtonsoft.Json;
 using Storage.DomainService.Enums;
 using StorageDriver;
@@ -19,8 +20,9 @@ namespace Utility.DomainService.PdfGenerator.service
         public PdfStorageHelper(
             ILogger<PdfStorageHelper> logger,
             IStorageDriverService storageDriverService,
-            IHttpClientFactory httpClientFactory)
-            : base(logger, httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            StorageDirectoryResolver? directories = null)
+            : base(logger, httpClientFactory, directories)
         {
             _storageDriverService = storageDriverService;
         }
@@ -28,9 +30,9 @@ namespace Utility.DomainService.PdfGenerator.service
         /// <summary>
         /// Saves a PDF file to storage
         /// </summary>
-        public virtual async Task<bool> SavePdfToStorage(Stream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-PDF-Generated-Files", string? projectKey = null, string accessModifier = "Private")
+        public virtual async Task<bool> SavePdfToStorage(Stream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-PDF-Generated-Files", string? projectKey = null, string accessModifier = "Private", string? objectAccessLevel = null)
         {
-            _logger.LogInformation("SavePdfToStorage: Saving PDF to storage -- fileId={FileId}, fileName={FileName}", fileId, fileName);
+            _logger.LogInformation("SavePdfToStorage: Saving PDF to storage -- fileId={FileId}, fileName={FileName}", LogSanitizer.Scrub(fileId), LogSanitizer.Scrub(fileName));
 
             var stream = new MemoryStream();
             await inputStream.CopyToAsync(stream);
@@ -46,24 +48,47 @@ namespace Utility.DomainService.PdfGenerator.service
                 }
             }
 
+            var parentDirectory = await ResolveParentDirectoryAsync(parentDirectoryId, objectAccessLevel);
+            if (parentDirectory is null)
+            {
+                _logger.LogError("SavePdfToStorage: No storage directory for {Directory}, fileId={FileId}", LogSanitizer.Scrub(parentDirectoryId), LogSanitizer.Scrub(fileId));
+                return false;
+            }
+
             var payload = new GetPreSignedUrlForUploadRequest
             {
                 ItemId = fileId,
                 MetaData = formattedMetadata.Count > 0 ? JsonConvert.SerializeObject(formattedMetadata) : string.Empty,
                 Name = fileName,
-                ParentDirectoryId = parentDirectoryId,
+                ParentDirectoryId = parentDirectory,
                 Tags = "[\"PDF\"]",
-                AccessModifier = string.IsNullOrWhiteSpace(accessModifier) ? "Private" : accessModifier
+                AccessModifier = string.IsNullOrWhiteSpace(accessModifier) ? "Private" : accessModifier,
+                // Who, besides the storage ACL's own rules, may use the file. "Creator" confines it to
+                // the principal that uploaded it -- see StorageServiceIdentity.
+                ObjectAccessLevel = objectAccessLevel
             };
+
+            _logger.LogInformation(
+                "SavePdfToStorage: Requesting upload URL fileId={FileId}, name={Name}, parentDirectory={ParentDirectory}, " +
+                "accessModifier={AccessModifier}, objectAccessLevel={ObjectAccessLevel}, tags={Tags}, metadataKeys={MetadataKeys}",
+                LogSanitizer.Scrub(fileId), LogSanitizer.Scrub(payload.Name), LogSanitizer.Scrub(payload.ParentDirectoryId), LogSanitizer.Scrub(payload.AccessModifier), LogSanitizer.Scrub(payload.ObjectAccessLevel ?? "none"),
+                LogSanitizer.Scrub(payload.Tags), formattedMetadata.Count);
 
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
             if (fileInfo == null || string.IsNullOrEmpty(fileInfo.UploadUrl))
             {
-                _logger.LogError("SavePdfToStorage: Failed to get pre-signed URL for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "SavePdfToStorage: Failed to get pre-signed URL for fileId={FileId}, response: {Response}",
+                    LogSanitizer.Scrub(fileId), Describe(fileInfo));
                 return false;
             }
 
-            _logger.LogInformation("SavePdfToStorage: Got upload URL for fileId={FileId}", fileId);
+            // The URL itself is a signed credential and is never logged; what it allows is.
+            _logger.LogInformation(
+                "SavePdfToStorage: Got upload URL fileId={FileId}, fileVersionId={FileVersionId}, " +
+                "expiresAtUtc={ExpiresAtUtc}, completionRequired={CompletionRequired}, requiredHeaders={RequiredHeaders}",
+                LogSanitizer.Scrub(fileId), LogSanitizer.Scrub(fileInfo.FileVersionId), fileInfo.UploadUrlExpiresAtUtc, fileInfo.UploadCompletionRequired,
+                LogSanitizer.Scrub(fileInfo.RequiredHeaders is null ? "none" : string.Join(",", fileInfo.RequiredHeaders.Keys)));
 
             var httpClient = CreateHttpClient();
             using var request = new HttpRequestMessage(HttpMethod.Put, fileInfo.UploadUrl)
@@ -79,11 +104,13 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (!httpResponseMessage.IsSuccessStatusCode)
             {
-                _logger.LogError("SavePdfToStorage: Failed to upload PDF fileId={FileId}, StatusCode={StatusCode}", fileId, httpResponseMessage.StatusCode);
+                _logger.LogError(
+                    "SavePdfToStorage: Failed to upload PDF fileId={FileId}, StatusCode={StatusCode}, body: {Body}",
+                    LogSanitizer.Scrub(fileId), httpResponseMessage.StatusCode, await DescribeFailureAsync(httpResponseMessage));
                 return false;
             }
 
-            _logger.LogInformation("SavePdfToStorage: Successfully saved PDF fileId={FileId}", fileId);
+            _logger.LogInformation("SavePdfToStorage: Successfully saved PDF fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             if (!fileInfo.UploadCompletionRequired)
             {
@@ -99,8 +126,9 @@ namespace Utility.DomainService.PdfGenerator.service
             if (completion?.VerificationStatus != FileVerificationStatus.Verified)
             {
                 _logger.LogError(
-                    "SavePdfToStorage: Upload completion rejected fileId={FileId}, reason={RejectionReason}",
-                    fileId, completion?.RejectionReason);
+                    "SavePdfToStorage: Upload completion rejected fileId={FileId}, status={VerificationStatus}, " +
+                    "reason={RejectionReason}, response: {Response}",
+                    LogSanitizer.Scrub(fileId), completion?.VerificationStatus, LogSanitizer.Scrub(completion?.RejectionReason), Describe(completion));
                 return false;
             }
 
@@ -112,7 +140,7 @@ namespace Utility.DomainService.PdfGenerator.service
         /// </summary>
         public async Task<Stream?> GetPdfStream(string fileId, string? projectKey = null)
         {
-            _logger.LogInformation("GetPdfStream: Getting PDF stream for fileId={FileId}", fileId);
+            _logger.LogInformation("GetPdfStream: Getting PDF stream for fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             var fileData = await _storageDriverService.GetUrlForDownloadFileAsync(new GetFileRequest
             {
@@ -121,11 +149,13 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))
             {
-                _logger.LogError("GetPdfStream: File data is null or URL is empty for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "GetPdfStream: File data is null or URL is empty for fileId={FileId}, response: {Response}",
+                    LogSanitizer.Scrub(fileId), Describe(fileData));
                 return null;
             }
 
-            _logger.LogInformation("GetPdfStream: Got file URL for fileId={FileId}", fileId);
+            _logger.LogInformation("GetPdfStream: Got file URL for fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             return await GetFileStreamFromUrl(fileData.Url);
         }
@@ -135,7 +165,7 @@ namespace Utility.DomainService.PdfGenerator.service
         /// </summary>
         public async Task<string?> GetHtmlContentAsString(string fileId, string? projectKey = null)
         {
-            _logger.LogInformation("GetHtmlContentAsString: Getting HTML content for fileId={FileId}", fileId);
+            _logger.LogInformation("GetHtmlContentAsString: Getting HTML content for fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             var fileData = await _storageDriverService.GetUrlForDownloadFileAsync(new GetFileRequest
             {
@@ -144,11 +174,13 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))
             {
-                _logger.LogError("GetHtmlContentAsString: File data is null or URL is empty for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "GetHtmlContentAsString: File data is null or URL is empty for fileId={FileId}, response: {Response}",
+                    LogSanitizer.Scrub(fileId), Describe(fileData));
                 return null;
             }
 
-            _logger.LogInformation("GetHtmlContentAsString: Got file URL for fileId={FileId}", fileId);
+            _logger.LogInformation("GetHtmlContentAsString: Got file URL for fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             var stream = await GetFileStreamFromUrl(fileData.Url);
             if (stream == null)
@@ -176,7 +208,7 @@ namespace Utility.DomainService.PdfGenerator.service
         /// </remarks>
         public async Task<FileResponse?> GetFileRecord(string fileId, string? projectKey = null)
         {
-            _logger.LogInformation("GetFileRecord: Getting storage record for fileId={FileId}", fileId);
+            _logger.LogInformation("GetFileRecord: Getting storage record for fileId={FileId}", LogSanitizer.Scrub(fileId));
 
             var fileData = await _storageDriverService.GetUrlForDownloadFileAsync(new GetFileRequest
             {
@@ -185,7 +217,9 @@ namespace Utility.DomainService.PdfGenerator.service
 
             if (fileData == null || string.IsNullOrEmpty(fileData.Url))
             {
-                _logger.LogError("GetFileRecord: File data is null or URL is empty for fileId={FileId}", fileId);
+                _logger.LogError(
+                    "GetFileRecord: File data is null or URL is empty for fileId={FileId}, response: {Response}",
+                    LogSanitizer.Scrub(fileId), Describe(fileData));
                 return null;
             }
 
@@ -208,7 +242,7 @@ namespace Utility.DomainService.PdfGenerator.service
         /// </summary>
         public async Task<Stream?> GetImageStream(string fileId, string? projectKey = null)
         {
-            _logger.LogInformation("GetImageStream: Getting image stream for fileId={FileId}", fileId);
+            _logger.LogInformation("GetImageStream: Getting image stream for fileId={FileId}", LogSanitizer.Scrub(fileId));
             return await GetPdfStream(fileId, projectKey); // Same logic
         }
     }
