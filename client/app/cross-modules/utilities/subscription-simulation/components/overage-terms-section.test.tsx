@@ -93,6 +93,16 @@ describe("OverageTermsSection", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows a trialing meter's grant and the allowance that follows it", () => {
+    renderSection([{ ...blockedMeter, trialIncludedQuantity: 1000 }], { status: "Trialing" });
+
+    expect(
+      screen.getByText(
+        /During the trial: 1,000 screenings included\. After it: 150 screenings included per month\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("warns when overage is allowed but nothing prices it, without an estimate action", () => {
     renderSection([unpricedMeter]);
 

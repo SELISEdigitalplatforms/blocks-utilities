@@ -31,6 +31,19 @@ public sealed class MakePaymentRequest
     public string? CustomerOrganizationId { get; set; }
 
     /// <summary>
+    /// The organization a card this payment saves is filed under. Omit for
+    /// <see cref="OrganizationId"/>, the merchant scope.
+    /// </summary>
+    /// <remarks>
+    /// Only for callers inside the process, which is why it is never read from an HTTP body:
+    /// <see cref="CustomerOrganizationId"/> is shopper data a caller may set to anything, so it
+    /// cannot decide whose card a token becomes. The subscription module sets this to the
+    /// subscriber, whose billing account adopts the card by that organization.
+    /// </remarks>
+    [JsonIgnore]
+    public string? PaymentMethodOwnerOrganizationId { get; set; }
+
+    /// <summary>
     /// Which organization within the tenant this payment belongs to. Omit it to use the
     /// caller's own organization.
     /// </summary>

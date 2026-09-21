@@ -10,6 +10,7 @@ import { Label } from "@/components/ui-kits/label/label";
 import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { ModuleName } from "@/constants/modules.constants";
 import {
+  useCompleteUpload,
   useGetPreSignedUrlForUpload,
   useLazyGetFile,
   useUploadFile,
@@ -160,6 +161,7 @@ export const SubscriptionMerchantProfilePage = () => {
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { mutateAsync: getPreSignedUrl } = useGetPreSignedUrlForUpload();
   const { mutateAsync: uploadFile } = useUploadFile();
+  const { mutateAsync: completeUpload } = useCompleteUpload();
   const { fetchFile } = useLazyGetFile();
 
   // Adjusted during render rather than in an effect, which is the pattern React documents for
@@ -245,6 +247,16 @@ export const SubscriptionMerchantProfilePage = () => {
       }
 
       await uploadFile({ url: preSigned.uploadUrl, file });
+
+      if (preSigned.uploadCompletionRequired) {
+        const completion = await completeUpload({
+          fileId: preSigned.fileId,
+          fileVersionId: preSigned.fileVersionId ?? "",
+        });
+        if (completion.verificationStatus !== "Verified") {
+          throw new Error(completion.rejectionReason ?? "Logo failed verification");
+        }
+      }
 
       const uploaded = await storageService.file.getFileByFileId({
         itemId: preSigned.fileId,

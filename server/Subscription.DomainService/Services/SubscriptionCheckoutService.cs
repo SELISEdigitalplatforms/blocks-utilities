@@ -918,6 +918,9 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 OrderId = subscription.OrderId,
                 Description = $"{subscription.Plan.DisplayName} subscription",
                 CustomerOrganizationId = subscription.OrganizationId,
+                // The card this charge saves is the subscriber's, and the billing account adopts it
+                // by that organization -- not by the merchant scope the money is taken under.
+                PaymentMethodOwnerOrganizationId = subscription.OrganizationId,
                 OrganizationId = providerOrganizationId,
                 // Stripe uses this to prefill the checkout page's email field. Without it the
                 // subscriber -- whose address the billing profile already collected a step

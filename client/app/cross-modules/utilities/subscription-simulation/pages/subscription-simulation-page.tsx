@@ -29,6 +29,7 @@ import { ChangePlanDialog } from "../components/change-plan-dialog";
 import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
 import { CloseUsagePeriodDialog } from "../components/close-usage-period-dialog";
 import { DataConsoleDialog } from "../components/data-console-dialog";
+import { DiscountCodeCard } from "../components/discount-code-card";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
 import { useCancelPendingPlanChange } from "../hooks/use-change-subscription-plan";
 import { useWithdrawCancellation } from "../hooks/use-cancel-subscription";
@@ -393,6 +394,10 @@ export const SubscriptionSimulationPage = () => {
           )}
         </div>
       </Card>
+
+      {plans?.length ? (
+        <DiscountCodeCard plans={plans} organizationId={organizationScope} />
+      ) : null}
 
       {currentSubscription && (
         <OverageTermsSection subscription={currentSubscription} organizationId={organizationScope} />

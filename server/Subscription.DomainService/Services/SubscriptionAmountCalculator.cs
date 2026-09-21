@@ -258,6 +258,22 @@ public static class SubscriptionAmountCalculator
                     // have won a BestDiscount comparison anyway -- the distinction matters once a
                     // campaign's rate is smaller than the automatic one it is still meant to
                     // replace.
+                    //
+                    // Suppressed only for as long as the campaign actually applies. Spent against
+                    // DurationPeriods or past ExpiresAtUtc it replaces nothing, so the price's own
+                    // automatic discount and volume band come back -- what this precedence promises
+                    // ("restored the moment it no longer does") and what the renewal after a
+                    // one-period campaign has to charge. Read through the same predicate
+                    // ApplyDiscount itself uses, so the two cannot disagree about whether the
+                    // campaign applied: keyed on anything else, an exhausted campaign returns the
+                    // gross unreduced *and* a zeroed built-in, and a subscriber who once typed a
+                    // replacing code loses their cadence discount on every renewal thereafter.
+                    if (!DiscountStillActive(discount, periodsApplied, nowUtc))
+                    {
+                        return new PeriodCharge(builtIn.SubtotalMinor, false, GrossAmountMinor: gross,
+                            BuiltInDiscountMinor: builtIn.DiscountAmountMinor);
+                    }
+
                     var replaced = ApplyDiscount(gross, discount, periodsApplied, nowUtc, fraction);
 
                     return replaced with

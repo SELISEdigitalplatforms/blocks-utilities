@@ -13,7 +13,7 @@ using Utility.DomainService.PdfIngestion.service;
 using Utility.DomainService.MagicLink.Service;
 using Utility.DomainService.MagicLink;
 using DomainService.Storage;
-using Storage.DomainService.Shared.Services;
+using Storage.DomainService.Services;
 
 namespace DomainService.Utilities
 {
@@ -107,11 +107,12 @@ namespace DomainService.Utilities
             // services.AddTransient<IValidator<StampIntoPdfRequest>, StampIntoPdfRequestValidator>();
 
             // Register Storage Driver Services (required for StorageHelper)
-            services.AddSingleton<DmsArtifactBuilderFactory>();
             services.AddTransient<AwsS3CompatibleStorageService>();
-            services.AddSingleton<FileArtifactBuilder>();
-            services.AddSingleton<FolderArtifactBuilder>();
             services.RegisterBlocksStorageServices();
+            // Not registered by the driver, but needed to create the directories uploads go into:
+            // driver 4.1.2 refuses an upload whose parent directory does not exist.
+            services.TryAddSingleton<IFileDirectoryManagementService, FileDirectoryManagementService>();
+            services.TryAddSingleton<Utility.DomainService.Storage.StorageDirectoryResolver>();
             services.AddTransient<IValidator<UpdateFileRequest>, UpdateFileRequestValidator>();
 
             // Workflow Services (registered via extension method)

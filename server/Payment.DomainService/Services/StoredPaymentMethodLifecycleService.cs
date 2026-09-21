@@ -130,7 +130,7 @@ public sealed class StoredPaymentMethodLifecycleService :
 
         var protectedMethod = await CreateProtectedMethodAsync(
             webhook,
-            payment.OrganizationId,
+            PaymentMethodOwnership.OrganizationOf(payment),
             cancellationToken);
         var existing =
             await _methods.GetByTokenFingerprintAsync(
@@ -405,7 +405,7 @@ public sealed class StoredPaymentMethodLifecycleService :
                 return;
             }
 
-            organizationId = payment.OrganizationId;
+            organizationId = PaymentMethodOwnership.OrganizationOf(payment);
             correlatedSetupPayment = isSetupFlow ? payment : null;
         }
         else if (existing.Status !=

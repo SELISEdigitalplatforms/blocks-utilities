@@ -269,4 +269,19 @@ public sealed class StripeInvoiceClientTests
             ApiKey = "secret",
             MerchantId = "merchant"
         };
+
+    /// <summary>
+    /// The renewal amount check tells a carried customer balance from a wrong charge by these
+    /// two fields, so they must map from Stripe's own names.
+    /// </summary>
+    [Fact]
+    public void An_invoice_reads_its_total_and_the_balance_stripe_applied()
+    {
+        var invoice = System.Text.Json.JsonSerializer.Deserialize<StripeInvoice>(
+            """{"id":"in_1","amount_due":7780,"total":7779,"starting_balance":1}""");
+
+        invoice!.AmountDue.Should().Be(7_780);
+        invoice.Total.Should().Be(7_779);
+        invoice.StartingBalance.Should().Be(1);
+    }
 }

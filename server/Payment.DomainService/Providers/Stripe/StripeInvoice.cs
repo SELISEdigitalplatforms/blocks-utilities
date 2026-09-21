@@ -18,6 +18,17 @@ public sealed class StripeInvoice
     [JsonPropertyName("amount_due")]
     public long? AmountDue { get; set; }
 
+    /// <summary>What the invoice's own lines come to, before any customer balance is applied.</summary>
+    [JsonPropertyName("total")]
+    public long? Total { get; set; }
+
+    /// <summary>
+    /// The customer balance applied to this invoice. Positive is an amount the customer already
+    /// owed and Stripe is collecting here; negative is credit reducing what is due.
+    /// </summary>
+    [JsonPropertyName("starting_balance")]
+    public long? StartingBalance { get; set; }
+
     [JsonPropertyName("currency")]
     public string? Currency { get; set; }
 

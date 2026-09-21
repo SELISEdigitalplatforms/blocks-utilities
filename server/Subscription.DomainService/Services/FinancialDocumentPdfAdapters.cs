@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Utility.DomainService.PdfGenerator.service;
+using Utility.DomainService.Storage;
 
 namespace Subscription.DomainService.Services;
 
@@ -64,6 +65,22 @@ public sealed class StorageDriverFinancialDocumentFileStore : IFinancialDocument
     /// </summary>
     private const string Directory = "Blocks-Subscription-Financial-Documents";
 
+    /// <summary>
+    /// The storage principal that owns every document PDF. Files are created
+    /// <see cref="CreatorOnly"/> under it, so only this service can read them back through the storage
+    /// driver: invoices are not browsable or downloadable by other tenant users through the storage
+    /// API, and a subscriber's download goes through this service's own authorization first.
+    /// </summary>
+    /// <remarks>
+    /// A fixed id rather than whoever is in context, because that differs between the write (the
+    /// user-less worker) and the read (a subscriber's request) -- see
+    /// <see cref="Utility.DomainService.Storage.StorageServiceIdentity"/>. Changing it orphans every
+    /// document written under the old one: they stay readable only by that id.
+    /// </remarks>
+    public const string StoragePrincipal = "blocks-utilities-financial-documents";
+
+    private const string CreatorOnly = "Creator";
+
     private readonly PdfStorageHelper _storage;
 
     public StorageDriverFinancialDocumentFileStore(PdfStorageHelper storage) => _storage = storage;
@@ -77,16 +94,22 @@ public sealed class StorageDriverFinancialDocumentFileStore : IFinancialDocument
         ArgumentNullException.ThrowIfNull(content);
 
         using var stream = new MemoryStream(content, writable: false);
+        using var identity = StorageServiceIdentity.Enter(StoragePrincipal);
 
         return await _storage.SavePdfToStorage(
             stream,
             storageId,
             fileName,
-            parentDirectoryId: Directory);
+            parentDirectoryId: Directory,
+            objectAccessLevel: CreatorOnly);
     }
 
     public async Task<byte[]?> ReadAsync(string storageId, CancellationToken cancellationToken)
     {
+        // Read as the owner. Documents written before this principal existed carry no access level,
+        // so the driver's default rule still lets it read them too.
+        using var identity = StorageServiceIdentity.Enter(StoragePrincipal);
+
         var stream = await _storage.GetPdfStream(storageId);
         if (stream is null)
         {

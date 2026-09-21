@@ -198,6 +198,7 @@ public sealed class EntitlementServiceTests
     [Fact]
     public async Task A_counted_entitlement_at_its_limit_reports_the_reason()
     {
+        _subscription!.Plan.Meters[0].OverageAllowed = false;
         _balance = 500;
 
         var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
@@ -206,6 +207,54 @@ public sealed class EntitlementServiceTests
         entitlement.Allowed.Should().BeFalse();
         entitlement.Reason.Should().Be(nameof(EntitlementReason.LimitReached));
         entitlement.Remaining.Should().Be(0);
+    }
+
+    /// <summary>
+    /// Recording accepts usage past the allowance on a meter that bills overage, so the check a
+    /// caller makes first must say the same. Answering LimitReached there meant nothing that
+    /// checked before recording could ever reach overage -- the simulation console included.
+    /// </summary>
+    [Fact]
+    public async Task A_counted_entitlement_past_its_limit_is_still_allowed_when_the_meter_bills_overage()
+    {
+        _balance = 550;
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        var entitlement = result.Value!.Entitlements.Single();
+        entitlement.Allowed.Should().BeTrue();
+        entitlement.OverageAllowed.Should().BeTrue();
+        entitlement.Remaining.Should().Be(0, "remaining is what is left before overage starts");
+    }
+
+    /// <summary>
+    /// A free-opening-period campaign's cap is the offer's own limit, not an allowance to be
+    /// exceeded and billed, so it stays hard even on a meter that bills overage.
+    /// </summary>
+    [Fact]
+    public async Task A_campaign_cap_stays_hard_on_a_meter_that_bills_overage()
+    {
+        _subscription!.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime.AddDays(10);
+        _subscription.Discount = new DiscountTerms
+        {
+            Campaign = new CampaignTerms
+            {
+                Kind = CampaignKind.FreeOpeningCalendarPeriod,
+                EntitlementOverride = new CampaignEntitlementOverride
+                {
+                    EntitlementKey = "pep_screening",
+                    Limit = 100
+                }
+            }
+        };
+        _balance = 100;
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        var entitlement = result.Value!.Entitlements.Single();
+        entitlement.Allowed.Should().BeFalse();
+        entitlement.Reason.Should().Be(nameof(EntitlementReason.LimitReached));
+        entitlement.OverageAllowed.Should().BeFalse();
     }
 
     [Fact]

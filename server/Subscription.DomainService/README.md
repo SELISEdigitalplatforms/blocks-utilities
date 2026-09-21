@@ -1437,14 +1437,30 @@ renewal's dunning retry already follows.
 re-reading the same record. Its uniqueness index on `(TenantId, SubscriptionId, PeriodKey)` is the
 double-billing guard.
 
-**Known gaps, stated rather than built around:**
+**Known gap, stated rather than built around:** one aggregated charge per period, not one per
+meter. `ISubscriptionBillingGateway.ChargeAsync` takes one amount and one description; per-meter
+line items are still recorded on the invoice itself for support traceability, but the actual charge
+is always the total.
 
-- **One aggregated charge per period, not one per meter.** `ISubscriptionBillingGateway.ChargeAsync`
-  takes one amount and one description; per-meter line items are still recorded on the invoice
-  itself for support traceability, but the actual charge is always the total.
-- **A `Canceled` subscription's still-open final period is never rated.** An immediate
-  cancellation clears `NextUsageBillingAtUtc` the moment entitlement stops, so any usage recorded
-  in that unrated final stretch has no billing path today.
+### Cancellation and the final window
+
+**A cancelled subscription's final usage window is rated**, and the mechanism is worth knowing
+because the field it does *not* rely on is the obvious one. An immediate cancellation still clears
+`NextUsageBillingAtUtc` — nothing more will be metered once entitlement stops — but the window that
+was open at that moment is queued as a `PendingUsagePeriod` in the same compare-and-set that moves
+the status, cut to the effective instant so it cannot bill for service the subscriber never had.
+Both paths do it: `SubscriptionCancellationService` for an interactive immediate cancel, and
+`SubscriptionCancellationEffectiveProcessor` for a scheduled one reaching its boundary.
+
+The due query is what makes it reachable afterwards. Alongside the live branch it carries a second
+one matching `Status == Canceled` while `PendingUsagePeriods` is non-empty, so an ended
+subscription keeps surfacing for exactly as long as it holds a window nothing else would rate.
+`CloseSubscriptionAsync` rates those snapshots first, against the frozen allowances captured before
+the transition — the live resolver cannot reconstruct the terms of a window whose subscription has
+already moved on.
+
+Only an `Incomplete` subscription is skipped, by `CouldHaveAccruedUsage`: it never activated, so
+there is nothing to rate.
 
 ## Metered overage preview
 
@@ -2111,6 +2127,133 @@ charged. That is validated when the price is authored rather than at checkout, w
 mistake reaches a customer who has already chosen a plan.
 
 ## Before the first tenant goes live
+
+## Reporting
+
+`GET /api/subscription-reports/*` answers commercial and operational questions over the
+collections this module already keeps. It is read-only: no new collection, no rollup job, no
+event pipeline. Every figure is a MongoDB aggregation run at request time against the live
+operational data, so a report is never stale and there is nothing to rebuild when one looks
+wrong.
+
+Six endpoints, all under the scope `blocks-utilities::subscription-report::read`. Query
+parameters are bound from objects, so OpenAPI names them in PascalCase (`FromUtc`, `MeterKey`,
+`PageSize`) exactly as every other endpoint in this API does; model binding itself is
+case-insensitive, so `fromUtc` works too:
+
+| Endpoint | Reads | Answers |
+| --- | --- | --- |
+| `GET /usage` | `SubscriptionUsageRecords` | metered volume by day or month |
+| `GET /recurring-revenue` | `Subscriptions` | MRR and ARR by seat tier |
+| `GET /revenue` | `SubscriptionFinancialDocuments`, `SubscriptionUsageInvoices` | fee versus overage |
+| `GET /dunning` | `Subscriptions`, `SubscriptionUsageInvoices` | what is failing to collect |
+| `GET /subscriptions` | `Subscriptions`, `SubscriptionUsageCurrent` | plan, seats, usage against quota |
+| `GET /coupons` | `Subscriptions`, `SubscriptionFinancialDocuments` | coupon uptake and revenue |
+
+### Tenant-wide, and why that is a separate scope
+
+These are the only endpoints here that answer across every organization in a tenant. Everything
+else in this module answers for one organization, and the context resolver fails closed to one.
+Reporting still resolves that context — it needs the tenant from it — and then deliberately
+ignores the organization.
+
+That makes the scope the only thing between a caller and the whole tenant's commercial position,
+which is why it is its own scope rather than a reuse of `subscription::read`. A client permitted
+to read its own subscription is not thereby permitted to read everyone's.
+
+It is tenant-wide, never platform-wide. Each tenant is its own database; there is no endpoint
+here that reads across tenants, and adding one would need an authorization concept this module
+does not have.
+
+### Money is grouped by currency and never summed
+
+There is no exchange-rate source anywhere in this module, and a subscription's currency is fixed
+for its life. Every money figure is therefore reported per currency. A single combined total
+would be an addition of unlike things that still looks like a number, which is the kind of wrong
+nobody downstream can detect. If rates are ever introduced, a converted total is a field added
+beside these rather than a change to them.
+
+### The run-rate agrees with what renewal charges
+
+`GET /recurring-revenue` computes each subscription's period amount through
+`SubscriptionAmountCalculator.GrossAmountMinor` and `ApplyDiscount` — the same expressions
+renewal bills through — and then normalises to a month from the price's interval. It deliberately
+does not use `PeriodAmountMinor`, which routes through first-charge and trial logic keyed to the
+current instant and is wrong for a run-rate.
+
+Gross is list price; net is after any promotional discount still being honoured. Both are
+reported, because the gap between them is what the live discounts cost and is invisible in either
+figure alone. Seat tiers are `1`, `2-3`, `4-9`, `10-24`, `25-40`, `41+`, and every band appears in
+the response including the empty ones: a tier missing from a response cannot be told from a tier
+the report forgot.
+
+### Usage reports name no meter
+
+`GET /usage` takes a `MeterKey` parameter and defaults to every meter. A meter key is a tenant's
+own word, and the rule this module is built on is that the platform never learns one. The report
+is also four figures per bucket rather than one — consumption, reversals, the net, and grants —
+because a quiet month and a corrected month are different facts, and because a grant raises an
+allowance rather than consuming it and must never be counted as usage.
+
+The window defaults to the current calendar month and is refused beyond 366 days. That cap is the
+only thing standing between a caller and an unbounded scan of the ledger, which is the largest
+collection here and the one that only grows.
+
+### Why the endpoint is `dunning` and not `overdue-invoices`
+
+This module has no accounts receivable. A financial document is issued only after a charge
+settles, and `FinancialDocumentStatus` has no unpaid state — an invoice here is a receipt. What is
+genuinely outstanding is a subscription inside its dunning cycle and a usage invoice still being
+retried, which is what the endpoint returns. Naming it for overdue invoices would promise a
+concept the data cannot support.
+
+The invoice list is capped; the count beside it is not, so the true size of a provider outage is
+still visible once the list has been truncated.
+
+### Coupon counts come from subscriptions, not from redemptions
+
+`SubscriptionCampaignRedemptions` is written only for discounts whose `CampaignKind` is not
+`Standard`, because only those have a one-use rule to enforce. Counting uptake from that
+collection would therefore report zero for every ordinary promotional code — a wrong answer
+indistinguishable from a real one. Uptake is read from `Discount.Code` on the subscriptions
+themselves, which covers every kind, and campaign state is attached where a redemption row
+exists. Its absence on a standard code is a real distinction, not missing data.
+
+Counts are of organizations, which is what every record involved is keyed to. A user id appears
+only on `FinancialDocument.InitiatedBy` and `SubscriptionUsageRecord.RecordedByUserId`, so the
+field is named `RedeemingOrganizations` and a per-user count would be a different figure.
+
+### The roster reports projection lag rather than hiding it
+
+`GET /subscriptions` drives off `Subscriptions`, which is authoritative and never expires, and
+attaches usage from the published `SubscriptionUsageCurrent` projection. A subscription the
+projection has not published yet returns an empty meter list rather than zeroed figures — an
+absent projection and a genuinely unused meter mean opposite things, and only one is a reason to
+act. Every meter carries its `UpdatedAtUtc` so staleness is visible instead of assumed, and
+`UsedPercentOfQuota` is null where the allowance is zero or unlimited, since a zero there would
+read as "unused".
+
+Because projection rows are expired with their period, this report covers the current period only,
+by construction. It is never an entitlement check: only `POST /api/subscription-usage` settles
+whether a unit may be consumed.
+
+Paging is an opaque keyset cursor bound to the tenant it was issued for, the same shape document
+history uses, and a cursor presented by another tenant is refused.
+
+### Indexes
+
+Two index shapes exist for these queries, declared in the sets the owning collections already
+create rather than in a reporting-only set — so the repository that owns a collection and the
+reporting repository build the same index from one definition:
+
+- `ix_subscription_usage_tenant_meter_occurred` on `SubscriptionUsageRecords`. The existing
+  period index leads with the subscription, which a tenant-wide report does not name.
+- `ix_subscription_document_tenant_issued` on `SubscriptionFinancialDocuments`. The existing
+  tenant index leads with the organization, which a report spans on purpose.
+
+The run-rate, dunning and roster queries need nothing new: they are already covered by
+`ix_subscription_tenant_status_next_fee_billing`,
+`ix_subscription_usageinvoice_tenant_state_next_attempt` and `ix_usage_current_tenant_updated`.
 
 ## Financial observability and audit
 

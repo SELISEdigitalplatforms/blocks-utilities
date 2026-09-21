@@ -678,6 +678,8 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             return;
         }
 
+        var now = _time.GetUtcNow().UtcDateTime;
+
         var document = new SubscriptionEntitlementsCurrent
         {
             ItemId = subscription.ItemId,
@@ -695,14 +697,19 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
                 {
                     Key = entitlement.Key,
                     LimitKind = entitlement.LimitKind,
-                    Limit = entitlement.Limit,
+                    // The limit the entitlements API enforces -- a trial's grant or a free-period
+                    // campaign's cap -- not the plan's raw figure. A limitless entitlement stays
+                    // null rather than becoming LimitFor's zero.
+                    Limit = entitlement.Limit is null
+                        ? null
+                        : EntitlementService.LimitFor(subscription, entitlement, now),
                     MeterKey = entitlement.MeterKey,
                     UnitLabel = entitlement.UnitLabel
                 })
                 .ToList(),
             SubscriptionVersion = subscription.Version,
             SchemaVersion = SubscriptionEntitlementsCurrent.CurrentSchemaVersion,
-            UpdatedAtUtc = _time.GetUtcNow().UtcDateTime
+            UpdatedAtUtc = now
         };
 
         try

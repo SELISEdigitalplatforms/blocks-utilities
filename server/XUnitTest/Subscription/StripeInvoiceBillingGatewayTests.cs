@@ -296,6 +296,59 @@ public sealed class StripeInvoiceBillingGatewayTests
             Times.Once);
     }
 
+    /// <summary>
+    /// Stripe marks an invoice below its minimum charge as paid and moves the amount onto the
+    /// customer's balance, which the next invoice then collects. Seen on dev: a CHF 77.79 overage
+    /// finalized at 77.80 over a carried CHF 0.01, was voided, and retried into the same mismatch.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_also_collecting_a_balance_the_customer_owed_is_charged()
+    {
+        GivenFinalized(amountDue: 8_901, total: 8_900, startingBalance: 1);
+
+        var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _invoices.Verify(
+            client => client.VoidInvoiceAsync(
+                It.IsAny<PaymentProvider>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Theory]
+    // Credit: Stripe would collect less than the charge records.
+    [InlineData(8_899L, 8_900L, -1L)]
+    // Lines that do not add up to what was asked, whatever the balance explains.
+    [InlineData(8_901L, 8_899L, 2L)]
+    // A difference the balance does not account for.
+    [InlineData(8_905L, 8_900L, 1L)]
+    public async Task Any_other_difference_from_the_amount_asked_still_fails_closed(
+        long amountDue, long total, long startingBalance)
+    {
+        GivenFinalized(amountDue, total, startingBalance);
+
+        var result = await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_invoice_amount_mismatch");
+        _invoices.Verify(
+            client => client.VoidInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "in_1", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    private void GivenFinalized(long amountDue, long total, long startingBalance) =>
+        _invoices
+            .Setup(client => client.FinalizeInvoiceAsync(
+                It.IsAny<PaymentProvider>(), "in_1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StripeInvoiceCallResult(
+                StripeInvoiceOutcome.Success,
+                "in_1",
+                "open",
+                AmountMinor: amountDue,
+                TotalMinor: total,
+                StartingBalanceMinor: startingBalance));
+
     [Fact]
     public async Task The_charged_line_is_attached_to_the_invoice_it_belongs_to()
     {
