@@ -171,7 +171,16 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 ? trialEndsAtUtc
                 : (DateTime?)null;
 
-        var periodAnchorUtc = converting ? trialEndUtc : firstConversionUtc ?? now;
+        // Never earlier than the end of the period already paid for. A renewal is owed the period
+        // that starts there, and "now" only lands in it when this runs on schedule. Run early --
+        // the simulation console's advance-renewal does exactly that -- "now" is still inside the
+        // current period, so that period was resolved again, charged in full a second time, and
+        // written back as the subscription's period: the period moved backwards and the stub
+        // already paid at signup was billed again as a whole month.
+        var periodAnchorUtc = converting
+            ? trialEndUtc
+            : firstConversionUtc ??
+              (now < subscription.CurrentPeriodEndUtc ? subscription.CurrentPeriodEndUtc : now);
 
         // Selected before the period is resolved, because it decides which schedule resolves it.
         // A monthly-to-annual change resolved against the outgoing monthly schedule would charge

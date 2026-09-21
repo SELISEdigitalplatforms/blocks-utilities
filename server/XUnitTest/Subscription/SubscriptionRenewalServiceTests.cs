@@ -1040,6 +1040,30 @@ public sealed class SubscriptionRenewalServiceTests
             Times.Never);
     }
 
+    /// <summary>
+    /// A renewal run before the paid period ends charges the next period, never the current one
+    /// again.
+    /// </summary>
+    /// <remarks>
+    /// Seen on dev through the console's advance-renewal: signed up on the 21st and charged a
+    /// prorated stub to the 1st, then renewed early. "Now" still sat inside that period, so the
+    /// whole month was resolved, charged in full, and written back -- the period moved backwards
+    /// and days already paid for were billed a second time.
+    /// </remarks>
+    [Fact]
+    public async Task A_renewal_run_before_the_period_ends_charges_the_next_period_not_the_current_one()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodStartUtc = new DateTime(2026, 8, 21, 13, 34, 0, DateTimeKind.Utc);
+        subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.CurrentPeriodStartUtc.Should().Be(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+        _transition.CurrentPeriodEndUtc.Should().Be(new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+        _transition.NextFeeBillingAtUtc.Should().Be(new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
     private static SubscriptionDetail NewSubscription(SubscriptionStatus status) => new()
     {
         ItemId = "sub-1",
