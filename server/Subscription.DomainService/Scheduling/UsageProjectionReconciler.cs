@@ -286,38 +286,12 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 
         foreach (var subscriptionId in behind)
         {
-            // Isolated per subscription. One projection that cannot be written must not cost the
-            // rest of the tenant its repair: a single row left by an earlier schema can collide
-            // with the unique index forever -- a legacy aggregate carrying no UserId cannot be
-            // upgraded onto the "" slot while a per-user row written with an empty UserId already
-            // squats it -- and the throw propagated out of this loop, past SweepTenantAsync, to
-            // the announcer, which logged "reconciliation skipped a tenant" and abandoned every
-            // other candidate in the batch. Observed on one tenant from 2026-09-15 onward: five
-            // such rows, and no projection in that tenant reconciled again until they were
-            // repaired by hand.
-            //
-            // Logged at warning rather than swallowed, and the sweep still reports what it did
-            // manage, so a row that can never be written keeps announcing itself on every pass
-            // instead of silently stalling the cycle.
-            try
-            {
-                repaired += await RefreshSubscriptionAsync(
-                    tenantId,
-                    subscriptionId,
-                    correlationId,
-                    cancellationToken);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                _logger.LogWarning(
-                    exception,
-                    "A usage projection repair failed and was skipped; the sweep continues with " +
-                    "the rest of the tenant TenantHash={TenantHash} " +
-                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(tenantId),
-                    PaymentLogValue.Hash(subscriptionId),
-                    correlationId);
-            }
+            // Isolated per subscription -- see RefreshIsolatedAsync.
+            repaired += await RefreshIsolatedAsync(
+                tenantId,
+                subscriptionId,
+                correlationId,
+                () => RefreshSubscriptionAsync(tenantId, subscriptionId, correlationId, cancellationToken));
         }
 
         if (behind.Count > 0)
@@ -350,11 +324,11 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 
         foreach (var subscriptionId in subscriptionIds)
         {
-            written += await RefreshSubscriptionAsync(
+            written += await RefreshIsolatedAsync(
                 tenantId,
                 subscriptionId,
                 correlationId,
-                cancellationToken);
+                () => RefreshSubscriptionAsync(tenantId, subscriptionId, correlationId, cancellationToken));
         }
 
         if (written > 0)
@@ -407,11 +381,11 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             // RefreshAsync is what publishes; this pass only decides who needs asking. It seeds a
             // window with no counter and publishes one that has, both conditionally, so a backfill
             // running beside live recordings cannot overwrite anything newer than what it read.
-            written += await _publisher.RefreshAsync(
-                subscription,
-                now,
+            written += await RefreshIsolatedAsync(
+                tenantId,
+                subscription.ItemId,
                 correlationId,
-                cancellationToken);
+                () => _publisher.RefreshAsync(subscription, now, correlationId, cancellationToken));
         }
 
         if (written > 0)
@@ -434,6 +408,47 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
         _cursors.Advance(tenantId, resumeFrom);
 
         return new UsageProjectionBackfillResult(subscriptions.Count, written, resumeFrom);
+    }
+
+    /// <summary>
+    /// One subscription's refresh, isolated so a projection that cannot be written costs only
+    /// itself.
+    /// </summary>
+    /// <remarks>
+    /// Every tenant-wide pass here loops over subscriptions, and a throw from any one of them used
+    /// to abandon the rest. A single row left by an earlier schema can collide with the unique
+    /// index forever: a legacy aggregate carrying no UserId cannot be upgraded onto the "" slot
+    /// while a per-user row written with an empty UserId already squats it. Observed on dev from
+    /// 2026-09-15: five such rows stopped the sweep, then (once the sweep was isolated) the
+    /// backfill, whose cursor could never advance past the page holding them.
+    /// <para>
+    /// Logged at warning rather than swallowed, so a row that can never be written keeps
+    /// announcing itself on every pass instead of silently stalling the cycle.
+    /// </para>
+    /// </remarks>
+    private async Task<int> RefreshIsolatedAsync(
+        string tenantId,
+        string subscriptionId,
+        string correlationId,
+        Func<Task<int>> refresh)
+    {
+        try
+        {
+            return await refresh();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "A usage projection repair failed and was skipped; the sweep continues with " +
+                "the rest of the tenant TenantHash={TenantHash} " +
+                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(tenantId),
+                PaymentLogValue.Hash(subscriptionId),
+                correlationId);
+
+            return 0;
+        }
     }
 }
 

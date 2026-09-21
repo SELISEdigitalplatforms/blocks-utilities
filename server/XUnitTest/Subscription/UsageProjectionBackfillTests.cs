@@ -145,6 +145,43 @@ public sealed class UsageProjectionBackfillTests
     }
 
     /// <summary>
+    /// One subscription whose projection cannot be written costs only itself. Unisolated, the throw
+    /// escaped before the cursor advanced, so every later pass re-read the same page and failed on
+    /// the same row forever.
+    /// </summary>
+    [Fact]
+    public async Task A_subscription_that_cannot_be_written_does_not_stop_the_backfill()
+    {
+        using var provider = Provider(pageSize: 10);
+
+        var refreshed = new List<string>();
+
+        _publisher
+            .Setup(publisher => publisher.RefreshAsync(
+                It.IsAny<SubscriptionDetail>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail subscription, DateTime _, string _, CancellationToken _) =>
+            {
+                if (subscription.ItemId == "sub-1")
+                {
+                    throw new InvalidOperationException("duplicate key");
+                }
+
+                refreshed.Add(subscription.ItemId);
+
+                return 1;
+            });
+
+        var result = await BackfillOnceAsync(provider);
+
+        refreshed.Should().Equal("sub-0", "sub-2", "sub-3", "sub-4");
+        result.Written.Should().Be(4);
+        result.LastSubscriptionId.Should().BeNull("the roster was still walked to its end");
+    }
+
+    /// <summary>
     /// The store is the thing that has to outlive the scope, so its registration is asserted rather
     /// than assumed. Registered scoped, it is a different instance per pass and the cursor is lost.
     /// </summary>
