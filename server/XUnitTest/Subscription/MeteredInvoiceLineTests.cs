@@ -119,6 +119,40 @@ public sealed class MeteredInvoiceLineTests
             because: "a subscriber with several meters has to tell their lines apart");
     }
 
+    /// <summary>
+    /// "Metered usage" read as a bill for every unit used. The line has to say it charges only what
+    /// went past the allowance, and how far past.
+    /// </summary>
+    [Fact]
+    public async Task An_overage_line_says_it_is_overage_beyond_what_the_plan_included()
+    {
+        Subscribed(SingleBandMeter());
+        UsageInvoiced(overageQuantity: 3, amountMinor: 450, includedQuantity: 550.55m, usedQuantity: 553.55m);
+        SettledUsageCharge(grossMinor: 450, taxMinor: 36);
+
+        var document = await Issue();
+
+        document!.Lines.Single().Description.Should().StartWith("Overage on ")
+            .And.EndWith(": usage beyond the 550.55 included (553.55 used)");
+    }
+
+    /// <summary>
+    /// A usage invoice rated before the allowance was recorded still says what it is, without
+    /// figures it would have to reconstruct from today's plan.
+    /// </summary>
+    [Fact]
+    public async Task An_overage_line_rated_before_the_allowance_was_recorded_still_says_it_is_overage()
+    {
+        Subscribed(SingleBandMeter());
+        UsageInvoiced(overageQuantity: 3, amountMinor: 450);
+        SettledUsageCharge(grossMinor: 450, taxMinor: 36);
+
+        var document = await Issue();
+
+        document!.Lines.Single().Description.Should().StartWith("Overage on ")
+            .And.EndWith(": usage beyond the included allowance");
+    }
+
     [Fact]
     public async Task Each_rate_band_an_overage_crossed_gets_its_own_line_at_its_own_rate()
     {
@@ -334,7 +368,11 @@ public sealed class MeteredInvoiceLineTests
             .ReturnsAsync(subscription);
     }
 
-    private void UsageInvoiced(decimal overageQuantity, long amountMinor) =>
+    private void UsageInvoiced(
+        decimal overageQuantity,
+        long amountMinor,
+        decimal? includedQuantity = null,
+        decimal? usedQuantity = null) =>
         _usageInvoices
             .Setup(invoices => invoices.GetAsync(
                 TenantId,
@@ -357,6 +395,8 @@ public sealed class MeteredInvoiceLineTests
                     {
                         MeterKey = MeterKey,
                         OverageQuantity = overageQuantity,
+                        IncludedQuantity = includedQuantity,
+                        UsedQuantity = usedQuantity,
                         AmountMinor = amountMinor
                     }
                 ]
