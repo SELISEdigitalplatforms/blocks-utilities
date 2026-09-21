@@ -74,8 +74,11 @@ export const UsageMeterRow = ({
           return;
         }
 
+        // A meter that bills overage has no stopping point: `remaining` is only what is left
+        // before overage starts.
         if (
           checked.limitKind === "Count" &&
+          !checked.overageAllowed &&
           checked.remaining != null &&
           checked.remaining < parsedQuantity
         ) {

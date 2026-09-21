@@ -167,6 +167,92 @@ namespace XUnitTest.PdfGenerator
         }
 
         [Fact]
+        public async Task SavePdfToStorage_SkipsCompletion_WhenNotRequired()
+        {
+            _storageDriverMock
+                .Setup(x => x.GetPerSignedUrlForUploadAsync(It.IsAny<GetPreSignedUrlForUploadRequest>()))
+                .ReturnsAsync(new GetPreSignedUrlForUploadResponse
+                {
+                    UploadUrl = "https://storage.example/upload",
+                    UploadCompletionRequired = false,
+                });
+
+            var handler = new FakeHttpMessageHandler(
+                _ => new HttpResponseMessage(HttpStatusCode.OK));
+            var helper = new PdfStorageHelper(
+                _loggerMock.Object, _storageDriverMock.Object, FactoryFor(handler));
+
+            var result = await helper.SavePdfToStorage(
+                new MemoryStream([1]), "file1", "test.pdf");
+
+            Assert.True(result);
+            _storageDriverMock.Verify(
+                x => x.CompleteUploadAsync(It.IsAny<CompleteUploadRequest>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task SavePdfToStorage_CallsCompletion_AndSucceeds_WhenVerified()
+        {
+            _storageDriverMock
+                .Setup(x => x.GetPerSignedUrlForUploadAsync(It.IsAny<GetPreSignedUrlForUploadRequest>()))
+                .ReturnsAsync(new GetPreSignedUrlForUploadResponse
+                {
+                    UploadUrl = "https://storage.example/upload",
+                    FileVersionId = "v1",
+                    UploadCompletionRequired = true,
+                });
+            _storageDriverMock
+                .Setup(x => x.CompleteUploadAsync(It.Is<CompleteUploadRequest>(
+                    r => r.FileId == "file1" && r.FileVersionId == "v1")))
+                .ReturnsAsync(new CompleteUploadResponse
+                {
+                    IsSuccess = true,
+                    VerificationStatus = Storage.DomainService.Enums.FileVerificationStatus.Verified,
+                });
+
+            var handler = new FakeHttpMessageHandler(
+                _ => new HttpResponseMessage(HttpStatusCode.OK));
+            var helper = new PdfStorageHelper(
+                _loggerMock.Object, _storageDriverMock.Object, FactoryFor(handler));
+
+            var result = await helper.SavePdfToStorage(
+                new MemoryStream([1]), "file1", "test.pdf");
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public async Task SavePdfToStorage_ReturnsFalse_WhenCompletionRejects()
+        {
+            _storageDriverMock
+                .Setup(x => x.GetPerSignedUrlForUploadAsync(It.IsAny<GetPreSignedUrlForUploadRequest>()))
+                .ReturnsAsync(new GetPreSignedUrlForUploadResponse
+                {
+                    UploadUrl = "https://storage.example/upload",
+                    FileVersionId = "v1",
+                    UploadCompletionRequired = true,
+                });
+            _storageDriverMock
+                .Setup(x => x.CompleteUploadAsync(It.IsAny<CompleteUploadRequest>()))
+                .ReturnsAsync(new CompleteUploadResponse
+                {
+                    IsSuccess = true,
+                    VerificationStatus = Storage.DomainService.Enums.FileVerificationStatus.Rejected,
+                    RejectionReason = "real_file_type_mismatch",
+                });
+
+            var handler = new FakeHttpMessageHandler(
+                _ => new HttpResponseMessage(HttpStatusCode.OK));
+            var helper = new PdfStorageHelper(
+                _loggerMock.Object, _storageDriverMock.Object, FactoryFor(handler));
+
+            var result = await helper.SavePdfToStorage(
+                new MemoryStream([1]), "file1", "test.pdf");
+
+            Assert.False(result);
+        }
+
+        [Fact]
         public async Task SavePdfToStorage_DefaultsAccessModifierToPrivate()
         {
             GetPreSignedUrlForUploadRequest? captured = null;

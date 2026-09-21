@@ -5,6 +5,7 @@ import {
   ENTITLEMENTS_ENDPOINT,
   SUBSCRIPTION_USAGE_CURRENT_ENDPOINT,
   SUBSCRIPTION_USAGE_ENDPOINT,
+  SUBSCRIPTION_DISCOUNTS_PREVIEW_ENDPOINT,
   SUBSCRIPTION_USAGE_OVERAGE_PREVIEW_ENDPOINT,
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
   SUBSCRIPTIONS_ENDPOINT,
@@ -12,6 +13,7 @@ import {
 import { subscriptionApiFailure } from "../../subscription/utilities/subscription-api-failure";
 import type {
   CancelSubscriptionRequest,
+  DiscountCodePreview,
   ChangeQuantityRequest,
   ChangeSubscriptionPlanRequest,
   QuantityChangeQuote,
@@ -136,6 +138,47 @@ class SubscriptionSimulationService {
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
           messageFrom(error, "The subscription could not be previewed."),
+          subscribeErrorCode(error),
+          error.status,
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Whether one discount code would be accepted right now, and what it would be worth.
+   *
+   * Distinct from {@link previewSubscription}, which refuses a bad code outright: here a rejection
+   * is the answer rather than a failure, so the reason and the standard undiscounted quote come
+   * back together. Nothing is reserved and nothing is written — a limited-redemption campaign is
+   * no closer to exhausted for having been tested.
+   */
+  async previewDiscountCode(
+    request: SubscribeToPlanRequest,
+  ): Promise<DiscountCodePreview> {
+    try {
+      const response = await serviceInstances.utitlitiesService.post<
+        SimulationApiResponse<DiscountCodePreview>
+      >(SUBSCRIPTION_DISCOUNTS_PREVIEW_ENDPOINT, request);
+
+      if (!response.success || !response.data) {
+        throw new SubscriptionOperationError(
+          response.error?.message || "The discount code could not be checked.",
+          response.error?.code ?? "unknown",
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof SubscriptionOperationError) {
+        throw error;
+      }
+
+      if (error instanceof HttpError) {
+        throw new SubscriptionOperationError(
+          messageFrom(error, "The discount code could not be checked."),
           subscribeErrorCode(error),
           error.status,
         );

@@ -143,6 +143,13 @@ export interface MeterTerms {
   unitLabel: string;
   /** Per period, or for the subscription's lifetime when `resetPolicy` is `"Never"`. */
   includedQuantity: number;
+  /** How many decimal places this meter's quantities may carry. Zero (or absent) means whole units. */
+  quantityScale?: number;
+  /**
+   * What the trial includes instead of `includedQuantity`, while the subscription is `"Trialing"`
+   * and its trial grants this meter. Null (or absent) otherwise.
+   */
+  trialIncludedQuantity?: number | null;
   resetPolicy: "Periodic" | "Never" | "CarryForward";
   /** The most that may roll into one window under `"CarryForward"`. Null otherwise. */
   carryForwardCap: number | null;
@@ -245,6 +252,12 @@ export interface SubscriptionPreviewBlocker {
 export interface SubscriptionPreviewAnnualPeriod {
   startUtc: string;
   endUtc: string;
+  /**
+   * The year's own undiscounted amount — its share of the quote's `subtotalMinor`. The opening
+   * stub's share is the remainder, and is priced from the linked monthly amount rather than the
+   * annual one, which is why the two are worth naming separately rather than summing silently.
+   */
+  grossAmountMinor: number;
   amountMinor: number;
   netAmountMinor: number;
   taxAmountMinor: number;
@@ -399,6 +412,22 @@ export interface SubscriptionPurchasePreview {
   quoteValidUntilUtc: string | null;
 }
 
+/**
+ * The verdict on one discount code, and the quote it produced.
+ *
+ * `Applied` is the only status whose quote carries the code; for every other status the quote is
+ * the standard, undiscounted price, so the two can be read side by side. Statuses the server
+ * distinguishes: `Applied`, `NotFound`, `NotStarted`, `Expired`, `NotApplicable`,
+ * `AlreadyRedeemed`, `Unavailable`.
+ */
+export interface DiscountCodePreview {
+  status: string;
+  /** The same error code a confirming subscribe call would fail with. Null when applied. */
+  reasonCode: string | null;
+  message: string | null;
+  quote: SubscriptionPurchasePreview;
+}
+
 export interface SubscribeToPlanRequest {
   /** The plan's stable code, not its planId — sending the id reads as "plan not found". */
   planCode: string;
@@ -525,6 +554,8 @@ export interface EntitlementDecision {
   limit: number | null;
   used?: number | null;
   remaining?: number | null;
+  /** Use past `limit` is permitted and billed as overage, so `remaining` is not a stopping point. */
+  overageAllowed?: boolean;
   unitLabel: string | null;
 }
 

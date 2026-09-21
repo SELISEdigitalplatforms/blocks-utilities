@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +10,13 @@ const { useMerchantProfile, useUpdateMerchantProfile } = vi.hoisted(() => ({
   useUpdateMerchantProfile: vi.fn(),
 }));
 
+const h = vi.hoisted(() => ({
+  getPreSignedUrl: vi.fn(),
+  uploadFile: vi.fn(),
+  completeUpload: vi.fn(),
+  getFileByFileId: vi.fn(),
+}));
+
 vi.mock("../hooks/use-merchant-profile", () => ({
   useMerchantProfile,
   useUpdateMerchantProfile,
@@ -18,6 +25,22 @@ vi.mock("../hooks/use-merchant-profile", () => ({
 vi.mock("@seliseblocks/genesis-os", () => ({
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
 }));
+
+vi.mock("@blocks-storage/hooks/use-storage-file", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blocks-storage/hooks/use-storage-file")>();
+  return {
+    ...actual,
+    useGetPreSignedUrlForUpload: () => ({ mutateAsync: h.getPreSignedUrl }),
+    useUploadFile: () => ({ mutateAsync: h.uploadFile }),
+    useCompleteUpload: () => ({ mutateAsync: h.completeUpload }),
+  };
+});
+vi.mock("@blocks-storage/services/storage.service", () => ({
+  storageService: { file: { getFileByFileId: h.getFileByFileId } },
+}));
+
+const toast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({ toast: (...a: unknown[]) => toast(...a) }));
 
 import { SubscriptionMerchantProfilePage } from "./subscription-merchant-profile-page";
 
@@ -182,6 +205,84 @@ describe("merchant profile page", () => {
     expect(request.logoFileId).toBe("logo-1");
     expect(request.primaryColor).toBe("#112233");
     expect(request.accentColor).toBe("#445566");
+  });
+
+  it("skips completion and succeeds when the logo upload does not require it", async () => {
+    useMerchantProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
+    useUpdateMerchantProfile.mockReturnValue(mutation());
+    h.getPreSignedUrl.mockResolvedValue({
+      isSuccess: true,
+      fileId: "f1",
+      uploadUrl: "https://up.test",
+      uploadCompletionRequired: false,
+    });
+    h.uploadFile.mockResolvedValue(undefined);
+    h.getFileByFileId.mockResolvedValue({ itemId: "f1", url: "https://cdn.test/logo.png" });
+
+    renderPage();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["logo"], "logo.png", { type: "image/png" });
+    await userEvent.upload(input, file);
+
+    await screen.findByAltText("Invoice logo");
+    expect(h.completeUpload).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("calls completion and succeeds when the logo upload is verified", async () => {
+    useMerchantProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
+    useUpdateMerchantProfile.mockReturnValue(mutation());
+    h.getPreSignedUrl.mockResolvedValue({
+      isSuccess: true,
+      fileId: "f1",
+      fileVersionId: "v1",
+      uploadUrl: "https://up.test",
+      uploadCompletionRequired: true,
+    });
+    h.uploadFile.mockResolvedValue(undefined);
+    h.completeUpload.mockResolvedValue({ isSuccess: true, verificationStatus: "Verified" });
+    h.getFileByFileId.mockResolvedValue({ itemId: "f1", url: "https://cdn.test/logo.png" });
+
+    renderPage();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["logo"], "logo.png", { type: "image/png" });
+    await userEvent.upload(input, file);
+
+    await screen.findByAltText("Invoice logo");
+    expect(h.completeUpload).toHaveBeenCalledWith({ fileId: "f1", fileVersionId: "v1" });
+  });
+
+  it("surfaces an error toast and keeps no logo when completion is rejected", async () => {
+    useMerchantProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
+    useUpdateMerchantProfile.mockReturnValue(mutation());
+    h.getPreSignedUrl.mockResolvedValue({
+      isSuccess: true,
+      fileId: "f1",
+      fileVersionId: "v1",
+      uploadUrl: "https://up.test",
+      uploadCompletionRequired: true,
+    });
+    h.uploadFile.mockResolvedValue(undefined);
+    h.completeUpload.mockResolvedValue({
+      isSuccess: true,
+      verificationStatus: "Rejected",
+      rejectionReason: "real_file_type_mismatch",
+    });
+
+    renderPage();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["logo"], "logo.png", { type: "image/png" });
+    await userEvent.upload(input, file);
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: "destructive",
+          title: "The logo could not be uploaded",
+          description: "real_file_type_mismatch",
+        }),
+      ),
+    );
   });
 
   it("surfaces a refusal from the server rather than looking saved", async () => {

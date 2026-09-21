@@ -280,6 +280,51 @@ public sealed class SubscriptionActivationProcessorTests
             "merchant account the customer does not have");
     }
 
+    /// <summary>
+    /// The card is looked up as the subscriber's, never as the merchant's.
+    /// </summary>
+    /// <remarks>
+    /// The bug this pins down: one tenant sells to many organizations through a single merchant
+    /// scope, and every payment carries that merchant in <c>OrganizationId</c> while the subscriber
+    /// lives in <c>CustomerOrganizationId</c>. Looking cards up by the merchant returned whichever
+    /// card was saved most recently under it -- another organization's -- and wrote it onto this
+    /// subscriber's billing account as the card every later off-session charge would present.
+    /// Renewals, plan changes, quantity changes and usage overage all read that one field, so each
+    /// of them went to a provider customer that does not own the subscription.
+    /// <para>
+    /// <c>StoredPaymentMethodRepository.BuildActiveFilter</c> matches the reference and the
+    /// organization as a pair specifically to keep one organization's cards away from another's;
+    /// this asserts the caller hands it the right half.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_card_saved_only_under_the_merchant_is_not_adopted_for_the_subscriber()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+
+        // A card belonging to a different subscriber, saved under the shared merchant scope --
+        // exactly what a tenant's second organization finds sitting there when it signs up.
+        GivenSavedCard(
+            customerId: "cus_someone_else",
+            methodId: "method-belonging-to-another-org",
+            organizationId: MerchantOrganizationId);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _accounts.Verify(
+            repository => repository.TrySetProviderCustomerAsync(
+                TenantId,
+                "acct-1",
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a card saved by another organization is not this subscriber's to charge, and " +
+            "adopting it points their billing account at a provider customer they do not own");
+    }
+
     [Fact]
     public async Task A_paid_subscription_with_no_card_to_renew_on_says_so()
     {
@@ -427,12 +472,20 @@ public sealed class SubscriptionActivationProcessorTests
                 OrganizationId = paymentOrganizationId
             });
 
-    /// <summary>The card is found under the reference it was saved with, at that organization.</summary>
+    /// <summary>
+    /// The card is found under the reference it was saved with, at the organization that saved it.
+    /// </summary>
+    /// <remarks>
+    /// The <em>subscriber's</em> organization, not the merchant's. A tenant sells to many
+    /// organizations through one merchant scope, so cards looked up by the merchant belong to
+    /// whoever paid last rather than to this subscriber. Defaulting this to the merchant is what
+    /// let the processor adopt a stranger's card while every test still read green.
+    /// </remarks>
     private void GivenSavedCard(
         string customerId = "cus_123",
         string methodId = "method-1",
         string shopperReference = "shopper-1",
-        string organizationId = MerchantOrganizationId) =>
+        string organizationId = OrganizationId) =>
         _storedMethods
             .Setup(repository => repository.ListActiveAsync(
                 TenantId,

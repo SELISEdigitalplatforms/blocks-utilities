@@ -1,10 +1,17 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { MeterUsage } from "../models/subscription-simulation.model";
 import type { PlanMeter } from "../../subscription/models/subscription-plan.model";
 
+const recordUsage = vi.hoisted(() => vi.fn());
+const getEntitlement = vi.hoisted(() => vi.fn());
+
 vi.mock("../hooks/use-record-usage", () => ({
-  useRecordUsage: () => ({ mutateAsync: vi.fn() }),
+  useRecordUsage: () => ({ mutateAsync: recordUsage }),
+}));
+
+vi.mock("../services/subscription-simulation.service", () => ({
+  subscriptionSimulationService: { getEntitlement },
 }));
 
 import { UsageMeterRow } from "./usage-meter-row";
@@ -58,5 +65,37 @@ describe("UsageMeterRow", () => {
     );
 
     expect(screen.getByText("Entitlement: screening.limit")).toBeInTheDocument();
+  });
+
+  it("records past the limit when the meter bills overage", async () => {
+    getEntitlement.mockResolvedValue({
+      key: "screening.limit",
+      allowed: true,
+      reason: "Allowed",
+      limitKind: "Count",
+      limit: 150,
+      used: 150,
+      remaining: 0,
+      overageAllowed: true,
+      unitLabel: null,
+    });
+    recordUsage.mockResolvedValue({ ...usage, used: 200, remaining: 0, overage: 50 });
+
+    render(
+      <UsageMeterRow
+        meter={meter}
+        entitlementKey="screening.limit"
+        usage={{ ...usage, used: 150, remaining: 0 }}
+        organizationId={undefined}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Quantity to consume for Screenings"), {
+      target: { value: "50" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Consume" }));
+
+    await waitFor(() => expect(recordUsage).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Blocked before recording/)).not.toBeInTheDocument();
   });
 });

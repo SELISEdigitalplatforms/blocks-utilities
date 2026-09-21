@@ -76,13 +76,13 @@ const previewResult: UsageOveragePreviewResult = {
   finalChargeDependsOnActualPeriodEndUsage: true,
 };
 
-const renderDialog = () => {
+const renderDialog = (dialogMeter: MeterTerms = meter) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(
     <QueryClientProvider client={client}>
       <EstimateUsageDialog
-        meter={meter}
+        meter={dialogMeter}
         organizationId="org-1"
         open
         onOpenChange={() => {}}
@@ -128,6 +128,32 @@ describe("EstimateUsageDialog", () => {
       expect(previewUsageOverage).toHaveBeenCalledWith({
         meterKey: "screening",
         additionalQuantity: 20,
+        organizationId: "org-1",
+      }),
+    );
+  });
+
+  it("accepts a fraction up to the meter's own decimal places and refuses one beyond them", async () => {
+    previewUsageOverage.mockResolvedValue(previewResult);
+
+    renderDialog({ ...meter, quantityScale: 2 });
+    const input = screen.getByLabelText(/additional screenings to estimate/i);
+
+    expect(input).toHaveAttribute("step", "0.01");
+
+    fireEvent.change(input, { target: { value: "1.234" } });
+    fireEvent.click(screen.getByRole("button", { name: /^estimate$/i }));
+
+    expect(screen.getByText(/at most 2 decimal places/i)).toBeInTheDocument();
+    expect(previewUsageOverage).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "500.5" } });
+    fireEvent.click(screen.getByRole("button", { name: /^estimate$/i }));
+
+    await waitFor(() =>
+      expect(previewUsageOverage).toHaveBeenCalledWith({
+        meterKey: "screening",
+        additionalQuantity: 500.5,
         organizationId: "org-1",
       }),
     );

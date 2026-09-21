@@ -853,11 +853,23 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         // from a stored card does — so reading it here meant every subscription reached its
         // first renewal with no card, and failed closed a whole billing period after the
         // mistake was made.
+        //
+        // Scoped to the *subscriber*, never to the organization that took the money. Those are
+        // two different things on every payment this processor sees: OrganizationId is the
+        // merchant scope the provider was resolved under, and is the same value for every
+        // subscriber a tenant sells to. Looking cards up by it returns whichever card was saved
+        // most recently anywhere under that merchant, so each organization's billing account
+        // adopted a stranger's card and provider customer, and every later off-session charge --
+        // renewal, plan change, quantity change, usage overage, all of which read
+        // DefaultPaymentMethodId -- presented a customer that does not own the subscription.
+        // StoredPaymentMethodRepository.BuildActiveFilter matches the reference and the
+        // organization as a pair precisely to keep one organization's cards away from another's;
+        // passing the merchant here handed it the wrong half of that pair.
         var methods = await _storedMethods.ListActiveAsync(
             subscription.TenantId,
             [new StoredPaymentMethodLookupScope(
                 payment.ShopperReference,
-                payment.OrganizationId)],
+                subscription.OrganizationId)],
             cancellationToken);
 
         // The card this charge saved, newest first: a shopper who paid twice has more than one,

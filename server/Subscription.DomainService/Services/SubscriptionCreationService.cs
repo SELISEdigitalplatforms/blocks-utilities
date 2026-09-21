@@ -1285,23 +1285,6 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     }
 
     /// <summary>
-    /// The instant a full, un-prorated recurring period is priced as of.
-    /// </summary>
-    /// <remarks>
-    /// A trial with no conversion pending yet is priced right now -- the one instant a purchase
-    /// preview is ever built at, and a safe stand-in for "later" because nothing about building
-    /// one runs late. A trial pending conversion is priced at the trial's own end instead: a
-    /// promotional code's eligibility depends on which instant is asked, and "once the trial no
-    /// longer applies" -- this figure's own documented meaning -- is the trial's end, not
-    /// whichever earlier instant this preview happened to be built at.
-    /// </remarks>
-    private static DateTime ResolveRenewalPricingInstant(SubscriptionDetail subscription) =>
-        subscription.Trial is { EndsAtUtc: var trialEndsAtUtc } &&
-            subscription.InitialChargeAmountMinor is null
-            ? trialEndsAtUtc
-            : subscription.CreatedAtUtc;
-
-    /// <summary>
     /// What a full, un-prorated recurring period costs, once the trial (if any) no longer
     /// applies -- the same figure <see cref="SubscriptionResponseMapper"/> reports as an existing
     /// subscription's own <c>RecurringAmountMinor</c>, so a quote and a live subscription
@@ -1312,10 +1295,24 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// mid-month: this is the steady-state price the subscription settles into, not the shorter
     /// first charge that gets it there. See <see cref="ResolveNextCharge"/> for that charge, which
     /// can differ from this one in both amount and the period it covers.
+    /// <para>
+    /// Priced at <paramref name="pricingInstantUtc"/> -- the instant this figure's own
+    /// <c>RenewalAtUtc</c> reports -- and against the discount-period count that instant will be
+    /// reached with, never as of the moment the preview happened to be built. A figure carrying a
+    /// date has to be the figure charged on that date: priced at signup, a promotional code that
+    /// expires or runs out of periods before then is still shown reducing it, quoting a total the
+    /// subscriber will not be charged. The trial path already had to learn this -- see
+    /// <see cref="ResolveNextCharge"/>'s own remarks -- and an ordinary renewal is the same
+    /// question asked about a later instant.
+    /// </para>
     /// </remarks>
-    private static PeriodCharge ResolveFullPeriodRenewal(SubscriptionDetail subscription) =>
+    private static PeriodCharge ResolveFullPeriodRenewal(
+        SubscriptionDetail subscription,
+        DateTime pricingInstantUtc) =>
         SubscriptionAmountCalculator.PeriodAmountMinor(
-            subscription, ResolveRenewalPricingInstant(subscription));
+            subscription,
+            pricingInstantUtc,
+            discountPeriodsAppliedOverride: ProjectedDiscountPeriods(subscription));
 
     /// <summary>
     /// The charge, the period it covers, and -- when a calendar-aligned annual price bundles one
@@ -1374,17 +1371,10 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 ? pendingAnnual.EndUtc
                 : subscription.NextFeeBillingAtUtc ?? subscription.CurrentPeriodEndUtc;
 
-            // Preview is built before activation records whether the opening payment consumed a
-            // limited promotion. Project that one transition using the exact rule activation uses,
-            // without mutating the built-but-unsaved subscription.
-            var projectedDiscountPeriods = subscription.DiscountPeriodsApplied +
-                (SubscriptionDiscountPeriodAccounting.OpeningChargeSpentPeriod(subscription)
-                    ? 1
-                    : 0);
             var ordinaryCharge = SubscriptionAmountCalculator.PeriodAmountMinor(
                 subscription,
                 chargeAtUtc,
-                discountPeriodsAppliedOverride: projectedDiscountPeriods);
+                discountPeriodsAppliedOverride: ProjectedDiscountPeriods(subscription));
             var resolvedOrdinaryPeriod = BillingPeriodCalculator.TryGetPeriod(
                 subscription.FeeSchedule, chargeAtUtc, out var ordinaryPeriod);
 
@@ -1453,6 +1443,19 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             convertingToStub ? stub.TotalDays : null);
     }
 
+    /// <summary>
+    /// The discount-period count a future charge will be reached with.
+    /// </summary>
+    /// <remarks>
+    /// Preview is built before activation records whether the opening payment consumed a limited
+    /// promotion. Projects that one transition using the exact rule activation uses, without
+    /// mutating the built-but-unsaved subscription. Shared by both forward-looking figures, so a
+    /// one-period code cannot expire out of one of them and linger in the other.
+    /// </remarks>
+    private static int ProjectedDiscountPeriods(SubscriptionDetail subscription) =>
+        subscription.DiscountPeriodsApplied +
+        (SubscriptionDiscountPeriodAccounting.OpeningChargeSpentPeriod(subscription) ? 1 : 0);
+
     private static PeriodCharge ChargeOf(PendingAnnualPeriod annual) => new(
         annual.AmountMinor,
         annual.DiscountApplied,
@@ -1510,13 +1513,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // on the day it starts.
         var nextRenewalAtUtc = annualBundled ? annual!.EndUtc : subscription.NextFeeBillingAtUtc;
 
-        // The full, un-prorated recurring period -- NextRenewalAmountMinor's documented meaning
-        // since long before this response carried a tax breakdown, preserved exactly: never the
-        // trial-conversion stub, whatever the schedule happens to be.
-        var fullPeriodCharge = ResolveFullPeriodRenewal(subscription);
-
         // The charge actually due next, which for a trial pending conversion can be a shorter,
-        // prorated stub that fullPeriodCharge above deliberately does not describe. Read once and
+        // prorated stub that fullPeriodCharge below deliberately does not describe. Read once and
         // reused for the whole NextCharge breakdown below, so nothing here is priced twice.
         var nextCharge = ResolveNextCharge(subscription);
 
@@ -1541,6 +1539,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 ? nextCharge.Annual!.EndUtc
                 : nextCharge.PeriodEndUtc
             : nextCharge.ChargeAtUtc;
+
+        // The full, un-prorated recurring period -- NextRenewalAmountMinor's documented meaning
+        // since long before this response carried a tax breakdown, preserved exactly: never the
+        // trial-conversion stub, whatever the schedule happens to be. Priced at the instant it is
+        // reported as due, which is the one thing about it that has changed: the date below and
+        // the money above it now describe the same charge.
+        var fullPeriodCharge = ResolveFullPeriodRenewal(subscription, recurringChargeAtUtc);
 
         return new SubscriptionPreviewResponse
         {
@@ -1598,6 +1603,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 {
                     StartUtc = annual.StartUtc,
                     EndUtc = annual.EndUtc,
+                    GrossAmountMinor = annual.GrossAmountMinor,
                     AmountMinor = annual.AmountMinor,
                     NetAmountMinor = annual.NetAmountMinor,
                     TaxAmountMinor = annual.TaxAmountMinor,

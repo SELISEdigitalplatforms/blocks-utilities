@@ -32,7 +32,11 @@ import { Input } from "@/components/ui-kits/input/input";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { Button } from "@/components/ui-kits/button/button";
 import { isErrorWithErrors } from "@/lib/error";
-import { useGetPreSignedUrlForUpload, useUploadFile } from "@blocks-storage/hooks/use-storage-file";
+import {
+  useCompleteUpload,
+  useGetPreSignedUrlForUpload,
+  useUploadFile,
+} from "@blocks-storage/hooks/use-storage-file";
 import { storageService } from "@blocks-storage/services/storage.service";
 import { ColorSwatch } from "@/components/color-swatch/color-swatch";
 import { ModuleName } from "@/constants/modules.constants";
@@ -56,6 +60,7 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
   );
   const { mutateAsync: getPreSign } = useGetPreSignedUrlForUpload();
   const { mutateAsync: uploadFile } = useUploadFile();
+  const { mutateAsync: completeUpload } = useCompleteUpload();
 
   const form = useForm({
     resolver: zodResolver(createOidcSchema),
@@ -141,6 +146,19 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
       if (!preSign.isSuccess) throw new Error("Failed to get upload URL");
 
       await uploadFile({ url: preSign.uploadUrl, file });
+
+      if (preSign.uploadCompletionRequired) {
+        const completion = await completeUpload({
+          fileId: preSign.fileId,
+          fileVersionId: preSign.fileVersionId ?? "",
+        });
+        if (completion.verificationStatus !== "Verified") {
+          showErrorToast({
+            errors: completion.rejectionReason ?? "Logo failed verification",
+          });
+          return;
+        }
+      }
 
       const fileInfo = await storageService.file.getFileByFileId({
         itemId: preSign.fileId,

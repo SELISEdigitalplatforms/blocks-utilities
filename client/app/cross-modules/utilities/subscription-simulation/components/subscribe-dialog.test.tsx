@@ -12,6 +12,7 @@ const toast = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({ toast: (...args: unknown[]) => toast(...args) }));
 
 const previewSubscription = vi.fn();
+const previewDiscountCode = vi.fn();
 const subscribe = vi.fn();
 
 vi.mock("../services/subscription-simulation.service", async () => {
@@ -23,6 +24,7 @@ vi.mock("../services/subscription-simulation.service", async () => {
     ...actual,
     subscriptionSimulationService: {
       previewSubscription: (...args: unknown[]) => previewSubscription(...args),
+      previewDiscountCode: (...args: unknown[]) => previewDiscountCode(...args),
       subscribe: (...args: unknown[]) => subscribe(...args),
     },
   };
@@ -160,6 +162,137 @@ beforeEach(() => {
 });
 
 describe("SubscribeDialog", () => {
+  it("quotes the dated renewal row from nextCharge, not the as-of-today recurring price", async () => {
+    // The real defect this guards: nextRenewal is priced at the quote instant, so a discount that
+    // expires before the renewal date still appears in it. nextRenewal and nextCharge then carry
+    // two different totals for the same date, and the buyer must be shown the one that will
+    // actually be charged.
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      nextRenewal: {
+        ...quote.nextRenewal,
+        promotionalDiscountMinor: 10_000,
+        discountMinor: 10_000,
+        totalMinor: 97_290,
+        renewalAtUtc: "2027-09-30T18:00:00Z",
+      },
+      nextCharge: {
+        ...quote.nextCharge,
+        chargeAtUtc: "2027-09-30T18:00:00Z",
+        builtInDiscountMinor: 5_000,
+        promotionalDiscountMinor: 0,
+        discountMinor: 5_000,
+        totalMinor: 102_695,
+      },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    const panel = screen.getByTestId("subscribe-quote");
+    expect(panel.textContent).toContain("1,026.95");
+    expect(panel.textContent).not.toContain("972.90");
+  });
+
+  it("asks the discount endpoint only once a code is typed", async () => {
+    previewSubscription.mockResolvedValue(quote);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    // No code typed, so there is no verdict to ask for -- the plain quote is the whole answer.
+    expect(previewSubscription).toHaveBeenCalledTimes(1);
+    expect(previewDiscountCode).not.toHaveBeenCalled();
+  });
+
+  it("keeps the price on screen when a typed code is rejected, and says why", async () => {
+    previewDiscountCode.mockResolvedValue({
+      status: "Expired",
+      reasonCode: "subscription_discount_expired",
+      message: "The discount code has expired.",
+      quote, // The same subscription, priced without the code.
+    });
+
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Discount code/), { target: { value: "ft_1" } });
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    // The rejection is data, not an error: the code endpoint answered, the price still renders,
+    // and the subscriber is told the figures exclude the code rather than left to assume they
+    // include it.
+    expect(previewDiscountCode).toHaveBeenCalledTimes(1);
+    expect(previewSubscription).not.toHaveBeenCalled();
+    expect(screen.getByTestId("subscribe-discount-notice").textContent).toContain("expired");
+    expect(screen.getByTestId("subscribe-quote").textContent).toContain("89.00");
+  });
+
+  it("says nothing about a code that applied", async () => {
+    previewDiscountCode.mockResolvedValue({
+      status: "Applied",
+      reasonCode: null,
+      message: null,
+      quote,
+    });
+
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Discount code/), { target: { value: "ft_1" } });
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("subscribe-discount-notice")).not.toBeInTheDocument();
+  });
+
+  it("names both periods a calendar-aligned yearly subtotal is made of", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      // The shape that reads as an arithmetic error unsplit: a stub priced from the linked
+      // monthly amount, plus a whole year priced from the annual one, under one "Subtotal".
+      subtotalMinor: 106_500,
+      prorated: true,
+      coveredDays: 13,
+      totalDays: 30,
+      periodStartUtc: "2026-09-18T14:20:04Z",
+      periodEndUtc: "2026-09-30T18:00:00Z",
+      pendingAnnualPeriod: {
+        startUtc: "2026-09-30T18:00:00Z",
+        endUtc: "2027-09-30T18:00:00Z",
+        grossAmountMinor: 100_000,
+        amountMinor: 97_290,
+        netAmountMinor: 90_000,
+        taxAmountMinor: 7_290,
+        collectedWithCheckout: true,
+      },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    const panel = screen.getByTestId("subscribe-quote");
+    expect(panel.textContent).toContain("(pro-rated)");
+    expect(panel.textContent).toContain("65.00"); // 1,065.00 - 1,000.00, the stub's own share.
+    expect(panel.textContent).toContain("1,000.00");
+    expect(panel.textContent).toContain("1,065.00"); // The sum still reconciles below them.
+  });
+
   it("cannot be confirmed before a preview is taken", () => {
     renderDialog();
 
@@ -379,6 +512,12 @@ describe("SubscribeDialog", () => {
         ...quote.nextRenewal,
         tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 721 },
       },
+      // The dated row reads nextCharge, so a fixture that moves the renewal figures has to move
+      // both -- which is what the server does whenever nothing expires between now and the date.
+      nextCharge: {
+        ...quote.nextCharge,
+        tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 721 },
+      },
     });
 
     renderDialog();
@@ -423,6 +562,11 @@ describe("SubscribeDialog", () => {
         tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 721 },
         totalMinor: 9_621,
         renewalAtUtc: "2026-09-16T00:00:00Z",
+      },
+      nextCharge: {
+        ...quote.nextCharge,
+        tax: { rateBasisPoints: 810, mode: "Exclusive", amountMinor: 721 },
+        totalMinor: 9_621,
       },
     });
 

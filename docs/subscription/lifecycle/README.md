@@ -362,10 +362,12 @@ matters: a subscriber offered nothing but "recover" has no way to walk away inst
 Cancelling while a card setup is outstanding settles it, so completing the form afterwards cannot
 start a subscription somebody has cancelled.
 
-> **Known gap, stated rather than built around:** a cancelled subscription's still-open **final usage
-> period is never rated.** An immediate cancellation clears the usage billing date the moment
-> entitlement stops, so usage recorded in that unrated final stretch has no billing path today. If
-> your product allows heavy metered usage right up to cancellation, know that this window is free.
+> **The final usage window is billed.** Cancelling does not make the last stretch of metered usage
+> free. The window open at the moment entitlement stops is frozen and queued for rating in the same
+> write that moves the status, cut to the effective instant so it bills for what the subscriber
+> actually had and no further. The usage sweep keeps picking the subscription up after it has ended,
+> for as long as that window is still owed. Only a subscription that never activated is skipped,
+> having nothing to rate.
 
 > ### Test 8.1 — both modes
 > Cancel at period end → still `Active`-equivalent access until the boundary, then `Canceled`.

@@ -65,10 +65,15 @@ public sealed class StripeSetupSessionRequestFactory : IPaymentMethodSetupReques
             // The same reason payment mode names a known customer: without it a returning
             // shopper becomes a second Stripe customer, and the card is saved somewhere the
             // subscription's billing account will never look.
-            //
-            // No customer_creation counterpart is needed. Setup mode has nowhere to attach a
-            // payment method except a Customer, so Stripe always makes one when none is named.
             form.Add("customer", providerPayerReference);
+        }
+        else
+        {
+            // Setup mode does NOT create a Customer unless asked (customer_creation defaults to
+            // if_required). Without one the SetupIntent reports no customer, the stored card has
+            // no ProviderPayerReference, and activation defers forever waiting for a customer
+            // that will never arrive. Mutually exclusive with naming a customer.
+            form.Add("customer_creation", "always");
         }
 
         form.AddObject("setup_intent_data", intent =>

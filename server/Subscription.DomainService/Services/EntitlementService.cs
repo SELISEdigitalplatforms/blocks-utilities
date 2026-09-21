@@ -253,7 +253,19 @@ public sealed class EntitlementService : IEntitlementService
         var limit = reading?.WindowAllowance ?? LimitFor(subscription, entitlement, now);
         var used = reading?.Balance ?? 0;
 
-        var allowed = used < limit;
+        // Past the limit is still allowed when the meter bills what goes beyond it, exactly as
+        // recording decides: it refuses over-allowance usage only on a meter with no overage.
+        // Answering LimitReached there told a caller to stop while the usage call would have
+        // accepted and billed the same usage, so nothing checking first could ever reach overage.
+        // A campaign's temporary cap is the exception -- the offer's own limit, not an allowance
+        // -- and stays hard while it is in force.
+        var overageAllowed = CampaignLimitFor(subscription, entitlement, now) is null &&
+            entitlement.MeterKey is { Length: > 0 } meteredBy &&
+            subscription.Plan.Meters.Exists(meter =>
+                meter.OverageAllowed &&
+                string.Equals(meter.MeterKey, meteredBy, StringComparison.Ordinal));
+
+        var allowed = used < limit || overageAllowed;
 
         return new EntitlementResponse
         {
@@ -266,6 +278,7 @@ public sealed class EntitlementService : IEntitlementService
             Limit = limit,
             Used = used,
             Remaining = Math.Max(0, limit - used),
+            OverageAllowed = overageAllowed,
             UnitLabel = entitlement.UnitLabel
         };
     }
@@ -274,13 +287,41 @@ public sealed class EntitlementService : IEntitlementService
     /// A trial's grant replaces the plan's limit, matching how usage recording measures it.
     /// The two must agree or a caller is told it may act and then refused.
     /// </summary>
-    private static decimal LimitFor(
+    /// <remarks>
+    /// Internal so the published entitlements read model reports the same figure; it copied the
+    /// plan's raw limit and showed a trialing subscription the paid allowance, not its grant.
+    /// </remarks>
+    internal static decimal LimitFor(
         SubscriptionDetail subscription,
         PlanEntitlement entitlement,
         DateTime now)
     {
         var planLimit = entitlement.Limit ?? 0;
 
+        if (CampaignLimitFor(subscription, entitlement, now) is { } campaignLimit)
+        {
+            return campaignLimit;
+        }
+
+        if (subscription.Status != SubscriptionStatus.Trialing ||
+            subscription.Trial is null ||
+            entitlement.MeterKey is not { Length: > 0 } meterKey)
+        {
+            return planLimit;
+        }
+
+        var grant = subscription.Trial.Grants.Find(candidate =>
+            string.Equals(candidate.MeterKey, meterKey, StringComparison.Ordinal));
+
+        return grant?.IncludedQuantity ?? planLimit;
+    }
+
+    /// <summary>The campaign's temporary cap on this entitlement, while one is in force.</summary>
+    private static decimal? CampaignLimitFor(
+        SubscriptionDetail subscription,
+        PlanEntitlement entitlement,
+        DateTime now)
+    {
         // A free-opening-period campaign's temporary cap, in force only while the campaign's own
         // opening period is still running. Evaluated against the clock on every call rather than
         // read off a stored flag, the same way SubscriptionLiveness.IsEffectivelyLive above already
@@ -302,17 +343,7 @@ public sealed class EntitlementService : IEntitlementService
             return campaignOverride.Limit;
         }
 
-        if (subscription.Status != SubscriptionStatus.Trialing ||
-            subscription.Trial is null ||
-            entitlement.MeterKey is not { Length: > 0 } meterKey)
-        {
-            return planLimit;
-        }
-
-        var grant = subscription.Trial.Grants.Find(candidate =>
-            string.Equals(candidate.MeterKey, meterKey, StringComparison.Ordinal));
-
-        return grant?.IncludedQuantity ?? planLimit;
+        return null;
     }
 
     private static EntitlementResponse Denied(string key, EntitlementReason reason) => new()

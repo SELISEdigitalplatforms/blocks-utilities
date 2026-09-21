@@ -447,7 +447,9 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
             shopperReference,
             await _storedPaymentMethods.FindProviderPayerReferenceAsync(
                 payment.TenantId,
-                [new StoredPaymentMethodLookupScope(shopperReference, payment.OrganizationId)],
+                [new StoredPaymentMethodLookupScope(
+                    shopperReference,
+                    PaymentMethodOwnership.OrganizationOf(payment))],
                 provider.ProviderName,
                 cancellationToken));
 
@@ -529,6 +531,9 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
             // to be on the token making the internal call.
             OrganizationId = organizationId,
             CustomerOrganizationId = request.CustomerOrganizationId,
+            // The card is the subscriber's. Trusted here, unlike on a charge, because this request
+            // is never bound from an HTTP body -- see the class remarks.
+            PaymentMethodOwnerOrganizationId = request.CustomerOrganizationId,
             CustomerEmail = request.CustomerEmail,
             UserId = context.UserId,
             OrderId = request.OrderId,

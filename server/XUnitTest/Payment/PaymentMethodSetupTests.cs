@@ -83,8 +83,15 @@ public sealed class PaymentMethodSetupTests
     [Fact]
     public void A_known_shopper_is_named_rather_than_created_again()
     {
-        ReadForm(Create(providerPayerReference: "cus_1"))["customer"].Should().Be("cus_1");
-        ReadForm(Create()).Keys.Should().NotContain("customer");
+        var known = ReadForm(Create(providerPayerReference: "cus_1"));
+        known["customer"].Should().Be("cus_1");
+        known.Keys.Should().NotContain("customer_creation");
+
+        // A first-time shopper must still end up with a customer, or activation can never
+        // adopt the card.
+        var first = ReadForm(Create());
+        first.Keys.Should().NotContain("customer");
+        first["customer_creation"].Should().Be("always");
     }
 
     [Fact]

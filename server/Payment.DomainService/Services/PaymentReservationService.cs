@@ -196,6 +196,7 @@ public sealed class PaymentReservationService : IPaymentReservationService
             Origin = origin,
             UserId = context.UserId,
             CustomerOrganizationId = request.CustomerOrganizationId,
+            PaymentMethodOwnerOrganizationId = request.PaymentMethodOwnerOrganizationId,
             CustomerName = request.CustomerName,
             CustomerEmail = request.CustomerEmail,
             CustomerPhoneNumber = request.CustomerPhone,

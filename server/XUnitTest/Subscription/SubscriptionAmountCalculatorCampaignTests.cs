@@ -171,6 +171,43 @@ public sealed class SubscriptionAmountCalculatorCampaignTests
         charge.BuiltInDiscountMinor.Should().Be(0);
     }
 
+    [Fact]
+    public void A_spent_ReplaceBuiltIn_campaign_restores_the_automatic_discount()
+    {
+        // The renewal after a one-period 10%-off code that replaced a 5% cadence discount. The
+        // campaign is exhausted, so it replaces nothing and the price's own 5% must come back --
+        // otherwise the subscriber pays the undiscounted gross on every renewal from here on,
+        // which is more than either the campaign or the price ever asked for.
+        var subscription = NewSubscription(
+            automaticBasisPoints: 500,
+            campaignPercentBasisPoints: 1_000,
+            precedence: CampaignPrecedence.ReplaceBuiltIn);
+        subscription.Discount!.DurationPeriods = 1;
+        subscription.DiscountPeriodsApplied = 1;
+
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, Now);
+
+        charge.PromotionalDiscountMinor.Should().Be(0);
+        charge.BuiltInDiscountMinor.Should().Be(500);
+        charge.AmountMinor.Should().Be(9_500);
+        charge.DiscountApplied.Should().BeFalse("an exhausted campaign must not count another period");
+    }
+
+    [Fact]
+    public void An_expired_ReplaceBuiltIn_campaign_restores_the_automatic_discount()
+    {
+        var subscription = NewSubscription(
+            automaticBasisPoints: 500,
+            campaignPercentBasisPoints: 1_000,
+            precedence: CampaignPrecedence.ReplaceBuiltIn);
+        subscription.Discount!.ExpiresAtUtc = Now.AddDays(-1);
+
+        var charge = SubscriptionAmountCalculator.PeriodAmountMinor(subscription, Now);
+
+        charge.BuiltInDiscountMinor.Should().Be(500);
+        charge.AmountMinor.Should().Be(9_500);
+    }
+
     private static SubscriptionDetail NewSubscription(
         int? automaticBasisPoints,
         int campaignPercentBasisPoints,

@@ -24,9 +24,12 @@ server/   .NET backend
   Utility.DomainService/        magic links, PDF generation, template engine, sequences, geolocation
   XUnitTest/                    backend unit tests (xUnit)
   Blocks.slnx                   solution file
-client/   web console (React 18, TypeScript, Vite, Tailwind, Radix UI; Vitest for unit tests)
-e2e/      end-to-end tests (Playwright), see e2e/README.md
-scripts/  scan and deploy entry points
+client/     web console (React 18, TypeScript, Vite, Tailwind, Radix UI; Vitest for unit tests)
+e2e/        end-to-end tests (Playwright), see e2e/README.md
+docs/       subscription lifecycle, plan authoring and tracing guides
+monitoring/ monitoring assets
+scripts/    security scan entry point and the payment key-vault setup scripts
+.github/    CI workflows, including the per-environment deploy pipelines
 ```
 
 The API and Worker are built on the `SeliseBlocks.Genesis.OS` platform package, which provides configuration, secrets resolution, messaging (RabbitMQ or Azure Service Bus), logging and the authentication middleware.
@@ -114,11 +117,11 @@ npm --prefix client run test:coverage
 
 ## Scanning and deployment
 
-- `scripts/scan.sh` is the repository's security scan entry point (SAST, SCA and secret scanning). It is intentionally not tracked in git; internal environments provide it.
-- `scripts/deploy.sh` is the deployment entry point.
+- `scripts/scan.sh` is the repository's security scan entry point (SAST, SCA and secret scanning). It is intentionally not tracked in git (it is listed in `.gitignore`); internal environments provide it.
 - `scripts/payment-key-vault/` contains the one-time setup scripts for the payment provider token encryption key ring.
+- `scripts/junit-to-sonar.py` and `scripts/th-transform.py` convert test and scan output for the reporting pipelines.
 
-CI for this repository lives in `.github/workflows/` (per-environment pipelines plus repo hygiene checks).
+Deployment is driven by the workflows in `.github/workflows/`, not by a script in this repository: `ci-dev.yml`, `ci-stg.yml`, `ci_prod.yml` and `cicd-inception.yml` build and deploy per environment, alongside the security gates (`inception-sast.yml`, `inception-sca.yml`, `inception-secrets.yml`, `inception-dast.yml`) and repo hygiene checks.
 
 ## Configuration
 

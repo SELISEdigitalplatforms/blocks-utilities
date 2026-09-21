@@ -141,9 +141,25 @@ public static class SubscriptionProrationCalculator
         // period — every anniversary target, and every change landing on the first —
         // newTaxInclusive already *is* the full period, and reusing it keeps those quotes
         // bit-identical rather than merely equal by inspection.
-        var targetFullPeriodTotalMinor = effectiveTargetFraction.IsPartial
-            ? FullPeriod(subscription, targetPlan, targetPrice, targetQuantityItems, nowUtc)
-            : newTaxInclusive;
+        //
+        // Priced at the boundary it recurs from, never at the instant of the quote. This figure
+        // answers "what will a whole period cost from the next boundary on", and a promotional
+        // code that lapses between now and then must not be shown reducing a period it will never
+        // touch. Quoted as of now, a plan change onto a CHF 750/month price under a code expiring
+        // the next day reported 729.68 against an actual 770.21; the same mistake overquotes when
+        // the code's rate is smaller than the price's own, so it misleads in both directions.
+        // The purchase preview's NextRenewal and SubscriptionResponseMapper's RecurringAmountMinor
+        // were corrected for the same reason -- this is the third and last place it lived.
+        //
+        // Computed for a whole target period too, rather than reusing newTaxInclusive: that reuse
+        // was only ever an optimisation resting on the two being equal, which they are exactly
+        // when the pricing instant makes no difference -- the case this is fixing.
+        var targetFullPeriodTotalMinor = FullPeriod(
+            subscription,
+            targetPlan,
+            targetPrice,
+            targetQuantityItems,
+            targetPeriodEndUtc);
 
         var oldRemainingValue = Prorate(oldTaxInclusive, remainingTicks, totalTicks);
         var targetTotalTicks = (targetPeriodEndUtc - targetPeriodStartUtc).Ticks;

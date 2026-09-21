@@ -45,6 +45,26 @@ const describeAllowance = (
 };
 
 /**
+ * A trial's grant replaces the plan's allowance while the trial runs, so both are shown: the
+ * grant is what usage is measured against now, the allowance is what the subscription moves to.
+ */
+const describeTrialAwareAllowance = (
+  meter: MeterTerms,
+  usageInterval: string,
+  usageIntervalCount: number,
+): string => {
+  const allowance = describeAllowance(meter, usageInterval, usageIntervalCount);
+
+  if (meter.trialIncludedQuantity == null) {
+    return allowance;
+  }
+
+  const plural = meter.trialIncludedQuantity === 1 ? "" : "s";
+
+  return `During the trial: ${meter.trialIncludedQuantity.toLocaleString()} ${meter.unitLabel}${plural} included. After it: ${allowance}`;
+};
+
+/**
  * "First 100 additional screenings: CHF 1.00 each; thereafter CHF 0.80 each." -- one segment per
  * graduated band, phrased from the bands' own boundaries rather than a fixed template, since a
  * meter may define anywhere from one flat rate to several.
@@ -102,7 +122,7 @@ const MeterTermsRow = ({
       <div className="min-w-0 space-y-1">
         <p className="text-sm font-medium">{meter.displayName}</p>
         <p className="text-xs text-muted-foreground">
-          {describeAllowance(meter, usageInterval, usageIntervalCount)}{" "}
+          {describeTrialAwareAllowance(meter, usageInterval, usageIntervalCount)}{" "}
           {!meter.overageAllowed && (
             <span className="inline-flex items-center gap-1">
               <Ban className="h-3 w-3" />
