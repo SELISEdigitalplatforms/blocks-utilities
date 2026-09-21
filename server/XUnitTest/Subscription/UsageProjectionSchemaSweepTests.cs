@@ -171,6 +171,59 @@ public sealed class UsageProjectionSchemaSweepTests
         VerifyRefreshed(Times.Once());
     }
 
+    /// <summary>
+    /// One projection that cannot be written does not cost the rest of the tenant its repair.
+    /// </summary>
+    /// <remarks>
+    /// The bug this pins down: the refresh loop had no isolation, so a single throwing subscription
+    /// propagated out of the sweep to the announcer, which logged "reconciliation skipped a tenant"
+    /// and abandoned every other candidate in the batch. A row left behind by an earlier schema can
+    /// throw forever -- a legacy aggregate with no UserId cannot be upgraded onto the "" slot while
+    /// a per-user row written with an empty UserId already holds it, and the unique index refuses
+    /// the write every pass. One tenant went unreconciled from 2026-09-15 until five such rows were
+    /// repaired by hand, and nothing in the logs named the subscriptions that were skipped with it.
+    /// </remarks>
+    [Fact]
+    public async Task A_projection_that_cannot_be_written_does_not_stop_the_rest_of_the_sweep()
+    {
+        const string poisoned = "sub-poisoned";
+
+        Candidates(
+            Document(
+                schemaVersion: SubscriptionUsageCurrent.CurrentSchemaVersion - 1,
+                subscriptionId: poisoned),
+            Document(schemaVersion: SubscriptionUsageCurrent.CurrentSchemaVersion - 1));
+
+        _publisher
+            .Setup(publisher => publisher.RefreshAsync(
+                It.Is<SubscriptionDetail>(subscription => subscription.ItemId == poisoned),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("duplicate key"));
+
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, poisoned, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Subscription(version: 4, subscriptionId: poisoned));
+
+        var repaired = await Reconciler().SweepTenantAsync(
+            TenantId, "corr-1", CancellationToken.None);
+
+        repaired.Should().Be(
+            1,
+            "the healthy subscription is still repaired, and only the poisoned one is lost");
+
+        _publisher.Verify(
+            publisher => publisher.RefreshAsync(
+                It.Is<SubscriptionDetail>(subscription => subscription.ItemId == SubscriptionId),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a subscription queued behind a failing one must still be reached");
+    }
+
     private void Candidates(params SubscriptionUsageCurrent[] documents) =>
         _current
             .Setup(repository => repository.ListBehindCountersAsync(
@@ -202,12 +255,14 @@ public sealed class UsageProjectionSchemaSweepTests
     private static SubscriptionUsageCurrent Document(
         int schemaVersion,
         string meterKey = "screening",
-        long subscriptionVersion = 4) => new()
+        long subscriptionVersion = 4,
+        string? subscriptionId = null) => new()
     {
-        ItemId = SubscriptionUsageCurrent.CreateId(SubscriptionId, meterKey, "M2026-09"),
+        ItemId = SubscriptionUsageCurrent.CreateId(
+            subscriptionId ?? SubscriptionId, meterKey, "M2026-09"),
         TenantId = TenantId,
         OrganizationId = "org-1",
-        SubscriptionId = SubscriptionId,
+        SubscriptionId = subscriptionId ?? SubscriptionId,
         MeterKey = meterKey,
         PeriodKey = "M2026-09",
         PeriodStartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -217,9 +272,9 @@ public sealed class UsageProjectionSchemaSweepTests
         SchemaVersion = schemaVersion
     };
 
-    private static SubscriptionDetail Subscription(int version) => new()
+    private static SubscriptionDetail Subscription(int version, string? subscriptionId = null) => new()
     {
-        ItemId = SubscriptionId,
+        ItemId = subscriptionId ?? SubscriptionId,
         TenantId = TenantId,
         OrganizationId = "org-1",
         Status = SubscriptionStatus.Active,

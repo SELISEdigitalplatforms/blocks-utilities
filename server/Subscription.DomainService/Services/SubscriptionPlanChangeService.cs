@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
@@ -68,6 +69,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     private readonly TimeProvider _time;
     private readonly ISubscriptionUsageRepository? _usage;
     private readonly IMeterAllowanceResolver? _allowances;
+    private readonly IOptionsMonitor<SubscriptionOptions>? _options;
 
     public SubscriptionPlanChangeService(
         ISubscriptionContextResolver contextResolver,
@@ -86,7 +88,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         ISubscriptionBillingProfileGuard? billingProfile = null,
         ISubscriptionUsageRepository? usage = null,
         IMeterAllowanceResolver? allowances = null,
-        ISubscriptionAuditTrail? audit = null)
+        ISubscriptionAuditTrail? audit = null,
+        IOptionsMonitor<SubscriptionOptions>? options = null)
     {
         _audit = audit;
         _contextResolver = contextResolver;
@@ -105,7 +108,17 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _billingProfile = billingProfile;
         _usage = usage;
         _allowances = allowances;
+        _options = options;
     }
+
+    /// <summary>
+    /// The smallest settlement worth charging, falling back to the option's own default for a
+    /// caller that wired none -- chiefly a test, which should not have to know this exists to get
+    /// the behaviour every production path gets.
+    /// </summary>
+    private long MinimumSettlementChargeMinor =>
+        _options?.CurrentValue.MinimumSettlementChargeMinor
+        ?? new SubscriptionOptions().MinimumSettlementChargeMinor;
 
     /// <summary>
     /// Whether there is anybody to address this change's invoice to. Optional, like the scheduler.
@@ -793,10 +806,21 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
-        if (outcome.ChargeMinor <= 0)
+        if (outcome.ChargeMinor <= MinimumSettlementChargeMinor)
         {
-            // An upgrade the subscriber's existing credit covers in full. It applies now — they
-            // asked for more and are getting it — and the balance it spent is written with it.
+            // An upgrade the subscriber's existing credit covers in full, or one whose remainder
+            // is too small for any payment provider to accept. Both apply now — the subscriber
+            // asked for more and is getting it — and the balance spent is written with it.
+            //
+            // The second case is not an edge: a cadence change between two prices sharing a stub
+            // base settles only the time elapsed since the period opened, because the outgoing
+            // side is prorated across the window it was sold for while the target's stub is priced
+            // whole for the shorter window that remains. That lands at a handful of minor units,
+            // which no card network will take. Attempting it anyway reserved a settlement, failed
+            // the charge as indeterminate, held the reservation so a retry could not double-charge
+            // -- and left the subscriber unable to so much as cancel, because every transition is
+            // refused while a reservation stands. Absorbing a few minor units is the cheaper error
+            // by a wide margin. See SubscriptionOptions.MinimumSettlementChargeMinor.
             return await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule,
                 outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,

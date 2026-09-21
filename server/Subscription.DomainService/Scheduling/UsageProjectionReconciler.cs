@@ -286,11 +286,38 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 
         foreach (var subscriptionId in behind)
         {
-            repaired += await RefreshSubscriptionAsync(
-                tenantId,
-                subscriptionId,
-                correlationId,
-                cancellationToken);
+            // Isolated per subscription. One projection that cannot be written must not cost the
+            // rest of the tenant its repair: a single row left by an earlier schema can collide
+            // with the unique index forever -- a legacy aggregate carrying no UserId cannot be
+            // upgraded onto the "" slot while a per-user row written with an empty UserId already
+            // squats it -- and the throw propagated out of this loop, past SweepTenantAsync, to
+            // the announcer, which logged "reconciliation skipped a tenant" and abandoned every
+            // other candidate in the batch. Observed on one tenant from 2026-09-15 onward: five
+            // such rows, and no projection in that tenant reconciled again until they were
+            // repaired by hand.
+            //
+            // Logged at warning rather than swallowed, and the sweep still reports what it did
+            // manage, so a row that can never be written keeps announcing itself on every pass
+            // instead of silently stalling the cycle.
+            try
+            {
+                repaired += await RefreshSubscriptionAsync(
+                    tenantId,
+                    subscriptionId,
+                    correlationId,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "A usage projection repair failed and was skipped; the sweep continues with " +
+                    "the rest of the tenant TenantHash={TenantHash} " +
+                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(tenantId),
+                    PaymentLogValue.Hash(subscriptionId),
+                    correlationId);
+            }
         }
 
         if (behind.Count > 0)
