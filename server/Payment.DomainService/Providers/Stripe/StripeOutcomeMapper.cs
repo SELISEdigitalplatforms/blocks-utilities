@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Payment.DomainService.Providers.HostedCheckout;
 
 namespace Payment.DomainService.Providers.Stripe;
@@ -28,6 +31,66 @@ public static class StripeOutcomeMapper
             "card_error" => ProviderClientOutcome.Rejected,
             _ => ProviderClientOutcome.Failure
         };
+    }
+
+    /// <summary>
+    /// Maps a non-success response the HTTP package reported only as text, in the form
+    /// <c>HTTP request failed with status code 400. Error: {"error": {...}}</c>.
+    /// </summary>
+    /// <remarks>
+    /// Decided by status code rather than by <see cref="Map"/>: Stripe reports an expired key as
+    /// a 401 of type <c>api_error</c>, which the type alone would retry forever. Any 4xx other
+    /// than 429 is terminal. The same request with the same idempotency key cannot succeed on a
+    /// later attempt, and each retry schedules another recovery pass. Returns false for 5xx and
+    /// for text that is not in this form, which leaves the caller's existing fallback in charge.
+    /// </remarks>
+    public static bool TryMapPackageError(
+        string? packageError,
+        out ProviderClientOutcome outcome,
+        out string? errorCode)
+    {
+        outcome = ProviderClientOutcome.Failure;
+        errorCode = null;
+
+        var match = string.IsNullOrWhiteSpace(packageError)
+            ? Match.Empty
+            : StatusCodePattern.Match(packageError);
+        if (!match.Success) return false;
+
+        var statusCode = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        if (statusCode is < 400 or >= 500) return false;
+
+        var error = ReadError(packageError!);
+        outcome = statusCode == 429
+            ? ProviderClientOutcome.Unavailable
+            : ProviderClientOutcome.Rejected;
+        errorCode = error != null
+            ? SafeCode(error)
+            : $"stripe_http_{statusCode}";
+        return true;
+    }
+
+    private static readonly Regex StatusCodePattern = new(
+        @"status code (\d{3})",
+        RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(100));
+
+    private static StripeError? ReadError(string packageError)
+    {
+        var jsonStart = packageError.IndexOf('{');
+        var jsonEnd = packageError.LastIndexOf('}');
+        if (jsonStart < 0 || jsonEnd <= jsonStart) return null;
+
+        try
+        {
+            return JsonSerializer
+                .Deserialize<StripeCheckoutSession>(packageError[jsonStart..(jsonEnd + 1)])?
+                .Error;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

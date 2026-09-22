@@ -326,6 +326,61 @@ public sealed class StripeCheckoutClientTests
         result.ProviderErrorCode.Should().Be("14_0408");
     }
 
+    // The shapes seen in production: each one used to become "unknown" and be retried forever.
+    [Theory]
+    [InlineData(400, "{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"amount_too_small\"}}", "amount_too_small")]
+    [InlineData(400, "{\n  \"error\": {\n    \"param\": \"payment_method_types\",\n    \"type\": \"invalid_request_error\"\n  }\n}", "invalid_request_error")]
+    [InlineData(401, "{\"error\":{\"type\":\"api_error\",\"code\":\"api_key_expired\"}}", "api_key_expired")]
+    [InlineData(404, "not json", "stripe_http_404")]
+    public async Task A_stripe_4xx_is_a_terminal_rejection(
+        int statusCode,
+        string body,
+        string expectedCode)
+    {
+        SetupCreate(null, $"HTTP request failed with status code {statusCode}. Error: {body}");
+
+        var result = await SessionClient().CreateSessionAsync(
+            Provider(),
+            Request(),
+            IdempotencyKey,
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(ProviderClientOutcome.Rejected);
+        result.ProviderErrorCode.Should().Be(expectedCode);
+    }
+
+    [Fact]
+    public async Task A_stripe_rate_limit_stays_recoverable()
+    {
+        SetupCreate(
+            null,
+            "HTTP request failed with status code 429. Error: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"rate_limit\"}}");
+
+        var result = await SessionClient().CreateSessionAsync(
+            Provider(),
+            Request(),
+            IdempotencyKey,
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(ProviderClientOutcome.Unavailable);
+    }
+
+    [Fact]
+    public async Task A_stripe_5xx_is_left_to_the_existing_fallback()
+    {
+        SetupCreate(
+            null,
+            "HTTP request failed with status code 500. Error: {\"error\":{\"type\":\"api_error\"}}");
+
+        var result = await SessionClient().CreateSessionAsync(
+            Provider(),
+            Request(),
+            IdempotencyKey,
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(ProviderClientOutcome.Failure);
+    }
+
     [Theory]
     [InlineData("Circuit is open")]
     [InlineData("Service unavailable")]
