@@ -326,23 +326,40 @@ namespace Utility.DomainService.Geolocation.service
         }
 
         /// <summary>
-        /// Maps the provider payload. Each field names every spelling the supported providers use
-        /// for it, most specific first.
+        /// Maps the provider payload. Each field lists every spelling the supported providers use
+        /// for it, unambiguous names first.
         /// </summary>
+        /// <remarks>
+        /// The order within a field is the whole design, because the providers do not merely spell
+        /// the same field differently - they disagree on what a name <i>means</i>:
+        /// <list type="bullet">
+        /// <item><c>country</c> is the country's name at ip-api.com and its ISO code at ipapi.co.</item>
+        /// <item><c>region</c> is the subdivision's name at abstractapi and ipapi.co, and its ISO
+        /// code at ip-api.com, which puts the name in <c>regionName</c>.</item>
+        /// </list>
+        /// A name that means one thing everywhere is therefore always consulted before an ambiguous
+        /// one, so the ambiguous name is only ever reached for the provider that has no
+        /// alternative. Getting this backwards does not fail - it silently files a region code as a
+        /// region name.
+        /// <para>
+        /// ipgeolocation.io nests its geography under <c>location</c> and its operator under
+        /// <c>asn</c>, which is why the same fields appear again with a dotted prefix.
+        /// </para>
+        /// </remarks>
         private static IpLookup Map(
             string ipAddress,
             ProviderPayload payload)
         {
             var ipNumber = ConvertIpToNumber(ipAddress);
 
-            // ipgeolocation.io reports the country code under country_code2; the others agree on
-            // country_code / countryCode, which normalize to the same key.
-            var countryCode = payload.Text("countrycode", "countrycode2");
+            // ipgeolocation.io reports the country code under location.country_code2; the others
+            // agree on country_code / countryCode, which normalize to the same key.
+            var countryCode = payload.Text("countrycode", "location.countrycode2");
 
-            // abstractapi and ipapi.co carry the subdivision's ISO code, ipgeolocation.io does not.
-            // Falling back to the country keeps the field populated with something true rather
-            // than with a region code borrowed from elsewhere.
-            var regionIsoCode = payload.Text("regionisocode", "regioncode");
+            // Last resort is the bare "region", which only ip-api.com uses for the code - everyone
+            // else who has a code gives it an unambiguous name, and is matched before this.
+            var regionIsoCode = payload.Text(
+                "regionisocode", "regioncode", "location.statecode", "region");
 
             return new IpLookup
             {
@@ -352,17 +369,24 @@ namespace Utility.DomainService.Geolocation.service
                 LastIpNumber = ipNumber,
                 LocationCode = Or(regionIsoCode, countryCode),
                 LocationCodeAsRegistered = Or(regionIsoCode, countryCode),
-                ContinentCode = payload.Text("continentcode"),
+                ContinentCode = payload.Text("continentcode", "location.continentcode"),
                 CountryCode = countryCode,
-                ContinentName = payload.Text("continentname", "continent"),
-                CountryName = payload.Text("countryname", "country"),
-                City = payload.Text("city"),
-                Region = payload.Text("region", "regionname", "stateprov"),
-                Latitude = payload.Number("latitude", "lat"),
-                Longitude = payload.Number("longitude", "lon", "lng"),
+                ContinentName = payload.Text(
+                    "continentname", "location.continentname", "continent"),
+                CountryName = payload.Text("countryname", "location.countryname", "country"),
+                City = payload.Text("city", "location.city"),
+                Region = payload.Text(
+                    "regionname", "stateprov", "location.stateprov", "region"),
+                Latitude = payload.Number("latitude", "location.latitude", "lat"),
+                Longitude = payload.Number("longitude", "location.longitude", "lon", "lng"),
                 CountryFlagSvgUrl = payload.Text("countryflagsvgurl", "flag.svg"),
-                CountryFlagPngUrl = payload.Text("countryflagpngurl", "flag.png", "countryflag"),
-                IspName = payload.Text("ispname", "isp", "connection.ispname", "org", "asn.name")
+                CountryFlagPngUrl = payload.Text(
+                    "countryflagpngurl", "flag.png", "location.countryflag", "countryflag"),
+
+                // Never the bare "asn": ipapi.co sends it as "AS15169", an identifier rather than
+                // an operator name. ipgeolocation.io's asn object is the one that carries the name.
+                IspName = payload.Text(
+                    "ispname", "isp", "connection.ispname", "asn.organization", "company.name", "org")
             };
         }
 

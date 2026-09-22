@@ -180,18 +180,37 @@ Payloads are read by field name with the separators removed and the case folded,
 `country_code`, `countryCode` and `Country_Code` are one field. Each value names every spelling the
 supported providers use, most specific first:
 
-| Field | Provider spellings |
+| Field | Provider spellings, in the order consulted |
 | --- | --- |
-| Country code | `country_code`, `countryCode`, `country_code2` |
-| Country name | `country_name`, `country` |
-| Continent | `continent_code`, `continent_name`, `continent` |
-| Region | `region`, `region_name`, `state_prov` |
-| Region ISO code | `region_iso_code`, `region_code` |
-| Coordinates | `latitude`/`longitude`, `lat`/`lon`, `lng` — quoted numbers accepted |
-| ISP | `isp_name`, `isp`, `connection.isp_name`, `org`, `asn.name` |
-| Flag | `flag.png`, `flag.svg`, `country_flag` |
+| Country code | `country_code`, `countryCode`, `location.country_code2` |
+| Country name | `country_name`, `location.country_name`, `country` |
+| Continent | `continent_code`, `location.continent_code`; `continent_name`, `location.continent_name`, `continent` |
+| Region | `regionName`, `state_prov`, `location.state_prov`, `region` |
+| Region ISO code | `region_iso_code`, `region_code`, `location.state_code`, `region` |
+| Coordinates | `latitude`/`longitude`, `location.latitude`/`location.longitude`, `lat`/`lon`, `lng` — quoted numbers accepted |
+| ISP | `isp_name`, `isp`, `connection.isp_name`, `asn.organization`, `company.name`, `org` |
+| Flag | `flag.png`, `flag.svg`, `location.country_flag`, `country_flag` |
 
 A field the provider does not send is empty; it does not discard the rest of the record.
+
+**The order within a row is load-bearing**, because the providers disagree on what a name *means*,
+not just on how to spell it:
+
+- `country` is the country's **name** at ip-api.com and its **ISO code** at ipapi.co.
+- `region` is the subdivision's **name** at abstractapi and ipapi.co, and its **ISO code** at
+  ip-api.com, which puts the name in `regionName`.
+- `asn` is an object at ipgeolocation.io (`asn.organization` is the operator) and a bare string
+  like `"AS15169"` at ipapi.co, so it is never read as a name.
+
+An unambiguous name is therefore always consulted before an ambiguous one, and the ambiguous name
+is only reached for the provider that has no alternative. Reversing a row does not fail — it
+silently files a region code as a region name.
+
+ipgeolocation.io nests its geography under `location` and its operator under `asn`, which is why
+several fields appear again with a dotted prefix.
+
+Each of the four providers has a test in `XUnitTest/Geolocation/GeolocationRepositoryTests.cs`
+built from its real response shape. Add one alongside them when adding a provider.
 
 ## Authentication
 

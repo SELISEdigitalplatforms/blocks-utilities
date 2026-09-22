@@ -433,6 +433,157 @@ namespace XUnitTest.Geolocation
             result.Should().NotBeNull();
         }
 
+        /// <summary>
+        /// ip-api.com, from its documented field set.
+        /// </summary>
+        /// <remarks>
+        /// The trap this pins: ip-api.com puts the subdivision's ISO code in <c>region</c> and its
+        /// name in <c>regionName</c>, the opposite of every other provider here. Consulting
+        /// <c>region</c> first files "CA" as the region name.
+        /// </remarks>
+        [Fact]
+        public async Task An_ip_api_com_payload_maps_the_region_name_rather_than_its_code()
+        {
+            var repository = CreateRepository(
+                _ => Json(
+                    """
+                    {
+                      "status": "success",
+                      "country": "United States",
+                      "countryCode": "US",
+                      "region": "CA",
+                      "regionName": "California",
+                      "city": "Mountain View",
+                      "zip": "94043",
+                      "lat": 37.4056,
+                      "lon": -122.0775,
+                      "timezone": "America/Los_Angeles",
+                      "isp": "Google LLC",
+                      "org": "Google Public DNS",
+                      "as": "AS15169 Google LLC",
+                      "query": "8.8.8.8"
+                    }
+                    """),
+                apiUrl: ApiUrlWithoutKeyInQuery);
+
+            var result = await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            result.Should().NotBeNull();
+            result!.CountryCode.Should().Be("US");
+            result.CountryName.Should().Be("United States",
+                because: "ip-api.com puts the country's name in 'country', where ipapi.co puts its "
+                    + "code - reading them in the wrong order files a code as a name");
+            result.Region.Should().Be("California",
+                because: "'regionName' is the name and 'region' is the code at this provider only, "
+                    + "so consulting the unambiguous name first is what keeps 'CA' out of here");
+            result.LocationCode.Should().Be("CA",
+                because: "the code still has to land somewhere, and for this provider the bare "
+                    + "'region' is the only place it is");
+            result.City.Should().Be("Mountain View");
+            result.Latitude.Should().BeApproximately(37.4056, 0.0001,
+                because: "this provider abbreviates the coordinates to lat/lon");
+            result.IspName.Should().Be("Google LLC");
+        }
+
+        /// <summary>
+        /// ipapi.co, from a live response captured from its keyless endpoint.
+        /// </summary>
+        /// <remarks>
+        /// Two traps: <c>country</c> here is the ISO code, not the name, and <c>asn</c> is the
+        /// identifier "AS15169" rather than an operator name.
+        /// </remarks>
+        [Fact]
+        public async Task An_ipapi_co_payload_does_not_mistake_its_country_code_for_a_country_name()
+        {
+            var repository = CreateRepository(
+                _ => Json(
+                    """
+                    {
+                      "ip": "8.8.8.8",
+                      "city": "Mountain View",
+                      "region": "California",
+                      "region_code": "CA",
+                      "country": "US",
+                      "country_name": "United States",
+                      "country_code": "US",
+                      "continent_code": "NA",
+                      "latitude": 37.42301,
+                      "longitude": -122.083352,
+                      "asn": "AS15169",
+                      "org": "Google LLC"
+                    }
+                    """),
+                apiUrl: ApiUrlWithoutKeyInQuery);
+
+            var result = await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            result.Should().NotBeNull();
+            result!.CountryCode.Should().Be("US");
+            result.CountryName.Should().Be("United States",
+                because: "'country' is the ISO code at this provider, so 'country_name' has to win "
+                    + "or the response reports the country as 'US'");
+            result.Region.Should().Be("California");
+            result.LocationCode.Should().Be("CA");
+            result.IspName.Should().Be("Google LLC",
+                because: "'asn' here is the identifier AS15169, not an operator name, so it must "
+                    + "never be read as one - 'org' is the name this provider gives");
+            result.Longitude.Should().BeApproximately(-122.083352, 0.0001);
+        }
+
+        /// <summary>
+        /// ipgeolocation.io, from its documented response shape.
+        /// </summary>
+        /// <remarks>
+        /// This provider nests its geography under <c>location</c> and quotes its coordinates as
+        /// strings — the shape that used to fail the entire payload on a type mismatch.
+        /// </remarks>
+        [Fact]
+        public async Task An_ipgeolocation_io_payload_is_read_through_its_nesting_and_quoted_numbers()
+        {
+            var repository = CreateRepository(
+                _ => Json(
+                    """
+                    {
+                      "ip": "8.8.8.8",
+                      "location": {
+                        "country_code2": "US",
+                        "country_name": "United States",
+                        "state_prov": "California",
+                        "state_code": "US-CA",
+                        "city": "Mountain View",
+                        "latitude": "37.42240",
+                        "longitude": "-122.08421",
+                        "continent_code": "NA",
+                        "continent_name": "North America",
+                        "country_flag": "https://ipgeolocation.io/static/flags/us_64.png"
+                      },
+                      "asn": {
+                        "as_number": "AS15169",
+                        "organization": "Google LLC"
+                      }
+                    }
+                    """),
+                apiUrl: ApiUrlWithKeyInQuery);
+
+            var result = await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            result.Should().NotBeNull();
+            result!.CountryCode.Should().Be("US",
+                because: "this provider nests geography under 'location' and names the code "
+                    + "'country_code2', so a flat read of 'country_code' finds nothing");
+            result.CountryName.Should().Be("United States");
+            result.Region.Should().Be("California");
+            result.City.Should().Be("Mountain View");
+            result.ContinentName.Should().Be("North America");
+            result.Latitude.Should().BeApproximately(37.4224, 0.0001,
+                because: "the coordinates arrive quoted; a bound DTO throws on the type mismatch "
+                    + "and used to take the country and city down with it");
+            result.Longitude.Should().BeApproximately(-122.08421, 0.0001);
+            result.CountryFlagPngUrl.Should().Be("https://ipgeolocation.io/static/flags/us_64.png");
+            result.IspName.Should().Be("Google LLC",
+                because: "the operator name is on the asn object, not at the root");
+        }
+
         [Fact]
         public async Task A_bulk_lookup_drops_the_addresses_that_could_not_be_resolved()
         {
