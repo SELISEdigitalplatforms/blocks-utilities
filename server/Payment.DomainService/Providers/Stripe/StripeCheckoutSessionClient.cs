@@ -107,6 +107,24 @@ public sealed class StripeCheckoutSessionClient : IPaymentSessionClient
                 };
             }
 
+            // A Stripe 4xx arrives here, as text, not in session.Error above. Left to the
+            // fallback below it became "unknown", and recovery retried the same doomed request
+            // with no end, scheduling another pass each time.
+            if (StripeOutcomeMapper.TryMapPackageError(error, out var outcome, out var stripeCode))
+            {
+                _logger.LogWarning(
+                    "Payment session request rejected Provider={Provider} Outcome={Outcome} ErrorCode={ErrorCode}",
+                    PaymentLogValue.Label(provider.ProviderName),
+                    outcome,
+                    PaymentLogValue.Label(stripeCode ?? string.Empty));
+
+                return new ProviderSessionCreationResult
+                {
+                    Outcome = outcome,
+                    ProviderErrorCode = stripeCode
+                };
+            }
+
             _logger.LogWarning(
                 "Payment session request returned no usable response Provider={Provider} HasPackageError={HasPackageError}",
                 PaymentLogValue.Label(provider.ProviderName),
