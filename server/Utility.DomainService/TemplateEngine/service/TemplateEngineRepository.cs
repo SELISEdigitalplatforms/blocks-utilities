@@ -152,13 +152,16 @@ namespace Utility.DomainService.TemplateEngine.service
         /// <summary>
         /// Get entity data by ItemId from MongoDB
         /// </summary>
-        public async Task<string?> GetEntityByItemIdAsync(string entityName, string itemId)
+        public Task<string?> GetEntityByItemIdAsync(string entityName, string itemId) =>
+            GetEntityByItemIdAsync(entityName, itemId, BlocksContext.GetContext()?.TenantId ?? string.Empty);
+
+        public async Task<string?> GetEntityByItemIdAsync(string entityName, string itemId, string tenantId)
         {
             try
             {
                 _logger.LogInformation("GetEntityByItemIdAsync for entityName: {EntityName}, itemId: {ItemId}", entityName, itemId);
                 
-                var database = _dbContextProvider.GetDatabase(BlocksContext.GetContext()?.TenantId ?? "");
+                var database = _dbContextProvider.GetDatabase(tenantId);
                 var collection = database.GetCollection<BsonDocument>($"{entityName}s");
                 var filter = Builders<BsonDocument>.Filter.Eq("_id", itemId);
                 

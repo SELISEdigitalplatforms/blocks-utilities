@@ -64,7 +64,8 @@ namespace Worker.Consumers
                     
                     var entityDataJson = await _templateEngineRepository.GetEntityByItemIdAsync(
                         entityIdentifier.EntityName, 
-                        entityIdentifier.EntityItemId);
+                        entityIdentifier.EntityItemId,
+                        tenantId);
 
                     if (string.IsNullOrEmpty(entityDataJson))
                     {
