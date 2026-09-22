@@ -216,6 +216,10 @@ Set `GeolocationApiUrl` and, for providers that need one, `GeolocationApiKey` in
 `appsettings.Development.json`. The vault is tried first, logs that it found nothing, and the
 configured key is used.
 
+`GeolocationApiKey` is deliberately absent from every committed `appsettings*.json`. Add it
+locally if you need it, and do not commit the value — the deployed environments read the key from
+the vault.
+
 ### Against a keyless provider
 ```json
 { "GeolocationApiUrl": "http://ip-api.com/json/{ip}" }
