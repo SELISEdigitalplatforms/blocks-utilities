@@ -107,7 +107,8 @@ public sealed class StripeCheckoutSessionClient : IPaymentSessionClient
                 };
             }
 
-            // A Stripe 4xx arrives here, as text, not in session.Error above. Left to the
+            // A Stripe error arrives here as the raw response body the package returns, not in
+            // session.Error above, and without its status code. Left to the
             // fallback below it became "unknown", and recovery retried the same doomed request
             // with no end, scheduling another pass each time.
             if (StripeOutcomeMapper.TryMapPackageError(error, out var outcome, out var stripeCode))

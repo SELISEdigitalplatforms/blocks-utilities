@@ -326,18 +326,18 @@ public sealed class StripeCheckoutClientTests
         result.ProviderErrorCode.Should().Be("14_0408");
     }
 
-    // The shapes seen in production: each one used to become "unknown" and be retried forever.
+    // The bodies production received. On a non-2xx the HTTP package returns the raw body alone:
+    // the "status code NNN" line is only its log, never part of the returned error. Each of
+    // these used to become "unknown" and be retried forever.
     [Theory]
-    [InlineData(400, "{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"amount_too_small\"}}", "amount_too_small")]
-    [InlineData(400, "{\n  \"error\": {\n    \"param\": \"payment_method_types\",\n    \"type\": \"invalid_request_error\"\n  }\n}", "invalid_request_error")]
-    [InlineData(401, "{\"error\":{\"type\":\"api_error\",\"code\":\"api_key_expired\"}}", "api_key_expired")]
-    [InlineData(404, "not json", "stripe_http_404")]
-    public async Task A_stripe_4xx_is_a_terminal_rejection(
-        int statusCode,
+    [InlineData("{\n  \"error\": {\n    \"code\": \"amount_too_small\",\n    \"doc_url\": \"https://stripe.com/docs/error-codes/amount-too-small\",\n    \"message\": \"The Checkout Session's total amount due must add up to at least CHF 0.50 CHF\",\n    \"type\": \"invalid_request_error\"\n  }\n}\n", "amount_too_small")]
+    [InlineData("{\n  \"error\": {\n    \"message\": \"The payment method type provided: twint is invalid.\",\n    \"param\": \"payment_method_types\",\n    \"type\": \"invalid_request_error\"\n  }\n}\n", "invalid_request_error")]
+    [InlineData("{\"error\":{\"message\":\"Expired API Key provided: sk_test_***dzuO\",\"type\":\"api_error\",\"code\":\"api_key_expired\"}}", "api_key_expired")]
+    public async Task A_stripe_request_error_is_a_terminal_rejection(
         string body,
         string expectedCode)
     {
-        SetupCreate(null, $"HTTP request failed with status code {statusCode}. Error: {body}");
+        SetupCreate(null, body);
 
         var result = await SessionClient().CreateSessionAsync(
             Provider(),
@@ -349,12 +349,14 @@ public sealed class StripeCheckoutClientTests
         result.ProviderErrorCode.Should().Be(expectedCode);
     }
 
-    [Fact]
-    public async Task A_stripe_rate_limit_stays_recoverable()
+    [Theory]
+    [InlineData("{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"rate_limit\"}}")]
+    [InlineData("{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"lock_timeout\"}}")]
+    // Stripe's own 5xx: api_error with no code.
+    [InlineData("{\"error\":{\"type\":\"api_error\",\"message\":\"Something went wrong on Stripe's end.\"}}")]
+    public async Task A_stripe_side_or_rate_limit_error_stays_recoverable(string body)
     {
-        SetupCreate(
-            null,
-            "HTTP request failed with status code 429. Error: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"rate_limit\"}}");
+        SetupCreate(null, body);
 
         var result = await SessionClient().CreateSessionAsync(
             Provider(),
@@ -363,22 +365,6 @@ public sealed class StripeCheckoutClientTests
             CancellationToken.None);
 
         result.Outcome.Should().Be(ProviderClientOutcome.Unavailable);
-    }
-
-    [Fact]
-    public async Task A_stripe_5xx_is_left_to_the_existing_fallback()
-    {
-        SetupCreate(
-            null,
-            "HTTP request failed with status code 500. Error: {\"error\":{\"type\":\"api_error\"}}");
-
-        var result = await SessionClient().CreateSessionAsync(
-            Provider(),
-            Request(),
-            IdempotencyKey,
-            CancellationToken.None);
-
-        result.Outcome.Should().Be(ProviderClientOutcome.Failure);
     }
 
     [Theory]
