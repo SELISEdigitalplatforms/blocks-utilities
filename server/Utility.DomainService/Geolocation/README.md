@@ -214,7 +214,13 @@ built from its real response shape. Add one alongside them when adding a provide
 
 ## Authentication
 
-Both endpoints require authentication based on your application's security configuration.
+Both endpoints carry `[Authorize]`, so both require an authenticated caller.
+
+This is not only about who may see a location. A lookup spends a metered third-party call, and a
+cache miss holds the process-wide provider gate for the configured delay — so an anonymous caller
+sending ten uncached addresses would occupy that gate for about ten seconds and stall every other
+tenant's lookups behind it. The rate limit being shared is exactly what makes the endpoint worth
+authenticating.
 
 ## Error Handling
 

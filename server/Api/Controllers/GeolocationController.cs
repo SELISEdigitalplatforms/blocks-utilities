@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Utility.DomainService.Geolocation.service;
 using Utility.DomainService.Geolocation;
@@ -38,6 +39,7 @@ namespace Api.Controllers
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Response containing geolocation information for the IP addresses</returns>
         [HttpGet]
+        [Authorize]
         public Task<LocateIpResponse> LocateIp(
             [FromQuery] LocateIpRequest request,
             CancellationToken cancellationToken)
@@ -65,6 +67,7 @@ namespace Api.Controllers
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Response containing geolocation information for the request IP addresses</returns>
         [HttpGet]
+        [Authorize]
         public async Task<LocateIpResponse> Locate(
             [FromQuery] LocateRequest request,
             CancellationToken cancellationToken)
