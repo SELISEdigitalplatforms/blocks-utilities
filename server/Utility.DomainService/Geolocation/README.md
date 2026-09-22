@@ -3,8 +3,8 @@
 ## Overview
 
 The Geolocation Service resolves IP addresses to a location through one configured external
-provider. The provider's API key is held in the cloud vault, results are cached for a short
-window, and calls are serialized against the provider's rate limit.
+provider. The provider's API key is held in a secret store rather than in configuration, results
+are cached for a short window, and calls are serialized against the provider's rate limit.
 
 Three behaviours are worth knowing before you use it, because they are deliberate:
 
@@ -20,23 +20,55 @@ Three behaviours are worth knowing before you use it, because they are deliberat
 | Key | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `GeolocationApiUrl` | yes | — | Provider URL template. Without it, every lookup reports that it could not locate. |
-| `GeolocationApiKeySecretName` | no | `GeolocationApiKey` | Name of the vault secret holding the provider key. |
-| `GeolocationApiKey` | no | — | Fallback provider key, read only when the vault has none. |
+| `GeolocationApiKeySecretId` | no | — | Id of the Blocks Secrets secret holding the provider key. Setting it selects the managed store. |
+| `GeolocationApiKeySecretName` | no | `GeolocationApiKey` | Name of the Genesis vault secret, used when no secret id is set. |
+| `GeolocationApiKey` | no | — | Fallback provider key, read only when neither store answers. |
 | `GeolocationCacheSeconds` | no | `300` | Cache TTL for a successful lookup. Unset, zero, negative or unparseable falls back to the default. |
 | `GeolocationProviderDelayMilliseconds` | no | `1000` | Delay paid before each provider call. Match it to the provider's rate limit. |
 
 ### Where the provider key comes from
 
-The key is resolved once per process, on the first lookup, in this order:
+Three sources, and which one is used is decided by configuration rather than by trying each in
+turn. The key is resolved on the first lookup and then cached **per tenant**, so a rotation needs a
+restart to be picked up.
 
-1. The cloud vault (Genesis `IVault`), under `GeolocationApiKeySecretName`. This is the source to
-   use — rotating the key is an operations task and needs no redeploy.
-2. The `GeolocationApiKey` configuration value, if the vault holds nothing or cannot be reached.
-   This exists so a developer without vault access can run the service; it is not the deployment
-   path.
+1. **Blocks Secrets** (`SeliseBlocks.Secrets.OS`), when `GeolocationApiKeySecretId` names a secret.
+   This is the managed path: the key is per tenant, rotatable from the Blocks OS console, and every
+   read of it is audited.
+2. **The Genesis vault** (`IVault`), under `GeolocationApiKeySecretName`, when no secret id is set.
+   The platform-wide key, for a deployment that has not adopted Blocks Secrets.
+3. **The `GeolocationApiKey` configuration value**, if neither store answers. This exists so a
+   developer without access to either can run the service; it is not the deployment path.
 
-A provider that needs no key at all (ip-api.com) is a valid configuration: leave both unset and no
-key is sent.
+A source that is configured but fails falls through to the next rather than failing the lookup, and
+says so in the log. Availability of a geolocation lookup is not worth more than a correct key, but
+it is worth more than an outage while a usable key sits one source down.
+
+A provider that needs no key at all (ip-api.com) is a valid configuration: leave all three unset
+and no key is sent.
+
+> **The two stores are not interchangeable.** Blocks Secrets keys its Key Vault entries by secret
+> id under its own `blocks-secret-` prefix, while the Genesis vault reads a bare secret name. A
+> secret created in the Blocks OS console is therefore invisible to source 2, and a vault entry
+> provisioned by hand is invisible to source 1. Moving between them means re-entering the key, not
+> just changing which setting is present.
+
+#### Using Blocks Secrets
+
+Create the secret once — from the Blocks OS console, or through `ISecretService` — and put the id
+it returns in configuration. Store the id, never the value:
+
+```json
+{ "GeolocationApiKeySecretId": "3f2a...c91" }
+```
+
+`SecretTypes.Service` is the right type: the key is a backend credential with no per-user access
+list, so any authenticated caller in the tenant can read it.
+
+Reading a secret requires an authenticated `BlocksContext`, which both endpoints have because they
+carry `[Authorize]`. Background work that ever needs a geolocation lookup would have to wrap the
+call in `BlocksContext.ExecuteInContext(...)`; nothing in the Worker does today, and a missing
+context is logged and falls through to the vault rather than throwing.
 
 ### Provider URL templates
 
@@ -269,10 +301,10 @@ A cancelled request propagates rather than being reported as a failed lookup.
 
 ## Testing
 
-### Local testing without a vault
+### Local testing without a secret store
 Set `GeolocationApiUrl` and, for providers that need one, `GeolocationApiKey` in
-`appsettings.Development.json`. The vault is tried first, logs that it found nothing, and the
-configured key is used.
+`appsettings.Development.json`, and leave `GeolocationApiKeySecretId` unset. The vault is tried
+first, logs that it found nothing, and the configured key is used.
 
 `GeolocationApiKey` is deliberately absent from every committed `appsettings*.json`. Add it
 locally if you need it, and do not commit the value — the deployed environments read the key from
@@ -289,7 +321,11 @@ under test, not waiting a real second for it.
 
 ## Dependencies
 
-- `IVault` — for the provider API key (Genesis; registered by the host)
+- `ISecretService` — for the provider API key when a secret id is configured
+  (`SeliseBlocks.Secrets.OS`; registered by `RegisterUtilityServices`)
+- `IServiceScopeFactory` — to open a scope for that scoped `ISecretService`, because this
+  repository is a singleton
+- `IVault` — for the provider API key when it is not (Genesis; registered by the host)
 - `IHttpClientFactory` — for making HTTP requests to the provider
 - `ICacheClient` — for caching successful lookups
 - `IConfiguration` — for reading configuration settings

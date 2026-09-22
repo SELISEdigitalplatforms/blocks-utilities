@@ -129,7 +129,7 @@ Deployment is driven by the workflows in `.github/workflows/`, not by a script i
 
 No secret values belong in this repository. The variables below are names only; set the values in your own environment.
 
-**Backend** (`server/Api/appsettings*.json`, `server/Worker/appsettings*.json`, plus the vault and the MongoDB-backed `Secrets` document): logging levels, `GeolocationApiUrl`, `GeolocationApiKeySecretName`, `GeolocationCacheSeconds`, `GeolocationProviderDelayMilliseconds`, `RootTenantId`, `ShortUrlBaseAddress`, `PdfToolPath`, `SnsConfigurationName`, and the `Payment` section (rate limits, lock and lease durations, webhook size and timeout budgets, currency minor units; the Worker adds outbox, webhook batch and reconciliation settings).
+**Backend** (`server/Api/appsettings*.json`, `server/Worker/appsettings*.json`, plus the vault and the MongoDB-backed `Secrets` document): logging levels, `GeolocationApiUrl`, `GeolocationApiKeySecretId`, `GeolocationApiKeySecretName`, `GeolocationCacheSeconds`, `GeolocationProviderDelayMilliseconds`, `RootTenantId`, `ShortUrlBaseAddress`, `PdfToolPath`, `SnsConfigurationName`, and the `Payment` section (rate limits, lock and lease durations, webhook size and timeout budgets, currency minor units; the Worker adds outbox, webhook batch and reconciliation settings).
 
 **Frontend** (`client/.env`, template in `client/.env.example`): `BLOCKS_API_BASE_URL`, `BLOCKS_X_BLOCKS_KEY`, `BLOCKS_GOOGLE_SITE_KEY`, `BLOCKS_CONSTRUCT_URL`, `BLOCKS_IDP_BASE_URL`, `BLOCKS_OIDC_CLIENT_ID`.
 

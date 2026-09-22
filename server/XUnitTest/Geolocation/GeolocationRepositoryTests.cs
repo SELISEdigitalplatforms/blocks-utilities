@@ -2,7 +2,9 @@ using System.Net;
 using System.Text.Json;
 using Blocks.Genesis;
 using FluentAssertions;
+using Blocks.Secrets;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Moq.Protected;
@@ -31,6 +33,7 @@ namespace XUnitTest.Geolocation
 
         private readonly Mock<ICacheClient> _cacheClient = new();
         private readonly Mock<IVault> _vault = new();
+        private readonly Mock<ISecretService> _secretService = new();
 
         public GeolocationRepositoryTests()
         {
@@ -273,6 +276,133 @@ namespace XUnitTest.Geolocation
             result!.CountryCode.Should().Be("CH",
                 because: "the cache is an optimisation, so losing it should cost latency and money "
                     + "rather than the feature");
+        }
+
+        [Fact]
+        public async Task The_provider_key_comes_from_blocks_secrets_when_a_secret_id_is_configured()
+        {
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()))
+                .ReturnsAsync("managed-key");
+            _vault
+                .Setup(vault => vault.ProcessSecretsAsync(It.IsAny<List<string>>()))
+                .ReturnsAsync(new Dictionary<string, string> { ["GeolocationApiKey"] = "vault-key" });
+
+            string? requestedUrl = null;
+            var repository = CreateRepository(
+                request =>
+                {
+                    requestedUrl = request.RequestUri!.ToString();
+                    return Json("""{"country_code":"CH"}""");
+                },
+                apiUrl: ApiUrlWithKeyInQuery,
+                configuredApiKey: "appsettings-key",
+                secretId: "secret-1");
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            requestedUrl.Should().Contain("api_key=managed-key",
+                because: "a secret id names the managed store, which is the one an operator "
+                    + "rotates and the only one whose reads are audited");
+            requestedUrl.Should().NotContain("vault-key");
+            requestedUrl.Should().NotContain("appsettings-key");
+        }
+
+        [Fact]
+        public async Task Blocks_secrets_is_not_consulted_when_no_secret_id_is_configured()
+        {
+            var repository = CreateRepository(
+                _ => Json("""{"country_code":"CH"}"""),
+                apiUrl: ApiUrlWithKeyInQuery,
+                secretId: null);
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            _secretService.Verify(
+                secrets => secrets.GetValueAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<CancellationToken>()),
+                Times.Never,
+                failMessage: "a deployment that has not adopted the managed store must not pay a "
+                    + "secret-store round trip, nor an audit row, on every key resolution");
+        }
+
+        [Fact]
+        public async Task A_secret_store_that_refuses_falls_back_to_the_vault()
+        {
+            // What a caller with no BlocksContext hits, and what a locked or deleted secret raises.
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("no blocks context"));
+            _vault
+                .Setup(vault => vault.ProcessSecretsAsync(It.IsAny<List<string>>()))
+                .ReturnsAsync(new Dictionary<string, string> { ["GeolocationApiKey"] = "vault-key" });
+
+            string? requestedUrl = null;
+            var repository = CreateRepository(
+                request =>
+                {
+                    requestedUrl = request.RequestUri!.ToString();
+                    return Json("""{"country_code":"CH"}""");
+                },
+                apiUrl: ApiUrlWithKeyInQuery,
+                secretId: "secret-1");
+
+            var result = await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            result!.CountryCode.Should().Be("CH");
+            requestedUrl.Should().Contain("api_key=vault-key",
+                because: "an unreachable secret store must not take geolocation down while a "
+                    + "usable key sits one source further along");
+        }
+
+        [Fact]
+        public async Task A_secret_that_holds_no_value_falls_back_to_the_vault()
+        {
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(string.Empty);
+            _vault
+                .Setup(vault => vault.ProcessSecretsAsync(It.IsAny<List<string>>()))
+                .ReturnsAsync(new Dictionary<string, string> { ["GeolocationApiKey"] = "vault-key" });
+
+            string? requestedUrl = null;
+            var repository = CreateRepository(
+                request =>
+                {
+                    requestedUrl = request.RequestUri!.ToString();
+                    return Json("""{"country_code":"CH"}""");
+                },
+                apiUrl: ApiUrlWithKeyInQuery,
+                secretId: "secret-1");
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            requestedUrl.Should().Contain("api_key=vault-key",
+                because: "an empty secret is a half-provisioned one, and authenticating with a "
+                    + "blank key just fails at the provider with a less obvious message");
+        }
+
+        [Fact]
+        public async Task The_secret_store_is_read_once_and_reused_across_lookups()
+        {
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()))
+                .ReturnsAsync("managed-key");
+
+            var repository = CreateRepository(
+                _ => Json("""{"country_code":"CH"}"""),
+                apiUrl: ApiUrlWithKeyInQuery,
+                secretId: "secret-1");
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+            await repository.ResolveIpToLocationAsync("1.1.1.1");
+
+            _secretService.Verify(
+                secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()),
+                Times.Once,
+                failMessage: "every read of a secret value is audited, so a read per lookup fills "
+                    + "the audit trail with noise and puts a second remote call on every request");
         }
 
         [Fact]
@@ -746,7 +876,8 @@ namespace XUnitTest.Geolocation
             string? apiUrl = ApiUrlWithKeyInQuery,
             string? configuredApiKey = null,
             string? secretName = null,
-            string? cacheSeconds = "300")
+            string? cacheSeconds = "300",
+            string? secretId = null)
         {
             var messageHandler = new Mock<HttpMessageHandler>();
 
@@ -770,6 +901,7 @@ namespace XUnitTest.Geolocation
                     ["GeolocationApiUrl"] = apiUrl,
                     ["GeolocationApiKey"] = configuredApiKey,
                     ["GeolocationApiKeySecretName"] = secretName,
+                    ["GeolocationApiKeySecretId"] = secretId,
                     ["GeolocationCacheSeconds"] = cacheSeconds,
 
                     // The gate is what is under test, not the wait. One millisecond exercises the
@@ -778,11 +910,19 @@ namespace XUnitTest.Geolocation
                 })
                 .Build();
 
+            // A real container rather than a mocked IServiceScopeFactory: the repository is a
+            // singleton and reaches the scoped ISecretService by opening a scope, which is the part
+            // worth exercising. A mock would let a wiring mistake through.
+            var services = new ServiceCollection();
+
+            services.AddScoped(_ => _secretService.Object);
+
             return new GeolocationRepository(
                 _cacheClient.Object,
                 httpClientFactory.Object,
                 configuration,
                 _vault.Object,
+                services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
                 NullLogger<GeolocationRepository>.Instance);
         }
     }

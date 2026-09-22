@@ -2,25 +2,28 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Blocks.Genesis;
+using Blocks.Secrets;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Utility.DomainService.Geolocation.service
 {
     /// <summary>
-    /// IP geolocation against a single configured provider, with the provider's API key held in
-    /// the cloud vault.
+    /// IP geolocation against a single configured provider, with the provider's API key held in a
+    /// secret store rather than in configuration.
     /// </summary>
     /// <remarks>
     /// Three decisions here are load-bearing, and all three exist because the provider is a
     /// metered third party rather than something this service owns:
     ///
     /// <para>
-    /// <b>The key comes from the vault, not from configuration.</b> <see cref="IVault"/> is the
-    /// same secret store the payment key ring uses, so rotating the provider key is an operations
-    /// task rather than a redeploy. A committed <c>GeolocationApiKey</c> is still read as a
-    /// fallback so a developer without vault access can work, but the vault wins whenever it
-    /// answers.
+    /// <b>The key comes from a secret store, not from configuration.</b> Blocks Secrets when
+    /// <c>GeolocationApiKeySecretId</c> names one - per tenant, rotatable from the console, and
+    /// audited on every read - otherwise the Genesis <see cref="IVault"/>, the same store the
+    /// payment key ring uses. Rotating the key is an operations task either way rather than a
+    /// redeploy. A committed <c>GeolocationApiKey</c> is still read last so a developer without
+    /// access to either store can work. <see cref="ResolveApiKeyAsync"/> has the full order.
     /// </para>
     ///
     /// <para>
@@ -42,6 +45,14 @@ namespace Utility.DomainService.Geolocation.service
         private const string ApiUrlKey = "GeolocationApiUrl";
         private const string ApiKeyConfigurationKey = "GeolocationApiKey";
         private const string ApiKeySecretNameKey = "GeolocationApiKeySecretName";
+        private const string ApiKeySecretIdKey = "GeolocationApiKeySecretId";
+
+        /// <summary>
+        /// Cache slot for a caller with no tenant on its context. The vault and configuration
+        /// sources are environment-wide, so one shared slot is correct for them; Blocks Secrets
+        /// cannot be read without a context at all, so nothing tenant-owned lands here.
+        /// </summary>
+        private const string NoTenantCacheKey = "(no-tenant)";
         private const string CacheSecondsKey = "GeolocationCacheSeconds";
         private const string ProviderDelayKey = "GeolocationProviderDelayMilliseconds";
 
@@ -54,10 +65,12 @@ namespace Utility.DomainService.Geolocation.service
         private readonly ICacheClient _cacheClient;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IVault _vault;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<GeolocationRepository> _logger;
 
         private readonly string? _apiUrl;
         private readonly string _apiKeySecretName;
+        private readonly string? _apiKeySecretId;
         private readonly string? _configuredApiKey;
         private readonly long _cacheSeconds;
         private readonly int _providerDelayMilliseconds;
@@ -66,17 +79,17 @@ namespace Utility.DomainService.Geolocation.service
         // API key's, so the gate has to outlive any single request - this type is a singleton.
         private readonly SemaphoreSlim _providerGate = new(1, 1);
 
-        // Resolved on first use and then reused. Startup does not know whether geolocation will
-        // ever be asked for, and a vault round trip per lookup would dominate the lookup itself.
-        // Written only while holding _providerGate.
-        private string? _resolvedApiKey;
-        private bool _apiKeyResolved;
+        // Resolved on first use and then reused, keyed by tenant. Startup does not know whether
+        // geolocation will ever be asked for, and a secret-store round trip per lookup would
+        // dominate the lookup itself. Read and written only while holding _providerGate.
+        private readonly Dictionary<string, string?> _apiKeyByTenant = new(StringComparer.Ordinal);
 
         public GeolocationRepository(
             ICacheClient cacheClient,
             IHttpClientFactory httpClientFactory,
             IConfiguration configuration,
             IVault vault,
+            IServiceScopeFactory serviceScopeFactory,
             ILogger<GeolocationRepository> logger)
         {
             ArgumentNullException.ThrowIfNull(configuration);
@@ -84,10 +97,12 @@ namespace Utility.DomainService.Geolocation.service
             _cacheClient = cacheClient;
             _httpClientFactory = httpClientFactory;
             _vault = vault;
+            _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
 
             _apiUrl = configuration[ApiUrlKey];
             _configuredApiKey = configuration[ApiKeyConfigurationKey];
+            _apiKeySecretId = configuration[ApiKeySecretIdKey];
             _apiKeySecretName = string.IsNullOrWhiteSpace(configuration[ApiKeySecretNameKey])
                 ? ApiKeyConfigurationKey
                 : configuration[ApiKeySecretNameKey]!;
@@ -193,16 +208,116 @@ namespace Utility.DomainService.Geolocation.service
         }
 
         /// <summary>
-        /// Vault first, committed configuration second. Returns null when neither holds a key,
-        /// which is a valid state: some providers (ip-api.com) are keyless.
+        /// Resolves the provider key for the calling tenant. Returns null when no source holds
+        /// one, which is a valid state: some providers (ip-api.com) are keyless.
         /// </summary>
+        /// <remarks>
+        /// Three sources, and which one is used is decided by configuration rather than by trying
+        /// them in turn:
+        /// <list type="number">
+        /// <item>
+        /// <b>Blocks Secrets</b>, when <c>GeolocationApiKeySecretId</c> names a secret. This is the
+        /// managed path: the key is per tenant, rotatable from the Blocks OS console, and every
+        /// read of it is audited.
+        /// </item>
+        /// <item>
+        /// <b>The Genesis vault</b>, by the name in <c>GeolocationApiKeySecretName</c>. The
+        /// platform-wide key, for a deployment that has not adopted Blocks Secrets. Note the two
+        /// are not interchangeable: Blocks Secrets keys its vault entries by secret id under its
+        /// own prefix, so a secret created in the console is not visible to this path.
+        /// </item>
+        /// <item><b>Configuration</b>, so a developer without either can still run the service.</item>
+        /// </list>
+        /// A source that is configured but fails falls through to the next rather than failing the
+        /// lookup, and says so in the log. Availability of a geolocation lookup is not worth more
+        /// than a correct key, but it is worth more than an outage while a usable key sits one
+        /// source down.
+        /// </remarks>
         private async Task<string?> ResolveApiKeyAsync(CancellationToken cancellationToken)
         {
-            if (_apiKeyResolved)
+            // Per tenant, because a Blocks Secrets value is per tenant - one process serves many,
+            // and caching the first tenant's key for all of them would hand one tenant's
+            // credential to the next. The vault and configuration sources are environment-wide, so
+            // for them this simply caches the same value under several keys.
+            var tenantId = BlocksContext.GetContext()?.TenantId;
+            var cacheKey = string.IsNullOrWhiteSpace(tenantId) ? NoTenantCacheKey : tenantId;
+
+            // A plain dictionary rather than a concurrent one: this is only ever reached while
+            // holding _providerGate, which serializes every caller.
+            if (_apiKeyByTenant.TryGetValue(cacheKey, out var cached))
             {
-                return _resolvedApiKey;
+                return cached;
             }
 
+            var resolved = await ReadFromSecretsAsync(cancellationToken)
+                ?? await ReadFromVaultAsync()
+                ?? (string.IsNullOrWhiteSpace(_configuredApiKey) ? null : _configuredApiKey);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            _apiKeyByTenant[cacheKey] = resolved;
+
+            return resolved;
+        }
+
+        /// <summary>
+        /// Reads the key through <c>ISecretService</c>. Returns null when no secret id is
+        /// configured, or when the read did not produce a value.
+        /// </summary>
+        /// <remarks>
+        /// A scope of its own because <c>ISecretService</c> is registered scoped - it reads the
+        /// ambient <see cref="BlocksContext"/> - while this repository is a singleton, which is what
+        /// lets the provider gate and the key cache outlive a request. The ambient context flows
+        /// into the new scope, so the secret still resolves for the calling tenant.
+        /// </remarks>
+        private async Task<string?> ReadFromSecretsAsync(CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(_apiKeySecretId))
+            {
+                return null;
+            }
+
+            try
+            {
+                using var scope = _serviceScopeFactory.CreateScope();
+
+                var secrets = scope.ServiceProvider.GetRequiredService<ISecretService>();
+                var value = await secrets.GetValueAsync(_apiKeySecretId, cancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    _logger.LogInformation(
+                        "Geolocation provider key resolved Source=blocks_secrets SecretId={SecretId}",
+                        _apiKeySecretId);
+
+                    return value;
+                }
+
+                _logger.LogWarning(
+                    "Geolocation provider key is empty in Blocks Secrets SecretId={SecretId} Fallback=vault",
+                    _apiKeySecretId);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                // Covers the whole family the secret domain raises - not found, access denied,
+                // locked or deleted, vault unreachable - plus a missing or unauthenticated
+                // BlocksContext, which is what a background caller outside
+                // BlocksContext.ExecuteInContext would hit.
+                _logger.LogError(
+                    exception,
+                    "Reading the geolocation provider key from Blocks Secrets failed SecretId={SecretId} Fallback=vault",
+                    _apiKeySecretId);
+            }
+
+            return null;
+        }
+
+        private async Task<string?> ReadFromVaultAsync()
+        {
             try
             {
                 var secrets = await _vault.ProcessSecretsAsync([_apiKeySecretName]);
@@ -211,14 +326,11 @@ namespace Utility.DomainService.Geolocation.service
                     secrets.TryGetValue(_apiKeySecretName, out var secret) &&
                     !string.IsNullOrWhiteSpace(secret))
                 {
-                    _resolvedApiKey = secret;
-                    _apiKeyResolved = true;
-
                     _logger.LogInformation(
                         "Geolocation provider key resolved Source=vault Secret={Secret}",
                         _apiKeySecretName);
 
-                    return _resolvedApiKey;
+                    return secret;
                 }
 
                 _logger.LogWarning(
@@ -235,14 +347,7 @@ namespace Utility.DomainService.Geolocation.service
                     _apiKeySecretName);
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
-
-            _resolvedApiKey = string.IsNullOrWhiteSpace(_configuredApiKey)
-                ? null
-                : _configuredApiKey;
-            _apiKeyResolved = true;
-
-            return _resolvedApiKey;
+            return null;
         }
 
         /// <summary>
