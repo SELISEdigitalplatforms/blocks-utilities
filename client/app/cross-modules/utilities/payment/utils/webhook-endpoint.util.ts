@@ -21,10 +21,8 @@ const WEBHOOK_PATHS = {
 /**
  * The public origin this service is reached at.
  *
- * Taken from the same runtime setting every API call already uses, so a wrong value would have
- * broken the console long before it could mislead anyone here. Falls back to the page's own
- * origin, which is correct in production because the API serves the console from its own
- * wwwroot.
+ * Taken from the same runtime setting every API call uses. In the browser this resolves to
+ * the page's origin because the API serves the console from its own wwwroot.
  */
 const publicOrigin = (): string => {
   const configured = getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL")?.trim();

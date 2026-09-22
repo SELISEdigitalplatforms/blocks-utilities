@@ -34,6 +34,8 @@ scripts/    security scan entry point and the payment key-vault setup scripts
 
 The API and Worker are built on the `SeliseBlocks.Genesis.OS` platform package, which provides configuration, secrets resolution, messaging (RabbitMQ or Azure Service Bus), logging and the authentication middleware.
 
+Database routing follows the tenant's stored connection and database name through Genesis 4.2.2. Payment, subscription, PDF, template and sequence records are tenant-owned; repositories resolve the target for each operation. Payment/subscription work queues and their tenant roster are deliberately kept on the main `BlocksRootDb`, and a queued item carries the tenant ID used by its handler. Magic links remain in the configured root tenant's database, so `RootTenantId` must resolve to the one root tenant on main. Deploy the updated API and Worker together before creating environments on separate connections. This change does not move existing tenant data.
+
 In production the SPA is compiled into `server/Api/wwwroot` and served by the API itself, which substitutes `__BLOCKS_*__` placeholders in `index.html` with runtime values from configuration (see `ApplyFrontendRuntimeSettings` in `server/Api/Program.cs`).
 
 ## Mail
