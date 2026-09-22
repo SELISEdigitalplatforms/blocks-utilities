@@ -96,6 +96,9 @@
              deliberate delay, so a request for ten addresses that are not cached takes seconds
              rather than milliseconds. Repeat lookups of the same address are served from the cache.
             
+             Addresses that could not be located are omitted from the response, so it may hold fewer
+             entries than were asked for. 404 means none of them could be located at all.
+            
              Parameters:
              - IpAddresses: Collection of IP addresses to locate
              </remarks>
@@ -1461,6 +1464,22 @@
             The same shape as <see cref="T:Api.Utilities.SubscriptionApiResults"/>, and deliberately the same status codes
             for the same kinds of failure: a client that has learned how one part of this API reports a
             validation error or a missing record should not have to learn it again here.
+            </remarks>
+        </member>
+        <member name="T:Api.Utilities.GeolocationApiResults">
+            <summary>
+            Maps a geolocation result onto an HTTP response.
+            </summary>
+            <remarks>
+            The same shape as <see cref="T:Api.Utilities.DocumentConversionApiResults"/>, and deliberately the same status
+            codes for the same kinds of failure: a client that has learned how one part of this API reports
+            a validation error or a missing record should not have to learn it again here.
+            <para>
+            The payload is the lookups themselves rather than the service's response object. That object
+            carries its own <c>IsSuccess</c> and <c>ErrorMessage</c>, which the envelope already expresses;
+            nesting it would make every response state its outcome twice, and leave a client to work out
+            which of the two to believe when they disagree.
+            </para>
             </remarks>
         </member>
         <member name="T:Api.Utilities.PdfIngestionApiResults">

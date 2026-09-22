@@ -31,7 +31,7 @@ namespace Utility.DomainService.Geolocation.service
 
             if (request.IpAddresses == null || !request.IpAddresses.Any())
             {
-                return Failed("IP addresses are required");
+                return Failed("IP addresses are required", GeolocationFailureKind.Validation);
             }
 
             var ipAddresses = request.IpAddresses.ToList();
@@ -39,7 +39,8 @@ namespace Utility.DomainService.Geolocation.service
             if (ipAddresses.Count > MaximumAddressesPerRequest)
             {
                 return Failed(
-                    $"Maximum {MaximumAddressesPerRequest} IP addresses allowed per request");
+                    $"Maximum {MaximumAddressesPerRequest} IP addresses allowed per request",
+                    GeolocationFailureKind.Validation);
             }
 
             return await ResolveAsync(ipAddresses, cancellationToken);
@@ -54,7 +55,9 @@ namespace Utility.DomainService.Geolocation.service
 
             if (ipAddresses == null || !ipAddresses.Any())
             {
-                return Failed("No IP addresses found in request context");
+                return Failed(
+                    "No IP addresses found in request context",
+                    GeolocationFailureKind.Validation);
             }
 
             return await ResolveAsync(
@@ -97,7 +100,7 @@ namespace Utility.DomainService.Geolocation.service
             // The repository drops what it could not resolve, so an empty array means every
             // address failed - a bad address, a private one, or a provider that would not answer.
             return ipLookups.Length == 0
-                ? Failed("IP address could not be located")
+                ? Failed("IP address could not be located", GeolocationFailureKind.NotFound)
                 : new LocateIpResponse
                 {
                     IpLookups = ipLookups,
@@ -105,11 +108,14 @@ namespace Utility.DomainService.Geolocation.service
                 };
         }
 
-        private static LocateIpResponse Failed(string errorMessage) =>
+        private static LocateIpResponse Failed(
+            string errorMessage,
+            GeolocationFailureKind failureKind) =>
             new()
             {
                 IsSuccess = false,
-                ErrorMessage = errorMessage
+                ErrorMessage = errorMessage,
+                FailureKind = failureKind
             };
     }
 }

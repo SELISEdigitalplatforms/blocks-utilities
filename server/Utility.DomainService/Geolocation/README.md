@@ -9,8 +9,8 @@ window, and calls are serialized against the provider's rate limit.
 Three behaviours are worth knowing before you use it, because they are deliberate:
 
 - **An address that cannot be resolved is absent from the response, not present and empty.** The
-  service never synthesizes an "Unknown" location. A response with no lookups reports
-  `isSuccess: false`.
+  service never synthesizes an "Unknown" location. If none of them resolve, the response is a
+  404 rather than an empty success.
 - **Lookups are throttled.** Each cache miss waits out a configured delay and holds a
   process-wide gate, so ten uncached addresses take about ten seconds. Cached addresses are free.
 - **Failures are never cached.** Only a successful lookup is written to the cache.
@@ -88,10 +88,14 @@ GET /Geolocation/LocateIp?IpAddresses=8.8.8.8&IpAddresses=1.1.1.1
 ```
 
 **Example Response:**
+
+Payloads are wrapped in the platform's `ApiResponse<T>` envelope, the same one the document
+conversion and subscription endpoints use. The data is the lookups themselves.
+
 ```json
 {
-  "isSuccess": true,
-  "ipLookups": [
+  "success": true,
+  "data": [
     {
       "startIp": "8.8.8.8",
       "lastIp": "8.8.8.8",
@@ -112,18 +116,24 @@ GET /Geolocation/LocateIp?IpAddresses=8.8.8.8&IpAddresses=1.1.1.1
       "ispName": "Google LLC"
     }
   ],
-  "errorMessage": null
+  "error": null,
+  "meta": { "correlationId": "0HN7..." }
 }
 ```
 
-Addresses that could not be resolved are omitted from `ipLookups`, so it may be shorter than
-`IpAddresses`. If none resolved, the response is:
+Addresses that could not be resolved are omitted from `data`, so it may hold fewer entries than
+were asked for. If none resolved, the response is a **404**:
 
 ```json
 {
-  "isSuccess": false,
-  "ipLookups": null,
-  "errorMessage": "IP address could not be located"
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "geolocation_not_found",
+    "message": "IP address could not be located",
+    "traceId": "0HN7..."
+  },
+  "meta": { "correlationId": "0HN7..." }
 }
 ```
 
@@ -175,6 +185,19 @@ trusted should come from the connection.
 - An entry that does not parse as an IP address is rejected before any provider call.
 - Addresses are URL-encoded into the provider URL.
 
+### The numeric address form
+`startIpNumber` and `lastIpNumber` carry the address as a number, for callers that range-search on
+it.
+
+- **IPv4 is exact.** 32 bits fit a double's 53-bit mantissa with room to spare.
+- **IPv6 is ordered but not exact.** 128 bits do not fit in a double, so addresses are
+  distinguishable only down to roughly a 2^75 granularity: ordering between distant addresses
+  holds, two addresses in nearby subnets can share a value. Compare `startIp` when an exact IPv6
+  match is needed. Making the number exact means widening the field past `double`, which changes
+  the wire contract.
+- An IPv4-mapped IPv6 address (`::ffff:8.8.8.8`) is unwrapped first, so the same host gets the same
+  number whichever way it was written.
+
 ### Flexible provider response mapping
 Payloads are read by field name with the separators removed and the case folded, so
 `country_code`, `countryCode` and `Country_Code` are one field. Each value names every spelling the
@@ -224,15 +247,25 @@ authenticating.
 
 ## Error Handling
 
-- Empty or missing `IpAddresses` → `"IP addresses are required"`.
-- More than 10 addresses → `"Maximum 10 IP addresses allowed per request"`.
-- No addresses in the request context (`Locate`) → `"No IP addresses found in request context"`.
-- Nothing resolved → `"IP address could not be located"`.
+| Outcome | Status | `error.code` |
+| --- | --- | --- |
+| Empty or missing `IpAddresses` | 400 | `geolocation_invalid_request` |
+| More than 10 addresses | 400 | `geolocation_invalid_request` |
+| No addresses in the request context (`Locate`) | 400 | `geolocation_invalid_request` |
+| Nothing resolved | 404 | `geolocation_not_found` |
+| Unauthenticated caller | 401 | — |
+
+The status code is the contract. Every outcome used to return HTTP 200 with the failure buried in
+the body, which a client's error handling, its gateway and its dashboards all recorded as a
+success.
 
 Provider failures — a non-2xx response, a transport error, a timeout, a payload that does not
-parse — are absorbed by the repository and reported as an address that could not be located. They
-are logged with the provider's status code. A cancelled request propagates rather than being
-reported as a failed lookup.
+parse — are absorbed by the repository and reported as an address that could not be located, so
+they surface as **404 alongside genuinely unlocatable addresses**. The provider's status code is
+logged, so the distinction is recoverable from the logs rather than from the response. Separating
+them into a 502 means teaching the repository to report which of the two it hit.
+
+A cancelled request propagates rather than being reported as a failed lookup.
 
 ## Testing
 

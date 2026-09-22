@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Api.Utilities;
+using Payment.DomainService.Responses;
 using Utility.DomainService.Geolocation.service;
 using Utility.DomainService.Geolocation;
 
@@ -32,6 +34,9 @@ namespace Api.Controllers
         /// deliberate delay, so a request for ten addresses that are not cached takes seconds
         /// rather than milliseconds. Repeat lookups of the same address are served from the cache.
         ///
+        /// Addresses that could not be located are omitted from the response, so it may hold fewer
+        /// entries than were asked for. 404 means none of them could be located at all.
+        ///
         /// Parameters:
         /// - IpAddresses: Collection of IP addresses to locate
         /// </remarks>
@@ -40,11 +45,18 @@ namespace Api.Controllers
         /// <returns>Response containing geolocation information for the IP addresses</returns>
         [HttpGet]
         [Authorize]
-        public Task<LocateIpResponse> LocateIp(
+        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> LocateIp(
             [FromQuery] LocateIpRequest request,
             CancellationToken cancellationToken)
         {
-            return _geolocationService.LocateIpAsync(request, cancellationToken);
+            var correlationId = HttpContext.TraceIdentifier;
+            var result = await _geolocationService.LocateIpAsync(request, cancellationToken);
+
+            return result.ToActionResult(correlationId);
         }
 
         /// <summary>
@@ -68,14 +80,25 @@ namespace Api.Controllers
         /// <returns>Response containing geolocation information for the request IP addresses</returns>
         [HttpGet]
         [Authorize]
-        public async Task<LocateIpResponse> Locate(
+        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Locate(
             [FromQuery] LocateRequest request,
             CancellationToken cancellationToken)
         {
+            var correlationId = HttpContext.TraceIdentifier;
+
             // Extract IP addresses from the current request context
             var ipAddresses = _geolocationService.GetVisitorsIpAddresses(HttpContext);
 
-            return await _geolocationService.LocateAsync(request, ipAddresses, cancellationToken);
+            var result = await _geolocationService.LocateAsync(
+                request,
+                ipAddresses,
+                cancellationToken);
+
+            return result.ToActionResult(correlationId);
         }
     }
 }

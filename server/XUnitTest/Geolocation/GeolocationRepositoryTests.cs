@@ -585,6 +585,56 @@ namespace XUnitTest.Geolocation
         }
 
         [Fact]
+        public async Task An_ipv6_address_gets_a_numeric_form_of_its_own()
+        {
+            var repository = CreateRepository(
+                _ => Json("""{"country_code":"CH"}"""),
+                apiUrl: ApiUrlWithKeyInQuery);
+
+            var first = await repository.ResolveIpToLocationAsync("2001:4860:4860::8888");
+            var second = await repository.ResolveIpToLocationAsync("2606:4700:4700::1111");
+
+            first!.StartIpNumber.Should().NotBe(0,
+                because: "every IPv6 address collapsing to 0 makes them all compare equal, so an "
+                    + "exact-match query on this field matches every IPv6 address ever recorded");
+            second!.StartIpNumber.Should().NotBe(first.StartIpNumber,
+                because: "two different addresses that share a number cannot be told apart by the "
+                    + "range searches this field exists to serve");
+            second.StartIpNumber.Should().BeGreaterThan(first.StartIpNumber,
+                because: "2606:: sorts above 2001::, and ordering is the property that survives "
+                    + "even though 128 bits cannot be held exactly in a double");
+        }
+
+        [Fact]
+        public async Task An_ipv4_address_keeps_the_numeric_form_it_has_always_had()
+        {
+            var repository = CreateRepository(
+                _ => Json("""{"country_code":"US"}"""),
+                apiUrl: ApiUrlWithKeyInQuery);
+
+            var result = await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            result!.StartIpNumber.Should().Be(134744072,
+                because: "8*2^24 + 8*2^16 + 8*2^8 + 8 is what was stored for this address before, "
+                    + "and a stored number that shifts meaning breaks every range already recorded");
+            result.LastIpNumber.Should().Be(134744072);
+        }
+
+        [Fact]
+        public async Task An_ipv4_mapped_ipv6_address_numbers_the_same_as_its_ipv4_form()
+        {
+            var repository = CreateRepository(
+                _ => Json("""{"country_code":"US"}"""),
+                apiUrl: ApiUrlWithKeyInQuery);
+
+            var mapped = await repository.ResolveIpToLocationAsync("::ffff:8.8.8.8");
+
+            mapped!.StartIpNumber.Should().Be(134744072,
+                because: "it is the same host written another way, and giving it a second number "
+                    + "would hide one record from a range search that found the other");
+        }
+
+        [Fact]
         public async Task A_bulk_lookup_drops_the_addresses_that_could_not_be_resolved()
         {
             var repository = CreateRepository(

@@ -455,32 +455,52 @@ namespace Utility.DomainService.Geolocation.service
         }
 
         /// <summary>
-        /// IPv4 dotted-quad to its numeric form, for callers that range-search on it. IPv6
-        /// addresses have no such form here and resolve to 0.
+        /// An address's numeric form, for callers that range-search on it.
         /// </summary>
+        /// <remarks>
+        /// Built from the address bytes rather than by splitting on '.', so IPv6 gets a real value
+        /// instead of 0. Every IPv6 address collapsing to 0 is worse than an imprecise number: it
+        /// makes them all compare equal, so an exact-match query on this field matches every IPv6
+        /// address ever recorded, and ordering between them is meaningless.
+        ///
+        /// <para>
+        /// IPv4 is exact. Its 32 bits fit a double's 53-bit mantissa with room to spare, and the
+        /// value is identical to the one this produced before.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>IPv6 is ordered but not exact.</b> 128 bits do not fit in a double, so addresses are
+        /// distinguishable only down to roughly a 2^75 granularity: ordering between distant
+        /// addresses holds, two addresses in nearby subnets can share a value. Making it exact
+        /// means widening the field past <see cref="double"/>, which changes the wire contract, so
+        /// it is a deliberate limit rather than an oversight. Callers needing exact IPv6 matching
+        /// should compare <see cref="IpLookup.StartIp"/>.
+        /// </para>
+        ///
+        /// <para>
+        /// An IPv4-mapped IPv6 address (<c>::ffff:8.8.8.8</c>) is unwrapped first, so the same host
+        /// gets the same number whichever way it was written.
+        /// </para>
+        /// </remarks>
         private static double ConvertIpToNumber(string ipAddress)
         {
-            var parts = ipAddress.Split('.');
-
-            if (parts.Length != 4)
+            if (!IPAddress.TryParse(ipAddress, out var parsed))
             {
                 return 0;
             }
 
+            if (parsed.IsIPv4MappedToIPv6)
+            {
+                parsed = parsed.MapToIPv4();
+            }
+
             double result = 0;
 
-            for (var index = 0; index < 4; index++)
+            // GetAddressBytes is network order - most significant byte first - for both families,
+            // so one loop covers 4 bytes and 16.
+            foreach (var octet in parsed.GetAddressBytes())
             {
-                if (!int.TryParse(
-                        parts[index],
-                        NumberStyles.Integer,
-                        CultureInfo.InvariantCulture,
-                        out var part))
-                {
-                    return 0;
-                }
-
-                result += part * Math.Pow(256, 3 - index);
+                result = (result * 256) + octet;
             }
 
             return result;
