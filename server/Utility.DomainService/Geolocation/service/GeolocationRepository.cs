@@ -66,6 +66,7 @@ namespace Utility.DomainService.Geolocation.service
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IVault _vault;
         private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly TimeProvider _timeProvider;
         private readonly ILogger<GeolocationRepository> _logger;
 
         private readonly string? _apiUrl;
@@ -79,10 +80,14 @@ namespace Utility.DomainService.Geolocation.service
         // API key's, so the gate has to outlive any single request - this type is a singleton.
         private readonly SemaphoreSlim _providerGate = new(1, 1);
 
-        // Resolved on first use and then reused, keyed by tenant. Startup does not know whether
-        // geolocation will ever be asked for, and a secret-store round trip per lookup would
-        // dominate the lookup itself. Read and written only while holding _providerGate.
-        private readonly Dictionary<string, string?> _apiKeyByTenant = new(StringComparer.Ordinal);
+        // Resolved on first use and then reused until it expires, keyed by tenant. Startup does
+        // not know whether geolocation will ever be asked for, and a secret-store round trip per
+        // lookup would dominate the lookup itself - but holding it forever means a rotation only
+        // takes effect on a restart, so it expires on the same TTL as a lookup. Read and written
+        // only while holding _providerGate.
+        private readonly Dictionary<string, CachedApiKey> _apiKeyByTenant = new(StringComparer.Ordinal);
+
+        private readonly record struct CachedApiKey(string? Value, DateTimeOffset ExpiresAt);
 
         public GeolocationRepository(
             ICacheClient cacheClient,
@@ -90,6 +95,7 @@ namespace Utility.DomainService.Geolocation.service
             IConfiguration configuration,
             IVault vault,
             IServiceScopeFactory serviceScopeFactory,
+            TimeProvider timeProvider,
             ILogger<GeolocationRepository> logger)
         {
             ArgumentNullException.ThrowIfNull(configuration);
@@ -98,6 +104,7 @@ namespace Utility.DomainService.Geolocation.service
             _httpClientFactory = httpClientFactory;
             _vault = vault;
             _serviceScopeFactory = serviceScopeFactory;
+            _timeProvider = timeProvider;
             _logger = logger;
 
             _apiUrl = configuration[ApiUrlKey];
@@ -232,6 +239,13 @@ namespace Utility.DomainService.Geolocation.service
         /// lookup, and says so in the log. Availability of a geolocation lookup is not worth more
         /// than a correct key, but it is worth more than an outage while a usable key sits one
         /// source down.
+        /// <para>
+        /// The answer is cached per tenant for <c>GeolocationCacheSeconds</c> - the same TTL a
+        /// lookup gets - so a key rotated in the store is picked up within that window instead of
+        /// at the next restart. Sharing the lookup TTL rather than adding a knob of its own keeps
+        /// "how stale may this service's view of the world be" a single number; the cost is a
+        /// secret-store round trip, and an audit row, once per tenant per window.
+        /// </para>
         /// </remarks>
         private async Task<string?> ResolveApiKeyAsync(CancellationToken cancellationToken)
         {
@@ -242,11 +256,13 @@ namespace Utility.DomainService.Geolocation.service
             var tenantId = BlocksContext.GetContext()?.TenantId;
             var cacheKey = string.IsNullOrWhiteSpace(tenantId) ? NoTenantCacheKey : tenantId;
 
+            var now = _timeProvider.GetUtcNow();
+
             // A plain dictionary rather than a concurrent one: this is only ever reached while
             // holding _providerGate, which serializes every caller.
-            if (_apiKeyByTenant.TryGetValue(cacheKey, out var cached))
+            if (_apiKeyByTenant.TryGetValue(cacheKey, out var cached) && cached.ExpiresAt > now)
             {
-                return cached;
+                return cached.Value;
             }
 
             var resolved = await ReadFromSecretsAsync(cancellationToken)
@@ -255,7 +271,12 @@ namespace Utility.DomainService.Geolocation.service
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            _apiKeyByTenant[cacheKey] = resolved;
+            // Cached whether or not a key was found. A deployment whose secret is not provisioned
+            // yet would otherwise pay a failed secret-store round trip, and an audit row, on every
+            // single lookup.
+            _apiKeyByTenant[cacheKey] = new CachedApiKey(
+                resolved,
+                now.AddSeconds(_cacheSeconds));
 
             return resolved;
         }

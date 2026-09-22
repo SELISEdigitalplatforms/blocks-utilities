@@ -37,6 +37,11 @@ namespace DomainService.Utilities
             services.AddSingleton<ISequenceService, SequenceService>();
             services.AddSingleton<ISequenceRepository, SequenceRepository>();
 
+            // The geolocation key cache expires on a clock, so the clock is injected rather than
+            // read statically - a host can replace it before registering this module. TryAdd
+            // because Subscription registers the same default.
+            services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+
             // Geolocation Services
             services.AddSingleton<IGeolocationService, GeolocationService>();
             services.AddSingleton<IGeolocationRepository, GeolocationRepository>();

@@ -23,14 +23,15 @@ Three behaviours are worth knowing before you use it, because they are deliberat
 | `GeolocationApiKeySecretId` | no | — | Id of the Blocks Secrets secret holding the provider key. Setting it selects the managed store. |
 | `GeolocationApiKeySecretName` | no | `GeolocationApiKey` | Name of the Genesis vault secret, used when no secret id is set. |
 | `GeolocationApiKey` | no | — | Fallback provider key, read only when neither store answers. |
-| `GeolocationCacheSeconds` | no | `300` | Cache TTL for a successful lookup. Unset, zero, negative or unparseable falls back to the default. |
+| `GeolocationCacheSeconds` | no | `300` | Cache TTL for a successful lookup, and for the resolved provider key. Unset, zero, negative or unparseable falls back to the default. |
 | `GeolocationProviderDelayMilliseconds` | no | `1000` | Delay paid before each provider call. Match it to the provider's rate limit. |
 
 ### Where the provider key comes from
 
 Three sources, and which one is used is decided by configuration rather than by trying each in
-turn. The key is resolved on the first lookup and then cached **per tenant**, so a rotation needs a
-restart to be picked up.
+turn. The key is resolved on the first lookup and cached **per tenant** for
+`GeolocationCacheSeconds` — the same TTL a lookup gets — so a key rotated in the store takes effect
+within that window without a restart.
 
 1. **Blocks Secrets** (`SeliseBlocks.Secrets.OS`), when `GeolocationApiKeySecretId` names a secret.
    This is the managed path: the key is per tenant, rotatable from the Blocks OS console, and every
@@ -69,6 +70,11 @@ Reading a secret requires an authenticated `BlocksContext`, which both endpoints
 carry `[Authorize]`. Background work that ever needs a geolocation lookup would have to wrap the
 call in `BlocksContext.ExecuteInContext(...)`; nothing in the Worker does today, and a missing
 context is logged and falls through to the vault rather than throwing.
+
+Rotating the key means `RotateAsync` on the same secret id — the id in configuration does not
+change. The new value is picked up within `GeolocationCacheSeconds`. Every read is audited, so the
+cost of that window is one audit row per tenant per window rather than one per lookup; shortening
+the TTL trades audit noise for a faster rotation.
 
 ### Provider URL templates
 
@@ -199,6 +205,7 @@ trusted should come from the connection.
 
 ### Caching
 - Successful lookups are cached for `GeolocationCacheSeconds` (default 300).
+- The resolved provider key is cached in process for the same TTL, per tenant.
 - Cache key format: `ip_lookup_{ipAddress}`.
 - Failures and unresolvable addresses are never cached.
 - An unreachable cache degrades to a provider call; it does not fail the lookup.

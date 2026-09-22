@@ -35,6 +35,11 @@ namespace XUnitTest.Geolocation
         private readonly Mock<IVault> _vault = new();
         private readonly Mock<ISecretService> _secretService = new();
 
+        // A clock the tests move by hand, so the key's expiry can be crossed without waiting it
+        // out. Starts at a fixed instant rather than "now" so a test reads the same either way.
+        private readonly TestClock _clock = new(
+            new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
         public GeolocationRepositoryTests()
         {
             _cacheClient
@@ -403,6 +408,88 @@ namespace XUnitTest.Geolocation
                 Times.Once,
                 failMessage: "every read of a secret value is audited, so a read per lookup fills "
                     + "the audit trail with noise and puts a second remote call on every request");
+        }
+
+        [Fact]
+        public async Task A_rotated_key_is_picked_up_once_the_cached_one_expires()
+        {
+            _secretService
+                .SetupSequence(secrets => secrets.GetValueAsync(
+                    "secret-1",
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync("old-key")
+                .ReturnsAsync("rotated-key");
+
+            var requestedUrls = new List<string>();
+            var repository = CreateRepository(
+                request =>
+                {
+                    requestedUrls.Add(request.RequestUri!.ToString());
+                    return Json("""{"country_code":"CH"}""");
+                },
+                apiUrl: ApiUrlWithKeyInQuery,
+                cacheSeconds: "300",
+                secretId: "secret-1");
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            _clock.Advance(TimeSpan.FromSeconds(301));
+
+            await repository.ResolveIpToLocationAsync("1.1.1.1");
+
+            requestedUrls[0].Should().Contain("api_key=old-key");
+            requestedUrls[1].Should().Contain("api_key=rotated-key",
+                because: "a key rotated in the store has to take effect without a restart, or an "
+                    + "operator revoking a leaked credential is still waiting on a deployment");
+        }
+
+        [Fact]
+        public async Task A_cached_key_is_reused_right_up_to_its_expiry()
+        {
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()))
+                .ReturnsAsync("managed-key");
+
+            var repository = CreateRepository(
+                _ => Json("""{"country_code":"CH"}"""),
+                apiUrl: ApiUrlWithKeyInQuery,
+                cacheSeconds: "300",
+                secretId: "secret-1");
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            _clock.Advance(TimeSpan.FromSeconds(299));
+
+            await repository.ResolveIpToLocationAsync("1.1.1.1");
+
+            _secretService.Verify(
+                secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()),
+                Times.Once,
+                failMessage: "re-reading before the window is up spends a secret-store round trip "
+                    + "and an audit row per lookup, which is what caching the key is for");
+        }
+
+        [Fact]
+        public async Task A_key_that_no_source_holds_is_not_re_resolved_on_every_lookup()
+        {
+            var repository = CreateRepository(
+                _ => Json("""{"country_code":"CH"}"""),
+                apiUrl: ApiUrlWithKeyInQuery,
+                cacheSeconds: "300",
+                secretId: "secret-1");
+
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()))
+                .ReturnsAsync((string?)null);
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+            await repository.ResolveIpToLocationAsync("1.1.1.1");
+
+            _secretService.Verify(
+                secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()),
+                Times.Once,
+                failMessage: "a deployment whose secret is not provisioned yet would otherwise pay "
+                    + "a failed round trip, and an audit row, on every single lookup");
         }
 
         [Fact]
@@ -923,7 +1010,21 @@ namespace XUnitTest.Geolocation
                 configuration,
                 _vault.Object,
                 services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+                _clock,
                 NullLogger<GeolocationRepository>.Instance);
         }
+    }
+
+    /// <summary>
+    /// A clock the test drives. <c>FakeTimeProvider</c> would do the same, but it lives in a
+    /// package this solution does not reference, and the whole need here is "advance by N".
+    /// </summary>
+    internal sealed class TestClock(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset _now = now;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan by) => _now = _now.Add(by);
     }
 }
