@@ -2,58 +2,73 @@
 
 ## Overview
 
-The Geolocation Service provides IP geolocation lookup functionality with support for external API providers. The service can fetch geolocation data from external APIs configured via `appsettings.json`.
+The Geolocation Service resolves IP addresses to a location through one configured external
+provider. The provider's API key is held in the cloud vault, results are cached for a short
+window, and calls are serialized against the provider's rate limit.
+
+Three behaviours are worth knowing before you use it, because they are deliberate:
+
+- **An address that cannot be resolved is absent from the response, not present and empty.** The
+  service never synthesizes an "Unknown" location. A response with no lookups reports
+  `isSuccess: false`.
+- **Lookups are throttled.** Each cache miss waits out a configured delay and holds a
+  process-wide gate, so ten uncached addresses take about ten seconds. Cached addresses are free.
+- **Failures are never cached.** Only a successful lookup is written to the cache.
 
 ## Configuration
 
-Configure the geolocation API settings in your `appsettings.json`:
+| Key | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `GeolocationApiUrl` | yes | — | Provider URL template. Without it, every lookup reports that it could not locate. |
+| `GeolocationApiKeySecretName` | no | `GeolocationApiKey` | Name of the vault secret holding the provider key. |
+| `GeolocationApiKey` | no | — | Fallback provider key, read only when the vault has none. |
+| `GeolocationCacheSeconds` | no | `300` | Cache TTL for a successful lookup. Unset, zero, negative or unparseable falls back to the default. |
+| `GeolocationProviderDelayMilliseconds` | no | `1000` | Delay paid before each provider call. Match it to the provider's rate limit. |
 
-### Configuration Settings
+### Where the provider key comes from
+
+The key is resolved once per process, on the first lookup, in this order:
+
+1. The cloud vault (Genesis `IVault`), under `GeolocationApiKeySecretName`. This is the source to
+   use — rotating the key is an operations task and needs no redeploy.
+2. The `GeolocationApiKey` configuration value, if the vault holds nothing or cannot be reached.
+   This exists so a developer without vault access can run the service; it is not the deployment
+   path.
+
+A provider that needs no key at all (ip-api.com) is a valid configuration: leave both unset and no
+key is sent.
+
+### Provider URL templates
 
 ```json
 {
-  "GeolocationApiUrl": "<your-api-url>",
-  "GeolocationApiKey": "<your-api-key>"
+  "GeolocationApiUrl": "<your-api-url>"
 }
 ```
 
-### Configuration Examples
+- `{ip}` — replaced with the target IP address (URL-encoded).
+- `{apiKey}` — optional. If present, the key is inserted there; if absent, the key is sent as an
+  `X-API-Key` request header instead.
 
-#### Example 1: ip-api.com (Free, No API Key Required)
+#### Example 1: ip-api.com (free, no API key required)
 ```json
-{
-  "GeolocationApiUrl": "http://ip-api.com/json/{ip}",
-  "GeolocationApiKey": ""
-}
+{ "GeolocationApiUrl": "http://ip-api.com/json/{ip}" }
 ```
 
-#### Example 2: ipapi.com (Header-based authentication)
+#### Example 2: ipapi.co (header-based authentication)
 ```json
-{
-  "GeolocationApiUrl": "https://ipapi.co/{ip}/json/",
-  "GeolocationApiKey": "your-api-key-here"
-}
+{ "GeolocationApiUrl": "https://ipapi.co/{ip}/json/" }
 ```
 
 #### Example 3: ipgeolocation.io (URL-based authentication)
 ```json
-{
-  "GeolocationApiUrl": "https://api.ipgeolocation.io/ipgeo?ip={ip}&apiKey={apiKey}",
-  "GeolocationApiKey": "your-api-key-here"
-}
+{ "GeolocationApiUrl": "https://api.ipgeolocation.io/ipgeo?ip={ip}&apiKey={apiKey}" }
 ```
 
 #### Example 4: abstractapi.com (URL-based authentication)
 ```json
-{
-  "GeolocationApiUrl": "https://ipgeolocation.abstractapi.com/v1/?api_key={apiKey}&ip_address={ip}",
-  "GeolocationApiKey": "your-api-key-here"
-}
+{ "GeolocationApiUrl": "https://ipgeolocation.abstractapi.com/v1/?api_key={apiKey}&ip_address={ip}" }
 ```
-
-**Note:** 
-- Replace `{ip}` placeholder - automatically replaced with the target IP address
-- Replace `{apiKey}` placeholder (optional) - if present in URL, the API key will be inserted there; otherwise, it will be added to the request header as `X-API-Key`
 
 ## API Endpoints
 
@@ -65,12 +80,11 @@ Configure the geolocation API settings in your `appsettings.json`:
 
 **Parameters:**
 - `IpAddresses` (query, array of strings): Collection of IP addresses to locate (max 10)
-- `UseCustomProvider` (query, boolean): Whether to use the external API provider (default: false)
 - `ProjectKey` (query, string, optional): Project/tenant identifier
 
 **Example Request:**
 ```
-GET /Geolocation/LocateIp?IpAddresses=8.8.8.8&IpAddresses=1.1.1.1&UseCustomProvider=true
+GET /Geolocation/LocateIp?IpAddresses=8.8.8.8&IpAddresses=1.1.1.1
 ```
 
 **Example Response:**
@@ -83,8 +97,8 @@ GET /Geolocation/LocateIp?IpAddresses=8.8.8.8&IpAddresses=1.1.1.1&UseCustomProvi
       "lastIp": "8.8.8.8",
       "startIpNumber": 134744072,
       "lastIpNumber": 134744072,
-      "locationCode": "US",
-      "locationCodeAsRegistered": "US",
+      "locationCode": "CA",
+      "locationCodeAsRegistered": "CA",
       "continentCode": "NA",
       "countryCode": "US",
       "continentName": "North America",
@@ -102,19 +116,30 @@ GET /Geolocation/LocateIp?IpAddresses=8.8.8.8&IpAddresses=1.1.1.1&UseCustomProvi
 }
 ```
 
+Addresses that could not be resolved are omitted from `ipLookups`, so it may be shorter than
+`IpAddresses`. If none resolved, the response is:
+
+```json
+{
+  "isSuccess": false,
+  "ipLookups": null,
+  "errorMessage": "IP address could not be located"
+}
+```
+
 ### 2. Locate - Locate Current Request IP
 
 **Endpoint:** `GET /Geolocation/Locate`
 
-**Description:** Automatically extracts and locates IP addresses from the current HTTP request context.
+**Description:** Automatically extracts and locates IP addresses from the current HTTP request
+context.
 
 **Parameters:**
-- `UseCustomProvider` (query, boolean): Whether to use the external API provider (default: false)
 - `ProjectKey` (query, string, optional): Project/tenant identifier
 
 **Example Request:**
 ```
-GET /Geolocation/Locate?UseCustomProvider=true
+GET /Geolocation/Locate
 ```
 
 **Response:** Same structure as LocateIp endpoint
@@ -124,29 +149,49 @@ The endpoint extracts IP addresses from:
 - `X-Forwarded-For` header (for requests through proxies/load balancers)
 - Direct connection remote IP address
 
+Only the first 10 addresses of a forwarded chain are looked up. The header is client-supplied, so
+the addresses it names are not evidence of where the caller actually is — anything that has to be
+trusted should come from the connection.
+
 ## Features
 
 ### Caching
-- IP lookup results are cached for 1 hour to reduce external API calls
-- Cache key format: `ip_lookup_{ipAddress}`
+- Successful lookups are cached for `GeolocationCacheSeconds` (default 300).
+- Cache key format: `ip_lookup_{ipAddress}`.
+- Failures and unresolvable addresses are never cached.
+- An unreachable cache degrades to a provider call; it does not fail the lookup.
 
-### Fallback Mechanism
-- If external API is not configured, returns placeholder data
-- If external API call fails, automatically falls back to placeholder data
-- Ensures service availability even when external API is unavailable
+### Rate limiting
+- One provider call at a time, process-wide, because the limit belongs to the shared API key.
+- Each call waits `GeolocationProviderDelayMilliseconds` first.
+- The cache is re-checked inside the gate, so a repeated address in one bulk request costs one
+  provider call rather than one per entry.
 
-### Multiple IP Support
-- Supports bulk lookup of up to 10 IP addresses per request
-- Processes IP lookups concurrently for better performance
+### Multiple IP support
+- Up to 10 IP addresses per request.
+- Processed sequentially, in the order asked, because the gate serializes them anyway.
 
-### Flexible API Response Mapping
-The service supports various geolocation API response formats with alternative property names:
-- CountryCode / Country
-- ContinentCode / Continent
-- Region / RegionName
-- Latitude / Lat
-- Longitude / Lon
-- IspName / Isp / Org
+### Input validation
+- An entry that does not parse as an IP address is rejected before any provider call.
+- Addresses are URL-encoded into the provider URL.
+
+### Flexible provider response mapping
+Payloads are read by field name with the separators removed and the case folded, so
+`country_code`, `countryCode` and `Country_Code` are one field. Each value names every spelling the
+supported providers use, most specific first:
+
+| Field | Provider spellings |
+| --- | --- |
+| Country code | `country_code`, `countryCode`, `country_code2` |
+| Country name | `country_name`, `country` |
+| Continent | `continent_code`, `continent_name`, `continent` |
+| Region | `region`, `region_name`, `state_prov` |
+| Region ISO code | `region_iso_code`, `region_code` |
+| Coordinates | `latitude`/`longitude`, `lat`/`lon`, `lng` — quoted numbers accepted |
+| ISP | `isp_name`, `isp`, `connection.isp_name`, `org`, `asn.name` |
+| Flag | `flag.png`, `flag.svg`, `country_flag` |
+
+A field the provider does not send is empty; it does not discard the rest of the record.
 
 ## Authentication
 
@@ -154,81 +199,77 @@ Both endpoints require authentication based on your application's security confi
 
 ## Error Handling
 
-The service includes comprehensive error handling:
-- Invalid or empty IP addresses
-- Maximum IP limit validation (10 per request)
-- External API failures
-- Network timeouts
-- JSON deserialization errors
+- Empty or missing `IpAddresses` → `"IP addresses are required"`.
+- More than 10 addresses → `"Maximum 10 IP addresses allowed per request"`.
+- No addresses in the request context (`Locate`) → `"No IP addresses found in request context"`.
+- Nothing resolved → `"IP address could not be located"`.
 
-All errors are gracefully handled and return appropriate error messages in the response.
+Provider failures — a non-2xx response, a transport error, a timeout, a payload that does not
+parse — are absorbed by the repository and reported as an address that could not be located. They
+are logged with the provider's status code. A cancelled request propagates rather than being
+reported as a failed lookup.
 
 ## Testing
 
-### Local Testing Without External API
-If no configuration is set in `appsettings.json`, the service will use placeholder data:
+### Local testing without a vault
+Set `GeolocationApiUrl` and, for providers that need one, `GeolocationApiKey` in
+`appsettings.Development.json`. The vault is tried first, logs that it found nothing, and the
+configured key is used.
+
+### Against a keyless provider
 ```json
-{
-  "countryCode": "US",
-  "countryName": "United States",
-  "city": "Unknown",
-  "region": "Unknown"
-}
+{ "GeolocationApiUrl": "http://ip-api.com/json/{ip}" }
 ```
 
-### Testing With External API
-1. Add configuration to `appsettings.json`:
-```json
-{
-  "GeolocationApiUrl": "http://ip-api.com/json/{ip}",
-  "GeolocationApiKey": ""
-}
-```
-2. Make a request with `UseCustomProvider=true`
-3. Verify real geolocation data is returned
+### Faster tests
+Set `GeolocationProviderDelayMilliseconds` to `1`. The unit tests do this — the gate is what is
+under test, not waiting a real second for it.
 
 ## Dependencies
 
-- `IHttpClientFactory` - For making HTTP requests to external APIs
-- `ICacheClient` - For caching IP lookup results
-- `IConfiguration` - For reading configuration settings
-- `Microsoft.AspNetCore.Http` - For HTTP context access
+- `IVault` — for the provider API key (Genesis; registered by the host)
+- `IHttpClientFactory` — for making HTTP requests to the provider
+- `ICacheClient` — for caching successful lookups
+- `IConfiguration` — for reading configuration settings
+- `ILogger<GeolocationRepository>` — provider and vault failures are logged, not returned
+- `Microsoft.AspNetCore.Http` — for HTTP context access
 
 ## Performance Considerations
 
-1. **Caching:** Results are cached for 1 hour to minimize external API calls
-2. **Concurrent Processing:** Multiple IP lookups are processed in parallel
-3. **Timeout:** Consider configuring HTTP client timeout for external API calls
-4. **Rate Limiting:** Be aware of rate limits on external geolocation APIs
+1. **Throughput is bounded by design.** One provider call at a time plus the configured delay. A
+   request for ten uncached addresses takes roughly ten times the delay. If that is too slow for a
+   caller, the answer is a shorter delay on a paid provider tier, not parallel calls.
+2. **Caching.** A short TTL trades provider spend against staleness; raise
+   `GeolocationCacheSeconds` before widening the gate.
+3. **Timeout.** Consider configuring the HTTP client timeout for the provider.
+4. **Rate limiting.** `GeolocationProviderDelayMilliseconds` has to match the provider's limit;
+   the default of one second matches the common free tier of one request per second.
 
 ## Troubleshooting
 
-### Issue: Receiving Placeholder Data
-**Solution:** 
-- Ensure `GeolocationApiUrl` and `GeolocationApiKey` are properly configured in `appsettings.json`
-- Set `UseCustomProvider=true` in the request
-- Check API key validity
-- Verify API URL format includes `{ip}` placeholder
+### Issue: every lookup reports "IP address could not be located"
+- Check that `GeolocationApiUrl` is set; an unconfigured provider logs
+  `Reason=provider_url_not_configured`.
+- Check the logs for `Geolocation provider call failed Status=...`. A 401 or 403 means the key did
+  not arrive: confirm whether the provider expects it in the URL (`{apiKey}` placeholder) or as a
+  header.
+- A 429 means the delay is shorter than the provider's rate limit.
+- Confirm the address parses as an IP address; `Reason=address_not_parseable` is logged when it
+  does not.
 
-### Issue: API Calls Failing
-**Solution:**
-- Check network connectivity
-- Verify API key is valid and not expired
-- Check API provider's rate limits
-- Review API provider's documentation for correct URL format
-- Verify configuration keys are correctly spelled: `GeolocationApiUrl` and `GeolocationApiKey`
+### Issue: the provider key is not being picked up
+- The logs say which source won: `Geolocation provider key resolved Source=vault`, or a warning
+  that it was not in the vault followed by the configuration fallback.
+- Check `GeolocationApiKeySecretName` matches the secret's name in the vault.
+- A vault error is logged as `Reading the geolocation provider key from the vault failed`; the
+  service falls back to configuration rather than failing.
+- The key is resolved once per process. Rotating it in the vault needs a restart to be picked up.
 
-### Issue: Slow Response Times
-**Solution:**
-- Enable caching (already enabled by default)
-- Reduce number of IPs per request
-- Consider upgrading to faster API provider plan
-- Check network latency to API provider
+### Issue: bulk lookups are slow
+This is the intended behaviour — see **Rate limiting**. Lower
+`GeolocationProviderDelayMilliseconds` if the provider's tier allows it, send fewer addresses, or
+raise `GeolocationCacheSeconds` so repeat addresses stay cached.
 
-### Issue: Configuration Not Loading
-**Solution:**
-- Verify `appsettings.json` is in the correct location
-- Check configuration key names: `GeolocationApiUrl` and `GeolocationApiKey`
-- Ensure the file is being copied to the output directory
-- Restart the application after configuration changes
-
+### Issue: a field is empty in the response
+The provider does not send it, or sends it under a spelling not listed in **Flexible provider
+response mapping**. Add the spelling to the candidate list in `GeolocationRepository.Map`.

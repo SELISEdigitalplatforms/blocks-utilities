@@ -30,9 +30,9 @@ namespace XUnitTest.Geolocation
             var request = new LocateIpRequest();
             var response = new LocateIpResponse();
 
-            _geolocationService.Setup(s => s.LocateIpAsync(request)).ReturnsAsync(response);
+            _geolocationService.Setup(s => s.LocateIpAsync(request, It.IsAny<CancellationToken>())).ReturnsAsync(response);
 
-            var result = await _controller.LocateIp(request);
+            var result = await _controller.LocateIp(request, CancellationToken.None);
 
             Assert.Same(response, result);
         }
@@ -45,9 +45,9 @@ namespace XUnitTest.Geolocation
             var ipAddresses = new[] { "192.168.1.10", "10.0.0.1" };
 
             _geolocationService.Setup(s => s.GetVisitorsIpAddresses(_controller.HttpContext)).Returns(ipAddresses);
-            _geolocationService.Setup(s => s.LocateAsync(request, ipAddresses)).ReturnsAsync(response);
+            _geolocationService.Setup(s => s.LocateAsync(request, ipAddresses, It.IsAny<CancellationToken>())).ReturnsAsync(response);
 
-            var result = await _controller.Locate(request);
+            var result = await _controller.Locate(request, CancellationToken.None);
 
             Assert.Same(response, result);
         }
