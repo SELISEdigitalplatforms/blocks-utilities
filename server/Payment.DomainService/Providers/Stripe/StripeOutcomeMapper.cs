@@ -1,6 +1,4 @@
-using System.Globalization;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Payment.DomainService.Providers.HostedCheckout;
 
 namespace Payment.DomainService.Providers.Stripe;
@@ -34,15 +32,20 @@ public static class StripeOutcomeMapper
     }
 
     /// <summary>
-    /// Maps a non-success response the HTTP package reported only as text, in the form
-    /// <c>HTTP request failed with status code 400. Error: {"error": {...}}</c>.
+    /// Maps a non-success response from the error text the HTTP package returns with it.
     /// </summary>
     /// <remarks>
-    /// Decided by status code rather than by <see cref="Map"/>: Stripe reports an expired key as
-    /// a 401 of type <c>api_error</c>, which the type alone would retry forever. Any 4xx other
-    /// than 429 is terminal. The same request with the same idempotency key cannot succeed on a
-    /// later attempt, and each retry schedules another recovery pass. Returns false for 5xx and
-    /// for text that is not in this form, which leaves the caller's existing fallback in charge.
+    /// On a non-2xx the package returns the raw response body and nothing else. It logs the
+    /// status code but does not return it, so the body is all there is to decide on. A body
+    /// carrying Stripe's <c>{"error": {...}}</c> envelope is mapped. Anything else returns false
+    /// and leaves the caller's existing fallback in charge.
+    /// <para>
+    /// Stripe reports an expired or revoked key as a 401 of type <c>api_error</c> with a
+    /// <c>code</c>, which <see cref="Map"/> alone would retry forever. Stripe's own 5xx arrive as
+    /// <c>api_error</c> without one, so the code is what tells the two apart. Rate limiting
+    /// (<c>rate_limit</c>, <c>lock_timeout</c>) comes back as an <c>invalid_request_error</c> and
+    /// is the one such error still worth another attempt.
+    /// </para>
     /// </remarks>
     public static bool TryMapPackageError(
         string? packageError,
@@ -52,28 +55,20 @@ public static class StripeOutcomeMapper
         outcome = ProviderClientOutcome.Failure;
         errorCode = null;
 
-        var match = string.IsNullOrWhiteSpace(packageError)
-            ? Match.Empty
-            : StatusCodePattern.Match(packageError);
-        if (!match.Success) return false;
+        var error = string.IsNullOrWhiteSpace(packageError)
+            ? null
+            : ReadError(packageError);
+        if (error == null) return false;
 
-        var statusCode = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-        if (statusCode is < 400 or >= 500) return false;
-
-        var error = ReadError(packageError!);
-        outcome = statusCode == 429
-            ? ProviderClientOutcome.Unavailable
-            : ProviderClientOutcome.Rejected;
-        errorCode = error != null
-            ? SafeCode(error)
-            : $"stripe_http_{statusCode}";
+        outcome = error switch
+        {
+            { Code: "rate_limit" or "lock_timeout" } => ProviderClientOutcome.Unavailable,
+            { Type: "api_error", Code.Length: > 0 } => ProviderClientOutcome.Rejected,
+            _ => Map(error)
+        };
+        errorCode = SafeCode(error);
         return true;
     }
-
-    private static readonly Regex StatusCodePattern = new(
-        @"status code (\d{3})",
-        RegexOptions.CultureInvariant,
-        TimeSpan.FromMilliseconds(100));
 
     private static StripeError? ReadError(string packageError)
     {
