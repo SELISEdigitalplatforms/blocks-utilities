@@ -565,6 +565,123 @@ public sealed class SubscriptionReportingServiceTests
             .UsedPercentOfQuota.Should().Be(25m);
     }
 
+    /// <summary>
+    /// One row per meter, chosen — not every row the projection happens to hold.
+    /// </summary>
+    /// <remarks>
+    /// Dev data carries a meter with a window that has just closed sitting beside the one running
+    /// now. Listing both repeats the meter with different figures and leaves the reader to guess
+    /// which is current, so the window containing now is the one reported.
+    /// </remarks>
+    [Fact]
+    public async Task A_meter_reports_the_window_running_now_and_not_one_that_has_closed()
+    {
+        var subscription = Subscription("CHF", 10_000, BillingInterval.Month);
+
+        _reports
+            .Setup(reports => reports.ListSubscriptionsAsync(
+                "tenant-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionRosterPage([subscription], false));
+
+        _reports
+            .Setup(reports => reports.ListCurrentUsageAsync(
+                "tenant-1",
+                It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                // Closed four days ago, but published more recently than the live one — so a
+                // rule that only took the newest row would pick this and report stale figures.
+                new SubscriptionUsageCurrent
+                {
+                    SubscriptionId = subscription.ItemId,
+                    MeterKey = "screenings",
+                    PeriodKey = "closed",
+                    PeriodStartUtc = Now.AddDays(-10),
+                    PeriodEndUtc = Now.AddDays(-4),
+                    Included = 200m,
+                    Used = 5m,
+                    UpdatedAtUtc = Now
+                },
+                new SubscriptionUsageCurrent
+                {
+                    SubscriptionId = subscription.ItemId,
+                    MeterKey = "screenings",
+                    PeriodKey = "running",
+                    PeriodStartUtc = Now.AddDays(-2),
+                    PeriodEndUtc = Now.AddDays(28),
+                    Included = 200m,
+                    Used = 120m,
+                    UpdatedAtUtc = Now.AddDays(-1)
+                }
+            ]);
+
+        var result = await _service.GetRosterAsync(
+            new GetSubscriptionReportRequest(), "correlation-1", CancellationToken.None);
+
+        var meter = result.Value!.Items.Single().Meters.Should().ContainSingle(
+            "a meter listed twice with different figures cannot be read").Subject;
+
+        meter.PeriodKey.Should().Be("running");
+        meter.Used.Should().Be(120m);
+    }
+
+    /// <summary>
+    /// Where no window contains now, the most recently published row is the best answer available.
+    /// </summary>
+    /// <remarks>
+    /// This is the shape a legacy row takes: the projection holds two rows for the same period
+    /// because a missing <c>UserId</c> and an empty one are distinct keys to the unique index that
+    /// would otherwise have refused the second.
+    /// </remarks>
+    [Fact]
+    public async Task Two_rows_for_one_period_collapse_to_the_most_recently_published()
+    {
+        var subscription = Subscription("CHF", 10_000, BillingInterval.Month);
+
+        _reports
+            .Setup(reports => reports.ListSubscriptionsAsync(
+                "tenant-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionRosterPage([subscription], false));
+
+        _reports
+            .Setup(reports => reports.ListCurrentUsageAsync(
+                "tenant-1",
+                It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new SubscriptionUsageCurrent
+                {
+                    SubscriptionId = subscription.ItemId,
+                    MeterKey = "screenings",
+                    PeriodKey = "same",
+                    PeriodStartUtc = Now.AddDays(-30),
+                    PeriodEndUtc = Now.AddDays(-2),
+                    Included = 200m,
+                    Used = 10m,
+                    UpdatedAtUtc = Now.AddDays(-9)
+                },
+                new SubscriptionUsageCurrent
+                {
+                    SubscriptionId = subscription.ItemId,
+                    MeterKey = "screenings",
+                    PeriodKey = "same",
+                    PeriodStartUtc = Now.AddDays(-30),
+                    PeriodEndUtc = Now.AddDays(-2),
+                    Included = 200m,
+                    Used = 80m,
+                    UpdatedAtUtc = Now.AddDays(-1)
+                }
+            ]);
+
+        var result = await _service.GetRosterAsync(
+            new GetSubscriptionReportRequest(), "correlation-1", CancellationToken.None);
+
+        result.Value!.Items.Single().Meters.Should().ContainSingle()
+            .Which.Used.Should().Be(80m);
+    }
+
     [Fact]
     public async Task A_standard_coupon_is_counted_even_though_it_has_no_redemption_row()
     {

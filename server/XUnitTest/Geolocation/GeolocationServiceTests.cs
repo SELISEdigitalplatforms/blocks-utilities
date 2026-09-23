@@ -72,7 +72,7 @@ namespace XUnitTest.Geolocation
                 new IpLookup { StartIp = "8.8.8.8", CountryCode = "US", CountryName = "United States" },
                 new IpLookup { StartIp = "1.1.1.1", CountryCode = "AU", CountryName = "Australia" }
             };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, false))
+            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(expectedLookups);
 
             // Act
@@ -84,36 +84,22 @@ namespace XUnitTest.Geolocation
         }
 
         [Fact]
-        public async Task LocateIpAsync_ShouldPassCustomProviderFlag()
+        public async Task LocateIpAsync_ShouldNotDisguiseAnUnexpectedFailure_AsAnUnlocatableAddress()
         {
             // Arrange
             var ipAddresses = new List<string> { "8.8.8.8" };
-            var request = new LocateIpRequest { IpAddresses = ipAddresses, UseCustomProvider = true };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, true))
-                .ReturnsAsync(new IpLookup[] { new IpLookup { StartIp = "8.8.8.8" } });
-
-            // Act
-            await _service.LocateIpAsync(request);
-
-            // Assert
-            _mockRepository.Verify(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, true), Times.Once);
-        }
-
-        [Fact]
-        public async Task LocateIpAsync_ShouldHandleException()
-        {
-            // Arrange
-            var ipAddresses = new List<string> { "invalid-ip" };
             var request = new LocateIpRequest { IpAddresses = ipAddresses };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<bool>()))
-                .ThrowsAsync(new Exception("Repository error"));
+            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("Repository error"));
 
             // Act
-            var result = await _service.LocateIpAsync(request);
+            var act = () => _service.LocateIpAsync(request);
 
             // Assert
-            result.IsSuccess.Should().BeFalse();
-            result.ErrorMessage.Should().Contain("Failed to locate");
+            await act.Should().ThrowAsync<InvalidOperationException>(
+                because: "the repository already absorbs every way the provider can fail, so "
+                    + "anything still escaping is a defect in this service and has to be visible "
+                    + "as one rather than reported to the caller as a bad IP address");
         }
 
         #endregion
@@ -160,7 +146,7 @@ namespace XUnitTest.Geolocation
             {
                 new IpLookup { StartIp = "203.0.113.1", CountryCode = "JP", CountryName = "Japan" }
             };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, false))
+            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(expectedLookups);
 
             // Act
@@ -170,22 +156,6 @@ namespace XUnitTest.Geolocation
             result.IsSuccess.Should().BeTrue();
             result.IpLookups.Should().HaveCount(1);
             result.IpLookups.First().CountryCode.Should().Be("JP");
-        }
-
-        [Fact]
-        public async Task LocateAsync_ShouldUseCustomProvider_WhenSpecified()
-        {
-            // Arrange
-            var request = new LocateRequest { UseCustomProvider = true };
-            var ipAddresses = new[] { "8.8.8.8" };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, true))
-                .ReturnsAsync(new IpLookup[] { new IpLookup() });
-
-            // Act
-            await _service.LocateAsync(request, ipAddresses);
-
-            // Assert
-            _mockRepository.Verify(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, true), Times.Once);
         }
 
         #endregion
@@ -219,16 +189,6 @@ namespace XUnitTest.Geolocation
 
         #region LocateIpRequest Tests
 
-        [Fact]
-        public void LocateIpRequest_ShouldDefaultUseCustomProviderToFalse()
-        {
-            // Arrange & Act
-            var request = new LocateIpRequest();
-
-            // Assert
-            request.UseCustomProvider.Should().BeFalse();
-        }
-
         [Theory]
         [InlineData(1)]
         [InlineData(5)]
@@ -238,7 +198,7 @@ namespace XUnitTest.Geolocation
             // Arrange
             var ipAddresses = Enumerable.Range(1, count).Select(i => $"192.168.1.{i}").ToList();
             var request = new LocateIpRequest { IpAddresses = ipAddresses };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<bool>()))
+            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(ipAddresses.Select(ip => new IpLookup { StartIp = ip }).ToArray());
 
             // Act
