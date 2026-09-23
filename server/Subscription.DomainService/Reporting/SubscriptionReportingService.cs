@@ -619,11 +619,39 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             CreatedAtUtc = subscription.CreatedAtUtc,
             Meters = usageBySubscription.TryGetValue(subscription.ItemId, out var meters)
                 ? [.. meters
-                    .OrderBy(current => current.MeterKey, StringComparer.Ordinal)
-                    .Select(MapMeter)]
+                    .GroupBy(current => current.MeterKey, StringComparer.Ordinal)
+                    .OrderBy(group => group.Key, StringComparer.Ordinal)
+                    .Select(group => MapMeter(PickCurrentPeriod(group, nowUtc)))]
                 : []
         };
     }
+
+    /// <summary>
+    /// Chooses the one row that represents a meter's standing right now.
+    /// </summary>
+    /// <remarks>
+    /// A meter can have more than one published row even after per-user slices are excluded. The
+    /// projection is expired on its own retention rather than at the period boundary, so a window
+    /// that closed minutes ago sits beside the one running now; and a row written before
+    /// <c>UserId</c> existed can coexist with a later row for the same period, because a missing
+    /// field and an empty one are distinct keys to the unique index that would otherwise have
+    /// refused the second.
+    /// <para>
+    /// Listing all of them would repeat the meter with different figures and leave the reader to
+    /// guess which is current — the same defect as listing an aggregate beside its own slices.
+    /// The window containing now wins; where none does, or several do, the most recently published
+    /// row does. Deciding here rather than in the query keeps it correct against a projection whose
+    /// rows have been observed to disagree with their own keys.
+    /// </para>
+    /// </remarks>
+    private static SubscriptionUsageCurrent PickCurrentPeriod(
+        IEnumerable<SubscriptionUsageCurrent> rows,
+        DateTime nowUtc) =>
+        rows
+            .OrderByDescending(row =>
+                row.PeriodStartUtc <= nowUtc && nowUtc < row.PeriodEndUtc)
+            .ThenByDescending(row => row.UpdatedAtUtc)
+            .First();
 
     private static SubscriptionRosterMeterResponse MapMeter(SubscriptionUsageCurrent current) =>
         new()

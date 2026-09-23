@@ -2233,9 +2233,17 @@ act. Every meter carries its `UpdatedAtUtc` so staleness is visible instead of a
 `UsedPercentOfQuota` is null where the allowance is zero or unlimited, since a zero there would
 read as "unused".
 
-Because projection rows are expired with their period, this report covers the current period only,
-by construction. It is never an entitlement check: only `POST /api/subscription-usage` settles
-whether a unit may be consumed.
+Each meter appears exactly once, and the report picks which row that is. The projection can hold
+several rows for one meter: it is expired on its own retention rather than at the period boundary,
+so a window that closed minutes ago sits beside the one running now, and a row written before
+`UserId` existed can coexist with a later row for the same period because a missing field and an
+empty one are distinct keys to the unique index. Per-user slices are excluded in the query; among
+what remains, the window containing now wins, and failing that the most recently published row
+does. Dev data carries all three shapes, including rows whose `UserId` field disagrees with their
+own `_id`, so this is decided in code rather than trusted to the projection.
+
+It is never an entitlement check: only `POST /api/subscription-usage` settles whether a unit may
+be consumed.
 
 Paging is an opaque keyset cursor bound to the tenant it was issued for, the same shape document
 history uses, and a cursor presented by another tenant is refused.
