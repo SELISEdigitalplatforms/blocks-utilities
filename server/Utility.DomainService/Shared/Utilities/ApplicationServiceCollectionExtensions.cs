@@ -1,4 +1,5 @@
 ﻿using Blocks.Extension.DependencyInjection;
+using Blocks.Secrets;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Storage.DomainService.Storage;
@@ -36,9 +37,20 @@ namespace DomainService.Utilities
             services.AddSingleton<ISequenceService, SequenceService>();
             services.AddSingleton<ISequenceRepository, SequenceRepository>();
 
+            // The geolocation key cache expires on a clock, so the clock is injected rather than
+            // read statically - a host can replace it before registering this module. TryAdd
+            // because Subscription registers the same default.
+            services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+
             // Geolocation Services
             services.AddSingleton<IGeolocationService, GeolocationService>();
             services.AddSingleton<IGeolocationRepository, GeolocationRepository>();
+
+            // Backs the geolocation provider key when GeolocationApiKeySecretId names a secret.
+            // Registered here rather than left to the host so the Api and the Worker cannot
+            // disagree about whether the managed secret store is available; AddBlocksSecrets uses
+            // TryAdd throughout, so a host that also calls it adds nothing.
+            services.AddBlocksSecrets();
 
             // Shared Services
             services.AddSingleton<IHttpHelperServices, HttpHelperServices>();
