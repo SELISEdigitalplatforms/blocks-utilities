@@ -283,14 +283,44 @@ export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
   await fillBenefitStepAndAdvance(page, "10");
   await expect(page.getByRole("heading", { name: "Eligibility" })).toBeVisible();
 
-  await page.setViewportSize({ width: 1440, height: 500 });
-  // Scroll the page so the wizard content moves under the sticky bars.
-  await page.evaluate(() => window.scrollBy(0, 400));
+  // Short viewport so the wizard overflows; scroll until the progress bar actually pins
+  // (IO reports stuck only when top is at/above the 1px-inset root — window.scrollBy alone
+  // is not enough when an inner main is the scrollport).
+  await page.setViewportSize({ width: 1440, height: 480 });
+  await page.evaluate(() => {
+    const progress = document.querySelector('[aria-label="Discount creation progress"]');
+    if (!(progress instanceof HTMLElement)) return;
+    const scrollParents: HTMLElement[] = [];
+    let node: HTMLElement | null = progress.parentElement;
+    while (node) {
+      const style = getComputedStyle(node);
+      const oy = style.overflowY;
+      if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
+        scrollParents.push(node);
+      }
+      node = node.parentElement;
+    }
+    const target = scrollParents[0];
+    // Nudge until the progress bar's border box is at the top of its scrollport / viewport.
+    for (let i = 0; i < 40; i++) {
+      const top = progress.getBoundingClientRect().top;
+      if (top <= 1) break;
+      const delta = Math.min(120, Math.max(24, top - 1));
+      if (target) target.scrollTop += delta;
+      else window.scrollBy(0, delta);
+    }
+  });
+
   await expect
-    .poll(async () => page.getByRole("region", { name: "Discount creation progress" }).getAttribute("data-stuck"))
+    .poll(
+      async () => page.getByRole("region", { name: "Discount creation progress" }).getAttribute("data-stuck"),
+      { timeout: 15_000 },
+    )
     .toBe("true");
   await expect
-    .poll(async () => page.getByTestId("campaign-builder-actions").getAttribute("data-stuck"))
+    .poll(async () => page.getByTestId("campaign-builder-actions").getAttribute("data-stuck"), {
+      timeout: 15_000,
+    })
     .toBe("true");
 
   // H6: clicking step 1 in the stuck progress bar navigates back.
