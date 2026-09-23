@@ -24,7 +24,6 @@ export default defineConfig({
   workers: 1,
   timeout: 120_000,
   reporter: [["html", { open: "never" }], ["list"]],
-  globalSetup: "./global-setup.ts",
   use: {
     baseURL,
     permissions: ["clipboard-read", "clipboard-write"],
@@ -47,9 +46,6 @@ export default defineConfig({
           timeout: 600_000,
           stdout: "pipe" as const,
           stderr: "pipe" as const,
-          env: {
-            FrontendRuntime__BLOCKS_UTILITIES_BASE_URL: baseURL,
-          },
         },
       }
     : {}),

@@ -19,6 +19,7 @@ namespace Utility.DomainService.TemplateEngine.service
         
         // Entity operations
         Task<string?> GetEntityByItemIdAsync(string entityName, string itemId);
+        Task<string?> GetEntityByItemIdAsync(string entityName, string itemId, string tenantId);
     }
 
     /// <summary>

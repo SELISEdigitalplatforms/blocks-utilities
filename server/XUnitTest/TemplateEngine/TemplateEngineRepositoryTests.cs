@@ -120,5 +120,27 @@ namespace XUnitTest.TemplateEngine
 
             Assert.Empty(result);
         }
+
+        [Fact]
+        public async Task GetEntityByItemIdAsync_UsesTheExplicitWorkerTenant()
+        {
+            var targetDatabase = new Mock<IMongoDatabase>();
+            var collection = new Mock<IMongoCollection<BsonDocument>>();
+            var cursor = new Mock<IAsyncCursor<BsonDocument>>();
+            cursor.SetupSequence(c => c.MoveNextAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true)
+                .ReturnsAsync(false);
+            cursor.Setup(c => c.Current).Returns([new BsonDocument { { "_id", "order-1" }, { "Value", "target" } }]);
+            collection.Setup(c => c.FindAsync(It.IsAny<FilterDefinition<BsonDocument>>(),
+                    It.IsAny<FindOptions<BsonDocument, BsonDocument>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(cursor.Object);
+            targetDatabase.Setup(d => d.GetCollection<BsonDocument>("Orders", null)).Returns(collection.Object);
+            _dbContextMock.Setup(d => d.GetDatabase("target-tenant")).Returns(targetDatabase.Object);
+
+            var result = await _repository.GetEntityByItemIdAsync("Order", "order-1", "target-tenant");
+
+            Assert.Contains("target", result);
+            _dbContextMock.Verify(d => d.GetDatabase("target-tenant"), Times.Once);
+        }
     }
 }

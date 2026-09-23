@@ -24,6 +24,35 @@ namespace XUnitTest.Sequence
         }
 
         [Fact]
+        public async Task Same_repository_uses_each_operations_selected_tenant_collection()
+        {
+            var dev = new Mock<IMongoCollection<BsonDocument>>();
+            var other = new Mock<IMongoCollection<BsonDocument>>();
+            dev.Setup(c => c.FindOneAndUpdateAsync(
+                    It.IsAny<FilterDefinition<BsonDocument>>(), It.IsAny<UpdateDefinition<BsonDocument>>(),
+                    It.IsAny<FindOneAndUpdateOptions<BsonDocument, BsonDocument>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new BsonDocument("CurrentNumber", 1L));
+            other.Setup(c => c.FindOneAndUpdateAsync(
+                    It.IsAny<FilterDefinition<BsonDocument>>(), It.IsAny<UpdateDefinition<BsonDocument>>(),
+                    It.IsAny<FindOneAndUpdateOptions<BsonDocument, BsonDocument>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new BsonDocument("CurrentNumber", 9L));
+            var tenant = "dev";
+            var provider = new Mock<IDbContextProvider>();
+            provider.Setup(p => p.GetCollection<BsonDocument>("Sequence"))
+                .Returns(() => tenant == "dev" ? dev.Object : other.Object);
+            var repository = new SequenceRepository(provider.Object);
+            provider.Verify(p => p.GetCollection<BsonDocument>("Sequence"), Times.Never);
+
+            (await repository.GetNextSequenceNumberAsync("invoice")).Should().Be(1);
+            tenant = "other";
+            (await repository.GetNextSequenceNumberAsync("invoice")).Should().Be(9);
+            tenant = "dev";
+            (await repository.GetNextSequenceNumberAsync("invoice")).Should().Be(1);
+
+            provider.Verify(p => p.GetCollection<BsonDocument>("Sequence"), Times.Exactly(3));
+        }
+
+        [Fact]
         public async Task GetNextSequenceNumberAsync_ShouldReturnCurrentNumber()
         {
             _collection
