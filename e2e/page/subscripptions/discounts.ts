@@ -381,7 +381,7 @@ export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
     .getByRole("region", { name: "Discount creation progress" })
     .getByRole("button", { name: /Identity/i })
     .click();
-  await expect(page.getByLabelText(/Code/)).toBeVisible();
+  await expect(page.getByLabel(/Code/)).toBeVisible();
 
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 800 });
