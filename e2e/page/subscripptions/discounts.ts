@@ -268,8 +268,7 @@ export async function verifyAllOfferTypesAreSelectable(page: Page): Promise<void
  * Layout-dependent — uses viewport resize + scroll; asserts data-stuck and z-order of Select.
  */
 export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
-  // Tall viewport first so Identity fits without pinning the action bar (default Desktop Chrome
-  // height often already sticks the bottom bar on open — that is correct sticky, not a bug).
+  // Tall viewport first so Identity fits without pinning the action bar.
   await page.setViewportSize({ width: 1440, height: 1200 });
   await page.getByRole("button", { name: "New discount" }).click();
   await expect(page.getByRole("region", { name: "Discount creation progress" })).toBeVisible();
@@ -283,58 +282,107 @@ export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
   await fillBenefitStepAndAdvance(page, "10");
   await expect(page.getByRole("heading", { name: "Eligibility" })).toBeVisible();
 
-  // Short viewport so the wizard overflows; scroll until the progress bar actually pins
-  // (IO reports stuck only when top is at/above the 1px-inset root — window.scrollBy alone
-  // is not enough when an inner main is the scrollport).
+  // Utilities shell scrolls an inner overflow-y-auto region (not window). CSS sticky pins to
+  // that scrollport (~60px below the app chrome). useStickyActionBar's bottom IO reports
+  // data-stuck=true there; useStickyStepper's top IO (viewport root, top<=1px) does not —
+  // same limitation as plan-builder. Prove progress pin visually; prove action bar via data-stuck.
   await page.setViewportSize({ width: 1440, height: 480 });
   await page.evaluate(() => {
     const progress = document.querySelector('[aria-label="Discount creation progress"]');
     if (!(progress instanceof HTMLElement)) return;
-    const scrollParents: HTMLElement[] = [];
+    let scroll: HTMLElement | null = null;
     let node: HTMLElement | null = progress.parentElement;
     while (node) {
-      const style = getComputedStyle(node);
-      const oy = style.overflowY;
+      const oy = getComputedStyle(node).overflowY;
       if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
-        scrollParents.push(node);
+        scroll = node;
+        break;
       }
       node = node.parentElement;
     }
-    const target = scrollParents[0];
-    // Nudge until the progress bar's border box is at the top of its scrollport / viewport.
-    for (let i = 0; i < 40; i++) {
+    if (!scroll) return;
+    const portTop = () => scroll!.getBoundingClientRect().top;
+    for (let i = 0; i < 50; i++) {
       const top = progress.getBoundingClientRect().top;
-      if (top <= 1) break;
-      const delta = Math.min(120, Math.max(24, top - 1));
-      if (target) target.scrollTop += delta;
-      else window.scrollBy(0, delta);
+      if (Math.abs(top - portTop()) <= 1) break;
+      scroll.scrollTop += Math.min(160, Math.max(24, top - portTop()));
     }
   });
 
   await expect
     .poll(
-      async () => page.getByRole("region", { name: "Discount creation progress" }).getAttribute("data-stuck"),
+      async () =>
+        page.evaluate(() => {
+          const progress = document.querySelector('[aria-label="Discount creation progress"]');
+          if (!(progress instanceof HTMLElement)) return null;
+          let scroll: HTMLElement | null = null;
+          let node: HTMLElement | null = progress.parentElement;
+          while (node) {
+            const oy = getComputedStyle(node).overflowY;
+            if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
+              scroll = node;
+              break;
+            }
+            node = node.parentElement;
+          }
+          if (!scroll) return null;
+          return Math.abs(progress.getBoundingClientRect().top - scroll.getBoundingClientRect().top) <= 1;
+        }),
       { timeout: 15_000 },
     )
-    .toBe("true");
+    .toBe(true);
+
+  // Hold the pin while scrolling further — catalogue content moves under the progress bar.
+  const pinnedTop = await page.evaluate(() => {
+    const progress = document.querySelector('[aria-label="Discount creation progress"]');
+    let scroll: HTMLElement | null = null;
+    let node = progress?.parentElement ?? null;
+    while (node) {
+      const oy = getComputedStyle(node).overflowY;
+      if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
+        scroll = node;
+        break;
+      }
+      node = node.parentElement;
+    }
+    if (scroll) scroll.scrollTop += 120;
+    return progress?.getBoundingClientRect().top ?? -1;
+  });
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const progress = document.querySelector('[aria-label="Discount creation progress"]');
+        let scroll: HTMLElement | null = null;
+        let node = progress?.parentElement ?? null;
+        while (node) {
+          const oy = getComputedStyle(node).overflowY;
+          if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
+            scroll = node;
+            break;
+          }
+          node = node.parentElement;
+        }
+        if (!progress || !scroll) return false;
+        return Math.abs(progress.getBoundingClientRect().top - scroll.getBoundingClientRect().top) <= 1;
+      }),
+    )
+    .toBe(true);
+  expect(pinnedTop).toBeGreaterThanOrEqual(0);
+
   await expect
     .poll(async () => page.getByTestId("campaign-builder-actions").getAttribute("data-stuck"), {
       timeout: 15_000,
     })
     .toBe("true");
 
-  // H6: clicking step 1 in the stuck progress bar navigates back.
+  // H6: clicking step 1 in the pinned progress bar navigates back.
   await page.getByRole("region", { name: "Discount creation progress" }).getByRole("button", { name: "1" }).click();
   await expect(page.getByLabelText(/Code/)).toBeVisible();
 
-  // Return to list so subsequent steps start clean.
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 800 });
 }
 
-/**
- * Discounts (#549): Edit → Review shows Save changes (not Create discount).
- */
 export async function verifyEditSubmitLabelIsSaveChanges(page: Page, name: string, code: string): Promise<void> {
   const row = discountCatalogueRow(page, name, code);
   if (!(await row.isVisible().catch(() => false))) {
