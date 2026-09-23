@@ -1,3 +1,5 @@
+using Subscription.DomainService.Enums;
+
 namespace Subscription.DomainService.Responses;
 
 /// <summary>
@@ -13,6 +15,18 @@ public sealed class PlanResponse
     public string PlanId { get; init; } = string.Empty;
 
     public string Code { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Who this plan is sold to — the organization, or one of its users.
+    /// </summary>
+    /// <remarks>
+    /// Carried so a caller can tell the two apart in one catalogue listing rather than asking per
+    /// plan, and so a product surface can offer "for your organization" and "for you" from the same
+    /// response. There is no server-side filter for it: a tenant's catalogue is small enough to
+    /// read whole, and a parameter threaded through the repository would buy nothing a client
+    /// cannot already do with this field.
+    /// </remarks>
+    public SubscriberScope SubscriberScope { get; init; }
 
     public string DisplayName { get; init; } = string.Empty;
 
