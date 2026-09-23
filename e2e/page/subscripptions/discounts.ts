@@ -375,8 +375,12 @@ export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
     })
     .toBe("true");
 
-  // H6: clicking step 1 in the pinned progress bar navigates back.
-  await page.getByRole("region", { name: "Discount creation progress" }).getByRole("button", { name: "1" }).click();
+  // H6: clicking Identity in the pinned progress bar navigates back.
+  // Completed steps render a Check icon (not the digit), so match by step title.
+  await page
+    .getByRole("region", { name: "Discount creation progress" })
+    .getByRole("button", { name: /Identity/i })
+    .click();
   await expect(page.getByLabelText(/Code/)).toBeVisible();
 
   await page.getByRole("button", { name: "Cancel" }).click();
