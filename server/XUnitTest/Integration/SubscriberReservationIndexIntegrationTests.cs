@@ -105,12 +105,25 @@ public sealed class SubscriberReservationIndexIntegrationTests
 
         await _subscriptions.EnsureIndexesAsync(tenantId, CancellationToken.None);
 
-        await Raw(tenantId).Indexes.DropOneAsync(
-            SubscriptionIndexDefinitions.SubscriptionReservationIndexName, CancellationToken.None);
+        bool inserted;
 
-        var second = NewSubscription(tenantId, "org-collide", SubscriptionStatus.Incomplete);
+        try
+        {
+            await Raw(tenantId).Indexes.DropOneAsync(
+                SubscriptionIndexDefinitions.SubscriptionReservationIndexName,
+                CancellationToken.None);
 
-        var inserted = await TryInsertDirectlyAsync(tenantId, second);
+            inserted = await TryInsertDirectlyAsync(
+                tenantId, NewSubscription(tenantId, "org-collide", SubscriptionStatus.Incomplete));
+        }
+        finally
+        {
+            // The fixture puts every tenant in one collection, so the dropped index and anything
+            // this admitted are visible to every other test. Both are undone here rather than left
+            // to the next EnsureIndexesAsync: a second live row for one organization would make
+            // rebuilding the unique index throw, and the test that failed would not be this one.
+            await RestoreSharedCollectionAsync(tenantId);
+        }
 
         inserted.Should().BeFalse(
             because: "an unmigrated row keys as null while this one keys as the empty string, so " +
@@ -173,6 +186,24 @@ public sealed class SubscriberReservationIndexIntegrationTests
             .InsertOneAsync(document, cancellationToken: CancellationToken.None);
 
         return subscription.ItemId;
+    }
+
+    /// <summary>
+    /// Puts the shared collection back as it was found: this tenant's rows gone, the indexes whole.
+    /// </summary>
+    /// <remarks>
+    /// Deletes before recreating, because the index being restored is unique and a row this test
+    /// admitted is exactly what would stop it being built again.
+    /// </remarks>
+    private async Task RestoreSharedCollectionAsync(string tenantId)
+    {
+        await Raw(tenantId).DeleteManyAsync(
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.TenantId, tenantId),
+            CancellationToken.None);
+
+        await Raw(tenantId).Indexes.CreateManyAsync(
+            SubscriptionIndexDefinitions.CreateSubscriptionIndexes(), CancellationToken.None);
     }
 
     /// <summary>
