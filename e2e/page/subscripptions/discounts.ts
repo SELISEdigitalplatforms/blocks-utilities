@@ -268,9 +268,16 @@ export async function verifyAllOfferTypesAreSelectable(page: Page): Promise<void
  * Layout-dependent — uses viewport resize + scroll; asserts data-stuck and z-order of Select.
  */
 export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
+  // Tall viewport first so Identity fits without pinning the action bar (default Desktop Chrome
+  // height often already sticks the bottom bar on open — that is correct sticky, not a bug).
+  await page.setViewportSize({ width: 1440, height: 1200 });
   await page.getByRole("button", { name: "New discount" }).click();
   await expect(page.getByRole("region", { name: "Discount creation progress" })).toBeVisible();
   await expect(page.getByTestId("campaign-builder-actions")).toHaveAttribute("data-stuck", "false");
+  await expect(page.getByRole("region", { name: "Discount creation progress" })).toHaveAttribute(
+    "data-stuck",
+    "false",
+  );
 
   await fillIdentityStepAndAdvance(page, `sticky-${Date.now()}`, "Sticky test");
   await fillBenefitStepAndAdvance(page, "10");
