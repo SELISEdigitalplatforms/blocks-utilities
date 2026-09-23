@@ -1,4 +1,5 @@
 using FluentAssertions;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -35,6 +36,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
     private const string Subscriptions = "Subscriptions";
     private const string CampaignRedemptions = "SubscriptionCampaignRedemptions";
     private const string Discounts = "SubscriptionDiscounts";
+    private const string UsageCurrent = "SubscriptionUsageCurrent";
 
     private static readonly DateTime March = new(2026, 3, 10, 9, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime February = new(2026, 2, 14, 9, 0, 0, DateTimeKind.Utc);
@@ -396,6 +398,88 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             .Select(item => item.ItemId)
             .Should().OnlyHaveUniqueItems()
             .And.HaveCount(5, "keyset paging must reach every row exactly once");
+    }
+
+    /// <summary>
+    /// The roster reads one row per meter, never the aggregate row and its per-user slices both.
+    /// </summary>
+    /// <remarks>
+    /// Written against a real database because the bug it guards is a query shape, not a mapping:
+    /// the projection stores an aggregate row and a row per user under the same meter and period,
+    /// and a filter that does not choose between them returns both. On a one-user subscription
+    /// that is the identical figures listed twice, which is what dev data showed.
+    /// <para>
+    /// The legacy row is the other half. A document written before <c>UserId</c> existed has no
+    /// such field, and <c>$eq: ""</c> does not match a missing field — so an equality-only filter
+    /// drops it and the subscription reports no meters at all. Both shapes are seeded here, so
+    /// removing either half of the filter fails this test.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_roster_reads_the_aggregate_row_and_not_its_per_user_slices()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var modern = "sub-modern";
+        var legacy = "sub-legacy";
+
+        var collection = _fixture.Collection<BsonDocument>(UsageCurrent);
+
+        await collection.InsertManyAsync(
+        [
+            CurrentRow(tenantId, modern, "token", userId: string.Empty, used: 1150m),
+            CurrentRow(tenantId, modern, "token", userId: "user-1", used: 1150m),
+            CurrentRow(tenantId, modern, "token", userId: "user-2", used: 900m),
+            // Pre-UserId shape: the field is absent from the BSON entirely.
+            CurrentRow(tenantId, legacy, "token", userId: null, used: 40m)
+        ]);
+
+        var rows = await _reports.ListCurrentUsageAsync(
+            tenantId, [modern, legacy], CancellationToken.None);
+
+        rows.Where(row => row.SubscriptionId == modern)
+            .Should().ContainSingle(
+                "the aggregate row is the subscription's total; its per-user slices would list " +
+                "the same meter again")
+            .Which.Used.Should().Be(1150m);
+
+        rows.Where(row => row.SubscriptionId == legacy)
+            .Should().ContainSingle(
+                "a row written before UserId existed has no such field, and an equality-only " +
+                "filter would drop it and report no usage for a subscription that has some");
+    }
+
+    private static BsonDocument CurrentRow(
+        string tenantId,
+        string subscriptionId,
+        string meterKey,
+        string? userId,
+        decimal used)
+    {
+        const string periodKey = "2026-03";
+
+        var id = userId is { Length: > 0 }
+            ? $"{subscriptionId}:{meterKey}:{periodKey}:{userId}"
+            : $"{subscriptionId}:{meterKey}:{periodKey}";
+
+        var document = new BsonDocument
+        {
+            { "_id", id },
+            { "TenantId", tenantId },
+            { "OrganizationId", "org-1" },
+            { "SubscriptionId", subscriptionId },
+            { "MeterKey", meterKey },
+            { "PeriodKey", periodKey },
+            { "Included", new BsonDecimal128(550.55m) },
+            { "Used", new BsonDecimal128(used) }
+        };
+
+        // Null means the pre-UserId shape: the field is left out rather than written empty.
+        if (userId is not null)
+        {
+            document["UserId"] = userId;
+        }
+
+        return document;
     }
 
     [Fact]

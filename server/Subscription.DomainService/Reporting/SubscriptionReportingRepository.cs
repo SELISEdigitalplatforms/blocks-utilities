@@ -278,12 +278,40 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         var filter = Builders<SubscriptionUsageCurrent>.Filter.And(
             Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.TenantId, tenantId),
             Builders<SubscriptionUsageCurrent>.Filter.In(
-                current => current.SubscriptionId, subscriptionIds));
+                current => current.SubscriptionId, subscriptionIds),
+            AggregateRowFilter());
 
         return await UsageCurrent(tenantId)
             .Find(filter)
             .ToListAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Matches the subscription-level row for a meter, and never a per-user slice of it.
+    /// </summary>
+    /// <remarks>
+    /// The projection holds both: one aggregate row keyed
+    /// <c>{subscription}:{meter}:{period}</c> and, where usage was attributed to people, a row per
+    /// user keyed with the user id appended. Both carry the same meter and period, so a query that
+    /// does not choose between them reports the meter once per row — the same figures listed twice
+    /// on a one-user subscription, and the subscription total mixed in with its own slices on a
+    /// larger one. The roster is a per-subscription report, so it wants the aggregate.
+    /// <para>
+    /// The existence half is not redundant with the equality half. A row written before
+    /// <see cref="SubscriptionUsageCurrent.UserId"/> existed has no such field in its BSON at all,
+    /// and Mongo's <c>$eq: ""</c> does not match a missing field — so equality alone silently drops
+    /// every legacy aggregate row, and a subscription whose usage predates the field reports no
+    /// meters rather than its real ones. That is the worse failure of the two: an absent projection
+    /// and a genuinely unused meter mean opposite things, and this report is built to keep them
+    /// apart.
+    /// </para>
+    /// </remarks>
+    private static FilterDefinition<SubscriptionUsageCurrent> AggregateRowFilter() =>
+        Builders<SubscriptionUsageCurrent>.Filter.Or(
+            Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                current => current.UserId, string.Empty),
+            Builders<SubscriptionUsageCurrent>.Filter.Exists(
+                current => current.UserId, false));
 
     public async Task<IReadOnlyList<CouponUptakeBucket>> AggregateCouponUptakeAsync(
         string tenantId,
