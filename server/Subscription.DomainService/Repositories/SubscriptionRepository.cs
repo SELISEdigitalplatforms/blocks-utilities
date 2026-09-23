@@ -86,6 +86,18 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// which is exactly how the one above survived; the shape cannot match the current index, which
     /// is excluded explicitly, nor the non-unique organization read index.
     /// </para>
+    /// <para>
+    /// <b>Called before the indexes are created, and that is only safe while the current reservation
+    /// index is excluded.</b> Nothing this drops is enforcing anything, so the gap between the two
+    /// calls is uncovered by design. Whenever the current index itself becomes superseded — the
+    /// subscriber-scoped key that user-wise plans need is the reason this will happen — widening the
+    /// exclusion is not enough on its own: this call has to move <em>after</em>
+    /// <see cref="IMongoIndexManager{TDocument}.CreateManyAsync(IEnumerable{CreateIndexModel{TDocument}}, CancellationToken)"/>
+    /// in the same change. Dropping the live guard first leaves a window with no uniqueness at all,
+    /// and because this runs on the first touch of every tenant in every process, that window opens
+    /// on every deploy and every restart — letting two concurrent signups for one organization both
+    /// reach checkout, which is the failure the current index was widened to stop.
+    /// </para>
     /// </remarks>
     private static async Task DropSupersededReservationIndexesAsync(
         IMongoCollection<SubscriptionDetail> subscriptions,
