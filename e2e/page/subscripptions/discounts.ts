@@ -408,13 +408,15 @@ export async function verifyEditSubmitLabelIsSaveChanges(page: Page, name: strin
   await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create discount" })).toHaveCount(0);
   // Walk back to step 1 so Cancel dismisses the wizard (Back on steps 2–4).
+  // Scope to the action bar — "Back to console" also matches a bare name: "Back".
+  const actions = page.getByTestId("campaign-builder-actions");
   for (let i = 0; i < 4; i++) {
-    const cancel = page.getByRole("button", { name: "Cancel" });
+    const cancel = actions.getByRole("button", { name: "Cancel" });
     if (await cancel.isVisible().catch(() => false)) {
       await cancel.click();
       break;
     }
-    await page.getByRole("button", { name: "Back" }).click();
+    await actions.getByRole("button", { name: "Back" }).click();
   }
 }
 
