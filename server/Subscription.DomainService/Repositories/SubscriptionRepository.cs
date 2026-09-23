@@ -21,6 +21,20 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         SubscriptionStatus.PastDue
     ];
 
+    /// <summary>
+    /// The key every signup reservation index has ever been built on, superseded or current.
+    /// </summary>
+    /// <remarks>
+    /// Matched on field names alone rather than on the full key document, so a variant that
+    /// differs only in sort direction is still recognised: uniqueness does not depend on
+    /// direction, so such an index would enforce the same rule and has to be treated the same.
+    /// </remarks>
+    private static readonly string[] ReservationIndexKeyFields =
+    [
+        nameof(SubscriptionDetail.TenantId),
+        nameof(SubscriptionDetail.OrganizationId)
+    ];
+
     private readonly IDbContextProvider _dbContextProvider;
     private readonly ConcurrentDictionary<string, byte> _indexedTenants = new();
 
@@ -36,12 +50,88 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             return;
         }
 
-        await Subscriptions(tenantId).Indexes.CreateManyAsync(
+        var subscriptions = Subscriptions(tenantId);
+
+        await DropSupersededReservationIndexesAsync(subscriptions, cancellationToken);
+
+        await subscriptions.Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateSubscriptionIndexes(),
             cancellationToken);
 
         _indexedTenants.TryAdd(tenantId, 0);
     }
+
+    /// <summary>
+    /// Removes signup reservation indexes that an earlier rename left behind.
+    /// </summary>
+    /// <remarks>
+    /// MongoDB cannot change a named index's partial filter in place, so widening the reservation
+    /// filter meant creating a new index under a new name. Nothing ever dropped the old one, and
+    /// the constant naming it was replaced rather than kept — so
+    /// <c>ux_subscription_tenant_org_live</c> still exists in tenant databases created before that
+    /// change while appearing nowhere in this repository. It was found on one of the three
+    /// subscription-holding tenant databases on dev.
+    /// <para>
+    /// Dropping it changes no behaviour today. It shares its key with
+    /// <see cref="SubscriptionIndexDefinitions.SubscriptionReservationIndexName"/>, whose partial
+    /// filter is a strict superset -- it additionally covers <see cref="SubscriptionStatus.Incomplete"/>
+    /// -- so every write the superseded index would reject is already rejected by the current one,
+    /// and rejected earlier, before the customer pays. What it removes is a latent hazard: the
+    /// moment the current index is replaced by one keyed on a wider subscriber, a leftover keyed on
+    /// the organization alone would go on enforcing one subscription per organization, and because
+    /// it does not cover Incomplete the conflict would surface at activation, after money had moved.
+    /// </para>
+    /// <para>
+    /// Matched by shape rather than by name on purpose. A name list only removes the names we know,
+    /// which is exactly how the one above survived; the shape cannot match the current index, which
+    /// is excluded explicitly, nor the non-unique organization read index.
+    /// </para>
+    /// </remarks>
+    private static async Task DropSupersededReservationIndexesAsync(
+        IMongoCollection<SubscriptionDetail> subscriptions,
+        CancellationToken cancellationToken)
+    {
+        List<BsonDocument> existing;
+
+        try
+        {
+            using var cursor = await subscriptions.Indexes.ListAsync(cancellationToken);
+            existing = await cursor.ToListAsync(cancellationToken);
+        }
+        catch (MongoCommandException exception) when (exception.Code is 26)
+        {
+            // NamespaceNotFound: a tenant whose collection does not exist yet has nothing to drop,
+            // and CreateManyAsync below is what brings it into being.
+            return;
+        }
+
+        foreach (var index in existing.Where(IsSupersededReservationIndex))
+        {
+            try
+            {
+                await subscriptions.Indexes.DropOneAsync(
+                    index["name"].AsString, cancellationToken);
+            }
+            catch (MongoCommandException exception) when (exception.Code is 27 or 26)
+            {
+                // IndexNotFound (27) or NamespaceNotFound (26): another host reached this tenant
+                // first. Both mean the index is gone, which is all this is trying to achieve.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether an index enforces the superseded one-subscription-per-organization reservation.
+    /// </summary>
+    /// <remarks>
+    /// Uniqueness is what makes a leftover dangerous, so a non-unique index on the same fields --
+    /// <c>ix_subscription_tenant_org_status</c>, which the renewal and listing queries read --
+    /// is deliberately left alone.
+    /// </remarks>
+    private static bool IsSupersededReservationIndex(BsonDocument index) =>
+        index.GetValue("unique", BsonBoolean.False).ToBoolean()
+        && index["name"].AsString != SubscriptionIndexDefinitions.SubscriptionReservationIndexName
+        && index["key"].AsBsonDocument.Names.SequenceEqual(ReservationIndexKeyFields);
 
     public async Task<bool> TryCreateAsync(
         SubscriptionDetail subscription,
