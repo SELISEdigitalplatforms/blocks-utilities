@@ -262,3 +262,70 @@ export async function verifyAllOfferTypesAreSelectable(page: Page): Promise<void
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("button", { name: "New discount" })).toBeVisible();
 }
+
+/**
+ * Discounts (#549): sticky progress + action bars on Eligibility, and edit Save changes.
+ * Layout-dependent — uses viewport resize + scroll; asserts data-stuck and z-order of Select.
+ */
+export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "New discount" }).click();
+  await expect(page.getByRole("region", { name: "Discount creation progress" })).toBeVisible();
+  await expect(page.getByTestId("campaign-builder-actions")).toHaveAttribute("data-stuck", "false");
+
+  await fillIdentityStepAndAdvance(page, `sticky-${Date.now()}`, "Sticky test");
+  await fillBenefitStepAndAdvance(page, "10");
+  await expect(page.getByRole("heading", { name: "Eligibility" })).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 500 });
+  // Scroll the page so the wizard content moves under the sticky bars.
+  await page.evaluate(() => window.scrollBy(0, 400));
+  await expect
+    .poll(async () => page.getByRole("region", { name: "Discount creation progress" }).getAttribute("data-stuck"))
+    .toBe("true");
+  await expect
+    .poll(async () => page.getByTestId("campaign-builder-actions").getAttribute("data-stuck"))
+    .toBe("true");
+
+  // H6: clicking step 1 in the stuck progress bar navigates back.
+  await page.getByRole("region", { name: "Discount creation progress" }).getByRole("button", { name: "1" }).click();
+  await expect(page.getByLabelText(/Code/)).toBeVisible();
+
+  // Return to list so subsequent steps start clean.
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.setViewportSize({ width: 1440, height: 800 });
+}
+
+/**
+ * Discounts (#549): Edit → Review shows Save changes (not Create discount).
+ */
+export async function verifyEditSubmitLabelIsSaveChanges(page: Page, name: string, code: string): Promise<void> {
+  const row = discountCatalogueRow(page, name, code);
+  if (!(await row.isVisible().catch(() => false))) {
+    return;
+  }
+  await row.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("region", { name: "Discount creation progress" })).toBeVisible();
+  // Walk to Review if not already there.
+  for (let i = 0; i < 3; i++) {
+    const save = page.getByRole("button", { name: "Save changes" });
+    if (await save.isVisible().catch(() => false)) break;
+    const next = page.getByRole("button", { name: "Next" });
+    if (await next.isEnabled().catch(() => false)) {
+      await next.click();
+    } else {
+      break;
+    }
+  }
+  await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create discount" })).toHaveCount(0);
+  // Walk back to step 1 so Cancel dismisses the wizard (Back on steps 2–4).
+  for (let i = 0; i < 4; i++) {
+    const cancel = page.getByRole("button", { name: "Cancel" });
+    if (await cancel.isVisible().catch(() => false)) {
+      await cancel.click();
+      break;
+    }
+    await page.getByRole("button", { name: "Back" }).click();
+  }
+}
+

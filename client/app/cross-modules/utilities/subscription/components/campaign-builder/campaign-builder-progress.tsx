@@ -2,20 +2,34 @@ import { Check } from "lucide-react";
 import { useStepper } from "@/components/stepper/stepper-provider";
 import { cn } from "@/lib/utils";
 
+export interface CampaignBuilderProgressProps {
+  /**
+   * True while the progress bar is pinned to the top of the viewport. Drives the raised treatment
+   * only — stuck styling is dimension-neutral (shadow, ring, border colour; never border width or
+   * padding), matching {@link PlanBuilderProgress}.
+   */
+  isStuck?: boolean;
+}
+
 /**
- * The four-step progress bar for {@link CampaignBuilder}. A smaller cousin of
- * `plan-builder/plan-builder-progress.tsx` — same interaction and visual language, without that
- * one's sticky-scroll and live-preview-panel treatment, which this shorter wizard has no room or
- * need for.
+ * The four-step progress bar for {@link CampaignBuilder}. Same interaction and visual language as
+ * `plan-builder/plan-builder-progress.tsx`, including the sticky raised treatment when `isStuck`
+ * (the sticky wrapper and stuck detection live in {@link CampaignBuilder}).
  */
-export const CampaignBuilderProgress = () => {
+export const CampaignBuilderProgress = ({ isStuck = false }: CampaignBuilderProgressProps) => {
   const { completedSteps, currentStep, getSteps, goToStep, totalSteps } = useStepper();
   const steps = getSteps();
 
   return (
     <section
       aria-label="Discount creation progress"
-      className="rounded-2xl border border-blocks-primary-100 bg-card/95 px-4 py-4 shadow-sm sm:px-6 sm:py-5"
+      data-stuck={isStuck ? "true" : "false"}
+      className={cn(
+        "relative overflow-hidden rounded-2xl border bg-card/95 px-4 py-4 backdrop-blur-xl transition-[box-shadow,border-color] duration-300 supports-[backdrop-filter]:bg-card/80 sm:px-6 sm:py-5",
+        isStuck
+          ? "border-blocks-primary-200 shadow-lg ring-1 ring-blocks-primary-100/60"
+          : "border-blocks-primary-100 shadow-sm ring-0",
+      )}
     >
       <p className="mb-4 text-sm font-medium text-foreground">
         Step {currentStep} of {totalSteps}
