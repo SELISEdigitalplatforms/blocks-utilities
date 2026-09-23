@@ -3973,7 +3973,8 @@ POST /api/subscriptions
           consumed.</p>
           <h4>Returns</h4>
           <p><code>200</code> · <code>400</code> unknown granularity, inverted window, or a window
-          wider than 366 days.</p>
+          wider than 366 days ·
+          <code>503</code> organization unresolved.</p>
         </div>
       </div>
 
@@ -4060,7 +4061,8 @@ POST /api/subscriptions
           refunds a charge from an earlier window, and netting it here would reduce a month that
           never earned it.</p>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>400</code> inverted or over-wide window.</p>
+          <p><code>200</code> · <code>400</code> inverted or over-wide window ·
+          <code>503</code> organization unresolved.</p>
         </div>
       </div>
 
@@ -4180,7 +4182,8 @@ POST /api/subscriptions
           <code>POST /api/subscription-usage</code> settles whether a unit may be consumed.</p>
           <h4>Returns</h4>
           <p><code>200</code> · <code>400</code> page size out of bounds, or a cursor that is invalid
-          or was issued to another tenant.</p>
+          or was issued to another tenant ·
+          <code>503</code> organization unresolved.</p>
         </div>
       </div>
 
@@ -4235,7 +4238,8 @@ POST /api/subscriptions
           <p><code>redeemingOrganizations</code> counts organizations, which is what every record
           involved is keyed to.</p>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>400</code> inverted or over-wide window.</p>
+          <p><code>200</code> · <code>400</code> inverted or over-wide window ·
+          <code>503</code> organization unresolved.</p>
         </div>
       </div>
 
