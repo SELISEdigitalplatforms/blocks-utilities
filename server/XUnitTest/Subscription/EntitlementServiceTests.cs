@@ -21,6 +21,7 @@ public sealed class EntitlementServiceTests
     private const string OrganizationId = "org-1";
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly ControlledTimeProvider _time =
@@ -40,18 +41,29 @@ public sealed class EntitlementServiceTests
             .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
-        _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId,
-                OrganizationId,
-                It.IsAny<string>(),
-                It.IsAny<DateTime>(),
+
+        // No seats unless a test says otherwise. Moq's unconfigured default for a task returning a
+        // collection is a null list rather than an empty one, which would fail inside the service
+        // instead of at the assertion that meant to describe the caller.
+        _assignments
+            .Setup(repository => repository.ListSubscriptionIdsForUserAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        _subscriptions
+            .Setup(repository => repository.ListLiveByIdsAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>(),
+                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() =>
             {
                 _reads++;
 
-                return _subscription is null ? [] : new[] { _subscription };
+                return _subscription;
             });
 
         _usage
@@ -471,6 +483,7 @@ public sealed class EntitlementServiceTests
 
     private EntitlementService Service() => new(
         _subscriptions.Object,
+        _assignments.Object,
         _usage.Object,
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,

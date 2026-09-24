@@ -20,6 +20,7 @@ internal static class SubscriptionSnapshotBuilder
         {
             PlanId = plan.ItemId,
             Code = plan.Code,
+            SubscriberScope = plan.SubscriberScope,
             DisplayName = plan.DisplayName,
             FeaturesJson = plan.FeaturesJson,
             UsageInterval = plan.UsageInterval,

@@ -49,30 +49,21 @@ public interface ISubscriptionRepository
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Everything that currently grants something to one subscriber: their own user-wise
-    /// subscription, if they have one, and their organization's.
+    /// Those of these subscriptions that currently grant something.
     /// </summary>
     /// <remarks>
-    /// Both, not the better of the two, because they are not alternatives. An organization-wise
-    /// plan covers what the organization shares and a user-wise plan covers one person's own
-    /// allowance, so a caller holding a user-wise plan still draws on the organization's for
-    /// everything that plan says nothing about. Returning only one would revoke the other.
+    /// The identifiers come from the seats a person holds, which is a different collection, so this
+    /// takes them rather than joining. Liveness is the same as <see cref="GetLiveAsync"/>: a
+    /// scheduled cancellation stops matching the instant <paramref name="nowUtc"/> passes its
+    /// promised period end, and a seat on a subscription that has ended grants nothing.
     /// <para>
-    /// Ordered with the subscriber's own first, which is the precedence a reader should apply when
-    /// both declare the same entitlement — the same rule the catalogue already uses in resolving an
-    /// organization's own plan ahead of the tenant's.
-    /// </para>
-    /// <para>
-    /// An empty <paramref name="subscriberUserId"/> asks only for the organization's, which is what
-    /// a caller with no user in context — background work, a machine token — should see. Liveness is
-    /// the same as <see cref="GetLiveAsync"/>: a scheduled cancellation stops matching the instant
-    /// <paramref name="nowUtc"/> passes its promised period end.
+    /// One query rather than a read per identifier. A person rarely holds more than a seat or two,
+    /// but this is on the path of every gated action and a round trip each would be felt.
     /// </para>
     /// </remarks>
-    Task<IReadOnlyList<SubscriptionDetail>> ListLiveForSubscriberAsync(
+    Task<IReadOnlyList<SubscriptionDetail>> ListLiveByIdsAsync(
         string tenantId,
-        string organizationId,
-        string subscriberUserId,
+        IReadOnlyCollection<string> subscriptionIds,
         DateTime nowUtc,
         CancellationToken cancellationToken);
 

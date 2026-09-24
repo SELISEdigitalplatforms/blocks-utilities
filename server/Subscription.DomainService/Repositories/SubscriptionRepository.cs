@@ -52,51 +52,59 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
 
         var subscriptions = Subscriptions(tenantId);
 
-        await DropSupersededReservationIndexesAsync(subscriptions, cancellationToken);
-
-        await BackfillSubscriberUserIdAsync(subscriptions, cancellationToken);
+        // Three steps whose order is the whole safety of this method.
+        //
+        // The backfill first, because the reservation index's partial filter asks for an
+        // organization-wise scope and a partial filter cannot match a document that lacks the
+        // field. Built before every subscription carries it, the index would silently cover none
+        // of them.
+        //
+        // Then the new index, and only then the old one dropped. The old index is what currently
+        // guarantees one subscription per organization; dropping it first would leave a window
+        // with no such guarantee at all, and because this runs on the first touch of every tenant
+        // in every process, that window would open on every deploy and every restart.
+        await BackfillPlanSubscriberScopeAsync(subscriptions, cancellationToken);
 
         await subscriptions.Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateSubscriptionIndexes(),
             cancellationToken);
 
+        await DropSupersededReservationIndexesAsync(subscriptions, cancellationToken);
+
         _indexedTenants.TryAdd(tenantId, 0);
     }
 
     /// <summary>
-    /// Writes the organization-wide value onto documents saved before
-    /// <see cref="SubscriptionDetail.SubscriberUserId"/> existed.
+    /// Writes the scope onto the plan snapshot of subscriptions saved before it was carried there.
     /// </summary>
     /// <remarks>
-    /// Runs before the subscriber-keyed reservation index is created, and that order is the whole
-    /// point. MongoDB indexes an absent field as null, while this code writes the empty string, and
-    /// those are two different index keys — so an organization holding one subscription from before
-    /// this field and opening another afterwards would land on <c>{tenant, org, null}</c> and
-    /// <c>{tenant, org, ""}</c> and be admitted twice over. The narrower organization-keyed index
-    /// still covers that today; this is what lets it eventually be dropped.
+    /// Every one of them was sold on an organization-wise plan, because no other kind has ever
+    /// existed — so this records what they already are rather than deciding anything.
     /// <para>
-    /// Empty is not a placeholder to be filled in later. It <em>is</em> the organization-wide
-    /// subscriber, which is what each of these documents has always been. Note that the entity's own
-    /// default hides the difference — a document with no field at all still deserializes to the empty
-    /// string — so whether this ran can only be seen in the stored document, which is also the only
-    /// thing the index reads.
+    /// It has to complete on a tenant before that tenant's reservation index can be narrowed to
+    /// organization-wise subscriptions. A partial filter on
+    /// <see cref="SubscriberScope.Organization"/> does not match a document that lacks the field, so
+    /// an unmigrated subscription would fall outside the index and the organization could open a
+    /// second one. That narrowing is a later change, deliberately: while the index still spans every
+    /// subscription this is inert groundwork, and the guarantee live customers rely on is untouched.
     /// </para>
     /// <para>
-    /// Idempotent, and a no-op once a tenant is migrated. The filter is unindexed, so this is a
-    /// collection scan on the first touch of each tenant in each process — 164 documents across the
-    /// three subscription-holding tenants when this was written.
-    /// ponytail: inline scan, move to a one-shot migration if a tenant's collection ever grows
-    /// enough for that scan to be felt.
+    /// <b>Sets one field and nothing else.</b> Not <c>Version</c>, which
+    /// <see cref="TryChangePlanAsync"/> and <see cref="TryApplyQuantityChangeAsync"/> compare-and-set
+    /// against, and not <c>LastUpdatedDateUtc</c>. Moving either here would make every plan or
+    /// quantity change in flight at the moment this ran fail its guard and report a conflict the
+    /// caller did nothing to cause.
     /// </para>
     /// </remarks>
-    private static async Task BackfillSubscriberUserIdAsync(
+    private static async Task BackfillPlanSubscriberScopeAsync(
         IMongoCollection<SubscriptionDetail> subscriptions,
         CancellationToken cancellationToken) =>
         await subscriptions.UpdateManyAsync(
             Builders<SubscriptionDetail>.Filter.Exists(
-                subscription => subscription.SubscriberUserId, false),
+                subscription => subscription.Plan.SubscriberScope, false),
             Builders<SubscriptionDetail>.Update.Set(
-                subscription => subscription.SubscriberUserId, string.Empty),
+                subscription => subscription.Plan.SubscriberScope,
+                SubscriberScope.Organization),
             cancellationToken: cancellationToken);
 
     /// <summary>
@@ -125,16 +133,11 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// is excluded explicitly, nor the non-unique organization read index.
     /// </para>
     /// <para>
-    /// <b>Called before the indexes are created, and that is only safe while the current reservation
-    /// index is excluded.</b> Nothing this drops is enforcing anything, so the gap between the two
-    /// calls is uncovered by design. Whenever the current index itself becomes superseded — the
-    /// subscriber-scoped key that user-wise plans need is the reason this will happen — widening the
-    /// exclusion is not enough on its own: this call has to move <em>after</em>
-    /// <see cref="IMongoIndexManager{TDocument}.CreateManyAsync(IEnumerable{CreateIndexModel{TDocument}}, CancellationToken)"/>
-    /// in the same change. Dropping the live guard first leaves a window with no uniqueness at all,
-    /// and because this runs on the first touch of every tenant in every process, that window opens
-    /// on every deploy and every restart — letting two concurrent signups for one organization both
-    /// reach checkout, which is the failure the current index was widened to stop.
+    /// <b>Called after the indexes are created, and it must stay that way.</b> What this drops now
+    /// includes the index that was enforcing one subscription per organization until a moment ago,
+    /// so running it first would leave a window with no such guarantee — on the first touch of every
+    /// tenant in every process, which is every deploy and every restart. Two concurrent signups for
+    /// one organization would both reach checkout, which is the failure that index exists to stop.
     /// </para>
     /// </remarks>
     private static async Task DropSupersededReservationIndexesAsync(
@@ -155,7 +158,16 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             return;
         }
 
-        foreach (var index in existing.Where(IsSupersededReservationIndex))
+        string[] supersededNames =
+        [
+            SubscriptionIndexDefinitions.SubscriptionSubscriberReservationLegacyIndexName,
+            SubscriptionIndexDefinitions.SubscriptionReservationLegacyIndexName
+        ];
+
+        var supersededByName = existing
+            .Where(index => supersededNames.Contains(index["name"].AsString));
+
+        foreach (var index in existing.Where(IsSupersededReservationIndex).Concat(supersededByName))
         {
             try
             {
@@ -239,36 +251,43 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         DateTime nowUtc,
         CancellationToken cancellationToken) =>
         await Subscriptions(tenantId)
-            .Find(BuildLiveFilter(tenantId, organizationId, nowUtc))
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                BuildLiveFilter(tenantId, organizationId, nowUtc),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveForSubscriberAsync(
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveByIdsAsync(
         string tenantId,
-        string organizationId,
-        string subscriberUserId,
+        IReadOnlyCollection<string> subscriptionIds,
         DateTime nowUtc,
         CancellationToken cancellationToken)
     {
-        var subscribers = string.IsNullOrEmpty(subscriberUserId)
-            ? [string.Empty]
-            : new[] { subscriberUserId, string.Empty };
+        ArgumentNullException.ThrowIfNull(subscriptionIds);
 
-        var found = await Subscriptions(tenantId)
+        if (subscriptionIds.Count == 0)
+        {
+            // Short-circuited rather than sent as an empty $in, which is a round trip to be told
+            // what the caller already knows. Most callers hold no seats at all.
+            return [];
+        }
+
+        return await Subscriptions(tenantId)
             .Find(Builders<SubscriptionDetail>.Filter.And(
-                BuildLiveFilter(tenantId, organizationId, nowUtc),
+                TenantFilter(tenantId),
                 Builders<SubscriptionDetail>.Filter.In(
-                    subscription => subscription.SubscriberUserId,
-                    subscribers)))
+                    subscription => subscription.ItemId,
+                    subscriptionIds),
+                Builders<SubscriptionDetail>.Filter.In(
+                    subscription => subscription.Status,
+                    LiveStatuses),
+                Builders<SubscriptionDetail>.Filter.Or(
+                    Builders<SubscriptionDetail>.Filter.Ne(
+                        subscription => subscription.CancelAtPeriodEnd,
+                        true),
+                    Builders<SubscriptionDetail>.Filter.Gt(
+                        subscription => subscription.CurrentPeriodEndUtc,
+                        nowUtc))))
             .ToListAsync(cancellationToken);
-
-        // Sorted here rather than in the query: "the subscriber's own first" is a two-element
-        // ordering the database has no index for, and expressing it as a sort would cost a
-        // collection-level sort stage to arrange at most two documents.
-        return
-        [
-            .. found.OrderBy(subscription =>
-                string.IsNullOrEmpty(subscription.SubscriberUserId) ? 1 : 0)
-        ];
     }
 
     public async Task<SubscriptionDetail?> GetIncompleteAsync(
@@ -283,7 +302,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     organizationId),
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.Status,
-                    SubscriptionStatus.Incomplete)))
+                    SubscriptionStatus.Incomplete),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<SubscriptionDetail?> GetUnpaidAsync(
@@ -298,7 +318,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     organizationId),
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.Status,
-                    SubscriptionStatus.Unpaid)))
+                    SubscriptionStatus.Unpaid),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<SubscriptionDetail?> GetByOrderIdAsync(
@@ -1141,6 +1162,26 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// cancellation stops matching the instant its promised <c>CurrentPeriodEndUtc</c> passes
     /// <paramref name="nowUtc"/>, independent of whether the finalizing worker has run yet.
     /// </remarks>
+    /// <summary>
+    /// Narrows a lookup to the subscription an organization holds for itself.
+    /// </summary>
+    /// <remarks>
+    /// Expressed as "not user-wise" rather than "is organization-wise", and that is the whole
+    /// point. A query's <c>$ne</c> matches a document where the field is absent, so every
+    /// subscription written before the scope was snapshotted still answers here — which is every
+    /// subscription a live customer holds. <c>$eq</c> would exclude them all and an organization
+    /// would appear to have no subscription at all.
+    /// <para>
+    /// The partial filter on the reservation index cannot use this trick — a partial filter may not
+    /// use <c>$ne</c> — which is exactly why narrowing that index has to wait for the backfill and
+    /// this does not.
+    /// </para>
+    /// </remarks>
+    private static FilterDefinition<SubscriptionDetail> OrganizationScopeFilter() =>
+        Builders<SubscriptionDetail>.Filter.Ne(
+            subscription => subscription.Plan.SubscriberScope,
+            SubscriberScope.User);
+
     public static FilterDefinition<SubscriptionDetail> BuildLiveFilter(
         string tenantId,
         string organizationId,
