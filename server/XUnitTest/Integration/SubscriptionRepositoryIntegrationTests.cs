@@ -234,8 +234,17 @@ public sealed class SubscriptionRepositoryIntegrationTests
     public async Task A_scheduled_cancellation_stops_being_live_the_instant_its_boundary_passes()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        // One instant, captured once and passed in, rather than reading the clock again at each
+        // assertion. The boundary this is about is the one the repository is told about, and a
+        // second DateTime.UtcNow made the test a race against its own setup: creating the
+        // subscription indexes a tenant and writes two documents, which on a slow connection took
+        // longer than the period was given, so the "still inside" read happened after it had
+        // already expired.
+        var inside = DateTime.UtcNow;
+
         var subscription = NewSubscription(tenantId, "org-boundary", SubscriptionStatus.Active);
-        subscription.CurrentPeriodEndUtc = DateTime.UtcNow.AddSeconds(1);
+        subscription.CurrentPeriodEndUtc = inside.AddSeconds(1);
 
         await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
         await _subscriptions.TryTransitionAsync(
@@ -245,13 +254,13 @@ public sealed class SubscriptionRepositoryIntegrationTests
             {
                 CancelAtPeriodEnd = true,
                 CanCancelImmediately = true,
-                CanceledAtUtc = DateTime.UtcNow,
+                CanceledAtUtc = inside,
                 RequireCancellationNotAlreadyScheduled = true
             },
             CancellationToken.None);
 
         (await _subscriptions.GetLiveAsync(
-                tenantId, "org-boundary", DateTime.UtcNow, CancellationToken.None))
+                tenantId, "org-boundary", inside, CancellationToken.None))
             .Should().NotBeNull("still inside the paid period");
 
         (await _subscriptions.GetLiveAsync(
