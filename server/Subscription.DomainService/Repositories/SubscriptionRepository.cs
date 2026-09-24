@@ -242,6 +242,35 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Find(BuildLiveFilter(tenantId, organizationId, nowUtc))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveForSubscriberAsync(
+        string tenantId,
+        string organizationId,
+        string subscriberUserId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var subscribers = string.IsNullOrEmpty(subscriberUserId)
+            ? [string.Empty]
+            : new[] { subscriberUserId, string.Empty };
+
+        var found = await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                BuildLiveFilter(tenantId, organizationId, nowUtc),
+                Builders<SubscriptionDetail>.Filter.In(
+                    subscription => subscription.SubscriberUserId,
+                    subscribers)))
+            .ToListAsync(cancellationToken);
+
+        // Sorted here rather than in the query: "the subscriber's own first" is a two-element
+        // ordering the database has no index for, and expressing it as a sort would cost a
+        // collection-level sort stage to arrange at most two documents.
+        return
+        [
+            .. found.OrderBy(subscription =>
+                string.IsNullOrEmpty(subscription.SubscriberUserId) ? 1 : 0)
+        ];
+    }
+
     public async Task<SubscriptionDetail?> GetIncompleteAsync(
         string tenantId,
         string organizationId,
