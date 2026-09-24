@@ -26,31 +26,6 @@ public sealed class SubscriptionDetail
     /// <summary>The subscribing organization. Always present: entitlement without one is meaningless.</summary>
     public string OrganizationId { get; set; } = string.Empty;
 
-    /// <summary>
-    /// The individual subscriber, when the plan is sold per user. Empty for a subscription the
-    /// organization holds for itself.
-    /// </summary>
-    /// <remarks>
-    /// Empty rather than null, and empty is the organization-wide subscription every document
-    /// written before this field existed already is — which is why the reservation index needs
-    /// those documents backfilled before it keys on this. A missing field indexes as null, and
-    /// null and the empty string are different index keys, so an old row and a new one for the
-    /// same organization would not collide.
-    /// <para>
-    /// The organization stays populated either way. A user-wise subscription belongs to a person
-    /// <em>within</em> an organization, so everything that is genuinely organization-scoped —
-    /// invoicing identity, the merchant configuration that takes the money, reporting — keeps
-    /// resolving exactly as it did.
-    /// </para>
-    /// <para>
-    /// A subscriber may hold one of these while their organization also holds its own, and both
-    /// are live at once: the two cover different things. Nothing warns anybody that an
-    /// organization is paying for both, which is deliberate — a user-wise plan is bought in
-    /// addition to what the organization shares, not instead of it.
-    /// </para>
-    /// </remarks>
-    public string SubscriberUserId { get; set; } = string.Empty;
-
     public string BillingAccountId { get; set; } = string.Empty;
 
     public SubscriptionStatus Status { get; set; } =

@@ -25,25 +25,17 @@ public static class SubscriptionIndexDefinitions
         "ux_subscription_tenant_org_reserved_v2";
 
     /// <summary>
-    /// The reservation key a user-wise subscription needs: one open subscription per subscriber
-    /// rather than per organization.
+    /// A reservation index keyed on a subscriber recorded on the subscription itself, kept only so
+    /// <see cref="SubscriptionRepository.EnsureIndexesAsync"/> can drop it by name.
     /// </summary>
     /// <remarks>
-    /// Versioned again, for the reason <see cref="SubscriptionReservationIndexName"/> gives — the
-    /// key itself is changing, and MongoDB would reject creating a differently-keyed index under a
-    /// name it already holds.
-    /// <para>
-    /// Created beside <see cref="SubscriptionReservationIndexName"/> rather than replacing it, and
-    /// that overlap is the point. While both exist the narrower key still caps an organization at
-    /// one subscription, so nothing can be sold to a second subscriber yet; that is exactly the
-    /// state this wants until every document carries
-    /// <see cref="SubscriptionDetail.SubscriberUserId"/>. Dropping the narrower one is a separate
-    /// change, and it must not happen while any document is still missing the field: an absent
-    /// field indexes as null and a written one as the empty string, so two organization-wide rows
-    /// would land on different keys here and both be admitted.
-    /// </para>
+    /// It cannot be left in place. Who holds a seat now lives in its own collection, so every
+    /// subscription indexes the removed field as null and two user-wise subscriptions in one
+    /// organization would collide on <c>{tenant, org, null}</c> — this index would refuse exactly
+    /// the thing it was added to allow. A tenant database that never saw it has nothing to drop,
+    /// which is expected rather than an error.
     /// </remarks>
-    public const string SubscriptionSubscriberReservationIndexName =
+    public const string SubscriptionSubscriberReservationLegacyIndexName =
         "ux_subscription_tenant_org_user_reserved_v3";
 
     public const string SubscriptionOrganizationIndexName =
@@ -167,30 +159,6 @@ public static class SubscriptionIndexDefinitions
             {
                 Unique = true,
                 Name = SubscriptionReservationIndexName,
-                PartialFilterExpression = new BsonDocument(
-                    nameof(SubscriptionDetail.Status),
-                    new BsonDocument(
-                        "$in",
-                        new BsonArray
-                        {
-                            (int)SubscriptionStatus.Incomplete,
-                            (int)SubscriptionStatus.Trialing,
-                            (int)SubscriptionStatus.Active,
-                            (int)SubscriptionStatus.PastDue
-                        }))
-            }),
-        // The same reservation, keyed on the subscriber instead of the organization, so two people
-        // in one organization can each hold their own user-wise subscription. Inert while the
-        // narrower index above still exists: everything it would admit, that one still refuses.
-        new(
-            Builders<SubscriptionDetail>.IndexKeys
-                .Ascending(subscription => subscription.TenantId)
-                .Ascending(subscription => subscription.OrganizationId)
-                .Ascending(subscription => subscription.SubscriberUserId),
-            new CreateIndexOptions<SubscriptionDetail>
-            {
-                Unique = true,
-                Name = SubscriptionSubscriberReservationIndexName,
                 PartialFilterExpression = new BsonDocument(
                     nameof(SubscriptionDetail.Status),
                     new BsonDocument(

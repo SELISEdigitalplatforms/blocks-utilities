@@ -234,7 +234,6 @@ public sealed class EntitlementSubscriberScopeTests
             ItemId = itemId,
             TenantId = TenantId,
             OrganizationId = OrganizationId,
-            SubscriberUserId = subscriberUserId,
             Status = SubscriptionStatus.Active,
             CurrencyCode = "CHF",
             CurrentPeriodEndUtc = new DateTime(2026, 8, 31, 21, 59, 59, DateTimeKind.Utc),
