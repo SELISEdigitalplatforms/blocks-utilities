@@ -56,6 +56,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
 
         await BackfillSubscriberUserIdAsync(subscriptions, cancellationToken);
 
+        await BackfillPlanSubscriberScopeAsync(subscriptions, cancellationToken);
+
         await subscriptions.Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateSubscriptionIndexes(),
             cancellationToken);
@@ -89,6 +91,39 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// enough for that scan to be felt.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Writes the scope onto the plan snapshot of subscriptions saved before it was carried there.
+    /// </summary>
+    /// <remarks>
+    /// Every one of them was sold on an organization-wise plan, because no other kind has ever
+    /// existed — so this records what they already are rather than deciding anything.
+    /// <para>
+    /// It has to complete on a tenant before that tenant's reservation index can be narrowed to
+    /// organization-wise subscriptions. A partial filter on
+    /// <see cref="SubscriberScope.Organization"/> does not match a document that lacks the field, so
+    /// an unmigrated subscription would fall outside the index and the organization could open a
+    /// second one. That narrowing is a later change, deliberately: while the index still spans every
+    /// subscription this is inert groundwork, and the guarantee live customers rely on is untouched.
+    /// </para>
+    /// <para>
+    /// <b>Sets one field and nothing else.</b> Not <c>Version</c>, which
+    /// <see cref="TryChangePlanAsync"/> and <see cref="TryApplyQuantityChangeAsync"/> compare-and-set
+    /// against, and not <c>LastUpdatedDateUtc</c>. Moving either here would make every plan or
+    /// quantity change in flight at the moment this ran fail its guard and report a conflict the
+    /// caller did nothing to cause.
+    /// </para>
+    /// </remarks>
+    private static async Task BackfillPlanSubscriberScopeAsync(
+        IMongoCollection<SubscriptionDetail> subscriptions,
+        CancellationToken cancellationToken) =>
+        await subscriptions.UpdateManyAsync(
+            Builders<SubscriptionDetail>.Filter.Exists(
+                subscription => subscription.Plan.SubscriberScope, false),
+            Builders<SubscriptionDetail>.Update.Set(
+                subscription => subscription.Plan.SubscriberScope,
+                SubscriberScope.Organization),
+            cancellationToken: cancellationToken);
+
     private static async Task BackfillSubscriberUserIdAsync(
         IMongoCollection<SubscriptionDetail> subscriptions,
         CancellationToken cancellationToken) =>
