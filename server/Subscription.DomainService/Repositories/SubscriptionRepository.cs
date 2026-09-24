@@ -54,12 +54,50 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
 
         await DropSupersededReservationIndexesAsync(subscriptions, cancellationToken);
 
+        await BackfillSubscriberUserIdAsync(subscriptions, cancellationToken);
+
         await subscriptions.Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateSubscriptionIndexes(),
             cancellationToken);
 
         _indexedTenants.TryAdd(tenantId, 0);
     }
+
+    /// <summary>
+    /// Writes the organization-wide value onto documents saved before
+    /// <see cref="SubscriptionDetail.SubscriberUserId"/> existed.
+    /// </summary>
+    /// <remarks>
+    /// Runs before the subscriber-keyed reservation index is created, and that order is the whole
+    /// point. MongoDB indexes an absent field as null, while this code writes the empty string, and
+    /// those are two different index keys — so an organization holding one subscription from before
+    /// this field and opening another afterwards would land on <c>{tenant, org, null}</c> and
+    /// <c>{tenant, org, ""}</c> and be admitted twice over. The narrower organization-keyed index
+    /// still covers that today; this is what lets it eventually be dropped.
+    /// <para>
+    /// Empty is not a placeholder to be filled in later. It <em>is</em> the organization-wide
+    /// subscriber, which is what each of these documents has always been. Note that the entity's own
+    /// default hides the difference — a document with no field at all still deserializes to the empty
+    /// string — so whether this ran can only be seen in the stored document, which is also the only
+    /// thing the index reads.
+    /// </para>
+    /// <para>
+    /// Idempotent, and a no-op once a tenant is migrated. The filter is unindexed, so this is a
+    /// collection scan on the first touch of each tenant in each process — 164 documents across the
+    /// three subscription-holding tenants when this was written.
+    /// ponytail: inline scan, move to a one-shot migration if a tenant's collection ever grows
+    /// enough for that scan to be felt.
+    /// </para>
+    /// </remarks>
+    private static async Task BackfillSubscriberUserIdAsync(
+        IMongoCollection<SubscriptionDetail> subscriptions,
+        CancellationToken cancellationToken) =>
+        await subscriptions.UpdateManyAsync(
+            Builders<SubscriptionDetail>.Filter.Exists(
+                subscription => subscription.SubscriberUserId, false),
+            Builders<SubscriptionDetail>.Update.Set(
+                subscription => subscription.SubscriberUserId, string.Empty),
+            cancellationToken: cancellationToken);
 
     /// <summary>
     /// Removes signup reservation indexes that an earlier rename left behind.
