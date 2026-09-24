@@ -682,6 +682,88 @@ public sealed class SubscriptionReportingServiceTests
             .Which.Used.Should().Be(80m);
     }
 
+    /// <summary>
+    /// A cancelled subscription reports when it was cancelled and when access actually stopped.
+    /// </summary>
+    /// <remarks>
+    /// The roster is mostly cancelled rows on any established tenant — 89 of 102 in dev — so a
+    /// status of "Canceled" with no date attached is the least useful shape the report could take.
+    /// The two dates are distinct facts: one is the decision, the other its effect.
+    /// </remarks>
+    [Fact]
+    public async Task A_cancelled_subscription_reports_both_of_its_dates_and_its_reason()
+    {
+        var subscription = Subscription("CHF", 10_000, BillingInterval.Month);
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.CancelAtPeriodEnd = true;
+        subscription.CanceledAtUtc = Now.AddDays(-20);
+        subscription.EndedAtUtc = Now.AddDays(-2);
+        subscription.CancellationReason = "customer_request";
+
+        _reports
+            .Setup(reports => reports.ListSubscriptionsAsync(
+                "tenant-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionRosterPage([subscription], false));
+
+        var result = await _service.GetRosterAsync(
+            new GetSubscriptionReportRequest(), "correlation-1", CancellationToken.None);
+
+        var row = result.Value!.Items.Single();
+
+        row.Status.Should().Be("Canceled");
+        row.CanceledAtUtc.Should().Be(Now.AddDays(-20), "the decision has its own date");
+        row.EndedAtUtc.Should().Be(Now.AddDays(-2), "so does its effect");
+        row.CancellationReason.Should().Be("customer_request");
+    }
+
+    /// <summary>
+    /// A scheduled cancellation has a requested date and no end date, and that is the difference.
+    /// </summary>
+    [Fact]
+    public async Task A_scheduled_cancellation_reports_no_end_date_while_access_continues()
+    {
+        var subscription = Subscription("CHF", 10_000, BillingInterval.Month);
+        subscription.CancelAtPeriodEnd = true;
+        subscription.CanceledAtUtc = Now.AddDays(-1);
+        subscription.EndedAtUtc = null;
+
+        _reports
+            .Setup(reports => reports.ListSubscriptionsAsync(
+                "tenant-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionRosterPage([subscription], false));
+
+        var result = await _service.GetRosterAsync(
+            new GetSubscriptionReportRequest(), "correlation-1", CancellationToken.None);
+
+        var row = result.Value!.Items.Single();
+
+        row.CancelAtPeriodEnd.Should().BeTrue();
+        row.CanceledAtUtc.Should().NotBeNull();
+        row.EndedAtUtc.Should().BeNull(
+            "a subscription still being served has not ended, and the null is what says so");
+    }
+
+    /// <summary>
+    /// A subscription nobody has cancelled carries neither date nor a reason.
+    /// </summary>
+    [Fact]
+    public async Task A_live_subscription_reports_no_cancellation_dates()
+    {
+        _reports
+            .Setup(reports => reports.ListSubscriptionsAsync(
+                "tenant-1", It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionRosterPage(
+                [Subscription("CHF", 10_000, BillingInterval.Month)], false));
+
+        var row = (await _service.GetRosterAsync(
+            new GetSubscriptionReportRequest(), "correlation-1", CancellationToken.None))
+            .Value!.Items.Single();
+
+        row.CanceledAtUtc.Should().BeNull();
+        row.EndedAtUtc.Should().BeNull();
+        row.CancellationReason.Should().BeNull();
+    }
+
     [Fact]
     public async Task A_standard_coupon_is_counted_even_though_it_has_no_redemption_row()
     {

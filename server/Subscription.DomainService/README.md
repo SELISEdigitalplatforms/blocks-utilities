@@ -2242,6 +2242,15 @@ what remains, the window containing now wins, and failing that the most recently
 does. Dev data carries all three shapes, including rows whose `UserId` field disagrees with their
 own `_id`, so this is decided in code rather than trusted to the projection.
 
+A cancelled row carries both of its dates: `canceledAtUtc` when cancellation was asked for, and
+`endedAtUtc` when entitlement actually stopped. They are separate facts — a subscriber who cancels
+on the first and keeps access until the thirtieth has one date for the decision and another for its
+effect — and on an established tenant most of the roster is cancelled rows, so a status with no
+date attached would be the least useful shape this report could take. A scheduled cancellation has
+`canceledAtUtc` set and `endedAtUtc` still null, which is what distinguishes it from one already in
+effect. `cancellationReason` is free text, reported as stored rather than mapped to categories this
+module would have to invent.
+
 It is never an entitlement check: only `POST /api/subscription-usage` settles whether a unit may
 be consumed.
 
