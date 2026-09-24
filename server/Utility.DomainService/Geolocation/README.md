@@ -66,8 +66,8 @@ it returns in configuration. Store the id, never the value:
 `SecretTypes.Service` is the right type: the key is a backend credential with no per-user access
 list, so any authenticated caller in the tenant can read it.
 
-Reading a secret requires an authenticated `BlocksContext`, which both endpoints have because they
-carry `[Authorize]`. Background work that ever needs a geolocation lookup would have to wrap the
+Reading a secret requires an authenticated `BlocksContext`, which the endpoint has because it
+carries `[Authorize]`. Background work that ever needs a geolocation lookup would have to wrap the
 call in `BlocksContext.ExecuteInContext(...)`; nothing in the Worker does today, and a missing
 context is logged and falls through to the vault rather than throwing.
 
@@ -110,7 +110,7 @@ the TTL trades audit noise for a faster rotation.
 
 ## API Endpoints
 
-### 1. LocateIp - Locate Specific IP Addresses
+### LocateIp - Locate Specific IP Addresses
 
 **Endpoint:** `GET /Geolocation/LocateIp`
 
@@ -174,32 +174,6 @@ were asked for. If none resolved, the response is a **404**:
   "meta": { "correlationId": "0HN7..." }
 }
 ```
-
-### 2. Locate - Locate Current Request IP
-
-**Endpoint:** `GET /Geolocation/Locate`
-
-**Description:** Automatically extracts and locates IP addresses from the current HTTP request
-context.
-
-**Parameters:**
-- `ProjectKey` (query, string, optional): Project/tenant identifier
-
-**Example Request:**
-```
-GET /Geolocation/Locate
-```
-
-**Response:** Same structure as LocateIp endpoint
-
-**IP Address Extraction:**
-The endpoint extracts IP addresses from:
-- `X-Forwarded-For` header (for requests through proxies/load balancers)
-- Direct connection remote IP address
-
-Only the first 10 addresses of a forwarded chain are looked up. The header is client-supplied, so
-the addresses it names are not evidence of where the caller actually is — anything that has to be
-trusted should come from the connection.
 
 ## Features
 
@@ -276,7 +250,7 @@ built from its real response shape. Add one alongside them when adding a provide
 
 ## Authentication
 
-Both endpoints carry `[Authorize]`, so both require an authenticated caller.
+The endpoint carries `[Authorize]`, so it requires an authenticated caller.
 
 This is not only about who may see a location. A lookup spends a metered third-party call, and a
 cache miss holds the process-wide provider gate for the configured delay — so an anonymous caller
@@ -290,7 +264,6 @@ authenticating.
 | --- | --- | --- |
 | Empty or missing `IpAddresses` | 400 | `geolocation_invalid_request` |
 | More than 10 addresses | 400 | `geolocation_invalid_request` |
-| No addresses in the request context (`Locate`) | 400 | `geolocation_invalid_request` |
 | Nothing resolved | 404 | `geolocation_not_found` |
 | Unauthenticated caller | 401 | — |
 
@@ -337,7 +310,6 @@ under test, not waiting a real second for it.
 - `ICacheClient` — for caching successful lookups
 - `IConfiguration` — for reading configuration settings
 - `ILogger<GeolocationRepository>` — provider and vault failures are logged, not returned
-- `Microsoft.AspNetCore.Http` — for HTTP context access
 
 ## Performance Considerations
 

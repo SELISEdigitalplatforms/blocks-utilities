@@ -156,6 +156,49 @@ public sealed class PaymentMethodSetupTests
         harness.StoredCard.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_failed_attempt_leaves_the_setup_processing()
+    {
+        var payment = SetupRecord();
+        var harness = new TransitionHarness(payment);
+
+        await harness.ApplyAsync(SetupEvent(succeeded: false, attemptOnly: true));
+
+        harness.Applied.Should().BeFalse();
+        harness.Operations.Should().BeEmpty();
+        payment.PaymentStatus.Should().Be(PaymentStatuses.Processing);
+        payment.SetupAuthorizationConfirmedAtUtc.Should().BeNull();
+    }
+
+    /// <summary>
+    /// The prod sequence: two declined wallet attempts, then a card in the same session.
+    /// </summary>
+    [Fact]
+    public async Task Failed_attempts_followed_by_a_success_complete_the_setup()
+    {
+        var harness = new TransitionHarness(SetupRecord());
+
+        await harness.ApplyAsync(SetupEvent(succeeded: false, attemptOnly: true));
+        await harness.ApplyAsync(SetupEvent(succeeded: false, attemptOnly: true));
+        await harness.ApplyAsync(SetupEvent(succeeded: true));
+
+        harness.Authorised.Should().BeTrue();
+        harness.StoredCard.Should().BeTrue();
+        harness.Operations.Should().Equal(["store-card", "publish-confirmation"]);
+    }
+
+    [Fact]
+    public async Task A_failed_setup_records_the_provider_decline_reason()
+    {
+        var harness = new TransitionHarness(SetupRecord());
+        var declined = SetupEvent(succeeded: false);
+        declined.NormalizedPayload.ProviderFailureCode = "do_not_honor";
+
+        await harness.ApplyAsync(declined);
+
+        harness.FailureCode.Should().Be("do_not_honor");
+    }
+
     /// <summary>
     /// A session expires after it has been used, or the events arrive out of order. Either way
     /// the card is stored and the subscription may already be running.
@@ -190,7 +233,7 @@ public sealed class PaymentMethodSetupTests
         harness.StoredCard.Should().BeFalse();
     }
 
-    private static PaymentWebhookInbox SetupEvent(bool succeeded) => new()
+    private static PaymentWebhookInbox SetupEvent(bool succeeded, bool attemptOnly = false) => new()
     {
         TenantId = TenantId,
         WebhookId = Guid.NewGuid().ToString(),
@@ -202,6 +245,7 @@ public sealed class PaymentMethodSetupTests
             PaymentDetailId = "payment-1",
             PspReference = "seti_1",
             Success = succeeded,
+            FailureIsAttemptOnly = attemptOnly,
             ProviderName = PaymentConstants.StripeProvider,
             ShopperReference = "shopper-1",
             StoredPaymentMethodToken = succeeded ? "pm_1" : null
@@ -367,6 +411,7 @@ public sealed class PaymentMethodSetupTests
                     It.IsAny<string>(),
                     It.IsAny<DateTime>(),
                     It.IsAny<PaymentInstrument?>(),
+                    It.IsAny<string?>(),
                     It.IsAny<PaymentOutboxEvent>(),
                     It.IsAny<CancellationToken>()))
                 .Returns(
@@ -379,6 +424,7 @@ public sealed class PaymentMethodSetupTests
                         string _,
                         DateTime _,
                         PaymentInstrument? _,
+                        string? failureCode,
                         PaymentOutboxEvent outboxEvent,
                         CancellationToken _) =>
                     {
@@ -397,6 +443,7 @@ public sealed class PaymentMethodSetupTests
                         Authorised = authorized;
                         AuthorisedAmount = amount;
                         CapturedAutomatically = captured;
+                        FailureCode = failureCode;
                         return Task.FromResult(true);
                     });
 
@@ -420,6 +467,8 @@ public sealed class PaymentMethodSetupTests
         public decimal AuthorisedAmount { get; private set; }
 
         public bool CapturedAutomatically { get; private set; }
+
+        public string? FailureCode { get; private set; }
 
         public bool StoredCard { get; private set; }
 

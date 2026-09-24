@@ -1,5 +1,3 @@
-using Microsoft.AspNetCore.Http;
-
 namespace Utility.DomainService.Geolocation.service
 {
     /// <summary>
@@ -44,49 +42,6 @@ namespace Utility.DomainService.Geolocation.service
             }
 
             return await ResolveAsync(ipAddresses, cancellationToken);
-        }
-
-        public async Task<LocateIpResponse> LocateAsync(
-            LocateRequest request,
-            IEnumerable<string> ipAddresses,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(request);
-
-            if (ipAddresses == null || !ipAddresses.Any())
-            {
-                return Failed(
-                    "No IP addresses found in request context",
-                    GeolocationFailureKind.Validation);
-            }
-
-            return await ResolveAsync(
-                ipAddresses.Take(MaximumAddressesPerRequest),
-                cancellationToken);
-        }
-
-        /// <summary>
-        /// Get visitor IP addresses from request headers (following HttpContextExtensions logic).
-        /// </summary>
-        /// <param name="httpContext">The HTTP context to extract IP addresses from</param>
-        /// <returns>Collection of IP addresses</returns>
-        public IEnumerable<string> GetVisitorsIpAddresses(HttpContext httpContext)
-        {
-            ArgumentNullException.ThrowIfNull(httpContext);
-
-            const string X_Forwarded_For_Header_Name = "X-Forwarded-For";
-
-            var forwardedForHeader = httpContext.Request.Headers[X_Forwarded_For_Header_Name].FirstOrDefault();
-
-            var visitorsIpAddress = string.IsNullOrWhiteSpace(forwardedForHeader)
-                ? httpContext.Connection.RemoteIpAddress?.ToString() ?? ""
-                : forwardedForHeader;
-
-            var visitorsIpAddresses = visitorsIpAddress
-                .Split([','], StringSplitOptions.RemoveEmptyEntries)
-                .Select(ipAddress => ipAddress.Trim());
-
-            return visitorsIpAddresses;
         }
 
         private async Task<LocateIpResponse> ResolveAsync(

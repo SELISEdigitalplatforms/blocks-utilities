@@ -4146,6 +4146,9 @@ POST /api/subscriptions
         "grossMonthlyMinor": 140000,
         "netMonthlyMinor": 133000,
         "cancelAtPeriodEnd": false,
+        "canceledAtUtc": null,
+        "endedAtUtc": null,
+        "cancellationReason": null,
         "currentPeriodEndUtc": "2026-04-01T00:00:00Z",
         "createdAtUtc": "2025-11-02T10:14:00Z",
         "meters": [
@@ -4168,6 +4171,16 @@ POST /api/subscriptions
   "error": null,
   "meta": { "correlationId": "0HN…", "timestampUtc": "…" }
 }</code></pre>
+          <p><code>canceledAtUtc</code> is when cancellation was asked for;
+          <code>endedAtUtc</code> is when entitlement actually stopped. They are separate because
+          they answer different questions &mdash; a subscriber who cancels on the first and keeps
+          access until the thirtieth has one date for the decision and another for its effect. A
+          scheduled cancellation therefore carries <code>canceledAtUtc</code> with
+          <code>endedAtUtc</code> still <code>null</code>, and that null is what distinguishes it
+          from one that has already taken effect. <code>cancellationReason</code> is free text set
+          by whatever asked for the cancellation, reported as stored, and <code>null</code> where
+          none was recorded.</p>
+
           <p>Usage comes from the published current-usage projection, which can lag or have published
           nothing yet. A subscription with no published row returns <code>meters: []</code> rather
           than zeroed figures &mdash; an absent projection and a genuinely unused meter mean opposite

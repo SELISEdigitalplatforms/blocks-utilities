@@ -340,6 +340,7 @@ public sealed class SubscriptionPaymentProviderReadinessServiceTests
             string tenantId, string paymentId, bool authorized, decimal authorizedAmount,
             bool capturedAutomatically, string pspReference, DateTime eventDateUtc,
             global::Payment.DomainService.Entities.PaymentInstrument? instrument,
+            string? failureCode,
             global::Payment.DomainService.Entities.PaymentOutboxEvent outboxEvent,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();

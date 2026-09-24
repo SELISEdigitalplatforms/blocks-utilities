@@ -93,7 +93,7 @@ public sealed class SubscriptionReportsController : ControllerBase
         typeof(ApiResponse<RecurringRevenueReportResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(
-        typeof(ApiResponse<UsageReportResponse>),
+        typeof(ApiResponse<RecurringRevenueReportResponse>),
         StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetRecurringRevenue(CancellationToken cancellationToken)
@@ -190,7 +190,7 @@ public sealed class SubscriptionReportsController : ControllerBase
         typeof(ApiResponse<SubscriptionRosterReportResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(
-        typeof(ApiResponse<DunningReportResponse>),
+        typeof(ApiResponse<SubscriptionRosterReportResponse>),
         StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetSubscriptions(
