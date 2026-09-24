@@ -11,6 +11,8 @@ import {
   verifyEditLoadsPrefilledWizardAndCancel,
   verifyRetireArchivesDiscount,
   verifyBackToPlansLinkReturnsToPlans,
+  verifyStickyBarsOnEligibility,
+  verifyEditSubmitLabelIsSaveChanges,
 } from "../../page/subscripptions/discounts";
 
 test.describe("flow: Subscriptions - Discounts", () => {
@@ -31,6 +33,8 @@ test.describe("flow: Subscriptions - Discounts", () => {
       verifyEmptyCatalogueShowsNoDiscountsAuthoredYet(page));
     await test.step("[Positive] New discount opens the CampaignBuilder wizard on Step 1", () =>
       verifyNewDiscountOpensWizardAndCancelReturnsToList(page));
+    await test.step("[Positive] Eligibility scroll pins sticky progress and action bars (#549)", () =>
+      verifyStickyBarsOnEligibility(page));
     await test.step("[Negative] the Code field rejects uppercase letters and keeps Next disabled", () =>
       verifyCodeFieldRejectsUppercaseLetters(page));
     await test.step("[Positive] all three offer types are selectable in the wizard", () =>
@@ -39,6 +43,8 @@ test.describe("flow: Subscriptions - Discounts", () => {
       createStandardPercentageDiscount(page, code, name, "15"));
     await test.step("[Positive] Edit loads the wizard pre-filled with the discount's values", () =>
       verifyEditLoadsPrefilledWizardAndCancel(page, name, code));
+    await test.step("[Positive] Edit Review submit label is Save changes (#549)", () =>
+      verifyEditSubmitLabelIsSaveChanges(page, name, code));
     await test.step("[Positive] Retire moves the discount to Archived (row stays, buttons disappear)", () =>
       verifyRetireArchivesDiscount(page, name, code));
     await test.step("[Positive] 'Back to plans' returns to the plans list", () =>

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { SubscriptionPlan } from "../../models/subscription-plan.model";
 import { CampaignBuilder } from "./campaign-builder";
-import type { CampaignDraft } from "./campaign-draft";
+import { EMPTY_DRAFT, type CampaignDraft } from "./campaign-draft";
 
 const plan: SubscriptionPlan = {
   planId: "plan-1",
@@ -152,4 +152,37 @@ describe("CampaignBuilder", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("A discount with that code already exists.");
   });
+
+  it("labels the submit button Save changes when editing", async () => {
+    render(
+      <CampaignBuilder
+        plans={[plan]}
+        organizationId="org-1"
+        isSubmitting={false}
+        submissionError={null}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        editing
+        initialDraft={{
+          ...EMPTY_DRAFT,
+          code: "launch25",
+          displayName: "Launch 25",
+          percent: "25",
+        }}
+      />,
+    );
+
+    // Prefill should unlock Next on Identity.
+    expect(screen.getByRole("button", { name: /^Next$/ })).toBeEnabled();
+    click(/^Next$/);
+    await screen.findByText(/What redeeming this discount takes off/);
+    click(/^Next$/);
+    await screen.findByText(/redeemed in/);
+    click(/^Next$/);
+    await screen.findByText(/Check everything before/);
+    expect(screen.getByRole("button", { name: /^Save changes$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Create discount$/ })).not.toBeInTheDocument();
+  });
+
+
 });
