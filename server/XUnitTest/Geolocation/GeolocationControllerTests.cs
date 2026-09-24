@@ -10,7 +10,7 @@ using Utility.DomainService.Geolocation;
 namespace XUnitTest.Geolocation
 {
     /// <summary>
-    /// Guards the status code and envelope the endpoints hand back.
+    /// Guards the status code and envelope the endpoint hands back.
     /// </summary>
     /// <remarks>
     /// Every outcome used to leave here as HTTP 200 with the failure hidden in the body, so a
@@ -126,57 +126,6 @@ namespace XUnitTest.Geolocation
             body.Meta.CorrelationId.Should().Be("trace-42",
                 because: "a caller reporting a failed lookup has to be able to name the request, "
                     + "or the log line for it cannot be found");
-        }
-
-        [Fact]
-        public async Task Locate_Uses_Visitor_Ip_Addresses_And_Returns_The_Lookups()
-        {
-            var request = new LocateRequest();
-            var ipAddresses = new[] { "192.168.1.10", "10.0.0.1" };
-            var lookups = new[] { new IpLookup { StartIp = "192.168.1.10" } };
-
-            _geolocationService
-                .Setup(service => service.GetVisitorsIpAddresses(_controller.HttpContext))
-                .Returns(ipAddresses);
-            _geolocationService
-                .Setup(service => service.LocateAsync(
-                    request,
-                    ipAddresses,
-                    It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new LocateIpResponse { IsSuccess = true, IpLookups = lookups });
-
-            var result = await _controller.Locate(request, CancellationToken.None) as ObjectResult;
-
-            result!.StatusCode.Should().Be(StatusCodes.Status200OK);
-
-            var body = result.Value.Should().BeOfType<ApiResponse<IpLookup[]>>().Subject;
-
-            body.Data.Should().BeEquivalentTo(lookups);
-        }
-
-        [Fact]
-        public async Task Locate_Reports_A_Request_With_No_Address_As_400()
-        {
-            var request = new LocateRequest();
-
-            _geolocationService
-                .Setup(service => service.GetVisitorsIpAddresses(_controller.HttpContext))
-                .Returns([]);
-            _geolocationService
-                .Setup(service => service.LocateAsync(
-                    request,
-                    It.IsAny<IEnumerable<string>>(),
-                    It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new LocateIpResponse
-                {
-                    IsSuccess = false,
-                    ErrorMessage = "No IP addresses found in request context",
-                    FailureKind = GeolocationFailureKind.Validation
-                });
-
-            var result = await _controller.Locate(request, CancellationToken.None) as ObjectResult;
-
-            result!.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
         }
     }
 }
