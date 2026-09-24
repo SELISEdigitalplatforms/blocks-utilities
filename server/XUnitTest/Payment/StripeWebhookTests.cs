@@ -68,6 +68,25 @@ public sealed class StripeWebhookTests
     public void Outcome_is_derived_from_the_event_name(string eventType, bool expected) =>
         Parse(Body(eventType)).Events.Single().Payload.Success.Should().Be(expected);
 
+    /// <summary>
+    /// A Checkout session allows another try after a declined attempt; only the session ending
+    /// is its verdict.
+    /// </summary>
+    [Theory]
+    [InlineData("payment_intent.payment_failed", true)]
+    [InlineData("setup_intent.setup_failed", true)]
+    [InlineData("payment_intent.canceled", false)]
+    [InlineData("setup_intent.canceled", false)]
+    [InlineData("checkout.session.expired", false)]
+    [InlineData("checkout.session.async_payment_failed", false)]
+    public void Only_a_declined_attempt_is_marked_attempt_only(string eventType, bool expected)
+    {
+        var payload = Parse(Body(eventType)).Events.Single().Payload;
+
+        payload.Success.Should().BeFalse();
+        payload.FailureIsAttemptOnly.Should().Be(expected);
+    }
+
     [Fact]
     public void Routing_reference_is_read_from_metadata_on_a_payment_intent() =>
         Parse(Body("payment_intent.succeeded")).Events.Single()

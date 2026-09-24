@@ -5,6 +5,7 @@ using Payment.DomainService.Enums;
 using Payment.DomainService.Outbox;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace XUnitTest.Payment;
 
@@ -208,6 +209,73 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _payments.Verify();
         _storedPaymentMethods.Verify(s => s.ApplyAuthorisationTokenAsync(webhook, payment, It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    /// <summary>
+    /// A declined card inside a hosted session the shopper can retry in. Refusing the payment
+    /// here abandoned the subscription before the second card's success arrived.
+    /// </summary>
+    [Fact]
+    public async Task ApplyAsync_AttemptOnlyFailureInOpenHostedCheckout_LeavesPaymentInFlight()
+    {
+        var webhook = AttemptOnlyFailure();
+        _payments.Setup(p => p.GetByIdAsync("tenant", "pay-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaidRecord(PaymentFlows.HostedCheckout));
+
+        await CreateService().ApplyAsync(webhook, CancellationToken.None);
+
+        _payments.Verify(p => p.ApplyAuthorisationAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<decimal>(),
+            It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+            It.IsAny<PaymentInstrument?>(), It.IsAny<PaymentOutboxEvent>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        _storedPaymentMethods.Verify(s => s.ApplyAuthorisationTokenAsync(
+            It.IsAny<PaymentWebhookInbox>(), It.IsAny<PaymentDetail>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// An off-session charge has no session to retry in, so its failure is the final answer.
+    /// </summary>
+    [Fact]
+    public async Task ApplyAsync_AttemptOnlyFailureOnOffSessionCharge_StillRefuses()
+    {
+        _payments.Setup(p => p.GetByIdAsync("tenant", "pay-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaidRecord(PaymentFlows.RecurringCharge));
+        SetupConvert(10, "EUR", 1000);
+        _payments.Setup(p => p.ApplyAuthorisationAsync(
+                "tenant", "pay-1", false, 10, It.IsAny<bool>(), "pi_1", It.IsAny<DateTime>(),
+                It.IsAny<PaymentInstrument?>(),
+                It.Is<PaymentOutboxEvent>(e => e.EventType == PaymentConstants.PaymentRefused),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true)
+            .Verifiable();
+
+        await CreateService().ApplyAsync(AttemptOnlyFailure(), CancellationToken.None);
+
+        _payments.Verify();
+    }
+
+    private static PaymentWebhookInbox AttemptOnlyFailure() =>
+        Webhook(WebhookIntent.Authorization, "payment_intent.payment_failed", payload: new PaymentWebhookPayload
+        {
+            PaymentDetailId = "pay-1",
+            PspReference = "pi_1",
+            Success = false,
+            FailureIsAttemptOnly = true,
+            AmountMinorUnits = 1000,
+            CurrencyCode = "EUR",
+            ProviderFailureCode = "card_declined"
+        });
+
+    private static PaymentDetail PaidRecord(string flow) => new()
+    {
+        ItemId = "pay-1",
+        TenantId = "tenant",
+        PaymentFlow = flow,
+        PaymentStatus = PaymentStatuses.Processing,
+        CurrencyCode = "EUR",
+        PreciseAmount = 10
+    };
 
     /// <summary>
     /// A provider that reports authorisation and capture through the same event is the only
