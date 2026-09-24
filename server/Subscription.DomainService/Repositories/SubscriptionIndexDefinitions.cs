@@ -17,11 +17,36 @@ namespace Subscription.DomainService.Repositories;
 public static class SubscriptionIndexDefinitions
 {
     /// <summary>
-    /// Versioned because MongoDB does not replace an existing named index when its partial
-    /// filter changes. Deploying this alongside the legacy live-only index upgrades existing
-    /// tenant databases as they are first touched.
+    /// One open subscription per organization, for the subscriptions an organization holds for
+    /// itself.
     /// </summary>
+    /// <remarks>
+    /// Versioned again because MongoDB does not replace an existing named index when its partial
+    /// filter changes, and this filter now names the scope. A user-wise subscription falls outside
+    /// it entirely: an organization holds as many of those as it buys seats for, and the one thing
+    /// that cannot happen twice is the organization subscribing for itself.
+    /// <para>
+    /// The filter can only say <c>$eq</c> on the scope -- a partial filter may not use <c>$ne</c> --
+    /// and <c>$eq</c> does not match a document that lacks the field. Every subscription written
+    /// before the scope was snapshotted must therefore be backfilled before this index is created,
+    /// or it silently covers none of them and the organization it belongs to can open a second
+    /// subscription. <see cref="SubscriptionRepository.EnsureIndexesAsync"/> runs that backfill
+    /// first, in the same method, for exactly this reason.
+    /// </para>
+    /// </remarks>
     public const string SubscriptionReservationIndexName =
+        "ux_subscription_tenant_org_scoped_reserved_v4";
+
+    /// <summary>
+    /// The organization reservation index from before it knew about scope, kept only so it can be
+    /// dropped by name.
+    /// </summary>
+    /// <remarks>
+    /// It spans every subscription regardless of scope, so while it stands an organization cannot
+    /// hold a user-wise subscription alongside its own. It is what makes seat assignment
+    /// unsellable, and the last thing removed.
+    /// </remarks>
+    public const string SubscriptionReservationLegacyIndexName =
         "ux_subscription_tenant_org_reserved_v2";
 
     /// <summary>
@@ -159,17 +184,26 @@ public static class SubscriptionIndexDefinitions
             {
                 Unique = true,
                 Name = SubscriptionReservationIndexName,
-                PartialFilterExpression = new BsonDocument(
-                    nameof(SubscriptionDetail.Status),
-                    new BsonDocument(
-                        "$in",
-                        new BsonArray
-                        {
-                            (int)SubscriptionStatus.Incomplete,
-                            (int)SubscriptionStatus.Trialing,
-                            (int)SubscriptionStatus.Active,
-                            (int)SubscriptionStatus.PastDue
-                        }))
+                PartialFilterExpression = new BsonDocument
+                {
+                    {
+                        nameof(SubscriptionDetail.Status),
+                        new BsonDocument(
+                            "$in",
+                            new BsonArray
+                            {
+                                (int)SubscriptionStatus.Incomplete,
+                                (int)SubscriptionStatus.Trialing,
+                                (int)SubscriptionStatus.Active,
+                                (int)SubscriptionStatus.PastDue
+                            })
+                    },
+                    {
+                        $"{nameof(SubscriptionDetail.Plan)}." +
+                            nameof(PlanSnapshot.SubscriberScope),
+                        (int)SubscriberScope.Organization
+                    }
+                }
             }),
         new(
             Builders<SubscriptionDetail>.IndexKeys

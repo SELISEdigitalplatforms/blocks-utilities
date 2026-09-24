@@ -52,13 +52,24 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
 
         var subscriptions = Subscriptions(tenantId);
 
-        await DropSupersededReservationIndexesAsync(subscriptions, cancellationToken);
-
+        // Three steps whose order is the whole safety of this method.
+        //
+        // The backfill first, because the reservation index's partial filter asks for an
+        // organization-wise scope and a partial filter cannot match a document that lacks the
+        // field. Built before every subscription carries it, the index would silently cover none
+        // of them.
+        //
+        // Then the new index, and only then the old one dropped. The old index is what currently
+        // guarantees one subscription per organization; dropping it first would leave a window
+        // with no such guarantee at all, and because this runs on the first touch of every tenant
+        // in every process, that window would open on every deploy and every restart.
         await BackfillPlanSubscriberScopeAsync(subscriptions, cancellationToken);
 
         await subscriptions.Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateSubscriptionIndexes(),
             cancellationToken);
+
+        await DropSupersededReservationIndexesAsync(subscriptions, cancellationToken);
 
         _indexedTenants.TryAdd(tenantId, 0);
     }
@@ -122,16 +133,11 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// is excluded explicitly, nor the non-unique organization read index.
     /// </para>
     /// <para>
-    /// <b>Called before the indexes are created, and that is only safe while the current reservation
-    /// index is excluded.</b> Nothing this drops is enforcing anything, so the gap between the two
-    /// calls is uncovered by design. Whenever the current index itself becomes superseded — the
-    /// subscriber-scoped key that user-wise plans need is the reason this will happen — widening the
-    /// exclusion is not enough on its own: this call has to move <em>after</em>
-    /// <see cref="IMongoIndexManager{TDocument}.CreateManyAsync(IEnumerable{CreateIndexModel{TDocument}}, CancellationToken)"/>
-    /// in the same change. Dropping the live guard first leaves a window with no uniqueness at all,
-    /// and because this runs on the first touch of every tenant in every process, that window opens
-    /// on every deploy and every restart — letting two concurrent signups for one organization both
-    /// reach checkout, which is the failure the current index was widened to stop.
+    /// <b>Called after the indexes are created, and it must stay that way.</b> What this drops now
+    /// includes the index that was enforcing one subscription per organization until a moment ago,
+    /// so running it first would leave a window with no such guarantee — on the first touch of every
+    /// tenant in every process, which is every deploy and every restart. Two concurrent signups for
+    /// one organization would both reach checkout, which is the failure that index exists to stop.
     /// </para>
     /// </remarks>
     private static async Task DropSupersededReservationIndexesAsync(
@@ -152,9 +158,14 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             return;
         }
 
+        string[] supersededNames =
+        [
+            SubscriptionIndexDefinitions.SubscriptionSubscriberReservationLegacyIndexName,
+            SubscriptionIndexDefinitions.SubscriptionReservationLegacyIndexName
+        ];
+
         var supersededByName = existing
-            .Where(index => index["name"].AsString ==
-                SubscriptionIndexDefinitions.SubscriptionSubscriberReservationLegacyIndexName);
+            .Where(index => supersededNames.Contains(index["name"].AsString));
 
         foreach (var index in existing.Where(IsSupersededReservationIndex).Concat(supersededByName))
         {
