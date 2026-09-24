@@ -58,47 +58,5 @@ namespace Api.Controllers
 
             return result.ToActionResult(correlationId);
         }
-
-        /// <summary>
-        /// Locate IP addresses from the current request context.
-        /// </summary>
-        /// <remarks>
-        /// Automatically extracts and locates IP addresses from the current HTTP request context.
-        /// This is useful for getting geolocation information of the current visitor without
-        /// explicitly specifying IP addresses.
-        ///
-        /// The endpoint extracts IP addresses from:
-        /// - X-Forwarded-For header (for requests through proxies/load balancers)
-        /// - Direct connection remote IP address
-        ///
-        /// The header is client-supplied, so the addresses it names are not evidence of where the
-        /// caller actually is; anything that has to be trusted should come from the connection.
-        /// Only the first ten addresses of a forwarded chain are looked up.
-        /// </remarks>
-        /// <param name="request">The request parameters</param>
-        /// <param name="cancellationToken">Cancellation token</param>
-        /// <returns>Response containing geolocation information for the request IP addresses</returns>
-        [HttpGet]
-        [Authorize]
-        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> Locate(
-            [FromQuery] LocateRequest request,
-            CancellationToken cancellationToken)
-        {
-            var correlationId = HttpContext.TraceIdentifier;
-
-            // Extract IP addresses from the current request context
-            var ipAddresses = _geolocationService.GetVisitorsIpAddresses(HttpContext);
-
-            var result = await _geolocationService.LocateAsync(
-                request,
-                ipAddresses,
-                cancellationToken);
-
-            return result.ToActionResult(correlationId);
-        }
     }
 }

@@ -104,62 +104,6 @@ namespace XUnitTest.Geolocation
 
         #endregion
 
-        #region LocateAsync Tests
-
-        [Fact]
-        public async Task LocateAsync_ShouldReturnError_WhenIpAddressesIsNull()
-        {
-            // Arrange
-            var request = new LocateRequest();
-            IEnumerable<string>? ipAddresses = null;
-
-            // Act
-            var result = await _service.LocateAsync(request, ipAddresses!);
-
-            // Assert
-            result.IsSuccess.Should().BeFalse();
-            result.ErrorMessage.Should().Contain("No IP addresses");
-        }
-
-        [Fact]
-        public async Task LocateAsync_ShouldReturnError_WhenIpAddressesIsEmpty()
-        {
-            // Arrange
-            var request = new LocateRequest();
-            var ipAddresses = Enumerable.Empty<string>();
-
-            // Act
-            var result = await _service.LocateAsync(request, ipAddresses);
-
-            // Assert
-            result.IsSuccess.Should().BeFalse();
-            result.ErrorMessage.Should().Contain("No IP addresses");
-        }
-
-        [Fact]
-        public async Task LocateAsync_ShouldReturnSuccess_WithValidIpAddresses()
-        {
-            // Arrange
-            var request = new LocateRequest();
-            var ipAddresses = new[] { "203.0.113.1" };
-            var expectedLookups = new IpLookup[]
-            {
-                new IpLookup { StartIp = "203.0.113.1", CountryCode = "JP", CountryName = "Japan" }
-            };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(expectedLookups);
-
-            // Act
-            var result = await _service.LocateAsync(request, ipAddresses);
-
-            // Assert
-            result.IsSuccess.Should().BeTrue();
-            result.IpLookups.Should().HaveCount(1);
-            result.IpLookups.First().CountryCode.Should().Be("JP");
-        }
-
-        #endregion
-
         #region IpLookup Tests
 
         [Fact]

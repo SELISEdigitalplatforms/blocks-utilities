@@ -156,6 +156,20 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             PaymentLogValue.Label(payment.PaymentStatus),
             PaymentLogValue.Label(payment.CurrencyCode));
 
+        // A declined attempt in a hosted session the shopper can still retry in. Only a hosted
+        // checkout has such a session: an off-session charge's failure is its final answer. Once
+        // the provider has confirmed anything, the existing path handles the event as before.
+        if (payload is { Success: false, FailureIsAttemptOnly: true } &&
+            payment.PaymentFlow == PaymentFlows.HostedCheckout &&
+            payment.WebhookConfirmedAtUtc is null)
+        {
+            _logger.LogInformation(
+                "Webhook state transition skipped Reason=attempt_failed_session_open FailureCode={FailureCode}",
+                PaymentLogValue.Label(payload.ProviderFailureCode));
+
+            return;
+        }
+
         if (!_minorUnits.TryConvert(
                 payment.PreciseAmount,
                 payment.CurrencyCode,
@@ -221,6 +235,7 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             payload.PspReference,
             webhook.EventDateUtc,
             instrument,
+            payload.ProviderFailureCode,
             outbox,
             cancellationToken);
 
@@ -228,6 +243,15 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             "Webhook atomic payment transition completed Applied={Applied} TargetPaymentStatus={TargetPaymentStatus} ReasonWhenNotApplied=duplicate_or_stale_event",
             transitionApplied,
             status);
+
+        if (transitionApplied && !payload.Success.Value)
+        {
+            _logger.LogWarning(
+                "Payment refused by provider Provider={Provider} FailureCode={FailureCode} PaymentHash={PaymentHash}",
+                PaymentLogValue.Label(webhook.ProviderName),
+                PaymentLogValue.Label(payload.ProviderFailureCode),
+                PaymentLogValue.Hash(payment.ItemId));
+        }
 
         _logger.LogInformation(
             "Webhook stored payment method synchronization started Source=authorisation");
