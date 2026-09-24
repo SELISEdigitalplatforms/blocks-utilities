@@ -615,6 +615,9 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             GrossMonthlyMinor = runRate.GrossMonthlyMinor,
             NetMonthlyMinor = runRate.NetMonthlyMinor,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
+            CanceledAtUtc = subscription.CanceledAtUtc,
+            EndedAtUtc = subscription.EndedAtUtc,
+            CancellationReason = subscription.CancellationReason,
             CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
             CreatedAtUtc = subscription.CreatedAtUtc,
             Meters = usageBySubscription.TryGetValue(subscription.ItemId, out var meters)

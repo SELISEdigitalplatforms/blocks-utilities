@@ -167,6 +167,10 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
             PspReference = ResolveProviderReference(subject, intent),
             OriginalPspReference = GetString(subject, "payment_intent"),
             Success = succeeded,
+            // One declined attempt inside a Checkout session, which the shopper can follow with
+            // another. Cancellation and session expiry stay terminal.
+            FailureIsAttemptOnly =
+                eventType is "payment_intent.payment_failed" or "setup_intent.setup_failed",
             FundsCaptured = ResolveFundsCaptured(eventType),
             AmountMinorUnits = ResolveAmount(subject, intent),
             CurrencyCode = GetString(subject, "currency")?.ToUpperInvariant(),

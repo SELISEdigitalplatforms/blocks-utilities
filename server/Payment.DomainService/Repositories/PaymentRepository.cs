@@ -430,6 +430,7 @@ public sealed class PaymentRepository : IPaymentRepository
         string pspReference,
         DateTime eventDateUtc,
         PaymentInstrument? instrument,
+        string? failureCode,
         PaymentOutboxEvent outboxEvent,
         CancellationToken cancellationToken)
     {
@@ -465,6 +466,8 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(x => x.PspReference, pspReference)
             .Set(x => x.WebhookConfirmedAtUtc, eventDateUtc)
             .Set(x => x.PaymentInstrument, instrument)
+            // A success clears whatever reason an earlier refusal left behind.
+            .Set(x => x.FailureCode, authorized ? null : failureCode)
             .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow)
             .Push(x => x.OutboxEvents, outboxEvent);
         var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);

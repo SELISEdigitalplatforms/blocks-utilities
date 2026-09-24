@@ -274,6 +274,37 @@ public sealed class SubscriptionRosterRowResponse
 
     public bool CancelAtPeriodEnd { get; init; }
 
+    /// <summary>
+    /// When cancellation was asked for. Null on a subscription nobody has cancelled.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from <see cref="EndedAtUtc"/>. A subscriber who cancels on the first
+    /// of the month and keeps access until the thirtieth has one date for the decision and another
+    /// for its effect, and a report that carried only one of them could answer neither "when did
+    /// they leave us" nor "when did they stop paying for it".
+    /// </remarks>
+    public DateTime? CanceledAtUtc { get; init; }
+
+    /// <summary>
+    /// When entitlement actually stopped. Null while access continues, including on a
+    /// subscription already scheduled to cancel.
+    /// </summary>
+    /// <remarks>
+    /// Null is the whole signal here: a scheduled cancellation and an effective one are different
+    /// states, and this is the field that tells them apart. <see cref="CancelAtPeriodEnd"/> with no
+    /// <c>EndedAtUtc</c> is a subscription still being served.
+    /// </remarks>
+    public DateTime? EndedAtUtc { get; init; }
+
+    /// <summary>
+    /// Why it was cancelled, where a reason was recorded. Null when none was.
+    /// </summary>
+    /// <remarks>
+    /// Free text set by whatever asked for the cancellation, not a closed set, so it is reported
+    /// as it was stored rather than mapped to categories this module would have to invent.
+    /// </remarks>
+    public string? CancellationReason { get; init; }
+
     public DateTime CurrentPeriodEndUtc { get; init; }
 
     public DateTime CreatedAtUtc { get; init; }

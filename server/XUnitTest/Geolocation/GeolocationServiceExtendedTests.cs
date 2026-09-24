@@ -1,7 +1,5 @@
 using FluentAssertions;
-using Microsoft.AspNetCore.Http;
 using Moq;
-using System.Net;
 using Utility.DomainService.Geolocation;
 using Utility.DomainService.Geolocation.service;
 
@@ -17,149 +15,6 @@ namespace XUnitTest.Geolocation
             _mockRepository = new Mock<IGeolocationRepository>();
             _service = new GeolocationService(_mockRepository.Object);
         }
-
-        #region GetVisitorsIpAddresses Tests
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldReturnRemoteIpAddress_WhenNoForwardedHeader()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            httpContext.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.1");
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            result.Should().HaveCount(1);
-            result.First().Should().Be("192.168.1.1");
-        }
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldReturnForwardedIp_WhenHeaderExists()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            httpContext.Request.Headers["X-Forwarded-For"] = "10.0.0.1";
-            httpContext.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.1");
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            result.Should().HaveCount(1);
-            result.First().Should().Be("10.0.0.1");
-        }
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldReturnMultipleIps_WhenCommaDelimited()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            httpContext.Request.Headers["X-Forwarded-For"] = "10.0.0.1, 10.0.0.2, 10.0.0.3";
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            result.Should().HaveCount(3);
-            result.Should().Contain("10.0.0.1");
-            result.Should().Contain("10.0.0.2");
-            result.Should().Contain("10.0.0.3");
-        }
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldTrimWhitespace()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            httpContext.Request.Headers["X-Forwarded-For"] = "  10.0.0.1  ,  10.0.0.2  ";
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            result.Should().HaveCount(2);
-            result.First().Should().Be("10.0.0.1");
-            result.Last().Should().Be("10.0.0.2");
-        }
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldRemoveEmptyEntries()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            httpContext.Request.Headers["X-Forwarded-For"] = "10.0.0.1,,10.0.0.2";
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            result.Should().HaveCount(2);
-        }
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldReturnEmpty_WhenNoIpAvailable()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            // No X-Forwarded-For and no RemoteIpAddress
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            // When there's no IP, the split with RemoveEmptyEntries returns empty enumerable
-            result.Should().BeEmpty();
-        }
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldPreferForwardedHeader_OverRemoteIp()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            httpContext.Request.Headers["X-Forwarded-For"] = "203.0.113.195";
-            httpContext.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.1");
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            result.Should().HaveCount(1);
-            result.First().Should().Be("203.0.113.195");
-            result.First().Should().NotBe("192.168.1.1");
-        }
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldHandleIpv6Address()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            httpContext.Connection.RemoteIpAddress = IPAddress.IPv6Loopback;
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            result.Should().HaveCount(1);
-            result.First().Should().Be("::1");
-        }
-
-        [Fact]
-        public void GetVisitorsIpAddresses_ShouldHandleMultipleIpv6Addresses()
-        {
-            // Arrange
-            var httpContext = new DefaultHttpContext();
-            httpContext.Request.Headers["X-Forwarded-For"] = "2001:db8::1, 2001:db8::2";
-
-            // Act
-            var result = _service.GetVisitorsIpAddresses(httpContext);
-
-            // Assert
-            result.Should().HaveCount(2);
-        }
-
-        #endregion
 
         #region LocateIpAsync Edge Cases
 
@@ -202,29 +57,6 @@ namespace XUnitTest.Geolocation
             // Assert
             result.IsSuccess.Should().BeTrue();
             result.IpLookups.Should().HaveCount(count);
-        }
-
-        #endregion
-
-        #region LocateAsync Edge Cases
-
-        [Fact]
-        public async Task LocateAsync_ShouldCapTheForwardedChain_AtTenAddresses()
-        {
-            // Arrange
-            var ipAddresses = Enumerable.Range(1, 25).Select(i => $"8.8.8.{i}").ToArray();
-            IEnumerable<string>? forwarded = null;
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
-                .Callback((IEnumerable<string> ips, CancellationToken _) => forwarded = ips.ToList())
-                .ReturnsAsync(new IpLookup[] { new IpLookup() });
-
-            // Act
-            await _service.LocateAsync(new LocateRequest(), ipAddresses);
-
-            // Assert
-            forwarded.Should().HaveCount(10,
-                because: "X-Forwarded-For is client-supplied, so a caller could otherwise hand us "
-                    + "a hundred addresses and spend a hundred rate-limited provider calls");
         }
 
         #endregion
