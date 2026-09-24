@@ -18,6 +18,18 @@ public sealed class PaymentWebhookPayload
     public bool? Success { get; set; }
 
     /// <summary>
+    /// A failure that reports one attempt rather than the session's verdict. Only meaningful
+    /// when <see cref="Success"/> is false.
+    /// </summary>
+    /// <remarks>
+    /// A Stripe Checkout session lets the shopper retry after a declined card, so a failed
+    /// attempt followed by a successful one in the same session is ordinary. Treating the first
+    /// failure as terminal refused the payment and abandoned its subscription before the success
+    /// arrived. The session's real end comes from its expiry or cancellation instead.
+    /// </remarks>
+    public bool FailureIsAttemptOnly { get; set; }
+
+    /// <summary>
     /// Whether the money was actually taken, as opposed to only held. Null when the provider
     /// does not say, in which case the payment's configured capture mode decides.
     /// </summary>

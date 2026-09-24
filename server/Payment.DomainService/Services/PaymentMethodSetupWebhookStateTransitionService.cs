@@ -162,6 +162,20 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
                 return;
             }
 
+            if (payload.FailureIsAttemptOnly)
+            {
+                // The shopper can still try another card in the same session. Leaving the setup
+                // Processing keeps its subscription waiting instead of abandoning it; expiry,
+                // cancellation or the timeout sweep settle a session that is really left.
+                _logger.LogInformation(
+                    "Card setup attempt failed, session still open FailureCode={FailureCode} " +
+                    "PaymentHash={PaymentHash}",
+                    PaymentLogValue.Label(payload.ProviderFailureCode),
+                    PaymentLogValue.Hash(payment.ItemId));
+
+                return;
+            }
+
             await FinalizeFailureAsync(webhook, payment, payload.PspReference!, cancellationToken);
             return;
         }
