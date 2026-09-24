@@ -129,6 +129,64 @@ public sealed class PlanSnapshotScopeBackfillIntegrationTests
     }
 
     /// <summary>
+    /// The organization's own subscription is still found when its scope was never written.
+    /// </summary>
+    /// <remarks>
+    /// This is the live-customer risk in narrowing those lookups. Every subscription in production
+    /// today lacks the field, and an <c>$eq</c> on Organization would match none of them -- every
+    /// organization would appear to have no subscription at all, losing entitlement and blocking
+    /// renewal. The filter says "not user-wise" instead, because a query's <c>$ne</c> matches a
+    /// document where the field is absent.
+    /// </remarks>
+    [Fact]
+    public async Task An_unmigrated_subscription_is_still_the_organizations_own()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId);
+        var document = subscription.ToBsonDocument();
+
+        document["Plan"].AsBsonDocument.Remove(nameof(PlanSnapshot.SubscriberScope));
+
+        await _fixture.Collection<BsonDocument>("Subscriptions")
+            .InsertOneAsync(document, cancellationToken: CancellationToken.None);
+
+        // Read before EnsureIndexesAsync has a chance to backfill, which is the state every live
+        // subscription is in the moment this ships.
+        (await _subscriptions.GetLiveAsync(
+                tenantId,
+                subscription.OrganizationId,
+                DateTime.UtcNow,
+                CancellationToken.None))
+            .Should().NotBeNull(
+                because: "an organization that could not find its own subscription would lose " +
+                         "every entitlement it pays for, and its renewal with them");
+    }
+
+    /// <remarks>
+    /// The other half of the same filter: a seat-based subscription must not be mistaken for the
+    /// organization's, or the first user to buy one would displace what the organization shares.
+    /// </remarks>
+    [Fact]
+    public async Task A_user_wise_subscription_is_never_taken_for_the_organizations_own()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId);
+        subscription.Plan.SubscriberScope = SubscriberScope.User;
+
+        await Raw(tenantId).InsertOneAsync(
+            subscription, cancellationToken: CancellationToken.None);
+
+        (await _subscriptions.GetLiveAsync(
+                tenantId,
+                subscription.OrganizationId,
+                DateTime.UtcNow,
+                CancellationToken.None))
+            .Should().BeNull(
+                because: "it belongs to whoever holds its seat, and answering with it would hand " +
+                         "one person's plan to everyone in the organization");
+    }
+
+    /// <summary>
     /// Inserts a subscription whose plan snapshot has no scope at all, as every stored one does.
     /// </summary>
     /// <remarks>

@@ -274,36 +274,43 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         DateTime nowUtc,
         CancellationToken cancellationToken) =>
         await Subscriptions(tenantId)
-            .Find(BuildLiveFilter(tenantId, organizationId, nowUtc))
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                BuildLiveFilter(tenantId, organizationId, nowUtc),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveForSubscriberAsync(
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveByIdsAsync(
         string tenantId,
-        string organizationId,
-        string subscriberUserId,
+        IReadOnlyCollection<string> subscriptionIds,
         DateTime nowUtc,
         CancellationToken cancellationToken)
     {
-        var subscribers = string.IsNullOrEmpty(subscriberUserId)
-            ? [string.Empty]
-            : new[] { subscriberUserId, string.Empty };
+        ArgumentNullException.ThrowIfNull(subscriptionIds);
 
-        var found = await Subscriptions(tenantId)
+        if (subscriptionIds.Count == 0)
+        {
+            // Short-circuited rather than sent as an empty $in, which is a round trip to be told
+            // what the caller already knows. Most callers hold no seats at all.
+            return [];
+        }
+
+        return await Subscriptions(tenantId)
             .Find(Builders<SubscriptionDetail>.Filter.And(
-                BuildLiveFilter(tenantId, organizationId, nowUtc),
+                TenantFilter(tenantId),
                 Builders<SubscriptionDetail>.Filter.In(
-                    subscription => subscription.SubscriberUserId,
-                    subscribers)))
+                    subscription => subscription.ItemId,
+                    subscriptionIds),
+                Builders<SubscriptionDetail>.Filter.In(
+                    subscription => subscription.Status,
+                    LiveStatuses),
+                Builders<SubscriptionDetail>.Filter.Or(
+                    Builders<SubscriptionDetail>.Filter.Ne(
+                        subscription => subscription.CancelAtPeriodEnd,
+                        true),
+                    Builders<SubscriptionDetail>.Filter.Gt(
+                        subscription => subscription.CurrentPeriodEndUtc,
+                        nowUtc))))
             .ToListAsync(cancellationToken);
-
-        // Sorted here rather than in the query: "the subscriber's own first" is a two-element
-        // ordering the database has no index for, and expressing it as a sort would cost a
-        // collection-level sort stage to arrange at most two documents.
-        return
-        [
-            .. found.OrderBy(subscription =>
-                string.IsNullOrEmpty(subscription.SubscriberUserId) ? 1 : 0)
-        ];
     }
 
     public async Task<SubscriptionDetail?> GetIncompleteAsync(
@@ -318,7 +325,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     organizationId),
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.Status,
-                    SubscriptionStatus.Incomplete)))
+                    SubscriptionStatus.Incomplete),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<SubscriptionDetail?> GetUnpaidAsync(
@@ -333,7 +341,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     organizationId),
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.Status,
-                    SubscriptionStatus.Unpaid)))
+                    SubscriptionStatus.Unpaid),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<SubscriptionDetail?> GetByOrderIdAsync(
@@ -1176,6 +1185,26 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// cancellation stops matching the instant its promised <c>CurrentPeriodEndUtc</c> passes
     /// <paramref name="nowUtc"/>, independent of whether the finalizing worker has run yet.
     /// </remarks>
+    /// <summary>
+    /// Narrows a lookup to the subscription an organization holds for itself.
+    /// </summary>
+    /// <remarks>
+    /// Expressed as "not user-wise" rather than "is organization-wise", and that is the whole
+    /// point. A query's <c>$ne</c> matches a document where the field is absent, so every
+    /// subscription written before the scope was snapshotted still answers here — which is every
+    /// subscription a live customer holds. <c>$eq</c> would exclude them all and an organization
+    /// would appear to have no subscription at all.
+    /// <para>
+    /// The partial filter on the reservation index cannot use this trick — a partial filter may not
+    /// use <c>$ne</c> — which is exactly why narrowing that index has to wait for the backfill and
+    /// this does not.
+    /// </para>
+    /// </remarks>
+    private static FilterDefinition<SubscriptionDetail> OrganizationScopeFilter() =>
+        Builders<SubscriptionDetail>.Filter.Ne(
+            subscription => subscription.Plan.SubscriberScope,
+            SubscriberScope.User);
+
     public static FilterDefinition<SubscriptionDetail> BuildLiveFilter(
         string tenantId,
         string organizationId,

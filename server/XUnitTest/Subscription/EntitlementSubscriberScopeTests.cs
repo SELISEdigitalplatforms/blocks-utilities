@@ -29,6 +29,7 @@ public sealed class EntitlementSubscriberScopeTests
     private const string UserKey = "ai_credits";
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly ControlledTimeProvider _time =
@@ -57,7 +58,7 @@ public sealed class EntitlementSubscriberScopeTests
     [Fact]
     public async Task A_subscriber_with_their_own_plan_still_reaches_what_the_organization_shares()
     {
-        GivenLive(UserSubscription(), OrganizationSubscription());
+        GivenLive(OrganizationSubscription(), UserSubscription());
 
         var snapshot = await Service().GetAsync(
             fresh: false, null, "corr-1", CancellationToken.None);
@@ -71,7 +72,7 @@ public sealed class EntitlementSubscriberScopeTests
     [Fact]
     public async Task A_subscriber_reaches_their_own_allowance_as_well()
     {
-        GivenLive(UserSubscription(), OrganizationSubscription());
+        GivenLive(OrganizationSubscription(), UserSubscription());
 
         var snapshot = await Service().GetAsync(
             fresh: false, null, "corr-1", CancellationToken.None);
@@ -92,7 +93,7 @@ public sealed class EntitlementSubscriberScopeTests
             Limit = 999
         });
 
-        GivenLive(user, OrganizationSubscription());
+        GivenLive(OrganizationSubscription(), user);
 
         var snapshot = await Service().GetAsync(
             fresh: false, null, "corr-1", CancellationToken.None);
@@ -120,17 +121,8 @@ public sealed class EntitlementSubscriberScopeTests
     [Fact]
     public async Task One_subscribers_allowance_is_never_served_to_another()
     {
-        _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId, OrganizationId, "user-a",
-                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([UserSubscription(), OrganizationSubscription()]);
-
-        _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId, OrganizationId, "user-b",
-                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([OrganizationSubscription()]);
+        GivenSeatsFor("user-a", OrganizationSubscription(), UserSubscription());
+        GivenSeatsFor("user-b", OrganizationSubscription());
 
         var service = Service();
 
@@ -174,15 +166,53 @@ public sealed class EntitlementSubscriberScopeTests
                      "holds one subscription and cannot enumerate who cached it");
     }
 
-    private void GivenLive(params SubscriptionDetail[] subscriptions) =>
+    /// <summary>
+    /// Puts the organization's own subscription in place, and gives the acting user these seats.
+    /// </summary>
+    private void GivenLive(SubscriptionDetail organization, params SubscriptionDetail[] seats) =>
+        GivenSeatsFor(_actingUserId, organization, seats);
+
+    private void GivenSeatsFor(
+        string userId,
+        SubscriptionDetail? organization,
+        params SubscriptionDetail[] seats)
+    {
         _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId, OrganizationId, It.IsAny<string>(),
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId,
                 It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(subscriptions);
+            .ReturnsAsync(organization);
+
+        _assignments
+            .Setup(repository => repository.ListSubscriptionIdsForUserAsync(
+                TenantId, OrganizationId, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([.. seats.Select(seat => seat.ItemId)]);
+
+        foreach (var seat in seats)
+        {
+            var held = seat;
+
+            _subscriptions
+                .Setup(repository => repository.ListLiveByIdsAsync(
+                    TenantId,
+                    It.Is<IReadOnlyCollection<string>>(ids => ids.Contains(held.ItemId)),
+                    It.IsAny<DateTime>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync([held]);
+        }
+
+        _subscriptions
+            .Setup(repository => repository.ListLiveByIdsAsync(
+                TenantId,
+                It.Is<IReadOnlyCollection<string>>(ids => ids.Count == 0),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+    }
 
     private EntitlementService Service() => new(
         _subscriptions.Object,
+        _assignments.Object,
         _usage.Object,
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,
