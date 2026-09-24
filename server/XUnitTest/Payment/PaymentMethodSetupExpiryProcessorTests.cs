@@ -165,6 +165,7 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
                 It.IsAny<string>(),
                 It.IsAny<DateTime>(),
                 null,
+                It.IsAny<string?>(),
                 It.IsAny<PaymentOutboxEvent>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
@@ -181,6 +182,7 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
                 It.IsAny<string>(),
                 It.IsAny<DateTime>(),
                 null,
+                It.IsAny<string?>(),
                 It.IsAny<PaymentOutboxEvent>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
@@ -224,6 +226,7 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
             repository => repository.ApplyAuthorisationAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<decimal>(),
                 It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(), null,
+                It.IsAny<string?>(),
                 It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -266,6 +269,7 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
                 It.IsAny<string>(),
                 It.IsAny<DateTime>(),
                 null,
+                It.IsAny<string?>(),
                 It.IsAny<PaymentOutboxEvent>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
@@ -275,12 +279,12 @@ public sealed class PaymentMethodSetupExpiryProcessorTests
         _payments.Verify(
             repository => repository.ApplyAuthorisationAsync(
                 "tenant-1", "payment-1", true, 0m, false, It.IsAny<string>(), It.IsAny<DateTime>(),
-                null, It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
+                null, It.IsAny<string?>(), It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
         _payments.Verify(
             repository => repository.ApplyAuthorisationAsync(
                 "tenant-1", "payment-2", true, 0m, false, It.IsAny<string>(), It.IsAny<DateTime>(),
-                null, It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
+                null, It.IsAny<string?>(), It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
         _payments.Verify(
             repository => repository.GetSetupsReadyForCompletionAsync(

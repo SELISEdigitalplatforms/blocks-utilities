@@ -235,6 +235,7 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             payload.PspReference,
             webhook.EventDateUtc,
             instrument,
+            payload.ProviderFailureCode,
             outbox,
             cancellationToken);
 
@@ -242,6 +243,15 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
             "Webhook atomic payment transition completed Applied={Applied} TargetPaymentStatus={TargetPaymentStatus} ReasonWhenNotApplied=duplicate_or_stale_event",
             transitionApplied,
             status);
+
+        if (transitionApplied && !payload.Success.Value)
+        {
+            _logger.LogWarning(
+                "Payment refused by provider Provider={Provider} FailureCode={FailureCode} PaymentHash={PaymentHash}",
+                PaymentLogValue.Label(webhook.ProviderName),
+                PaymentLogValue.Label(payload.ProviderFailureCode),
+                PaymentLogValue.Hash(payment.ItemId));
+        }
 
         _logger.LogInformation(
             "Webhook stored payment method synchronization started Source=authorisation");

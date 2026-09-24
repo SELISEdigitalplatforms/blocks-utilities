@@ -187,6 +187,18 @@ public sealed class PaymentMethodSetupTests
         harness.Operations.Should().Equal(["store-card", "publish-confirmation"]);
     }
 
+    [Fact]
+    public async Task A_failed_setup_records_the_provider_decline_reason()
+    {
+        var harness = new TransitionHarness(SetupRecord());
+        var declined = SetupEvent(succeeded: false);
+        declined.NormalizedPayload.ProviderFailureCode = "do_not_honor";
+
+        await harness.ApplyAsync(declined);
+
+        harness.FailureCode.Should().Be("do_not_honor");
+    }
+
     /// <summary>
     /// A session expires after it has been used, or the events arrive out of order. Either way
     /// the card is stored and the subscription may already be running.
@@ -399,6 +411,7 @@ public sealed class PaymentMethodSetupTests
                     It.IsAny<string>(),
                     It.IsAny<DateTime>(),
                     It.IsAny<PaymentInstrument?>(),
+                    It.IsAny<string?>(),
                     It.IsAny<PaymentOutboxEvent>(),
                     It.IsAny<CancellationToken>()))
                 .Returns(
@@ -411,6 +424,7 @@ public sealed class PaymentMethodSetupTests
                         string _,
                         DateTime _,
                         PaymentInstrument? _,
+                        string? failureCode,
                         PaymentOutboxEvent outboxEvent,
                         CancellationToken _) =>
                     {
@@ -429,6 +443,7 @@ public sealed class PaymentMethodSetupTests
                         Authorised = authorized;
                         AuthorisedAmount = amount;
                         CapturedAutomatically = captured;
+                        FailureCode = failureCode;
                         return Task.FromResult(true);
                     });
 
@@ -452,6 +467,8 @@ public sealed class PaymentMethodSetupTests
         public decimal AuthorisedAmount { get; private set; }
 
         public bool CapturedAutomatically { get; private set; }
+
+        public string? FailureCode { get; private set; }
 
         public bool StoredCard { get; private set; }
 

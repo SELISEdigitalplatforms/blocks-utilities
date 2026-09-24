@@ -78,6 +78,7 @@ internal static class PaymentMethodSetupCompletion
             payment.PspReference ?? string.Empty,
             eventDateUtc,
             instrument: null,
+            failureCode: null,
             outbox,
             cancellationToken);
     }
