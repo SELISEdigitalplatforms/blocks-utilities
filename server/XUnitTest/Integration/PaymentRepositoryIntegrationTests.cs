@@ -482,6 +482,7 @@ public sealed class PaymentRepositoryIntegrationTests
         var ok = await _repository.ApplyAuthorisationAsync(
             tenantId, payment.ItemId, authorized: true, authorizedAmount: 100m,
             capturedAutomatically: true, "psp-auth", DateTime.UtcNow, null,
+            null,
             NewOutboxEvent(), CancellationToken.None);
 
         ok.Should().BeTrue();
@@ -502,10 +503,36 @@ public sealed class PaymentRepositoryIntegrationTests
         await _repository.ApplyAuthorisationAsync(
             tenantId, payment.ItemId, authorized: false, authorizedAmount: 0m,
             capturedAutomatically: false, "psp-ref", DateTime.UtcNow, null,
+            "do_not_honor",
             NewOutboxEvent(), CancellationToken.None);
 
         var stored = await _repository.GetByIdAsync(tenantId, payment.ItemId, CancellationToken.None);
         stored!.PaymentStatus.Should().Be(PaymentStatuses.Refused);
+        stored.FailureCode.Should().Be("do_not_honor");
+    }
+
+    [Fact]
+    public async Task ApplyAuthorisation_success_after_refusal_clears_failure_code()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var payment = NewPayment(tenantId);
+        await _repository.TryCreateAsync(payment, CancellationToken.None);
+        var refusedAt = DateTime.UtcNow;
+
+        await _repository.ApplyAuthorisationAsync(
+            tenantId, payment.ItemId, authorized: false, authorizedAmount: 0m,
+            capturedAutomatically: false, "psp-ref", refusedAt, null,
+            "do_not_honor",
+            NewOutboxEvent(), CancellationToken.None);
+        await _repository.ApplyAuthorisationAsync(
+            tenantId, payment.ItemId, authorized: true, authorizedAmount: 100m,
+            capturedAutomatically: false, "psp-ref-2", refusedAt.AddSeconds(1), null,
+            "ignored_on_success",
+            NewOutboxEvent(), CancellationToken.None);
+
+        var stored = await _repository.GetByIdAsync(tenantId, payment.ItemId, CancellationToken.None);
+        stored!.PaymentStatus.Should().Be(PaymentStatuses.Authorized);
+        stored.FailureCode.Should().BeNull();
     }
 
     [Fact]

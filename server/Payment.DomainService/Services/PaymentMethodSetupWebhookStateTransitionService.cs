@@ -176,7 +176,7 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
                 return;
             }
 
-            await FinalizeFailureAsync(webhook, payment, payload.PspReference!, cancellationToken);
+            await FinalizeFailureAsync(webhook, payment, payload.PspReference!, payload.ProviderFailureCode, cancellationToken);
             return;
         }
 
@@ -261,6 +261,7 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
         PaymentWebhookInbox webhook,
         PaymentDetail payment,
         string pspReference,
+        string? failureCode,
         CancellationToken cancellationToken)
     {
         var outbox = _events.Create(
@@ -283,6 +284,7 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
             pspReference,
             webhook.EventDateUtc,
             null,
+            failureCode,
             outbox,
             cancellationToken);
 
@@ -291,6 +293,15 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
             "PaymentHash={PaymentHash} ReasonWhenNotApplied=duplicate_or_stale_event",
             applied,
             PaymentLogValue.Hash(payment.ItemId));
+
+        if (applied)
+        {
+            _logger.LogWarning(
+                "Card setup refused by provider Provider={Provider} FailureCode={FailureCode} PaymentHash={PaymentHash}",
+                PaymentLogValue.Label(webhook.ProviderName),
+                PaymentLogValue.Label(failureCode),
+                PaymentLogValue.Hash(payment.ItemId));
+        }
     }
 
     private static bool IsSettled(PaymentDetail payment) =>

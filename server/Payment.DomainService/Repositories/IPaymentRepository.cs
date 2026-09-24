@@ -156,6 +156,7 @@ public interface IPaymentRepository
         string pspReference,
         DateTime eventDateUtc,
         PaymentInstrument? instrument,
+        string? failureCode,
         PaymentOutboxEvent outboxEvent,
         CancellationToken cancellationToken);
     Task<List<PaymentDetail>> GetPaymentsWithDueOutboxEventsAsync(string tenantId, DateTime utcNow, int limit, CancellationToken cancellationToken);

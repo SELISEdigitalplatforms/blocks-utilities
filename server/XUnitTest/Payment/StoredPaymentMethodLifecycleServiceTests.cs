@@ -128,7 +128,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             repository => repository.ApplyAuthorisationAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<decimal>(),
                 It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(),
-                It.IsAny<PaymentInstrument?>(), It.IsAny<PaymentOutboxEvent>(),
+                It.IsAny<PaymentInstrument?>(), It.IsAny<string?>(), It.IsAny<PaymentOutboxEvent>(),
                 It.IsAny<CancellationToken>()),
             Times.Never,
             "the authorisation signal has not arrived yet, so the setup must not be reported " +
@@ -173,7 +173,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             .Setup(repository => repository.ApplyAuthorisationAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<decimal>(),
                 It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(),
-                It.IsAny<PaymentInstrument?>(), It.IsAny<PaymentOutboxEvent>(),
+                It.IsAny<PaymentInstrument?>(), It.IsAny<string?>(), It.IsAny<PaymentOutboxEvent>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -183,6 +183,7 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
             repository => repository.ApplyAuthorisationAsync(
                 "tenant-1", "payment-1", true, 0m, false,
                 It.IsAny<string>(), It.IsAny<DateTime>(), null,
+                It.IsAny<string?>(),
                 It.Is<PaymentOutboxEvent>(outboxEvent =>
                     outboxEvent.DeduplicationKey == "payment-1:PaymentMethodSetupSucceeded:setup-ready"),
                 It.IsAny<CancellationToken>()),

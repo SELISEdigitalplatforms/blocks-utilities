@@ -199,6 +199,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
                 "psp",
                 It.IsAny<DateTime>(),
                 It.Is<PaymentInstrument>(i => i.Brand == "visa" && i.LastFour == "4242"),
+                It.IsAny<string?>(),
                 It.IsAny<PaymentOutboxEvent>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true)
@@ -208,6 +209,44 @@ public sealed class PaymentWebhookStateTransitionServiceTests
 
         _payments.Verify();
         _storedPaymentMethods.Verify(s => s.ApplyAuthorisationTokenAsync(webhook, payment, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("do_not_honor")]
+    [InlineData(null)]
+    public async Task ApplyAsync_Refusal_PassesProviderFailureCodeThrough(string? failureCode)
+    {
+        var webhook = Webhook(WebhookIntent.Authorization, payload: new PaymentWebhookPayload
+        {
+            PaymentDetailId = "pay-1",
+            PspReference = "psp",
+            Success = false,
+            AmountMinorUnits = 1000,
+            CurrencyCode = "EUR",
+            PaymentMethodType = "scheme",
+            ProviderFailureCode = failureCode
+        });
+        _payments.Setup(p => p.GetByIdAsync("tenant", "pay-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentDetail
+            {
+                ItemId = "pay-1",
+                TenantId = "tenant",
+                CurrencyCode = "EUR",
+                PreciseAmount = 10,
+                CaptureMode = "MANUAL"
+            });
+        SetupConvert(10, "EUR", 1000);
+        _payments.Setup(p => p.ApplyAuthorisationAsync(
+                "tenant", "pay-1", false, 10, false, "psp",
+                It.IsAny<DateTime>(), It.IsAny<PaymentInstrument>(),
+                failureCode,
+                It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true)
+            .Verifiable();
+
+        await CreateService().ApplyAsync(webhook, CancellationToken.None);
+
+        _payments.Verify();
     }
 
     /// <summary>
@@ -226,7 +265,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _payments.Verify(p => p.ApplyAuthorisationAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<decimal>(),
             It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<DateTime>(),
-            It.IsAny<PaymentInstrument?>(), It.IsAny<PaymentOutboxEvent>(),
+            It.IsAny<PaymentInstrument?>(), It.IsAny<string?>(), It.IsAny<PaymentOutboxEvent>(),
             It.IsAny<CancellationToken>()), Times.Never);
         _storedPaymentMethods.Verify(s => s.ApplyAuthorisationTokenAsync(
             It.IsAny<PaymentWebhookInbox>(), It.IsAny<PaymentDetail>(),
@@ -245,6 +284,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _payments.Setup(p => p.ApplyAuthorisationAsync(
                 "tenant", "pay-1", false, 10, It.IsAny<bool>(), "pi_1", It.IsAny<DateTime>(),
                 It.IsAny<PaymentInstrument?>(),
+                It.IsAny<string?>(),
                 It.Is<PaymentOutboxEvent>(e => e.EventType == PaymentConstants.PaymentRefused),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true)
@@ -314,6 +354,7 @@ public sealed class PaymentWebhookStateTransitionServiceTests
         _payments.Setup(p => p.ApplyAuthorisationAsync(
                 "tenant", "pay-1", true, 10, expectedCaptured, "psp",
                 It.IsAny<DateTime>(), It.IsAny<PaymentInstrument>(),
+                It.IsAny<string?>(),
                 It.IsAny<PaymentOutboxEvent>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true)
             .Verifiable();
