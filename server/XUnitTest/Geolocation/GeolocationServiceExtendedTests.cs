@@ -164,35 +164,21 @@ namespace XUnitTest.Geolocation
         #region LocateIpAsync Edge Cases
 
         [Fact]
-        public async Task LocateIpAsync_ShouldReturnEmpty_WhenRepositoryReturnsNull()
+        public async Task LocateIpAsync_ShouldReportFailure_WhenNothingCouldBeResolved()
         {
             // Arrange
             var request = new LocateIpRequest { IpAddresses = new List<string> { "8.8.8.8" } };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), false))
-                .ReturnsAsync((IpLookup[]?)null!);
-
-            // Act
-            var result = await _service.LocateIpAsync(request);
-
-            // Assert
-            result.IsSuccess.Should().BeTrue();
-            result.IpLookups.Should().BeNull();
-        }
-
-        [Fact]
-        public async Task LocateIpAsync_ShouldReturnEmpty_WhenRepositoryReturnsEmptyArray()
-        {
-            // Arrange
-            var request = new LocateIpRequest { IpAddresses = new List<string> { "8.8.8.8" } };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), false))
+            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Array.Empty<IpLookup>());
 
             // Act
             var result = await _service.LocateIpAsync(request);
 
             // Assert
-            result.IsSuccess.Should().BeTrue();
-            result.IpLookups.Should().BeEmpty();
+            result.IsSuccess.Should().BeFalse(
+                because: "an empty success cannot be told apart from a provider outage by the "
+                    + "caller, and the audit records that consume this need that distinction");
+            result.ErrorMessage.Should().Contain("could not be located");
         }
 
         [Theory]
@@ -207,7 +193,7 @@ namespace XUnitTest.Geolocation
             var ipAddresses = Enumerable.Range(1, count).Select(i => $"8.8.8.{i}").ToList();
             var request = new LocateIpRequest { IpAddresses = ipAddresses };
             var mockLookups = ipAddresses.Select(ip => new IpLookup { StartIp = ip }).ToArray();
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, false))
+            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(mockLookups);
 
             // Act
@@ -223,38 +209,22 @@ namespace XUnitTest.Geolocation
         #region LocateAsync Edge Cases
 
         [Fact]
-        public async Task LocateAsync_ShouldHandleException_FromRepository()
+        public async Task LocateAsync_ShouldCapTheForwardedChain_AtTenAddresses()
         {
             // Arrange
-            var request = new LocateRequest { UseCustomProvider = false };
-            var ipAddresses = new[] { "8.8.8.8" };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, false))
-                .ThrowsAsync(new Exception("Database connection failed"));
-
-            // Act
-            var result = await _service.LocateAsync(request, ipAddresses);
-
-            // Assert
-            result.IsSuccess.Should().BeFalse();
-            result.ErrorMessage.Should().Contain("Failed to locate");
-        }
-
-        [Theory]
-        [InlineData(true)]
-        [InlineData(false)]
-        public async Task LocateAsync_ShouldPassCustomProviderFlag(bool useCustomProvider)
-        {
-            // Arrange
-            var request = new LocateRequest { UseCustomProvider = useCustomProvider };
-            var ipAddresses = new[] { "8.8.8.8" };
-            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, useCustomProvider))
+            var ipAddresses = Enumerable.Range(1, 25).Select(i => $"8.8.8.{i}").ToArray();
+            IEnumerable<string>? forwarded = null;
+            _mockRepository.Setup(r => r.ResolveMultipleIpsToCountryAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+                .Callback((IEnumerable<string> ips, CancellationToken _) => forwarded = ips.ToList())
                 .ReturnsAsync(new IpLookup[] { new IpLookup() });
 
             // Act
-            await _service.LocateAsync(request, ipAddresses);
+            await _service.LocateAsync(new LocateRequest(), ipAddresses);
 
             // Assert
-            _mockRepository.Verify(r => r.ResolveMultipleIpsToCountryAsync(ipAddresses, useCustomProvider), Times.Once);
+            forwarded.Should().HaveCount(10,
+                because: "X-Forwarded-For is client-supplied, so a caller could otherwise hand us "
+                    + "a hundred addresses and spend a hundred rate-limited provider calls");
         }
 
         #endregion
@@ -337,29 +307,14 @@ namespace XUnitTest.Geolocation
             // Arrange & Act
             var request = new LocateIpRequest
             {
-                IpAddresses = new List<string> { "8.8.8.8", "1.1.1.1" },
-                UseCustomProvider = true
+                IpAddresses = new List<string> { "8.8.8.8", "1.1.1.1" }
             };
 
             // Assert
             request.IpAddresses.Should().HaveCount(2);
-            request.UseCustomProvider.Should().BeTrue();
         }
 
         #endregion
 
-        #region LocateRequest Tests
-
-        [Fact]
-        public void LocateRequest_ShouldHaveDefaultUseCustomProviderFalse()
-        {
-            // Arrange & Act
-            var request = new LocateRequest();
-
-            // Assert
-            request.UseCustomProvider.Should().BeFalse();
-        }
-
-        #endregion
     }
 }

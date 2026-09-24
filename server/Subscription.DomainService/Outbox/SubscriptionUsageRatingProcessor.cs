@@ -509,6 +509,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             {
                 MeterKey = meter.MeterKey,
                 OverageQuantity = overageQuantity,
+                IncludedQuantity = allowance,
+                UsedQuantity = balance,
                 AmountMinor = allocations.TotalAmountMinor
             });
         }

@@ -138,6 +138,13 @@ public sealed class SubscriptionUsageRatingProcessorTests
         _createdInvoice.TotalAmountMinor.Should().Be(2_000);
         _createdInvoice.Lines.Should().ContainSingle(line => line.MeterKey == "screening");
         _createdInvoice.NextAttemptAtUtc.Should().NotBeNull();
+
+        // What the invoice document states the overage against: the window's allowance and
+        // everything used in it, as rated -- not recomputed from the plan at issue time.
+        var screening = _createdInvoice.Lines.Single();
+        screening.IncludedQuantity.Should().Be(500);
+        screening.UsedQuantity.Should().Be(700);
+        screening.OverageQuantity.Should().Be(200);
     }
 
     [Fact]

@@ -1774,14 +1774,17 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 // Named only where there is more than one, because "units 1-500" beside a plan
                 // that has exactly one rate answers a question nobody asked.
                 var band = namesBands
-                    ? $" (units {MeterQuantity.Describe(allocation.FromOverageQuantity)}" +
+                    ? $" (overage units {MeterQuantity.Describe(allocation.FromOverageQuantity)}" +
                         $"–{MeterQuantity.Describe(allocation.ToOverageQuantity)})"
                     : string.Empty;
 
                 lines.Add(new FinancialDocumentLine
                 {
+                    // Says what the charge is: usage past what the plan included, not the usage
+                    // itself. "Metered usage" alone read as a bill for every unit used.
                     Description =
-                        $"Metered usage on {terms.Subject.PlanName} — {MeterLabel(meter)}{band}",
+                        $"Overage on {terms.Subject.PlanName} — {MeterLabel(meter)}{band}: " +
+                        BeyondAllowance(line),
                     Quantity = allocation.Units,
                     UnitAmountMinor = allocation.UnitAmountMinor,
                     AmountMinor = banded[index]
@@ -1791,6 +1794,20 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         return lines.Count > 0 ? lines : null;
     }
+
+    /// <summary>
+    /// What an overage line was measured against, in the subscriber's terms: "usage beyond the
+    /// 550.55 included (1150 used)".
+    /// </summary>
+    /// <remarks>
+    /// Figures only when rating recorded them. A line rated before they were kept still says it is
+    /// overage, without numbers it would have to reconstruct from today's plan.
+    /// </remarks>
+    private static string BeyondAllowance(UsageInvoiceLine line) =>
+        line is { IncludedQuantity: { } included, UsedQuantity: { } used }
+            ? $"usage beyond the {MeterQuantity.Describe(included)} included " +
+              $"({MeterQuantity.Describe(used)} used)"
+            : "usage beyond the included allowance";
 
     /// <summary>What a meter is called on an invoice: its display name, or its key where it has none.</summary>
     private static string MeterLabel(PlanMeter meter) =>
@@ -1850,7 +1867,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             [
                 new FinancialDocumentLine
                 {
-                    Description = $"Metered usage on {terms.Subject.PlanName}",
+                    Description =
+                        $"Overage on {terms.Subject.PlanName}: usage beyond the included allowance",
                     AmountMinor = amounts.NetSubtotalMinor
                 }
             ];
