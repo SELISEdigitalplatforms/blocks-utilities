@@ -33,19 +33,6 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
         _merchants = new SubscriptionMerchantProfileRepository(fixture.DbContextProvider);
     }
 
-    /// <summary>
-    /// A sweep cursor name no other test shares.
-    /// </summary>
-    /// <remarks>
-    /// A cursor document's <c>_id</c> is its name and nothing else -- correct in production, where a
-    /// tenant is its own database and the name is unique within it. The harness maps every tenant
-    /// onto one database, so a literal shared between tests is one document they all read and write,
-    /// and <c>NewTenantId</c> isolates nothing: neither the id nor the repository's filters mention
-    /// the tenant.
-    /// </remarks>
-    private static string Cursor(string tenantId, string name) =>
-        $"document-{name}-{tenantId}";
-
     [Fact]
     public async Task A_change_that_banks_credit_carries_its_credit_note_in_the_same_write()
     {
@@ -262,7 +249,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
     public async Task A_sweep_mark_only_ever_moves_forward()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var cursor = Cursor(tenantId, "settled-charges");
+        const string cursor = "document-settled-charges";
 
         (await _cursors.GetAsync(tenantId, cursor, CancellationToken.None)).Should().BeNull();
 
@@ -285,7 +272,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
     public async Task A_mark_advances_within_an_instant_because_that_is_how_a_page_makes_progress()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var cursor = Cursor(tenantId, "settled-charges");
+        const string cursor = "document-settled-charges";
 
         var instant = new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc);
 
@@ -310,7 +297,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
     public async Task A_mark_never_moves_backwards_within_an_instant_either()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var cursor = Cursor(tenantId, "trials");
+        const string cursor = "document-trials";
 
         var instant = new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc);
 
@@ -331,7 +318,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
     public async Task Writing_a_mark_that_is_already_behind_does_not_insert_a_second_one()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var cursor = Cursor(tenantId, "refunds");
+        const string cursor = "document-refunds";
 
         var later = new DateTime(2026, 8, 25, 10, 0, 0, DateTimeKind.Utc);
 
@@ -395,7 +382,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
     public async Task Concurrent_workers_cannot_drag_a_mark_backwards_between_them()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var cursor = Cursor(tenantId, "refunds");
+        const string cursor = "document-refunds";
 
         var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -418,7 +405,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
     public async Task The_first_writers_of_a_fresh_mark_do_not_lose_the_furthest_between_them()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var cursor = Cursor(tenantId, "settled-charges");
+        const string cursor = "document-settled-charges";
 
         // No mark at all, which is the case with a race in it. Writing one is a conditional update
         // followed by an insert-only upsert, and those are not one atomic step: every one of these
@@ -444,7 +431,7 @@ public sealed class SubscriptionDocumentSourceIntegrationTests
     public async Task Racing_writers_of_a_fresh_mark_across_instants_keep_the_latest()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var cursor = Cursor(tenantId, "refunds");
+        const string cursor = "document-refunds";
 
         var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 

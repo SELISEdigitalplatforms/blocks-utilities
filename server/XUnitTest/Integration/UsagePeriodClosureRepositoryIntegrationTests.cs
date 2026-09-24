@@ -31,11 +31,11 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         var outcome = await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
 
         outcome.Should().Be(UsageClaimOutcome.Acquired);
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.ActiveWriterCount.Should().Be(1);
         closure.State.Should().Be(UsagePeriodClosureState.Open);
     }
@@ -46,14 +46,14 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         var first = await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
         var retry = await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
 
         first.Should().Be(UsageClaimOutcome.Acquired);
         retry.Should().Be(UsageClaimOutcome.AlreadyClaimed);
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.ActiveWriterCount.Should().Be(1,
             "a retried request must reuse its original claim, not take out a second one");
     }
@@ -63,17 +63,17 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
 
         await _closures.ReleaseClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", CancellationToken.None);
         // A second release for the same key must be a no-op — otherwise a retried release call
         // would drive the count negative.
         await _closures.ReleaseClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", CancellationToken.None);
 
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.ActiveWriterCount.Should().Be(0);
     }
 
@@ -82,11 +82,11 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow.AddMinutes(5), "cancel-1",
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow.AddMinutes(5), "cancel-1",
             CancellationToken.None);
 
         var outcome = await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
 
         outcome.Should().Be(UsageClaimOutcome.Acquired,
             "a reservation on its own does not stop ordinary usage — the cancellation that made " +
@@ -98,16 +98,16 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
         await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         var outcome = await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
 
         outcome.Should().Be(UsageClaimOutcome.Rejected);
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.ActiveWriterCount.Should().Be(0,
             "a rejected claim must never count toward the writer total it was refused against");
     }
@@ -118,15 +118,15 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
         var boundary = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", boundary, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", boundary, "cancel-1", CancellationToken.None);
         await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         var before = await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-before",
+            tenantId, "sub-1", "M20260801T000000Z", "usage-before",
             boundary.AddSeconds(-1), CancellationToken.None);
         var atBoundary = await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-at",
+            tenantId, "sub-1", "M20260801T000000Z", "usage-at",
             boundary, CancellationToken.None);
 
         before.Should().Be(UsageClaimOutcome.Rejected,
@@ -141,12 +141,12 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
 
         var outcomes = await Task.WhenAll(Enumerable.Range(0, 10).Select(index =>
             _closures.TryAcquireClaimAsync(
-                tenantId, Sub(tenantId), "M20260801T000000Z", $"usage-{index}",
+                tenantId, "sub-1", "M20260801T000000Z", $"usage-{index}",
                 DateTime.UtcNow, CancellationToken.None)));
 
         outcomes.Should().OnlyContain(outcome => outcome == UsageClaimOutcome.Acquired);
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.ActiveWriterCount.Should().Be(10,
             "a read-modify-write on the count would lose some of these under real concurrency");
     }
@@ -159,7 +159,7 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
 
         var outcomes = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
             _closures.TryReserveClosingAsync(
-                tenantId, Sub(tenantId), "M20260801T000000Z", boundary, "cancel-1", CancellationToken.None)));
+                tenantId, "sub-1", "M20260801T000000Z", boundary, "cancel-1", CancellationToken.None)));
 
         outcomes.Should().OnlyContain(outcome => outcome == ClosureReservationOutcome.Reserved,
             "the deterministic operation id makes two writers finalizing the same intended " +
@@ -171,10 +171,10 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
 
         var outcome = await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow.AddDays(1), "cancel-2",
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow.AddDays(1), "cancel-2",
             CancellationToken.None);
 
         outcome.Should().Be(ClosureReservationOutcome.ConflictingOperation,
@@ -186,18 +186,18 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
 
         await _closures.TryReleaseReservationAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.State.Should().Be(UsagePeriodClosureState.Open);
         closure.CloseOperationId.Should().BeNull();
 
         var afterRelease = await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-2", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-2", CancellationToken.None);
         afterRelease.Should().Be(ClosureReservationOutcome.Reserved,
             "a released period accepts a fresh reservation exactly as if the first had never " +
             "happened");
@@ -208,13 +208,13 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
 
         await _closures.TryReleaseReservationAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "some-other-operation", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "some-other-operation", CancellationToken.None);
 
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.State.Should().Be(UsagePeriodClosureState.CloseReserved,
             "only the operation that actually holds the reservation may release it");
         closure.CloseOperationId.Should().Be("cancel-1");
@@ -225,13 +225,13 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
 
         await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "some-other-operation", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "some-other-operation", CancellationToken.None);
 
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.State.Should().Be(UsagePeriodClosureState.CloseReserved,
             "only the operation that actually holds the reservation may commit it");
     }
@@ -242,12 +242,12 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
         await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         var closure = await _closures.GetAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.State.Should().Be(UsagePeriodClosureState.Closing);
         closure.ActiveWriterCount.Should().Be(0);
     }
@@ -257,12 +257,12 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
         await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         var outcome = await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         outcome.Should().Be(ClosureCommitOutcome.AlreadyCommitted,
             "a retried commit under the same operation id must converge, not conflict");
@@ -273,10 +273,10 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
 
         var outcome = await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-2", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-2", CancellationToken.None);
 
         outcome.Should().Be(ClosureCommitOutcome.OperationMismatch);
     }
@@ -287,7 +287,7 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         var outcome = await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         outcome.Should().Be(ClosureCommitOutcome.NotFound);
     }
@@ -297,12 +297,12 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
         await _closures.TryReleaseReservationAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         var outcome = await _closures.TryReleaseReservationAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         outcome.Should().Be(ClosureReleaseOutcome.AlreadyReleased);
     }
@@ -312,11 +312,11 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId, "old"), "M20260801T000000Z", DateTime.UtcNow, "cancel-old", CancellationToken.None);
+            tenantId, "sub-old", "M20260801T000000Z", DateTime.UtcNow, "cancel-old", CancellationToken.None);
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId, "new"), "M20260801T000000Z", DateTime.UtcNow, "cancel-new", CancellationToken.None);
+            tenantId, "sub-new", "M20260801T000000Z", DateTime.UtcNow, "cancel-new", CancellationToken.None);
 
-        // Only Sub(tenantId, "old") is old enough to count as stale against a cutoff in the future; Sub(tenantId, "new")
+        // Only "sub-old" is old enough to count as stale against a cutoff in the future; "sub-new"
         // was reserved after that cutoff by definition of having just been reserved now.
         var stale = await _closures.ListStaleReservationsAsync(
             tenantId, DateTime.UtcNow.AddMinutes(1), 10, CancellationToken.None);
@@ -334,9 +334,9 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
         await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
 
         var stale = await _closures.ListStaleReservationsAsync(
             tenantId, DateTime.UtcNow.AddMinutes(1), 10, CancellationToken.None);
@@ -351,17 +351,17 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
 
         // Simulate the crash window: the claim reached ReleasePending, but the process died before
         // the counter decrement or the final Released write happened.
-        await SetClaimStateAsync(tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1",
+        await SetClaimStateAsync(tenantId, "sub-1", "M20260801T000000Z", "usage-1",
             UsagePeriodClaimState.ReleasePending);
 
         await _closures.ReleaseClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", CancellationToken.None);
 
-        var closure = await _closures.GetAsync(tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+        var closure = await _closures.GetAsync(tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.ActiveWriterCount.Should().Be(0,
             "a retry that finds the claim already in ReleasePending must resume from applying " +
             "the decrement, not treat the claim as already finished");
@@ -372,21 +372,21 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
         await _closures.TryAcquireClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", DateTime.UtcNow, CancellationToken.None);
 
         await _closures.ReleaseClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", CancellationToken.None);
 
         // Force the claim back to ReleasePending, as if a retry arrived after the first release
         // had already fully finished — the decrement's own operation id must still stop a second
         // one from being applied.
-        await SetClaimStateAsync(tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1",
+        await SetClaimStateAsync(tenantId, "sub-1", "M20260801T000000Z", "usage-1",
             UsagePeriodClaimState.ReleasePending);
 
         await _closures.ReleaseClaimAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "usage-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "usage-1", CancellationToken.None);
 
-        var closure = await _closures.GetAsync(tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+        var closure = await _closures.GetAsync(tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         closure!.ActiveWriterCount.Should().Be(0,
             "the operation id already applied stops a resumed release from decrementing twice");
     }
@@ -396,22 +396,6 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
     /// repository's own protocol — the only way to put a claim into the middle of a crash window
     /// a real caller could never observe from outside.
     /// </summary>
-    /// <summary>
-    /// A subscription id no other test shares.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="UsagePeriodClosure.CreateId(string, string)"/> is built from the subscription and
-    /// the period alone -- correctly, because in production a tenant is its own database and the id
-    /// is unique within it. The harness maps every tenant onto one database, so a literal shared
-    /// across tests addresses one document from all of them, and <c>NewTenantId</c> buys no
-    /// isolation at all: nothing in the id or the repository's filters mentions the tenant.
-    /// <para>
-    /// Deriving the id from the tenant rather than from a fresh Guid keeps a failing test's
-    /// documents traceable back to the run that wrote them.
-    /// </para>
-    /// </remarks>
-    private static string Sub(string tenantId, string name = "1") => $"sub-{name}-{tenantId}";
-
     private async Task SetClaimStateAsync(
         string tenantId,
         string subscriptionId,
@@ -430,19 +414,19 @@ public sealed class UsagePeriodClosureRepositoryIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         var tooEarly = await _closures.TryMarkClosedAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         tooEarly.Should().BeFalse("nothing has started closing this period yet");
 
         await _closures.TryReserveClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", DateTime.UtcNow, "cancel-1", CancellationToken.None);
         var stillReserved = await _closures.TryMarkClosedAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
         stillReserved.Should().BeFalse("a mere reservation has not committed yet");
 
         await _closures.TryCommitClosingAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", "cancel-1", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", "cancel-1", CancellationToken.None);
         var ready = await _closures.TryMarkClosedAsync(
-            tenantId, Sub(tenantId), "M20260801T000000Z", CancellationToken.None);
+            tenantId, "sub-1", "M20260801T000000Z", CancellationToken.None);
 
         ready.Should().BeTrue();
     }

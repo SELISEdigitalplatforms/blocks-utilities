@@ -37,13 +37,9 @@ public sealed class EntitlementServiceCampaignTests
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
         _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId,
-                OrganizationId,
-                It.IsAny<string>(),
-                It.IsAny<DateTime>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => _subscription is null ? [] : new[] { _subscription });
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => _subscription);
     }
 
     [Fact]

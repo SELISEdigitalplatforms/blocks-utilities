@@ -1874,49 +1874,6 @@ public sealed class SubscriptionCreationServiceTests
             "paper over with the subscriber's own organization");
     }
 
-    [Fact]
-    public async Task An_organization_wise_plan_records_no_subscriber()
-    {
-        await Service().CreateAsync(
-            NewRequest(), Context(), "corr-1", CancellationToken.None);
-
-        _created!.SubscriberUserId.Should().BeEmpty(
-            "empty is the organization-wide subscriber, and stamping the buyer here would move " +
-            "the organization's own subscription onto whoever happened to click subscribe");
-    }
-
-    [Fact]
-    public async Task A_user_wise_plan_records_the_person_it_was_bought_for()
-    {
-        _plan.SubscriberScope = SubscriberScope.User;
-
-        await Service().CreateAsync(
-            NewRequest(), Context(), "corr-1", CancellationToken.None);
-
-        _created!.SubscriberUserId.Should().Be("user-1",
-            "a per-person allowance belongs to a person, and an unstamped one would land on the " +
-            "organization's reservation slot and block it from subscribing for itself");
-    }
-
-    [Fact]
-    public async Task A_user_wise_plan_cannot_be_bought_by_a_caller_carrying_no_user()
-    {
-        _plan.SubscriberScope = SubscriberScope.User;
-
-        var result = await Service().CreateAsync(
-            NewRequest(),
-            new SubscriptionContext(TenantId, OrganizationId, "actor-1", null),
-            "corr-1",
-            CancellationToken.None);
-
-        result.FailureKind.Should().Be(PaymentFailureKind.Validation,
-            "a machine token would otherwise be sold a per-person plan for nobody");
-        _subscriptions.Verify(
-            repository => repository.TryCreateAsync(
-                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-    }
-
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");
 
