@@ -33,7 +33,6 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
         {
             PlanId = plan.ItemId,
             Code = plan.Code,
-            SubscriberScope = plan.SubscriberScope,
             DisplayName = plan.DisplayName,
             Description = plan.Description,
             FamilyCode = plan.FamilyCode,

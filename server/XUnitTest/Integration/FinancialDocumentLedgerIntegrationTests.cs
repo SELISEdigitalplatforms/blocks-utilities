@@ -28,20 +28,6 @@ public sealed class FinancialDocumentLedgerIntegrationTests
         _profiles = new SubscriptionBillingProfileRepository(fixture.DbContextProvider);
     }
 
-    private static int _lastYear = 3000;
-
-    /// <summary>
-    /// A year no other test in this run allocates against.
-    /// </summary>
-    /// <remarks>
-    /// A counter's id is its prefix and year and nothing else -- correct in production, where a
-    /// tenant is its own database. The harness maps every tenant onto one, so a year shared between
-    /// tests is one counter they all increment, and whichever ran second saw 000002 where it
-    /// expected 000001. Handing each test its own year restores exactly the isolation a tenant's
-    /// own database gives it in production.
-    /// </remarks>
-    private static int NewYear() => Interlocked.Increment(ref _lastYear);
-
     [Fact]
     public async Task One_source_can_only_ever_have_one_document()
     {
@@ -85,70 +71,62 @@ public sealed class FinancialDocumentLedgerIntegrationTests
     public async Task Numbers_are_unique_under_concurrency_and_start_at_one_each_year()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var year = NewYear();
 
         var allocated = await Task.WhenAll(
             Enumerable.Range(0, 40).Select(_ =>
                 _numbers.AllocateAsync(
                     tenantId,
                     FinancialDocumentType.Invoice,
-                    year,
+                    2026,
                     CancellationToken.None)));
 
         // Forty concurrent allocations, forty distinct numbers. This is the whole point of
         // findAndModify with $inc rather than read-then-write.
         allocated.Distinct(StringComparer.Ordinal).Should().HaveCount(40);
-        allocated.Should().Contain($"INV-{year}-000001");
-        allocated.Should().Contain($"INV-{year}-000040");
+        allocated.Should().Contain("INV-2026-000001");
+        allocated.Should().Contain("INV-2026-000040");
     }
 
-    /// <remarks>
-    /// One tenant's numbering says nothing about another's, but that is not asserted here and
-    /// cannot be: a counter's id is its prefix and year, unique within the database a tenant owns
-    /// in production, while this harness deliberately maps every tenant onto one. A test written
-    /// against it would be checking the harness, not the allocator.
-    /// </remarks>
     [Fact]
-    public async Task Each_year_and_document_type_counts_separately()
+    public async Task Each_year_prefix_and_tenant_counts_separately()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var year = NewYear();
-
-        // Taken from the same source rather than as year + 1: an adjacent year is one this test
-        // never claimed, and the next test to ask for one would be handed a counter this had
-        // already advanced.
-        var anotherYear = NewYear();
+        var otherTenantId = MongoIntegrationFixture.NewTenantId();
 
         (await _numbers.AllocateAsync(
-                tenantId, FinancialDocumentType.Invoice, year, CancellationToken.None))
-            .Should().Be($"INV-{year}-000001");
+                tenantId, FinancialDocumentType.Invoice, 2026, CancellationToken.None))
+            .Should().Be("INV-2026-000001");
 
         // A new year resets to one with nobody running a job, because the year is part of the
         // counter's identity rather than something filtered on.
         (await _numbers.AllocateAsync(
-                tenantId, FinancialDocumentType.Invoice, anotherYear, CancellationToken.None))
-            .Should().Be($"INV-{anotherYear}-000001");
+                tenantId, FinancialDocumentType.Invoice, 2027, CancellationToken.None))
+            .Should().Be("INV-2027-000001");
 
         // Credit notes have their own series, so an invoice and a credit note never share a number.
         (await _numbers.AllocateAsync(
-                tenantId, FinancialDocumentType.CreditNote, year, CancellationToken.None))
-            .Should().Be($"CRN-{year}-000001");
+                tenantId, FinancialDocumentType.CreditNote, 2026, CancellationToken.None))
+            .Should().Be("CRN-2026-000001");
+
+        // And one tenant's numbering says nothing about another's.
+        (await _numbers.AllocateAsync(
+                otherTenantId, FinancialDocumentType.Invoice, 2026, CancellationToken.None))
+            .Should().Be("INV-2026-000001");
     }
 
     [Fact]
     public async Task A_trial_invoice_is_numbered_in_the_invoice_series()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
-        var year = NewYear();
 
         await _numbers.AllocateAsync(
-            tenantId, FinancialDocumentType.Invoice, year, CancellationToken.None);
+            tenantId, FinancialDocumentType.Invoice, 2026, CancellationToken.None);
 
-        // A subscriber whose first document is INV-000001 and whose second is INV-000002 can see
-        // they have all of them. A third series would start their invoice numbering at 1 twice.
+        // A subscriber whose first document is INV-2026-000001 and whose second is INV-2026-000002
+        // can see they have all of them. A third series would start their invoice numbering at 1 twice.
         (await _numbers.AllocateAsync(
-                tenantId, FinancialDocumentType.TrialInvoice, year, CancellationToken.None))
-            .Should().Be($"INV-{year}-000002");
+                tenantId, FinancialDocumentType.TrialInvoice, 2026, CancellationToken.None))
+            .Should().Be("INV-2026-000002");
     }
 
     [Fact]
