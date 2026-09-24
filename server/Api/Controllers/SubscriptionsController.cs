@@ -31,6 +31,7 @@ public sealed class SubscriptionsController : ControllerBase
     private readonly ISubscriptionPlanChangeService _planChange;
     private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
     private readonly ISubscriptionQuantityChangeService _quantityChange;
+    private readonly ISubscriptionSeatService _seats;
     private readonly ISubscriptionFinancialDocumentHistoryService _documents;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionAuditTrail _audit;
@@ -44,6 +45,7 @@ public sealed class SubscriptionsController : ControllerBase
         ISubscriptionInvoiceDocumentService invoiceDocuments,
         ISubscriptionFinancialDocumentHistoryService documents,
         ISubscriptionQuantityChangeService quantityChange,
+        ISubscriptionSeatService seats,
         ISubscriptionContextResolver contextResolver,
         ISubscriptionAuditTrail audit,
         ISubscriptionAuditRepository auditRepository)
@@ -55,6 +57,7 @@ public sealed class SubscriptionsController : ControllerBase
         _invoiceDocuments = invoiceDocuments;
         _documents = documents;
         _quantityChange = quantityChange;
+        _seats = seats;
         _contextResolver = contextResolver;
         _audit = audit;
         _auditRepository = auditRepository;
@@ -498,6 +501,95 @@ public sealed class SubscriptionsController : ControllerBase
         await AuditAsync("StartPaymentMethodSetup", organizationId, subscriptionId,
             result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
             null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>Puts one person on a seat of a user-wise subscription.</summary>
+    /// <remarks>
+    /// The person is named in the body rather than taken from the token, because filling seats on
+    /// behalf of other people is the ordinary case. Which organization's subscription may be
+    /// touched is still decided by the token.
+    /// <para>
+    /// Refused with 409 when every seat bought is already held, and when the named person already
+    /// holds one. The seat count is checked before the write and settled by the database, so two
+    /// administrators filling the last seat together produce one success and one conflict.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{subscriptionId}/seats")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
+    public async Task<IActionResult> AssignSeat(
+        string subscriptionId,
+        [FromBody] AssignSeatRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _seats.AssignAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        await AuditAsync("AssignSeat", null, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>Takes a seat back.</summary>
+    /// <remarks>
+    /// What the holder spent stays on the subscription and is not reset, so whoever takes the seat
+    /// next inherits the remainder of the period. The organization bought a period's allowance; it
+    /// does not renew because the person using it changed.
+    /// <para>
+    /// Allowed on a subscription that has stopped granting, so a seat can still be taken back from
+    /// somebody who has left after it lapses.
+    /// </para>
+    /// </remarks>
+    [HttpDelete("{subscriptionId}/seats/{userId}")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
+    public async Task<IActionResult> ReleaseSeat(
+        string subscriptionId,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _seats.ReleaseAsync(
+            subscriptionId, userId, correlationId, cancellationToken);
+
+        await AuditAsync("ReleaseSeat", null, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>Who holds this subscription's seats, and how many remain.</summary>
+    /// <remarks>
+    /// The remaining count is what it was a moment ago rather than a promise about the next
+    /// assignment: only the database settles a race for the last seat. It is here so an
+    /// administrator can see how full a subscription is.
+    /// </remarks>
+    [HttpGet("{subscriptionId}/seats")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatsResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatsResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::read")]
+    public async Task<IActionResult> GetSeats(
+        string subscriptionId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _seats.ListAsync(subscriptionId, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

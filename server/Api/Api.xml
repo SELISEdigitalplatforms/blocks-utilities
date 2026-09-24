@@ -1082,6 +1082,39 @@
             </para>
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.AssignSeat(System.String,Subscription.DomainService.Requests.AssignSeatRequest,System.Threading.CancellationToken)">
+            <summary>Puts one person on a seat of a user-wise subscription.</summary>
+            <remarks>
+            The person is named in the body rather than taken from the token, because filling seats on
+            behalf of other people is the ordinary case. Which organization's subscription may be
+            touched is still decided by the token.
+            <para>
+            Refused with 409 when every seat bought is already held, and when the named person already
+            holds one. The seat count is checked before the write and settled by the database, so two
+            administrators filling the last seat together produce one success and one conflict.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ReleaseSeat(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>Takes a seat back.</summary>
+            <remarks>
+            What the holder spent stays on the subscription and is not reset, so whoever takes the seat
+            next inherits the remainder of the period. The organization bought a period's allowance; it
+            does not renew because the person using it changed.
+            <para>
+            Allowed on a subscription that has stopped granting, so a seat can still be taken back from
+            somebody who has left after it lapses.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetSeats(System.String,System.Threading.CancellationToken)">
+            <summary>Who holds this subscription's seats, and how many remain.</summary>
+            <remarks>
+            The remaining count is what it was a moment ago rather than a promise about the next
+            assignment: only the database settles a race for the last seat. It is here so an
+            administrator can see how full a subscription is.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetAuditTrail(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
             <summary>Returns the immutable lifecycle trail used to investigate this subscription.</summary>
             <remarks>
