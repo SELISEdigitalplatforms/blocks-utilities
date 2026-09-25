@@ -1281,6 +1281,22 @@
             mode cannot change the shape a consumer parses.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.GetMine(System.String,System.Threading.CancellationToken)">
+            <summary>
+            Current usage for every meter the caller themselves may spend.
+            </summary>
+            <remarks>
+            Beside <c>GET current</c> rather than a flag on it, which goes on answering for the
+            organization's subscription as a whole and is unchanged. This one answers "what may I
+            spend": a seat's own allowance where the caller holds one, the organization's for every
+            meter no seat of theirs covers.
+            <para>
+            One item per meter, chosen exactly as a recording chooses — a seat first, the organization
+            otherwise — so the balance shown is the balance the next call actually draws down. Served
+            from the counters, with no <c>readMode</c>: a seat has no projection to read instead.
+            </para>
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionUsageController.TryParseReadMode(System.String,Subscription.DomainService.Enums.UsageReadMode@)">
             <summary>
             Accepts the mode by name, case-insensitively, and refuses anything else.

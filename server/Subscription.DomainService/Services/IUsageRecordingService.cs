@@ -1,4 +1,4 @@
-using Subscription.DomainService.Enums;
+﻿using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 
@@ -39,6 +39,26 @@ public interface IUsageRecordingService
     Task<SubscriptionOperationResult<UsageCurrentRead>> ReadCurrentAsync(
         string? organizationId,
         UsageReadMode readMode,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What the caller themselves may spend: their own seats' allowances, and their organization's
+    /// for every meter no seat of theirs covers.
+    /// </summary>
+    /// <remarks>
+    /// A separate read rather than a flag on <see cref="ReadCurrentAsync"/>, because the two answer
+    /// different questions. That one answers for the organization's subscription as a whole and is
+    /// built around exactly one of them — it counts the meter-windows the plan should have and
+    /// refuses a projection holding fewer, a judgement with no meaning spread across two plans.
+    /// <para>
+    /// One item per meter, chosen the same way a recording chooses: a seat first, the organization
+    /// otherwise. Anything else would show somebody a balance they are not the one spending.
+    /// Always from the counters, because there is no per-seat projection to prefer.
+    /// </para>
+    /// </remarks>
+    Task<SubscriptionOperationResult<IReadOnlyList<UsageResponse>>> ReadMineAsync(
+        string? organizationId,
         string correlationId,
         CancellationToken cancellationToken);
 }

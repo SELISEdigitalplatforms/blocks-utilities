@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
@@ -224,6 +224,97 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId);
     }
 
+    public async Task<SubscriptionOperationResult<IReadOnlyList<UsageResponse>>> ReadMineAsync(
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<IReadOnlyList<UsageResponse>>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var resolved = await ResolveAllAsync(context, now, cancellationToken);
+
+        if (resolved.Count == 0)
+        {
+            return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "This caller has no active subscription.",
+                correlationId);
+        }
+
+        var items = new List<UsageResponse>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        // In resolution order, which is seats before the organization: the first plan to meter a
+        // key is the one a recording would spend, so it is the one whose balance to report. A later
+        // plan metering the same key is passed over rather than added, because two rows for one
+        // meter leave a reader no way to tell which of them they are about to draw down.
+        foreach (var candidate in resolved)
+        {
+            var read = await ReadAuthoritativeAsync(
+                context,
+                candidate.Subscription,
+                now,
+                correlationId,
+                cancellationToken,
+                candidate.SeatNumber);
+
+            if (!read.IsSuccess)
+            {
+                return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
+                    read.FailureKind,
+                    read.ErrorCode!,
+                    read.ErrorMessage!,
+                    correlationId);
+            }
+
+            foreach (var item in read.Value!)
+            {
+                if (seen.Add(item.MeterKey))
+                {
+                    items.Add(item);
+                }
+            }
+        }
+
+        return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Success(
+            items,
+            correlationId);
+    }
+
+    /// <summary>
+    /// Everything this caller may draw on, seats first, or the organization's own alone when seats
+    /// are not wired up.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedSubscription>> ResolveAllAsync(
+        SubscriptionContext context,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_resolver is not null)
+        {
+            return await _resolver.ResolveAsync(context, nowUtc, cancellationToken);
+        }
+
+        var organization = await _subscriptions.GetLiveAsync(
+            context.TenantId, context.OrganizationId, nowUtc, cancellationToken);
+
+        return organization is null
+            ? []
+            : [new ResolvedSubscription(organization, SeatNumber: null)];
+    }
+
     public async Task<SubscriptionOperationResult<UsageCurrentRead>> ReadCurrentAsync(
         string? organizationId,
         UsageReadMode readMode,
@@ -403,17 +494,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
         DateTime nowUtc,
         CancellationToken cancellationToken)
     {
-        if (_resolver is null)
-        {
-            var organization = await _subscriptions.GetLiveAsync(
-                context.TenantId, context.OrganizationId, nowUtc, cancellationToken);
-
-            return organization is null
-                ? null
-                : new ResolvedSubscription(organization, SeatNumber: null);
-        }
-
-        var resolved = await _resolver.ResolveAsync(context, nowUtc, cancellationToken);
+        var resolved = await ResolveAllAsync(context, nowUtc, cancellationToken);
 
         return SubscriberSubscriptionSelection.ForMeter(resolved, meterKey)
             ?? resolved.FirstOrDefault();
@@ -449,7 +530,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         DateTime now,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? seat = null)
     {
         var windows = new List<(PlanMeter Meter, BillingPeriod Period)>();
 
@@ -473,7 +555,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 .Select(window => SubscriptionUsageCounter.CreateId(
                     subscription.ItemId,
                     window.Meter.MeterKey,
-                    window.Period.Key))
+                    window.Period.Key,
+                    seat))
                 .ToList(),
             cancellationToken);
 
@@ -482,7 +565,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         foreach (var (meter, period) in windows)
         {
             counters.TryGetValue(
-                SubscriptionUsageCounter.CreateId(subscription.ItemId, meter.MeterKey, period.Key),
+                SubscriptionUsageCounter.CreateId(
+                    subscription.ItemId, meter.MeterKey, period.Key, seat),
                 out var counter);
 
             responses.Add(Describe(
@@ -490,7 +574,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 period,
                 counter?.Balance ?? 0,
                 await _allowances.EffectiveAsync(
-                    subscription, meter, period, counter, cancellationToken),
+                    subscription, meter, period, counter, cancellationToken, seat),
                 allowed: true,
                 replayed: false));
         }
