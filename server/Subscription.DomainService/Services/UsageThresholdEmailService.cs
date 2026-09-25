@@ -103,7 +103,9 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
             Purpose = SubscriptionConstants.UsageThresholdMailPurpose,
             Language = SubscriptionConstants.DefaultMailLanguage,
             SubjectDataContext = new Dictionary<string, string>(context),
-            BodyDataContext = context
+            BodyDataContext = context,
+            // The event id: what this service's delivery report and its "queued" line already carry.
+            CorrelationId = lifecycleEvent.EventId
         };
 
         await _messageClient.SendToConsumerAsync(

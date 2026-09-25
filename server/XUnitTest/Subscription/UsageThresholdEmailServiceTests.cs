@@ -48,6 +48,7 @@ public sealed class UsageThresholdEmailServiceTests
             SubscriptionConstants.UsageThresholdMailPurpose);
         queued.Payload.Language.Should().Be("en-US");
         queued.Payload.To.Should().Equal("owner@example.com");
+        queued.Payload.CorrelationId.Should().Be("event-1");
         queued.Payload.BodyDataContext.Should().Contain(new Dictionary<string, string>
         {
             ["DisplayName"] = "Ada Lovelace",
