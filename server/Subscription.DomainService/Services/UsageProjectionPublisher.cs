@@ -428,7 +428,10 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             return 0;
         }
 
-        _logger.LogInformation(
+        // Debug when nothing was written: the backfill refreshes every subscription on every pass,
+        // and an unchanged projection is the normal case, not an event in a subscription's history.
+        _logger.Log(
+            published > 0 ? LogLevel.Information : LogLevel.Debug,
             "Usage projection refreshed TenantId={TenantId} SubscriptionId={SubscriptionId} " +
             "Windows={Windows} Written={Written} CorrelationId={CorrelationId}",
             PaymentLogValue.Id(subscription.TenantId),

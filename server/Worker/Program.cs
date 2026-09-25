@@ -1,6 +1,7 @@
 using Blocks.Genesis;
 using DomainService.Utilities;
 using Payment.DomainService.Commands;
+using Payment.DomainService.Entities;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
@@ -80,6 +81,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddSingleton<
                 IConsumer<SubscriptionLifecycleEvent>,
                 UsageThresholdReachedConsumer>();
+            services.AddSingleton<
+                IConsumer<PaymentLifecycleEvent>,
+                PaymentLifecycleEventConsumer>();
             // Register the test consumer
             services.RegisterUtilityServices();
             services.RegisterPdfGeneratorConsumers();
