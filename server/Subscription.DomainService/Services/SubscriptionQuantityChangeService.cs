@@ -978,7 +978,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 ItemKey = item.ItemKey,
                 UnitLabel = item.UnitLabel,
                 Quantity = item.Quantity,
-                UnitAmountMinor = item.UnitAmountMinor
+                UnitAmountMinor = item.UnitAmountMinor,
+                CountsSeats = item.CountsSeats
             })
             .ToList();
 

@@ -15,6 +15,12 @@ public sealed class PlanQuantityItemRequest
 
     public long DefaultQuantity { get; set; } = 1;
 
+    /// <summary>
+    /// Whether this quantity is how many people may hold a seat. Required on a user-wise plan
+    /// selling more than one quantity, and exactly one item may carry it.
+    /// </summary>
+    public bool CountsSeats { get; set; }
+
     /// <summary>Volume bands, ascending, gap-free from <see cref="MinQuantity"/>. Empty for one flat price.</summary>
     public List<QuantityDiscountTierRequest> QuantityDiscountTiers { get; set; } = [];
 }

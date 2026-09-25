@@ -134,6 +134,26 @@ public sealed class SubscriptionSeatServiceTests
     }
 
     [Fact]
+    public async Task The_marked_quantity_is_the_one_that_counts_people()
+    {
+        _subscription = UserWise(seats: 3, countsSeats: true);
+        _subscription.QuantityItems.Add(new SubscriptionQuantityItem
+        {
+            ItemKey = "workspace",
+            UnitLabel = "workspace",
+            Quantity = 50
+        });
+        _held = 3;
+
+        (await Service().AssignAsync(
+                SubscriptionId, new AssignSeatRequest { UserId = "user-d" },
+                "corr-1", CancellationToken.None))
+            .FailureKind.Should().Be(PaymentFailureKind.Conflict,
+                because: "three seats were sold and three are held — counting the fifty " +
+                         "workspaces as people would hand the plan to forty-seven of them free");
+    }
+
+    [Fact]
     public async Task A_plan_that_does_not_say_which_quantity_counts_people_is_refused()
     {
         _subscription = UserWise(seats: 3);
@@ -141,15 +161,49 @@ public sealed class SubscriptionSeatServiceTests
         {
             ItemKey = "workspace",
             UnitLabel = "workspace",
-            Quantity = 10
+            Quantity = 50
         });
 
         (await Service().AssignAsync(
                 SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Validation,
-                because: "nothing marks a quantity item as the one that counts people, and " +
-                         "guessing would seat them against a figure sold as something else");
+                because: "defaulting to one would seat a single person on a subscription charged " +
+                         "for three, and nothing would fail until the second person could not work");
+    }
+
+    [Fact]
+    public async Task A_plan_marking_two_quantities_as_people_is_refused()
+    {
+        _subscription = UserWise(seats: 3, countsSeats: true);
+        _subscription.QuantityItems.Add(new SubscriptionQuantityItem
+        {
+            ItemKey = "workspace",
+            UnitLabel = "workspace",
+            Quantity = 50,
+            CountsSeats = true
+        });
+
+        (await Service().AssignAsync(
+                SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+                "corr-1", CancellationToken.None))
+            .FailureKind.Should().Be(PaymentFailureKind.Validation,
+                because: "whichever of the two was picked would be arbitrary, and one of them " +
+                         "gives away forty-seven seats");
+    }
+
+    [Fact]
+    public async Task A_single_quantity_needs_no_mark()
+    {
+        _subscription = UserWise(seats: 3);
+        _held = 2;
+
+        (await Service().AssignAsync(
+                SubscriptionId, new AssignSeatRequest { UserId = "user-c" },
+                "corr-1", CancellationToken.None))
+            .IsSuccess.Should().BeTrue(
+                because: "there is nothing to disambiguate, which is what keeps every plan " +
+                         "authored before seats existed working untouched");
     }
 
     [Fact]
@@ -260,7 +314,7 @@ public sealed class SubscriptionSeatServiceTests
         new EntitlementSnapshotCache(new OptionsStub(), _time),
         _time);
 
-    private static SubscriptionDetail UserWise(long? seats) => new()
+    private static SubscriptionDetail UserWise(long? seats, bool countsSeats = false) => new()
     {
         ItemId = SubscriptionId,
         TenantId = TenantId,
@@ -274,7 +328,8 @@ public sealed class SubscriptionSeatServiceTests
             {
                 ItemKey = "seat",
                 UnitLabel = "seat",
-                Quantity = seats.Value
+                Quantity = seats.Value,
+                CountsSeats = countsSeats
             }],
         Plan = new PlanSnapshot
         {

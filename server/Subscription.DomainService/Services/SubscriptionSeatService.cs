@@ -73,8 +73,8 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
             return Failure<SubscriptionSeatResponse>(
                 PaymentFailureKind.Validation,
                 "subscription_seat_count_ambiguous",
-                "This plan carries more than one quantity item, so nothing says which of them " +
-                    "counts people. Sell seats on a plan with a single quantity item.",
+                "This plan sells several quantities and none of them — or more than one — is " +
+                    "marked as the one that counts people. Mark exactly one.",
                 correlationId);
         }
 
@@ -199,21 +199,41 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
     /// How many people this subscription paid to seat, or null when nothing says.
     /// </summary>
     /// <remarks>
-    /// A plan with one quantity item sells that many seats; a plan with none sells one, because a
-    /// user-wise subscription with nothing to count is a single person's plan.
+    /// A plan may sell several quantities — seats, workspaces, whatever else — so the item that
+    /// counts people is the one marked <see cref="SubscriptionQuantityItem.CountsSeats"/>. Nothing
+    /// else on an item distinguishes them: <c>ItemKey</c> is a free string a product chose, and
+    /// reading "seat" out of it would work for one tenant's naming and fail silently for another's.
     /// <para>
-    /// More than one is refused rather than guessed. Nothing on a quantity item marks it as the one
-    /// that counts people, and picking the first — or summing them — would seat people against a
-    /// figure that was sold as something else entirely.
+    /// A plan selling a single quantity needs no mark, which is what keeps every plan authored
+    /// before this from needing an edit. A plan selling none sells one seat, because a user-wise
+    /// subscription with nothing to count is a single person's plan.
+    /// </para>
+    /// <para>
+    /// Several quantities and no mark is refused rather than guessed. Summing them would seat
+    /// people against workspaces nobody sold as seats; taking the first would make the answer
+    /// depend on authoring order; defaulting to one would quietly seat a single person on a
+    /// subscription charged for eight. Each of those is wrong without anything failing, and the
+    /// administrator finds out when the seventh person cannot work.
     /// </para>
     /// </remarks>
-    private static long? PurchasedSeatsOf(SubscriptionDetail subscription) =>
-        subscription.QuantityItems.Count switch
+    private static long? PurchasedSeatsOf(SubscriptionDetail subscription)
+    {
+        if (subscription.QuantityItems.Count == 0)
         {
-            0 => 1,
-            1 => subscription.QuantityItems[0].Quantity,
-            _ => null
-        };
+            return 1;
+        }
+
+        if (subscription.QuantityItems.Count == 1)
+        {
+            return subscription.QuantityItems[0].Quantity;
+        }
+
+        var seating = subscription.QuantityItems
+            .Where(item => item.CountsSeats)
+            .ToList();
+
+        return seating.Count == 1 ? seating[0].Quantity : null;
+    }
 
     /// <summary>
     /// Resolves the caller and the subscription they named, refusing anything not seat-based.

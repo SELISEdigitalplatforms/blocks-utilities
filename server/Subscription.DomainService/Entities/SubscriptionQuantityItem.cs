@@ -20,4 +20,14 @@ public sealed class SubscriptionQuantityItem
     public long Quantity { get; set; }
 
     public long UnitAmountMinor { get; set; }
+
+    /// <summary>
+    /// Whether this is the quantity that says how many people may hold a seat.
+    /// </summary>
+    /// <remarks>
+    /// Snapshotted with the rest, so which item counts people cannot move under a subscription
+    /// that has already seated them. False on every subscription written before seats existed,
+    /// which is correct: none of them sells any.
+    /// </remarks>
+    public bool CountsSeats { get; set; }
 }
