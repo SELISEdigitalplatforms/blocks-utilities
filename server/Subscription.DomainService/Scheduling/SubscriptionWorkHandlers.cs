@@ -354,12 +354,12 @@ public sealed class UsagePeriodClosureWorkHandler : ISubscriptionWorkHandler
             _logger?.LogError(
                 exception,
                 "Usage period closure committed but its projections could not be published; " +
-                "scheduling repairs TenantHash={TenantHash} Subscriptions={Subscriptions} " +
-                "SubscriptionHashes={SubscriptionHashes} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(work.TenantId),
+                "scheduling repairs TenantId={TenantId} Subscriptions={Subscriptions} " +
+                "SubscriptionIds={SubscriptionIds} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(work.TenantId),
                 toRefresh.Count,
                 string.Join(
-                    ",", toRefresh.ConvertAll(id => PaymentLogValue.Hash(id))),
+                    ",", toRefresh.ConvertAll(id => PaymentLogValue.Id(id))),
                 correlationId);
 
             if (_scheduler is not null)

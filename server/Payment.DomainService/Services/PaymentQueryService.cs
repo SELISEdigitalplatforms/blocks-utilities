@@ -156,8 +156,8 @@ public sealed class PaymentQueryService : IPaymentQueryService
             var response = _responseMapper.Map(criteria, page);
 
             _logger.LogInformation(
-                "Payment query completed TenantHash={TenantHash} ActorHash={ActorHash} SortBy={SortBy} SortDirection={SortDirection} PageSize={PageSize} FilterCount={FilterCount} ResultCount={ResultCount} DurationMs={DurationMs}",
-                PaymentLogValue.Hash(context.TenantId),
+                "Payment query completed TenantId={TenantId} ActorHash={ActorHash} SortBy={SortBy} SortDirection={SortDirection} PageSize={PageSize} FilterCount={FilterCount} ResultCount={ResultCount} DurationMs={DurationMs}",
+                PaymentLogValue.Id(context.TenantId),
                 PaymentLogValue.Hash(context.ActorId),
                 PaymentLogValue.Label(criteria.SortBy),
                 PaymentLogValue.Label(criteria.SortDirection),
@@ -180,8 +180,8 @@ public sealed class PaymentQueryService : IPaymentQueryService
         {
             _logger.LogError(
                 exception,
-                "Payment query failed TenantHash={TenantHash} ActorHash={ActorHash} SortBy={SortBy} PageSize={PageSize} FilterCount={FilterCount} DurationMs={DurationMs}",
-                PaymentLogValue.Hash(context.TenantId),
+                "Payment query failed TenantId={TenantId} ActorHash={ActorHash} SortBy={SortBy} PageSize={PageSize} FilterCount={FilterCount} DurationMs={DurationMs}",
+                PaymentLogValue.Id(context.TenantId),
                 PaymentLogValue.Hash(context.ActorId),
                 PaymentLogValue.Label(criteria.SortBy),
                 criteria.PageSize,

@@ -122,6 +122,10 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
         // The identity a consumer suppresses a repeat by. Derived from the document, so a republished
         // mail after a crash carries the same value rather than looking like a second invoice.
         mail.BodyDataContext["MessageId"].Should().Be($"document-mail:{document.ItemId}");
+
+        // And the same value as the correlation id, which the mail service logs and echoes back, so
+        // its lines and its outcome can be matched to this document's mail.
+        mail.CorrelationId.Should().Be($"document-mail:{document.ItemId}");
     }
 
     [Fact]

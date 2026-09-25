@@ -49,11 +49,11 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
     {
         using var scope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["TenantHash"] = PaymentLogValue.Hash(webhook.TenantId),
+            ["TenantId"] = PaymentLogValue.Id(webhook.TenantId),
             ["WebhookIdHash"] = PaymentLogValue.Hash(webhook.WebhookId),
             ["WebhookType"] = PaymentLogValue.Label(webhook.WebhookType),
             ["EventCode"] = PaymentLogValue.Label(webhook.EventCode),
-            ["PaymentDetailIdHash"] = PaymentLogValue.Hash(
+            ["PaymentId"] = PaymentLogValue.Id(
                 webhook.NormalizedPayload.PaymentDetailId),
             ["ProviderEventIdHash"] = PaymentLogValue.Hash(
                 webhook.PspReference ?? webhook.NormalizedPayload.EventId)
@@ -247,10 +247,10 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         if (transitionApplied && !payload.Success.Value)
         {
             _logger.LogWarning(
-                "Payment refused by provider Provider={Provider} FailureCode={FailureCode} PaymentHash={PaymentHash}",
+                "Payment refused by provider Provider={Provider} FailureCode={FailureCode} PaymentId={PaymentId}",
                 PaymentLogValue.Label(webhook.ProviderName),
                 PaymentLogValue.Label(payload.ProviderFailureCode),
-                PaymentLogValue.Hash(payment.ItemId));
+                PaymentLogValue.Id(payment.ItemId));
         }
 
         _logger.LogInformation(

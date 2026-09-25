@@ -127,8 +127,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         }
 
         _logger.LogInformation(
-            "Subscription plan created TenantHash={TenantHash} PlanHash={PlanHash} Code={Code} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            "Subscription plan created TenantId={TenantId} PlanHash={PlanHash} Code={Code} CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(plan.Code),
             correlationId);
@@ -221,8 +221,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         }
 
         _logger.LogInformation(
-            "Subscription plan updated TenantHash={TenantHash} PlanHash={PlanHash} Code={Code} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            "Subscription plan updated TenantId={TenantId} PlanHash={PlanHash} Code={Code} CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(plan.Code),
             correlationId);
@@ -350,9 +350,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             from: CatalogueStatus.Active.ToString(), correlationId, cancellationToken);
 
         _logger.LogInformation(
-            "Subscription plan archived TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
+            "Subscription plan archived TenantId={TenantId} OrganizationHash={OrganizationHash} " +
             "PlanHash={PlanHash} Code={Code} Actor={Actor} Outcome={Outcome} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(plan.Code),
@@ -425,9 +425,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         {
             _logger.LogError(
                 exception,
-                "Subscription plan archive audit write failed TenantHash={TenantHash} " +
+                "Subscription plan archive audit write failed TenantId={TenantId} " +
                 "PlanHash={PlanHash} Outcome={Outcome} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Id(context.TenantId),
                 PaymentLogValue.Hash(planId),
                 outcome,
                 correlationId);
@@ -548,8 +548,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         }
 
         _logger.LogInformation(
-            "Subscription price created TenantHash={TenantHash} PlanHash={PlanHash} Currency={Currency} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            "Subscription price created TenantId={TenantId} PlanHash={PlanHash} Currency={Currency} CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(price.CurrencyCode),
             correlationId);
@@ -711,8 +711,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         }
 
         _logger.LogInformation(
-            "Subscription price archived TenantHash={TenantHash} PlanHash={PlanHash} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            "Subscription price archived TenantId={TenantId} PlanHash={PlanHash} CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(plan.ItemId),
             correlationId);
 
@@ -798,10 +798,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         }
 
         _logger.LogInformation(
-            "Subscription price automatic discount updated TenantHash={TenantHash} "
+            "Subscription price automatic discount updated TenantId={TenantId} "
                 + "PriceHash={PriceHash} BasisPoints={BasisPoints} Combination={Combination} "
                 + "CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(priceId),
             basisPoints ?? 0,
             PaymentLogValue.Label(
@@ -977,9 +977,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         }
 
         _logger.LogInformation(
-            "Subscription plan meter rates updated TenantHash={TenantHash} PlanHash={PlanHash} " +
+            "Subscription plan meter rates updated TenantId={TenantId} PlanHash={PlanHash} " +
                 "MeterKey={MeterKey} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(meterKey),
             correlationId);

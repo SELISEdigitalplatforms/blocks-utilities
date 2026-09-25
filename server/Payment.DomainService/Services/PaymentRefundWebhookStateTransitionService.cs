@@ -133,11 +133,11 @@ public sealed class PaymentRefundWebhookStateTransitionService :
                 cancellationToken);
 
         _logger.LogInformation(
-            "Payment refund webhook transition completed EventCode={EventCode} TargetStatus={TargetStatus} Applied={Applied} PaymentHash={PaymentHash} RefundHash={RefundHash}",
+            "Payment refund webhook transition completed EventCode={EventCode} TargetStatus={TargetStatus} Applied={Applied} PaymentId={PaymentId} RefundHash={RefundHash}",
             PaymentLogValue.Label(webhook.EventCode),
             transition.TargetStatus,
             applied,
-            PaymentLogValue.Hash(payment.ItemId),
+            PaymentLogValue.Id(payment.ItemId),
             PaymentLogValue.Hash(refund.RefundId));
     }
 

@@ -124,8 +124,8 @@ public sealed class SubscriptionOutboxProcessor : ISubscriptionOutboxProcessor
 
         using var logScope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["TenantHash"] = PaymentLogValue.Hash(subscription.TenantId),
-            ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId),
+            ["TenantId"] = PaymentLogValue.Id(subscription.TenantId),
+            ["SubscriptionId"] = PaymentLogValue.Id(subscription.ItemId),
             ["EventType"] = PaymentLogValue.Label(claimed.EventType),
             ["CorrelationId"] = claimed.CorrelationId
         });

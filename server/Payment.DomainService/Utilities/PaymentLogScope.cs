@@ -78,12 +78,12 @@ public static class PaymentLogScope
 
         if (tenantId != null)
         {
-            state["TenantHash"] = PaymentLogValue.Hash(tenantId);
+            state["TenantId"] = PaymentLogValue.Id(tenantId);
         }
 
         if (paymentId != null)
         {
-            state["PaymentDetailId"] = PaymentLogValue.Id(paymentId);
+            state["PaymentId"] = PaymentLogValue.Id(paymentId);
         }
 
         if (organizationId != null)

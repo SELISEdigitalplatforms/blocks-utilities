@@ -149,7 +149,16 @@ public sealed class PaymentWorkMetrics : IDisposable
 
     /// <summary>Publishes what an idle pass measured, for the gauges to report.</summary>
     public void RecordDepth(IReadOnlyList<PaymentWorkQueueDepth> depths) =>
-        _depths = depths;
+        // Summed across tenants: depth arrives per tenant for the logs, and a gauge reporting two
+        // measurements under the same work_type and status tags would be two values for one series.
+        _depths = depths
+            .GroupBy(depth => (depth.WorkType, depth.Status))
+            .Select(group => new PaymentWorkQueueDepth(
+                group.Key.WorkType,
+                group.Key.Status,
+                group.Sum(depth => depth.Count),
+                group.Min(depth => depth.OldestDueAtUtc)))
+            .ToList();
 
     /// <summary>
     /// Records the oldest pending age in one missing-signal category ("authorization", "token",

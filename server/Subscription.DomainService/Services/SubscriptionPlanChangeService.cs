@@ -185,9 +185,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             _logger.LogError(
                 exception,
                 "A scheduled plan change was written but its audit record was not " +
-                "SubscriptionHash={SubscriptionHash} Operation={Operation} " +
+                "SubscriptionId={SubscriptionId} Operation={Operation} " +
                 "CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Id(subscription.ItemId),
                 PaymentLogValue.Label(operation),
                 correlationId);
         }
@@ -279,10 +279,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
         _logger.LogInformation(
-            "Scheduled subscription plan change cancelled TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            "Scheduled subscription plan change cancelled TenantId={TenantId} " +
+            "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
@@ -906,10 +906,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         if (!charge.IsSuccess)
         {
             _logger.LogWarning(
-                "Subscription plan change was not charged TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                "Subscription plan change was not charged TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} Kind={Kind} Reason={Reason}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId),
                 charge.FailureKind,
                 PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
 
@@ -920,8 +920,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 // payment module what the provider actually did.
                 _logger.LogError(
                     "A subscription plan change left its charge unanswered and is held for " +
-                    "reconciliation SubscriptionHash={SubscriptionHash} Kind={Kind}",
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    "reconciliation SubscriptionId={SubscriptionId} Kind={Kind}",
+                    PaymentLogValue.Id(subscription.ItemId),
                     charge.FailureKind);
 
                 return Failure(
@@ -1083,10 +1083,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         if (!charge.IsSuccess)
         {
             _logger.LogWarning(
-                "Subscription opening-stub upgrade was not charged TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                "Subscription opening-stub upgrade was not charged TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} Kind={Kind} Reason={Reason}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId),
                 charge.FailureKind,
                 PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
 
@@ -1094,8 +1094,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             {
                 _logger.LogError(
                     "A subscription opening-stub upgrade left its charge unanswered and is held " +
-                    "for reconciliation SubscriptionHash={SubscriptionHash} Kind={Kind}",
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    "for reconciliation SubscriptionId={SubscriptionId} Kind={Kind}",
+                    PaymentLogValue.Id(subscription.ItemId),
                     charge.FailureKind);
 
                 return Failure(
@@ -1139,8 +1139,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // the charge, which is the only thing that can tell a lost release from a settled one.
         _logger.LogError(
             "A declined subscription plan change could not release its reservation " +
-            "SubscriptionHash={SubscriptionHash}",
-            PaymentLogValue.Hash(subscription.ItemId));
+            "SubscriptionId={SubscriptionId}",
+            PaymentLogValue.Id(subscription.ItemId));
     }
 
     /// <summary>
@@ -1228,11 +1228,11 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
         _logger.LogInformation(
-            "Subscription plan change scheduled TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} CurrentPlan={CurrentPlan} TargetPlan={TargetPlan} " +
+            "Subscription plan change scheduled TenantId={TenantId} " +
+            "SubscriptionId={SubscriptionId} CurrentPlan={CurrentPlan} TargetPlan={TargetPlan} " +
             "EffectiveAtUtc={EffectiveAtUtc} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
             PaymentLogValue.Label(subscription.Plan.Code),
             PaymentLogValue.Label(newPlan.Code),
             pending.EffectiveAtUtc,
@@ -1353,10 +1353,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             cancellationToken);
 
         _logger.LogInformation(
-            "Subscription plan changed TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "Subscription plan changed TenantId={TenantId} SubscriptionId={SubscriptionId} " +
             "PreviousPlan={PreviousPlan} NewPlan={NewPlan} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
             PaymentLogValue.Label(previousPlanCode),
             PaymentLogValue.Label(newPlan.Code),
             correlationId);
@@ -1411,8 +1411,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             _logger.LogError(
                 exception,
                 "A plan change completed but its financial document could not be requested " +
-                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.ItemId),
+                "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(subscription.ItemId),
                 correlationId);
         }
     }

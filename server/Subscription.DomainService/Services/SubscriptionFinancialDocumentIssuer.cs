@@ -124,8 +124,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             // where the other no-ops here are not.
             _logger.LogInformation(
                 "No document was issued because the payment is not settled " +
-                "PaymentHash={PaymentHash} Status={Status}",
-                PaymentLogValue.Hash(paymentDetailId),
+                "PaymentId={PaymentId} Status={Status}",
+                PaymentLogValue.Id(paymentDetailId),
                 payment?.PaymentStatus ?? "absent");
 
             return FinancialDocumentIssueResult.Nothing(
@@ -142,12 +142,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             // reason travels back and the handler decides.
             _logger.LogInformation(
                 "No document was issued because the payment's order id names no subscription " +
-                "charge PaymentHash={PaymentHash}",
-                PaymentLogValue.Hash(paymentDetailId));
+                "charge PaymentId={PaymentId}",
+                PaymentLogValue.Id(paymentDetailId));
 
             return FinancialDocumentIssueResult.Nothing(
                 FinancialDocumentIssueOutcome.UnknownCharge);
         }
+
+        // From here the charge is known to belong to this subscription; the queue item was keyed on
+        // the payment and could not say so.
+        using var subscriptionScope = SubscriptionWorkLogValue.SubscriptionScope(_logger, subscriptionId);
 
         var subscription = await _subscriptions.GetByIdAsync(
             tenantId,
@@ -158,8 +162,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         {
             _logger.LogWarning(
                 "A settled subscription charge names a subscription that no longer exists, so no " +
-                "document was issued PaymentHash={PaymentHash} ChargeKind={ChargeKind}",
-                PaymentLogValue.Hash(paymentDetailId),
+                "document was issued PaymentId={PaymentId} ChargeKind={ChargeKind}",
+                PaymentLogValue.Id(paymentDetailId),
                 charge.Kind);
 
             return FinancialDocumentIssueResult.Nothing(
@@ -183,8 +187,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
             _logger.LogInformation(
                 "No document was issued because the charge came to nothing payable " +
-                "PaymentHash={PaymentHash} ChargeKind={ChargeKind}",
-                PaymentLogValue.Hash(paymentDetailId),
+                "PaymentId={PaymentId} ChargeKind={ChargeKind}",
+                PaymentLogValue.Id(paymentDetailId),
                 charge.Kind);
 
             return FinancialDocumentIssueResult.Nothing(
@@ -286,8 +290,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 _logger.LogError(
                     exception,
                     "A recorded financial event could not be turned into a document " +
-                    "SubscriptionHash={SubscriptionHash} DocumentType={DocumentType}",
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    "SubscriptionId={SubscriptionId} DocumentType={DocumentType}",
+                    PaymentLogValue.Id(subscription.ItemId),
                     source.DocumentType);
 
                 await _subscriptions.RecordDocumentSourceFailureAsync(
@@ -374,9 +378,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         {
             _logger.LogWarning(
                 "A recovery pass issued financial documents that the money path had not " +
-                "IssuedCount={IssuedCount} TenantHash={TenantHash}",
+                "IssuedCount={IssuedCount} TenantId={TenantId}",
                 issued,
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
         }
 
         return issued;
@@ -844,6 +848,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             return null;
         }
 
+        using var subscriptionScope = SubscriptionWorkLogValue.SubscriptionScope(_logger, subscriptionId);
+
         var subscription = await _subscriptions.GetByIdAsync(
             tenantId,
             subscriptionId,
@@ -1036,6 +1042,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         SubscriptionFinancialDocument? originalDocument = null,
         string? refundId = null)
     {
+        // Every issuing path passes through here, including the sweeps that walk many subscriptions.
+        using var subscriptionScope = SubscriptionWorkLogValue.SubscriptionScope(_logger, subscription.ItemId);
+
         // Asked first, so a document that already exists costs one indexed read rather than a
         // number allocation it would have to throw away. The unique index is still what guarantees
         // the outcome; this only keeps the sequence tidy in the common replay.
@@ -1111,12 +1120,12 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         _logger.LogInformation(
             "Financial document issued DocumentNumber={DocumentNumber} " +
-            "DocumentType={DocumentType} TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} TotalMinor={TotalMinor}",
+            "DocumentType={DocumentType} TenantId={TenantId} " +
+            "SubscriptionId={SubscriptionId} TotalMinor={TotalMinor}",
             PaymentLogValue.Label(number),
             documentType,
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
             amounts.TotalMinor);
 
         await ScheduleDeliveryAsync(outcome.Document, cancellationToken);
@@ -1158,8 +1167,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     {
         _logger.LogError(
             "A recorded financial event describes no document and has been discarded " +
-            "SubscriptionHash={SubscriptionHash} DocumentType={DocumentType} SourceKey={SourceKey}",
-            PaymentLogValue.Hash(subscription.ItemId),
+            "SubscriptionId={SubscriptionId} DocumentType={DocumentType} SourceKey={SourceKey}",
+            PaymentLogValue.Id(subscription.ItemId),
             source.DocumentType,
             PaymentLogValue.Label(source.SourceKey));
 
@@ -1240,9 +1249,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         _logger.LogInformation(
             "A financial document is being composed from the subscription as it stands, because the " +
-            "event that caused it recorded no terms SubscriptionHash={SubscriptionHash} " +
+            "event that caused it recorded no terms SubscriptionId={SubscriptionId} " +
             "ChargeKind={ChargeKind} SourceHash={SourceHash}",
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.ItemId),
             charge.Kind,
             PaymentLogValue.Hash(subjectHash));
 

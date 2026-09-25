@@ -100,10 +100,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             // specifically because charging a subscription through the wrong entry point is the
             // one failure mode that costs real money -- so it is refused rather than guessed at.
             _logger.LogWarning(
-                "RecoverAsync called for a subscription that is not Unpaid TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} Status={Status}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                "RecoverAsync called for a subscription that is not Unpaid TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} Status={Status}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId),
                 PaymentLogValue.Label(subscription.Status.ToString()));
 
             return Task.CompletedTask;
@@ -126,8 +126,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
 
         using var logScope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["TenantHash"] = PaymentLogValue.Hash(subscription.TenantId),
-            ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
+            ["TenantId"] = PaymentLogValue.Id(subscription.TenantId),
+            ["SubscriptionId"] = PaymentLogValue.Id(subscription.ItemId)
         });
 
         var now = _time.GetUtcNow().UtcDateTime;
@@ -488,9 +488,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             _logger.LogWarning(
                 exception,
                 "Could not resync a held discount's campaign terms before renewal; pricing with " +
-                "the terms redeemed at signup TenantHash={TenantHash} SubscriptionHash={SubscriptionHash}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId));
+                "the terms redeemed at signup TenantId={TenantId} SubscriptionId={SubscriptionId}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId));
         }
     }
 
@@ -926,10 +926,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             _logger.LogError(
                 exception,
                 "Could not re-snapshot usage allowances after a trial conversion; the window stays " +
-                "at the trial grant until it next rolls over TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId));
+                "at the trial grant until it next rolls over TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId));
         }
     }
 

@@ -159,10 +159,10 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             // Gone. Its projections expire on their own TTL, and there is nothing to republish.
             _logger.LogInformation(
                 "Skipped a usage projection repair for a subscription that no longer exists " +
-                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} " +
                 "CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(tenantId),
-                PaymentLogValue.Hash(subscriptionId),
+                PaymentLogValue.Id(tenantId),
+                PaymentLogValue.Id(subscriptionId),
                 correlationId);
 
             return 0;
@@ -300,9 +300,9 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 
             _logger.LogWarning(
                 "Repaired usage projections that were behind their counter or their subscription " +
-                "TenantHash={TenantHash} Examined={Examined} Subscriptions={Subscriptions} " +
+                "TenantId={TenantId} Examined={Examined} Subscriptions={Subscriptions} " +
                 "Written={Written} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(tenantId),
+                PaymentLogValue.Id(tenantId),
                 candidates.Count,
                 behind.Count,
                 repaired,
@@ -337,9 +337,9 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
 
             _logger.LogInformation(
                 "Published usage projections for windows that just rolled over " +
-                "TenantHash={TenantHash} Subscriptions={Subscriptions} Written={Written} " +
+                "TenantId={TenantId} Subscriptions={Subscriptions} Written={Written} " +
                 "CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(tenantId),
+                PaymentLogValue.Id(tenantId),
                 subscriptionIds.Count,
                 written,
                 correlationId);
@@ -393,9 +393,9 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             _metrics.RecordRepairCompleted("backfill", written);
 
             _logger.LogInformation(
-                "Usage projection backfill wrote missing documents TenantHash={TenantHash} " +
+                "Usage projection backfill wrote missing documents TenantId={TenantId} " +
                 "Examined={Examined} Written={Written} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(tenantId),
+                PaymentLogValue.Id(tenantId),
                 subscriptions.Count,
                 written,
                 correlationId);
@@ -441,10 +441,10 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             _logger.LogWarning(
                 exception,
                 "A usage projection repair failed and was skipped; the sweep continues with " +
-                "the rest of the tenant TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(tenantId),
-                PaymentLogValue.Hash(subscriptionId),
+                "the rest of the tenant TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(tenantId),
+                PaymentLogValue.Id(subscriptionId),
                 correlationId);
 
             return 0;

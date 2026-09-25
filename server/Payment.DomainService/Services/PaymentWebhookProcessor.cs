@@ -38,12 +38,12 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
     {
         var stopwatch = Stopwatch.StartNew();
         var options = _options.CurrentValue;
-        var tenantHash = PaymentLogValue.Hash(tenantId);
+        var tenantLogId = PaymentLogValue.Id(tenantId);
         var batchSize = Math.Clamp(options.WebhookBatchSize, 1, 200);
 
         _logger.LogDebug(
-            "Webhook worker scan started TenantHash={TenantHash} BatchSize={BatchSize}",
-            tenantHash,
+            "Webhook worker scan started TenantId={TenantId} BatchSize={BatchSize}",
+            tenantLogId,
             batchSize);
 
         var due = await _inbox.GetDueAsync(
@@ -55,16 +55,16 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
         if (due.Count == 0)
         {
             _logger.LogDebug(
-                "Webhook worker scan completed TenantHash={TenantHash} DueCount=0 DurationMs={DurationMs}",
-                tenantHash,
+                "Webhook worker scan completed TenantId={TenantId} DueCount=0 DurationMs={DurationMs}",
+                tenantLogId,
                 stopwatch.Elapsed.TotalMilliseconds);
 
             return PaymentWebhookProcessingResult.Empty;
         }
 
         _logger.LogInformation(
-            "Webhook worker found due records TenantHash={TenantHash} DueCount={DueCount}",
-            tenantHash,
+            "Webhook worker found due records TenantId={TenantId} DueCount={DueCount}",
+            tenantLogId,
             due.Count);
 
         var processed = 0;
@@ -202,8 +202,8 @@ public sealed class PaymentWebhookProcessor : IPaymentWebhookProcessor
         }
 
         _logger.LogInformation(
-            "Webhook worker scan completed TenantHash={TenantHash} DueCount={DueCount} ProcessedCount={ProcessedCount} DurationMs={DurationMs}",
-            tenantHash,
+            "Webhook worker scan completed TenantId={TenantId} DueCount={DueCount} ProcessedCount={ProcessedCount} DurationMs={DurationMs}",
+            tenantLogId,
             due.Count,
             processed,
             stopwatch.Elapsed.TotalMilliseconds);

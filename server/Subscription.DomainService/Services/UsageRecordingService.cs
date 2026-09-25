@@ -303,12 +303,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
             {
                 _logger.LogWarning(
                     "Usage projection is incomplete for this subscription; falling back to counters " +
-                    "and scheduling a repair TenantHash={TenantHash} " +
-                    "OrganizationHash={OrganizationHash} SubscriptionHash={SubscriptionHash} " +
+                    "and scheduling a repair TenantId={TenantId} " +
+                    "OrganizationHash={OrganizationHash} SubscriptionId={SubscriptionId} " +
                     "Published={Published} Expected={Expected} CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(context.TenantId),
+                    PaymentLogValue.Id(context.TenantId),
                     PaymentLogValue.Hash(context.OrganizationId),
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    PaymentLogValue.Id(subscription.ItemId),
                     projected.Count,
                     expected,
                     correlationId);
@@ -324,11 +324,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
             {
                 _logger.LogInformation(
                     "Usage projection holds nothing for this subscription; falling back to counters " +
-                    "TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
-                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(context.TenantId),
+                    "TenantId={TenantId} OrganizationHash={OrganizationHash} " +
+                    "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Id(context.TenantId),
                     PaymentLogValue.Hash(context.OrganizationId),
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    PaymentLogValue.Id(subscription.ItemId),
                     correlationId);
             }
         }
@@ -628,8 +628,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 "Current usage read was slow, stale or fell back Mode={Mode} " +
                 "ActualMode={ActualMode} Fallback={Fallback} DurationMs={DurationMs} " +
                 "Documents={Documents} NewestProjectionAgeSeconds={NewestProjectionAgeSeconds} " +
-                "Stale={Stale} TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
-                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId} " +
+                "Stale={Stale} TenantId={TenantId} OrganizationHash={OrganizationHash} " +
+                "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId} " +
                 "TraceId={TraceId}",
                 requested,
                 actual,
@@ -638,9 +638,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 items.Count,
                 newestAgeSeconds,
                 stale,
-                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Id(context.TenantId),
                 PaymentLogValue.Hash(context.OrganizationId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Id(subscription.ItemId),
                 correlationId,
                 System.Diagnostics.Activity.Current?.TraceId.ToString());
         }
@@ -648,16 +648,16 @@ public sealed class UsageRecordingService : IUsageRecordingService
         {
             _logger.LogDebug(
                 "Current usage read Mode={Mode} ActualMode={ActualMode} DurationMs={DurationMs} " +
-                "Documents={Documents} TenantHash={TenantHash} " +
-                "OrganizationHash={OrganizationHash} SubscriptionHash={SubscriptionHash} " +
+                "Documents={Documents} TenantId={TenantId} " +
+                "OrganizationHash={OrganizationHash} SubscriptionId={SubscriptionId} " +
                 "CorrelationId={CorrelationId} TraceId={TraceId}",
                 requested,
                 actual,
                 duration.TotalMilliseconds,
                 items.Count,
-                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Id(context.TenantId),
                 PaymentLogValue.Hash(context.OrganizationId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Id(subscription.ItemId),
                 correlationId,
                 System.Diagnostics.Activity.Current?.TraceId.ToString());
         }
@@ -674,11 +674,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
             span.SetTag("subscription.usage.duration_ms", duration.TotalMilliseconds);
             span.SetTag("subscription.usage.documents", items.Count);
             span.SetTag("subscription.usage.stale", stale);
-            span.SetTag("subscription.tenant_hash", PaymentLogValue.Hash(context.TenantId));
+            span.SetTag("subscription.tenant_hash", PaymentLogValue.Id(context.TenantId));
             span.SetTag(
                 "subscription.organization_hash",
                 PaymentLogValue.Hash(context.OrganizationId));
-            span.SetTag("subscription.subscription_hash", PaymentLogValue.Hash(subscription.ItemId));
+            span.SetTag("subscription.subscription_hash", PaymentLogValue.Id(subscription.ItemId));
             span.SetTag("subscription.correlation_id", correlationId);
         }
 
@@ -832,12 +832,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 cancellationToken);
 
             _logger.LogInformation(
-                "Usage recorded TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
-                "SubscriptionHash={SubscriptionHash} Meter={Meter} Balance={Balance} " +
+                "Usage recorded TenantId={TenantId} OrganizationHash={OrganizationHash} " +
+                "SubscriptionId={SubscriptionId} Meter={Meter} Balance={Balance} " +
                 "Included={Included} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Id(context.TenantId),
                 PaymentLogValue.Hash(context.OrganizationId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Id(subscription.ItemId),
                 PaymentLogValue.Label(meter.MeterKey),
                 counter.Balance,
                 allowance,
@@ -939,11 +939,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
             cancellationToken);
 
         _logger.LogInformation(
-            "Usage refused because the resulting balance is outside its allowed range TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} Meter={Meter} Balance={Balance} " +
+            "Usage refused because the resulting balance is outside its allowed range TenantId={TenantId} " +
+            "SubscriptionId={SubscriptionId} Meter={Meter} Balance={Balance} " +
             "Included={Included} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(context.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
             PaymentLogValue.Label(meter.MeterKey),
             counter.Balance,
             allowance,

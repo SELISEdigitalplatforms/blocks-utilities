@@ -52,8 +52,8 @@ public sealed class SubscriptionRenewalProcessor : ISubscriptionRenewalProcessor
         {
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
             {
-                ["TenantHash"] = PaymentLogValue.Hash(tenantId),
-                ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
+                ["TenantId"] = PaymentLogValue.Id(tenantId),
+                ["SubscriptionId"] = PaymentLogValue.Id(subscription.ItemId)
             });
 
             // An increase reserved but not yet settled means the quantity this renewal would price

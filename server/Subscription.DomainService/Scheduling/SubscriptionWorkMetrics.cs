@@ -155,7 +155,16 @@ public sealed class SubscriptionWorkMetrics : IDisposable
 
     /// <summary>Publishes what an idle pass measured, for the gauges to report.</summary>
     public void RecordDepth(IReadOnlyList<SubscriptionWorkQueueDepth> depths) =>
-        _depths = depths;
+        // Summed across tenants: depth arrives per tenant for the logs, and a gauge reporting two
+        // measurements under the same work_type and status tags would be two values for one series.
+        _depths = depths
+            .GroupBy(depth => (depth.WorkType, depth.Status))
+            .Select(group => new SubscriptionWorkQueueDepth(
+                group.Key.WorkType,
+                group.Key.Status,
+                group.Sum(depth => depth.Count),
+                group.Min(depth => depth.OldestDueAtUtc)))
+            .ToList();
 
     private IEnumerable<Measurement<long>> ObserveDepth() =>
         _depths.Select(depth => new Measurement<long>(
