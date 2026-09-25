@@ -44,7 +44,7 @@ public sealed class PaymentRefundOutboxProcessor :
             options.OutboxBatchSize,
             1,
             200);
-        var tenantHash = PaymentLogValue.Hash(tenantId);
+        var tenantLogId = PaymentLogValue.Id(tenantId);
         var payments =
             await _refunds
                 .GetPaymentsWithDueRefundOutboxEventsAsync(
@@ -156,8 +156,8 @@ public sealed class PaymentRefundOutboxProcessor :
         if (published > 0)
         {
             _logger.LogInformation(
-                "Payment refund outbox scan completed TenantHash={TenantHash} PublishedCount={PublishedCount} DurationMs={DurationMs}",
-                tenantHash,
+                "Payment refund outbox scan completed TenantId={TenantId} PublishedCount={PublishedCount} DurationMs={DurationMs}",
+                tenantLogId,
                 published,
                 stopwatch.Elapsed.TotalMilliseconds);
         }

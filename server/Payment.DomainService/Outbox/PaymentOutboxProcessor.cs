@@ -37,12 +37,12 @@ public sealed class PaymentOutboxProcessor : IPaymentOutboxProcessor
         var stopwatch = Stopwatch.StartNew();
         var options = _options.CurrentValue;
         var now = DateTime.UtcNow;
-        var tenantHash = PaymentLogValue.Hash(tenantId);
+        var tenantLogId = PaymentLogValue.Id(tenantId);
         var batchSize = Math.Clamp(options.OutboxBatchSize, 1, 200);
 
         _logger.LogDebug(
-            "Payment outbox scan started TenantHash={TenantHash} BatchSize={BatchSize}",
-            tenantHash,
+            "Payment outbox scan started TenantId={TenantId} BatchSize={BatchSize}",
+            tenantLogId,
             batchSize);
 
         var payments = await _repository.GetPaymentsWithDueOutboxEventsAsync(
@@ -54,16 +54,16 @@ public sealed class PaymentOutboxProcessor : IPaymentOutboxProcessor
         if (payments.Count == 0)
         {
             _logger.LogDebug(
-                "Payment outbox scan completed TenantHash={TenantHash} PaymentCount=0 DurationMs={DurationMs}",
-                tenantHash,
+                "Payment outbox scan completed TenantId={TenantId} PaymentCount=0 DurationMs={DurationMs}",
+                tenantLogId,
                 stopwatch.Elapsed.TotalMilliseconds);
 
             return 0;
         }
 
         _logger.LogInformation(
-            "Payment outbox found payments with due events TenantHash={TenantHash} PaymentCount={PaymentCount}",
-            tenantHash,
+            "Payment outbox found payments with due events TenantId={TenantId} PaymentCount={PaymentCount}",
+            tenantLogId,
             payments.Count);
 
         var published = 0;
@@ -200,8 +200,8 @@ public sealed class PaymentOutboxProcessor : IPaymentOutboxProcessor
         }
 
         _logger.LogInformation(
-            "Payment outbox scan completed TenantHash={TenantHash} PaymentCount={PaymentCount} PublishedCount={PublishedCount} DurationMs={DurationMs}",
-            tenantHash,
+            "Payment outbox scan completed TenantId={TenantId} PaymentCount={PaymentCount} PublishedCount={PublishedCount} DurationMs={DurationMs}",
+            tenantLogId,
             payments.Count,
             published,
             stopwatch.Elapsed.TotalMilliseconds);

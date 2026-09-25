@@ -254,9 +254,13 @@ public sealed class PaymentWorkSchedulerBackgroundService : BackgroundService
 
         foreach (var depth in depths.Where(entry => entry.Count > 0))
         {
-            _logger.LogInformation(
-                "Payment work queue depth WorkType={WorkType} Status={Status} Count={Count} " +
-                "OldestDueAtUtc={OldestDueAtUtc} OldestDueAgeSeconds={AgeSeconds}",
+            // Dead letters will never run again on their own, so they are a warning on every pass
+            // until someone acts on them, not a routine depth line.
+            _logger.Log(
+                depth.Status == BackgroundWorkStatus.DeadLetter ? LogLevel.Warning : LogLevel.Information,
+                "Payment work queue depth TenantId={TenantId} WorkType={WorkType} Status={Status} " +
+                "Count={Count} OldestDueAtUtc={OldestDueAtUtc} OldestDueAgeSeconds={AgeSeconds}",
+                PaymentLogValue.Id(depth.TenantId),
                 depth.WorkType,
                 depth.Status,
                 depth.Count,

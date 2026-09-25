@@ -56,9 +56,9 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
         {
             _logger.LogWarning(
                 "Usage threshold email skipped because the subscription was not found " +
-                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} EventId={EventId}",
-                PaymentLogValue.Hash(lifecycleEvent.TenantId),
-                PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} EventId={EventId}",
+                PaymentLogValue.Id(lifecycleEvent.TenantId),
+                PaymentLogValue.Id(lifecycleEvent.SubscriptionId),
                 lifecycleEvent.EventId);
             return;
         }
@@ -72,9 +72,9 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
         {
             _logger.LogWarning(
                 "Usage threshold email skipped because the billing account has no recipient " +
-                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} EventId={EventId}",
-                PaymentLogValue.Hash(lifecycleEvent.TenantId),
-                PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} EventId={EventId}",
+                PaymentLogValue.Id(lifecycleEvent.TenantId),
+                PaymentLogValue.Id(lifecycleEvent.SubscriptionId),
                 lifecycleEvent.EventId);
             return;
         }
@@ -138,11 +138,11 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
         }
 
         _logger.LogInformation(
-            "Usage threshold email queued TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} ThresholdPercent={ThresholdPercent} " +
+            "Usage threshold email queued TenantId={TenantId} " +
+            "SubscriptionId={SubscriptionId} ThresholdPercent={ThresholdPercent} " +
             "EventId={EventId}",
-            PaymentLogValue.Hash(lifecycleEvent.TenantId),
-            PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
+            PaymentLogValue.Id(lifecycleEvent.TenantId),
+            PaymentLogValue.Id(lifecycleEvent.SubscriptionId),
             lifecycleEvent.ThresholdPercent,
             lifecycleEvent.EventId);
     }

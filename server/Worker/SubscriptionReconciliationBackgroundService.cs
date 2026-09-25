@@ -135,16 +135,16 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
                 {
                     _logger.LogWarning(
                         "Subscription reconciliation skipped a tenant with no database " +
-                        "TenantHash={TenantHash}",
-                        PaymentLogValue.Hash(tenantId));
+                        "TenantId={TenantId}",
+                        PaymentLogValue.Id(tenantId));
                 }
                 else
                 {
                     _logger.LogWarning(
                         exception,
                         "Subscription reconciliation skipped a tenant after an error " +
-                        "TenantHash={TenantHash}",
-                        PaymentLogValue.Hash(tenantId));
+                        "TenantId={TenantId}",
+                        PaymentLogValue.Id(tenantId));
                 }
             }
         }
@@ -173,7 +173,7 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
 
         using var logScope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["TenantHash"] = PaymentLogValue.Hash(tenantId),
+            ["TenantId"] = PaymentLogValue.Id(tenantId),
             ["SubscriptionSweepId"] = Guid.NewGuid().ToString("N")
         });
 

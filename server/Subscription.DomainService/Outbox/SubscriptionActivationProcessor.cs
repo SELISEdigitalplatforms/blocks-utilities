@@ -312,10 +312,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 cancellationToken);
 
             _logger.LogWarning(
-                "Recovered an unrecorded subscription charge TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(tenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                "Recovered an unrecorded subscription charge TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(tenantId),
+                PaymentLogValue.Id(subscription.ItemId),
                 subscription.CorrelationId);
 
             recovered++;
@@ -583,8 +583,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private IDisposable? BeginLinkScope(SubscriptionPaymentLink link) =>
         _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["TenantHash"] = PaymentLogValue.Hash(link.TenantId),
-            ["SubscriptionHash"] = PaymentLogValue.Hash(link.SubscriptionId),
+            ["TenantId"] = PaymentLogValue.Id(link.TenantId),
+            ["SubscriptionId"] = PaymentLogValue.Id(link.SubscriptionId),
             ["CorrelationId"] = link.CorrelationId
         });
 
@@ -906,18 +906,18 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 _logger.LogWarning(
                     "A subscription's billing account moved to a different provider customer; " +
                     "cards saved against the previous one are no longer reachable " +
-                    "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash}",
-                    PaymentLogValue.Hash(subscription.TenantId),
-                    PaymentLogValue.Hash(subscription.ItemId));
+                    "TenantId={TenantId} SubscriptionId={SubscriptionId}",
+                    PaymentLogValue.Id(subscription.TenantId),
+                    PaymentLogValue.Id(subscription.ItemId));
                 break;
 
             case SetProviderCustomerOutcome.AccountMissing:
                 _logger.LogError(
                     "A paid subscription has no billing account to record its card against; " +
                     "renewals will find no payment method " +
-                    "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash}",
-                    PaymentLogValue.Hash(subscription.TenantId),
-                    PaymentLogValue.Hash(subscription.ItemId));
+                    "TenantId={TenantId} SubscriptionId={SubscriptionId}",
+                    PaymentLogValue.Id(subscription.TenantId),
+                    PaymentLogValue.Id(subscription.ItemId));
                 break;
         }
 

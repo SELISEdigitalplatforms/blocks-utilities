@@ -48,10 +48,14 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
 
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
+            // The tenant being reconciled when the pass failed, so the failure is logged under it.
+            string? currentTenantId = null;
+
             try
             {
                 foreach (var tenantId in await _tenants.ListTenantIdsAsync(stoppingToken))
                 {
+                    currentTenantId = tenantId;
                     await ReconcileTenantAsync(tenantId, stoppingToken);
                 }
             }
@@ -61,13 +65,20 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
             }
             catch (Exception exception)
             {
-                _logger.LogError(exception, "Payment reconciliation pass failed and will retry");
+                _logger.LogError(
+                    exception,
+                    "Payment reconciliation pass failed and will retry TenantId={TenantId}",
+                    PaymentLogValue.Id(currentTenantId));
             }
         }
     }
 
     private async Task ReconcileTenantAsync(string tenantId, CancellationToken token)
     {
+        using var logScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["TenantId"] = PaymentLogValue.Id(tenantId)
+        });
         using var scope = _services.CreateScope();
         using var tenant = scope.ServiceProvider
             .GetRequiredService<IPaymentTenantContextScopeFactory>()

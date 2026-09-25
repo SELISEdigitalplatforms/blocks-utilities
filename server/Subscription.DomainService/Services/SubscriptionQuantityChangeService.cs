@@ -304,8 +304,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         {
             _logger.LogInformation(
                 "Subscription quantity change refused as out of bounds " +
-                "SubscriptionHash={SubscriptionHash} Item={Item}",
-                PaymentLogValue.Hash(subscription.ItemId),
+                "SubscriptionId={SubscriptionId} Item={Item}",
+                PaymentLogValue.Id(subscription.ItemId),
                 PaymentLogValue.Label(offendingKey));
 
             return Failure(
@@ -588,10 +588,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         if (!charge.IsSuccess)
         {
             _logger.LogWarning(
-                "Subscription quantity increase was not charged TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                "Subscription quantity increase was not charged TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} Kind={Kind} Reason={Reason}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId),
                 charge.FailureKind,
                 PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
 
@@ -602,8 +602,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 // resolves it by asking the payment module what the provider actually did.
                 _logger.LogError(
                     "A subscription quantity increase left its charge unanswered and is held for " +
-                    "reconciliation SubscriptionHash={SubscriptionHash} Kind={Kind}",
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    "reconciliation SubscriptionId={SubscriptionId} Kind={Kind}",
+                    PaymentLogValue.Id(subscription.ItemId),
                     charge.FailureKind);
 
                 return Failure(
@@ -773,8 +773,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             _logger.LogError(
                 exception,
                 "A quantity change settled but its invoice could not be announced " +
-                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.ItemId),
+                "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(subscription.ItemId),
                 correlationId);
         }
     }
@@ -839,8 +839,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // the charge, which is the only thing that can tell a lost release from a settled reservation.
         _logger.LogError(
             "A declined subscription quantity increase could not release its reservation " +
-            "SubscriptionHash={SubscriptionHash}",
-            PaymentLogValue.Hash(subscription.ItemId));
+            "SubscriptionId={SubscriptionId}",
+            PaymentLogValue.Id(subscription.ItemId));
     }
 
     /// <summary>

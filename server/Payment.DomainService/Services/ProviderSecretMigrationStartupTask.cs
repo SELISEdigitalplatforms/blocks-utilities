@@ -62,8 +62,8 @@ public sealed class ProviderSecretMigrationStartupTask : BackgroundService
                 if (summary.Failed > 0)
                 {
                     _logger.LogError(
-                        "Provider secret migration left providers unusable TenantHash={TenantHash} Failed={Failed}; those providers will not accept payments until resolved",
-                        PaymentLogValue.Hash(tenantId),
+                        "Provider secret migration left providers unusable TenantId={TenantId} Failed={Failed}; those providers will not accept payments until resolved",
+                        PaymentLogValue.Id(tenantId),
                         summary.Failed);
                 }
             }
@@ -75,8 +75,8 @@ public sealed class ProviderSecretMigrationStartupTask : BackgroundService
             {
                 _logger.LogError(
                     exception,
-                    "Provider secret migration failed for a tenant TenantHash={TenantHash} ExceptionType={ExceptionType}",
-                    PaymentLogValue.Hash(tenantId),
+                    "Provider secret migration failed for a tenant TenantId={TenantId} ExceptionType={ExceptionType}",
+                    PaymentLogValue.Id(tenantId),
                     exception.GetType().Name);
             }
         }

@@ -74,8 +74,8 @@ public sealed class ProviderSecretMigrationService : IProviderSecretMigrationSer
         }
 
         _logger.LogInformation(
-            "Provider secret migration completed TenantHash={TenantHash} Migrated={Migrated} Skipped={Skipped} Failed={Failed}",
-            PaymentLogValue.Hash(tenantId),
+            "Provider secret migration completed TenantId={TenantId} Migrated={Migrated} Skipped={Skipped} Failed={Failed}",
+            PaymentLogValue.Id(tenantId),
             migrated,
             skipped,
             failed);
@@ -139,9 +139,9 @@ public sealed class ProviderSecretMigrationService : IProviderSecretMigrationSer
             }
 
             _logger.LogInformation(
-                "Provider secrets migrated Provider={Provider} TenantHash={TenantHash}",
+                "Provider secrets migrated Provider={Provider} TenantId={TenantId}",
                 PaymentLogValue.Label(provider.ProviderName),
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
 
             return true;
         }
@@ -153,9 +153,9 @@ public sealed class ProviderSecretMigrationService : IProviderSecretMigrationSer
         {
             _logger.LogError(
                 exception,
-                "Provider secret migration failed Provider={Provider} TenantHash={TenantHash} ExceptionType={ExceptionType}",
+                "Provider secret migration failed Provider={Provider} TenantId={TenantId} ExceptionType={ExceptionType}",
                 PaymentLogValue.Label(provider.ProviderName),
-                PaymentLogValue.Hash(tenantId),
+                PaymentLogValue.Id(tenantId),
                 exception.GetType().Name);
 
             return false;
@@ -165,9 +165,9 @@ public sealed class ProviderSecretMigrationService : IProviderSecretMigrationSer
     private bool LogFailure(PaymentProvider provider, string reason)
     {
         _logger.LogError(
-            "Provider secrets could not be migrated Provider={Provider} TenantHash={TenantHash} Reason={Reason}",
+            "Provider secrets could not be migrated Provider={Provider} TenantId={TenantId} Reason={Reason}",
             PaymentLogValue.Label(provider.ProviderName),
-            PaymentLogValue.Hash(provider.TenantId),
+            PaymentLogValue.Id(provider.TenantId),
             reason);
 
         return false;

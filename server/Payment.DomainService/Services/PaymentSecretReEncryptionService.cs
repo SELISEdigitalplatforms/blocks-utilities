@@ -163,9 +163,9 @@ public sealed class PaymentSecretReEncryptionService :
         if (!credentials.IsRead || !tenantSecurity.IsRead)
         {
             _logger.LogError(
-                "Payment provider secrets could not be re-encrypted Provider={Provider} TenantHash={TenantHash} Reason=secrets_unreadable",
+                "Payment provider secrets could not be re-encrypted Provider={Provider} TenantId={TenantId} Reason=secrets_unreadable",
                 PaymentLogValue.Label(provider.ProviderName),
-                PaymentLogValue.Hash(provider.TenantId));
+                PaymentLogValue.Id(provider.TenantId));
             counters.Failed++;
 
             return false;
@@ -266,8 +266,8 @@ public sealed class PaymentSecretReEncryptionService :
         if (!token.IsRead)
         {
             _logger.LogError(
-                "A stored payment method token could not be re-encrypted TenantHash={TenantHash} PaymentMethodHash={PaymentMethodHash} Reason=token_unreadable",
-                PaymentLogValue.Hash(method.TenantId),
+                "A stored payment method token could not be re-encrypted TenantId={TenantId} PaymentMethodHash={PaymentMethodHash} Reason=token_unreadable",
+                PaymentLogValue.Id(method.TenantId),
                 PaymentLogValue.Hash(method.ItemId));
             counters.Failed++;
 

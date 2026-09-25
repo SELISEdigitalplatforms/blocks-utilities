@@ -49,7 +49,7 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
     {
         using var scope = _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["TenantHash"] = PaymentLogValue.Hash(webhook.TenantId),
+            ["TenantId"] = PaymentLogValue.Id(webhook.TenantId),
             ["WebhookIdHash"] = PaymentLogValue.Hash(webhook.WebhookId),
             ["WebhookType"] = PaymentLogValue.Label(webhook.WebhookType),
             ["EventCode"] = PaymentLogValue.Label(webhook.EventCode),

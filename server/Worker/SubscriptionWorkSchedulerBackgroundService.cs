@@ -266,9 +266,10 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
             if (depth.Status == BackgroundWorkStatus.Pending && age > alertAfter)
             {
                 _logger.LogWarning(
-                    "Subscription work is due and unclaimed WorkType={WorkType} Count={Count} " +
-                    "OldestDueAtUtc={OldestDueAtUtc} OldestDueAgeSeconds={AgeSeconds} " +
+                    "Subscription work is due and unclaimed TenantId={TenantId} WorkType={WorkType} " +
+                    "Count={Count} OldestDueAtUtc={OldestDueAtUtc} OldestDueAgeSeconds={AgeSeconds} " +
                     "ThresholdSeconds={ThresholdSeconds}",
+                    PaymentLogValue.Id(depth.TenantId),
                     depth.WorkType,
                     depth.Count,
                     depth.OldestDueAtUtc,
@@ -278,9 +279,13 @@ public sealed class SubscriptionWorkSchedulerBackgroundService : BackgroundServi
                 continue;
             }
 
-            _logger.LogInformation(
-                "Subscription work queue depth WorkType={WorkType} Status={Status} " +
+            // Dead letters will never run again on their own, so they are a warning on every pass
+            // until someone acts on them, not a routine depth line.
+            _logger.Log(
+                depth.Status == BackgroundWorkStatus.DeadLetter ? LogLevel.Warning : LogLevel.Information,
+                "Subscription work queue depth TenantId={TenantId} WorkType={WorkType} Status={Status} " +
                 "Count={Count} OldestDueAtUtc={OldestDueAtUtc} OldestDueAgeSeconds={AgeSeconds}",
+                PaymentLogValue.Id(depth.TenantId),
                 depth.WorkType,
                 depth.Status,
                 depth.Count,

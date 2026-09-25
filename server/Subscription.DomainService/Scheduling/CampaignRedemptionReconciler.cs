@@ -95,8 +95,8 @@ public sealed class CampaignRedemptionReconciler
                 // alone is the only safe move.
                 _logger.LogWarning(
                     "A stale campaign redemption names a subscription that could not be found; " +
-                    "skipped SubscriptionHash={SubscriptionHash}",
-                    PaymentLogValue.Hash(redemption.SubscriptionId));
+                    "skipped SubscriptionId={SubscriptionId}",
+                    PaymentLogValue.Id(redemption.SubscriptionId));
 
                 await _redemptions.DeferAsync(
                     tenantId, redemption.ItemId, now, cancellationToken);
