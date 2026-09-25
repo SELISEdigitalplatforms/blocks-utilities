@@ -159,10 +159,10 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
             // Gone. Its projections expire on their own TTL, and there is nothing to republish.
             _logger.LogInformation(
                 "Skipped a usage projection repair for a subscription that no longer exists " +
-                "TenantId={TenantId} SubscriptionHash={SubscriptionHash} " +
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} " +
                 "CorrelationId={CorrelationId}",
                 PaymentLogValue.Id(tenantId),
-                PaymentLogValue.Hash(subscriptionId),
+                PaymentLogValue.Id(subscriptionId),
                 correlationId);
 
             return 0;
@@ -442,9 +442,9 @@ public sealed class UsageProjectionReconciler : IUsageProjectionReconciler
                 exception,
                 "A usage projection repair failed and was skipped; the sweep continues with " +
                 "the rest of the tenant TenantId={TenantId} " +
-                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
                 PaymentLogValue.Id(tenantId),
-                PaymentLogValue.Hash(subscriptionId),
+                PaymentLogValue.Id(subscriptionId),
                 correlationId);
 
             return 0;

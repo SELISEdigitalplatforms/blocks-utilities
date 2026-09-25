@@ -313,9 +313,9 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
 
             _logger.LogWarning(
                 "Recovered an unrecorded subscription charge TenantId={TenantId} " +
-                "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
                 PaymentLogValue.Id(tenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                PaymentLogValue.Id(subscription.ItemId),
                 subscription.CorrelationId);
 
             recovered++;
@@ -584,7 +584,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _logger.BeginScope(new Dictionary<string, object?>
         {
             ["TenantId"] = PaymentLogValue.Id(link.TenantId),
-            ["SubscriptionHash"] = PaymentLogValue.Hash(link.SubscriptionId),
+            ["SubscriptionId"] = PaymentLogValue.Id(link.SubscriptionId),
             ["CorrelationId"] = link.CorrelationId
         });
 
@@ -906,18 +906,18 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 _logger.LogWarning(
                     "A subscription's billing account moved to a different provider customer; " +
                     "cards saved against the previous one are no longer reachable " +
-                    "TenantId={TenantId} SubscriptionHash={SubscriptionHash}",
+                    "TenantId={TenantId} SubscriptionId={SubscriptionId}",
                     PaymentLogValue.Id(subscription.TenantId),
-                    PaymentLogValue.Hash(subscription.ItemId));
+                    PaymentLogValue.Id(subscription.ItemId));
                 break;
 
             case SetProviderCustomerOutcome.AccountMissing:
                 _logger.LogError(
                     "A paid subscription has no billing account to record its card against; " +
                     "renewals will find no payment method " +
-                    "TenantId={TenantId} SubscriptionHash={SubscriptionHash}",
+                    "TenantId={TenantId} SubscriptionId={SubscriptionId}",
                     PaymentLogValue.Id(subscription.TenantId),
-                    PaymentLogValue.Hash(subscription.ItemId));
+                    PaymentLogValue.Id(subscription.ItemId));
                 break;
         }
 

@@ -56,9 +56,9 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
         {
             _logger.LogWarning(
                 "Usage threshold email skipped because the subscription was not found " +
-                "TenantId={TenantId} SubscriptionHash={SubscriptionHash} EventId={EventId}",
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} EventId={EventId}",
                 PaymentLogValue.Id(lifecycleEvent.TenantId),
-                PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
+                PaymentLogValue.Id(lifecycleEvent.SubscriptionId),
                 lifecycleEvent.EventId);
             return;
         }
@@ -72,9 +72,9 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
         {
             _logger.LogWarning(
                 "Usage threshold email skipped because the billing account has no recipient " +
-                "TenantId={TenantId} SubscriptionHash={SubscriptionHash} EventId={EventId}",
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} EventId={EventId}",
                 PaymentLogValue.Id(lifecycleEvent.TenantId),
-                PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
+                PaymentLogValue.Id(lifecycleEvent.SubscriptionId),
                 lifecycleEvent.EventId);
             return;
         }
@@ -139,10 +139,10 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
 
         _logger.LogInformation(
             "Usage threshold email queued TenantId={TenantId} " +
-            "SubscriptionHash={SubscriptionHash} ThresholdPercent={ThresholdPercent} " +
+            "SubscriptionId={SubscriptionId} ThresholdPercent={ThresholdPercent} " +
             "EventId={EventId}",
             PaymentLogValue.Id(lifecycleEvent.TenantId),
-            PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
+            PaymentLogValue.Id(lifecycleEvent.SubscriptionId),
             lifecycleEvent.ThresholdPercent,
             lifecycleEvent.EventId);
     }

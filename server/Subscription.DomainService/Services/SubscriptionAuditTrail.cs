@@ -31,7 +31,7 @@ public sealed class SubscriptionAuditTrail : ISubscriptionAuditTrail
             ["CorrelationId"] = auditEvent.CorrelationId,
             ["TenantId"] = PaymentLogValue.Id(auditEvent.TenantId),
             ["OrganizationHash"] = PaymentLogValue.Hash(auditEvent.OrganizationId),
-            ["SubscriptionHash"] = PaymentLogValue.Hash(auditEvent.SubscriptionId),
+            ["SubscriptionId"] = PaymentLogValue.Id(auditEvent.SubscriptionId),
             ["SubscriptionOperation"] = auditEvent.Operation,
             ["SubscriptionStage"] = auditEvent.Stage,
             ["Outcome"] = auditEvent.Outcome

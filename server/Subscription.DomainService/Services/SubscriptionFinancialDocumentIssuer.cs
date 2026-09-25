@@ -286,8 +286,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 _logger.LogError(
                     exception,
                     "A recorded financial event could not be turned into a document " +
-                    "SubscriptionHash={SubscriptionHash} DocumentType={DocumentType}",
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    "SubscriptionId={SubscriptionId} DocumentType={DocumentType}",
+                    PaymentLogValue.Id(subscription.ItemId),
                     source.DocumentType);
 
                 await _subscriptions.RecordDocumentSourceFailureAsync(
@@ -1112,11 +1112,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         _logger.LogInformation(
             "Financial document issued DocumentNumber={DocumentNumber} " +
             "DocumentType={DocumentType} TenantId={TenantId} " +
-            "SubscriptionHash={SubscriptionHash} TotalMinor={TotalMinor}",
+            "SubscriptionId={SubscriptionId} TotalMinor={TotalMinor}",
             PaymentLogValue.Label(number),
             documentType,
             PaymentLogValue.Id(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.ItemId),
             amounts.TotalMinor);
 
         await ScheduleDeliveryAsync(outcome.Document, cancellationToken);
@@ -1158,8 +1158,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     {
         _logger.LogError(
             "A recorded financial event describes no document and has been discarded " +
-            "SubscriptionHash={SubscriptionHash} DocumentType={DocumentType} SourceKey={SourceKey}",
-            PaymentLogValue.Hash(subscription.ItemId),
+            "SubscriptionId={SubscriptionId} DocumentType={DocumentType} SourceKey={SourceKey}",
+            PaymentLogValue.Id(subscription.ItemId),
             source.DocumentType,
             PaymentLogValue.Label(source.SourceKey));
 
@@ -1240,9 +1240,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         _logger.LogInformation(
             "A financial document is being composed from the subscription as it stands, because the " +
-            "event that caused it recorded no terms SubscriptionHash={SubscriptionHash} " +
+            "event that caused it recorded no terms SubscriptionId={SubscriptionId} " +
             "ChargeKind={ChargeKind} SourceHash={SourceHash}",
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.ItemId),
             charge.Kind,
             PaymentLogValue.Hash(subjectHash));
 

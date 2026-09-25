@@ -72,7 +72,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
             {
                 ["TenantId"] = PaymentLogValue.Id(tenantId),
-                ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
+                ["SubscriptionId"] = PaymentLogValue.Id(subscription.ItemId)
             });
 
             if (await TryFinalizeAsync(subscription, cancellationToken))
@@ -184,9 +184,9 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                     // recovers any reservation left stuck like this once it ages past its timeout.
                     _logger.LogWarning(
                         "A usage closure reservation could not be committed after its " +
-                        "cancellation won SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} " +
+                        "cancellation won SubscriptionId={SubscriptionId} PeriodKey={PeriodKey} " +
                         "Outcome={Outcome}",
-                        PaymentLogValue.Hash(subscription.ItemId),
+                        PaymentLogValue.Id(subscription.ItemId),
                         PaymentLogValue.Label(closure.PeriodKey),
                         outcome);
                 }

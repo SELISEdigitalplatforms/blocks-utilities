@@ -225,8 +225,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 _logger.LogWarning(
                     exception,
                     "Could not announce a usage projection refresh after cancellation " +
-                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Id(subscription.ItemId),
                     correlationId);
             }
         }
@@ -249,8 +249,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 _logger.LogError(
                     exception,
                     "Targeted cancellation work could not be scheduled and will be left to the " +
-                    "repair sweep SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    "repair sweep SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Id(subscription.ItemId),
                     correlationId);
             }
         }
@@ -364,9 +364,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
         _logger.LogInformation(
             "Scheduled subscription cancellation withdrawn TenantId={TenantId} " +
-            "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+            "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
             PaymentLogValue.Id(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.ItemId),
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
@@ -398,11 +398,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
         _logger.LogInformation(
             "Subscription cancellation recorded TenantId={TenantId} " +
-            "OrganizationHash={OrganizationHash} SubscriptionHash={SubscriptionHash} " +
+            "OrganizationHash={OrganizationHash} SubscriptionId={SubscriptionId} " +
             "Immediate={Immediate} FromStatus={FromStatus} CorrelationId={CorrelationId}",
             PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.ItemId),
             immediately,
             PaymentLogValue.Label(subscription.Status.ToString()),
             correlationId);
@@ -641,9 +641,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                     // reservation left stuck like this, once it ages past its own timeout.
                     _logger.LogWarning(
                         "A usage closure reservation could not be committed after its " +
-                        "cancellation won SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} " +
+                        "cancellation won SubscriptionId={SubscriptionId} PeriodKey={PeriodKey} " +
                         "Outcome={Outcome} CorrelationId={CorrelationId}",
-                        PaymentLogValue.Hash(subscription.ItemId),
+                        PaymentLogValue.Id(subscription.ItemId),
                         PaymentLogValue.Label(reservation.PeriodKey),
                         outcome,
                         correlationId);
@@ -813,9 +813,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         {
             _logger.LogWarning(
                 "A stale usage closure reservation does not have the shape a cancellation " +
-                "reservation should — left untouched SubscriptionHash={SubscriptionHash} " +
+                "reservation should — left untouched SubscriptionId={SubscriptionId} " +
                 "PeriodKey={PeriodKey}",
-                PaymentLogValue.Hash(closure.SubscriptionId),
+                PaymentLogValue.Id(closure.SubscriptionId),
                 PaymentLogValue.Label(closure.PeriodKey));
 
             return false;
@@ -830,8 +830,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         {
             _logger.LogWarning(
                 "A stale usage closure reservation names a subscription that no longer exists " +
-                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
-                PaymentLogValue.Hash(closure.SubscriptionId),
+                "SubscriptionId={SubscriptionId} PeriodKey={PeriodKey}",
+                PaymentLogValue.Id(closure.SubscriptionId),
                 PaymentLogValue.Label(closure.PeriodKey));
 
             return false;
@@ -852,8 +852,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
             _logger.LogInformation(
                 "Stale usage closure reservation reconciled by committing " +
-                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} Outcome={Outcome}",
-                PaymentLogValue.Hash(closure.SubscriptionId),
+                "SubscriptionId={SubscriptionId} PeriodKey={PeriodKey} Outcome={Outcome}",
+                PaymentLogValue.Id(closure.SubscriptionId),
                 PaymentLogValue.Label(closure.PeriodKey),
                 outcome);
 
@@ -875,8 +875,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
             _logger.LogInformation(
                 "Stale usage closure reservation reconciled by releasing " +
-                "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} Outcome={Outcome}",
-                PaymentLogValue.Hash(closure.SubscriptionId),
+                "SubscriptionId={SubscriptionId} PeriodKey={PeriodKey} Outcome={Outcome}",
+                PaymentLogValue.Id(closure.SubscriptionId),
                 PaymentLogValue.Label(closure.PeriodKey),
                 outcome);
 
@@ -888,8 +888,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         // again by the next sweep pass regardless.
         _logger.LogWarning(
             "A stale usage closure reservation is ambiguous and was left untouched " +
-            "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} SubscriptionStatus={Status}",
-            PaymentLogValue.Hash(closure.SubscriptionId),
+            "SubscriptionId={SubscriptionId} PeriodKey={PeriodKey} SubscriptionStatus={Status}",
+            PaymentLogValue.Id(closure.SubscriptionId),
             PaymentLogValue.Label(closure.PeriodKey),
             PaymentLogValue.Label(subscription.Status.ToString()));
 

@@ -196,10 +196,10 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
         _logger.LogInformation(
             "Subscription created TenantId={TenantId} OrganizationHash={OrganizationHash} " +
-            "SubscriptionHash={SubscriptionHash} Plan={Plan} Status={Status} CorrelationId={CorrelationId}",
+            "SubscriptionId={SubscriptionId} Plan={Plan} Status={Status} CorrelationId={CorrelationId}",
             PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.ItemId),
             PaymentLogValue.Label(plan.Code),
             PaymentLogValue.Label(subscription.Status.ToString()),
             correlationId);
@@ -997,14 +997,14 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         _logger.LogInformation(
-            "Subscription discounts applied SubscriptionHash={SubscriptionHash} "
+            "Subscription discounts applied SubscriptionId={SubscriptionId} "
                 + "PriceHash={PriceHash} AutomaticBasisPoints={AutomaticBasisPoints} "
                 + "Combination={Combination} PromotionPolicy={PromotionPolicy} "
                 + "PromotionCode={PromotionCode} GrossMinor={GrossMinor} "
                 + "BuiltInDiscountMinor={BuiltInDiscountMinor} "
                 + "PromotionalDiscountMinor={PromotionalDiscountMinor} "
                 + "CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.ItemId),
             PaymentLogValue.Hash(subscription.Price.PriceId),
             subscription.Price.AutomaticDiscountBasisPoints ?? 0,
             PaymentLogValue.Label(

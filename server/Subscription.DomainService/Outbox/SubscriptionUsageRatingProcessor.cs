@@ -122,7 +122,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
             {
                 ["TenantId"] = PaymentLogValue.Id(tenantId),
-                ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
+                ["SubscriptionId"] = PaymentLogValue.Id(subscription.ItemId)
             });
 
             await AuditAsync(subscription, "RatingStarted", "InProgress", cancellationToken);
@@ -226,10 +226,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                         _logger.LogWarning(
                             "Usage closure signals disagree ActiveWriterCount={ActiveWriterCount} " +
                             "HasOutstandingClaims={HasOutstandingClaims} " +
-                            "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
+                            "SubscriptionId={SubscriptionId} PeriodKey={PeriodKey}",
                             closure.ActiveWriterCount,
                             hasOutstandingClaims,
-                            PaymentLogValue.Hash(subscription.ItemId),
+                            PaymentLogValue.Id(subscription.ItemId),
                             PaymentLogValue.Label(pending.PeriodKey));
                     }
 
@@ -309,8 +309,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 {
                     _logger.LogWarning(
                         "A rated usage period's closure record could not be marked Closed " +
-                        "SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
-                        PaymentLogValue.Hash(subscription.ItemId),
+                        "SubscriptionId={SubscriptionId} PeriodKey={PeriodKey}",
+                        PaymentLogValue.Id(subscription.ItemId),
                         PaymentLogValue.Label(pending.PeriodKey));
                 }
             }
@@ -491,9 +491,9 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 _logger.LogError(
                     ex,
                     "Usage rating overflowed pricing a meter's overage and deferred the whole " +
-                    "period SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey} " +
+                    "period SubscriptionId={SubscriptionId} PeriodKey={PeriodKey} " +
                     "MeterKey={MeterKey}",
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    PaymentLogValue.Id(subscription.ItemId),
                     PaymentLogValue.Label(periodKey),
                     PaymentLogValue.Label(meter.MeterKey));
 
@@ -537,8 +537,8 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             _logger.LogError(
                 ex,
                 "Usage rating overflowed summing or taxing a period's overage and deferred the " +
-                "whole period SubscriptionHash={SubscriptionHash} PeriodKey={PeriodKey}",
-                PaymentLogValue.Hash(subscription.ItemId),
+                "whole period SubscriptionId={SubscriptionId} PeriodKey={PeriodKey}",
+                PaymentLogValue.Id(subscription.ItemId),
                 PaymentLogValue.Label(periodKey));
 
             return InvoiceReadiness.Deferred;
@@ -593,7 +593,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
             {
                 ["TenantId"] = PaymentLogValue.Id(tenantId),
-                ["SubscriptionHash"] = PaymentLogValue.Hash(invoice.SubscriptionId)
+                ["SubscriptionId"] = PaymentLogValue.Id(invoice.SubscriptionId)
             });
 
             await ChargeInvoiceAsync(invoice, options, now, cancellationToken);
