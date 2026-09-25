@@ -52,6 +52,11 @@ internal static class SubscriptionSnapshotBuilder
                     IncludedQuantity = meter.IncludedQuantity,
                     CarryForwardCap = meter.CarryForwardCap,
                     OverageAllowed = meter.OverageAllowed,
+                    // The pace is snapshotted like the amount. A plan tightened later must not
+                    // start refusing a subscriber who bought it looser.
+                    SubLimitWindow = meter.SubLimitWindow,
+                    SubLimitQuantity = meter.SubLimitQuantity,
+                    SubLimitBehaviour = meter.SubLimitBehaviour,
                     ThresholdPercents = [.. meter.ThresholdPercents],
                     RateTables = meter.RateTables
                         .Select(table => new MeterRateTable

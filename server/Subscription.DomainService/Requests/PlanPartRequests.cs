@@ -49,6 +49,21 @@ public sealed class PlanMeterRequest
     public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
 
     /// <summary>
+    /// A shorter window this meter also caps within, or null for the period's allowance alone.
+    /// </summary>
+    /// <remarks>
+    /// The pace the plan is sold at, as distinct from the amount. Requires
+    /// <see cref="SubLimitQuantity"/>, and the two are refused separately so a half-written cap
+    /// cannot be saved as one that enforces nothing.
+    /// </remarks>
+    public UsageWindow? SubLimitWindow { get; set; }
+
+    public decimal? SubLimitQuantity { get; set; }
+
+    /// <summary>Whether reaching the sub-limit refuses the usage or merely reports it.</summary>
+    public MeterSubLimitBehaviour SubLimitBehaviour { get; set; } = MeterSubLimitBehaviour.Refuse;
+
+    /// <summary>
     /// How many decimal places this meter's quantities may carry. Zero — whole units only — unless
     /// the author raises it, which is what keeps a meter counting screenings refusing half of one.
     /// </summary>

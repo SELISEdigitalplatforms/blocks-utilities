@@ -855,6 +855,34 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     cancellationToken);
             }
 
+            // The pace, checked after the amount. A use the period already refused never reaches
+            // here, so a refused call consumes none of the short window either.
+            var pace = await ApplyPaceAsync(
+                context, subscription, seat, meter, occurredAt, request.Quantity,
+                cancellationToken);
+
+            if (request.Enforce && pace.Exceeded &&
+                meter.SubLimitBehaviour == MeterSubLimitBehaviour.Refuse)
+            {
+                // Both windows are put back, in the order they were taken. Reversing only the
+                // period would leave the short window holding a use nobody was allowed to make,
+                // and the next hour would open already spent.
+                await ReversePaceAsync(
+                    context, subscription, seat, meter, occurredAt, request.Quantity,
+                    cancellationToken);
+
+                return await RefuseAsync(
+                    record,
+                    context,
+                    subscription,
+                    seat,
+                    meter,
+                    period,
+                    allowance,
+                    correlationId,
+                    cancellationToken);
+            }
+
             await _thresholds.EvaluateAsync(
                 subscription,
                 counter,
@@ -907,7 +935,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     allowance,
                     allowed: withinAllowance || meter.OverageAllowed,
                     replayed: false,
-                    projection),
+                    projection,
+                    // The only way the pace reaches the caller. A cap that reports instead of
+                    // refusing and then says nothing has capped nothing at all — the consumer is
+                    // the one that can slow down, and it can only do so on being told.
+                    subLimitExceeded: pace.Exceeded),
                 correlationId);
         }
         finally
@@ -1086,6 +1118,96 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// counts separately against the same figure.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Counts a use against the meter's short window, and says whether it went past its cap.
+    /// </summary>
+    /// <remarks>
+    /// Its own counter on its own window, addressed exactly as a period's is — the short window's
+    /// key comes from a separate keyspace, so a meter billed daily with a daily cap still counts
+    /// two different things rather than one.
+    /// <para>
+    /// A meter with no cap does nothing here and costs nothing: no counter is written, and none is
+    /// read.
+    /// </para>
+    /// </remarks>
+    private async Task<(bool Exceeded, decimal Balance)> ApplyPaceAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        int? seat,
+        PlanMeter meter,
+        DateTime occurredAt,
+        decimal quantity,
+        CancellationToken cancellationToken)
+    {
+        if (meter.SubLimitWindow is not { } window || meter.SubLimitQuantity is not { } cap)
+        {
+            return (false, 0);
+        }
+
+        var counter = await _usage.ApplyDeltaAsync(
+            PaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
+            quantity,
+            cancellationToken);
+
+        return (counter.Balance > cap, counter.Balance);
+    }
+
+    /// <summary>Puts back what <see cref="ApplyPaceAsync"/> counted, for a use that was refused.</summary>
+    private async Task ReversePaceAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        int? seat,
+        PlanMeter meter,
+        DateTime occurredAt,
+        decimal quantity,
+        CancellationToken cancellationToken)
+    {
+        if (meter.SubLimitWindow is not { } window || meter.SubLimitQuantity is not { } cap)
+        {
+            return;
+        }
+
+        await _usage.ApplyDeltaAsync(
+            PaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
+            -quantity,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The counter one short window uses, seeded with the cap it is measured against.
+    /// </summary>
+    /// <remarks>
+    /// Kept only as long as the window it counts plus the usual retention, because a short window
+    /// produces a counter per hour or per day and they are of no interest once the period they sit
+    /// inside has been rated.
+    /// </remarks>
+    private SubscriptionUsageCounter PaceSeedFor(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        int? seat,
+        PlanMeter meter,
+        UsageWindow window,
+        decimal cap,
+        DateTime occurredAt) => new()
+    {
+        ItemId = SubscriptionUsageCounter.CreateId(
+            subscription.ItemId,
+            meter.MeterKey,
+            UsageWindowKey.Create(window, occurredAt),
+            seat),
+        SeatNumber = seat,
+        TenantId = context.TenantId,
+        OrganizationId = context.OrganizationId,
+        SubscriptionId = subscription.ItemId,
+        MeterKey = meter.MeterKey,
+        PeriodKey = UsageWindowKey.Create(window, occurredAt),
+        LimitSnapshot = cap,
+        PeriodStartUtc = UsageWindowKey.StartOf(window, occurredAt),
+        PeriodEndUtc = UsageWindowKey.EndOf(window, occurredAt),
+        ExpiresAtUtc = UsageWindowKey.EndOf(window, occurredAt)
+            .AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
+    };
+
     private SubscriptionUsageCounter SeedFor(
         SubscriptionContext context,
         SubscriptionDetail subscription,
@@ -1126,8 +1248,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         decimal allowance,
         bool allowed,
         bool replayed,
-        UsageProjectionOutcome projection) =>
-        Describe(meter, period, balance, allowance, allowed, replayed, ToState(projection));
+        UsageProjectionOutcome projection,
+        bool subLimitExceeded = false) =>
+        Describe(
+            meter, period, balance, allowance, allowed, replayed, ToState(projection),
+            subLimitExceeded);
 
     private static UsageResponse Describe(
         PlanMeter meter,
@@ -1136,9 +1261,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         decimal allowance,
         bool allowed,
         bool replayed,
-        UsageProjectionState projection = UsageProjectionState.Published) => new()
+        UsageProjectionState projection = UsageProjectionState.Published,
+        bool subLimitExceeded = false) => new()
     {
         Allowed = allowed,
+        SubLimitExceeded = subLimitExceeded,
         MeterKey = meter.MeterKey,
         UnitLabel = meter.UnitLabel,
         QuantityScale = meter.QuantityScale,

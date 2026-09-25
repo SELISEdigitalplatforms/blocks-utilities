@@ -1231,6 +1231,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 // initializer the scale had to be added to.
                 CarryForwardCap = meter.CarryForwardCap,
                 OverageAllowed = meter.OverageAllowed,
+                SubLimitWindow = meter.SubLimitWindow,
+                SubLimitQuantity = meter.SubLimitQuantity,
+                SubLimitBehaviour = meter.SubLimitBehaviour,
                 ThresholdPercents = meter.ThresholdPercents.Distinct().Order().ToList(),
                 RateTables = meter.RateTables
                     .Select(table => new MeterRateTable
