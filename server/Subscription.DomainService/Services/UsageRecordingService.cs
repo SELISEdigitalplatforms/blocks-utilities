@@ -113,8 +113,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         // Chosen by the meter being recorded rather than by taking whatever the organization
         // holds. Somebody on an allowance plan of their own spends theirs; a meter their plan says
         // nothing about still records against the organization's, which is what it pays for.
-        var subscription = await ResolveForMeterAsync(
+        var drawnOn = await ResolveForMeterAsync(
             context, request.MeterKey, readAt, cancellationToken);
+
+        var subscription = drawnOn?.Subscription;
+        var seat = drawnOn?.SeatNumber;
 
         if (subscription is null)
         {
@@ -191,6 +194,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             request,
             context,
             subscription,
+            seat,
             meter,
             period,
             occurredAt,
@@ -393,7 +397,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// engineer to two different places.
     /// </para>
     /// </remarks>
-    private async Task<SubscriptionDetail?> ResolveForMeterAsync(
+    private async Task<ResolvedSubscription?> ResolveForMeterAsync(
         SubscriptionContext context,
         string meterKey,
         DateTime nowUtc,
@@ -401,8 +405,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
     {
         if (_resolver is null)
         {
-            return await _subscriptions.GetLiveAsync(
+            var organization = await _subscriptions.GetLiveAsync(
                 context.TenantId, context.OrganizationId, nowUtc, cancellationToken);
+
+            return organization is null
+                ? null
+                : new ResolvedSubscription(organization, SeatNumber: null);
         }
 
         var resolved = await _resolver.ResolveAsync(context, nowUtc, cancellationToken);
@@ -735,6 +743,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
         RecordUsageRequest request,
         SubscriptionContext context,
         SubscriptionDetail subscription,
+        int? seat,
         PlanMeter meter,
         BillingPeriod period,
         DateTime occurredAt,
@@ -769,11 +778,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         try
         {
+            // The seat's own opening figure. On a carry-forward meter this is what its previous
+            // window left behind — one person's leftovers, not everybody's.
             var opening = await _allowances.OpeningAllowanceAsync(
                 subscription,
                 meter,
                 period,
-                cancellationToken);
+                cancellationToken,
+                seat);
 
             var record = new SubscriptionUsageRecord
             {
@@ -803,7 +815,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             }
 
             var counter = await _usage.ApplyDeltaAsync(
-                SeedFor(context, subscription, meter, period, opening),
+                SeedFor(context, subscription, seat, meter, period, opening),
                 request.Quantity,
                 cancellationToken);
 
@@ -821,6 +833,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     record,
                     context,
                     subscription,
+                    seat,
                     meter,
                     period,
                     allowance,
@@ -834,6 +847,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     record,
                     context,
                     subscription,
+                    seat,
                     meter,
                     period,
                     allowance,
@@ -924,10 +938,16 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// and what caused it both stay visible. The counter is decremented by the same amount, so
     /// a refused call leaves the balance exactly where it was.
     /// </remarks>
+    /// <remarks>
+    /// <paramref name="seat"/> is the seat the use was applied to, and it has to be the same one:
+    /// the reversal decrements whatever counter the original increment landed on, and reversing
+    /// against a different one would leave the refused use still spent.
+    /// </remarks>
     private async Task<SubscriptionOperationResult<UsageResponse>> RefuseAsync(
         SubscriptionUsageRecord record,
         SubscriptionContext context,
         SubscriptionDetail subscription,
+        int? seat,
         PlanMeter meter,
         BillingPeriod period,
         decimal allowance,
@@ -952,7 +972,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             cancellationToken);
 
         var counter = await _usage.ApplyDeltaAsync(
-            SeedFor(context, subscription, meter, period, allowance),
+            SeedFor(context, subscription, seat, meter, period, allowance),
             -record.Delta,
             cancellationToken);
 
@@ -1053,9 +1073,23 @@ public sealed class UsageRecordingService : IUsageRecordingService
             correlationId);
     }
 
+    /// <summary>
+    /// The counter a use is applied to, seeded with what its window opened holding.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="seat"/> is what separates one person's allowance from another's on the same
+    /// subscription. Null for an organization's own plan, which composes exactly the identity every
+    /// counter already stored uses, so no balance moves and nothing needs migrating.
+    /// <para>
+    /// The allowance is the plan's included quantity either way, and that is the whole of the
+    /// per-seat model: five seats on a plan including ten million is ten million each, because each
+    /// counts separately against the same figure.
+    /// </para>
+    /// </remarks>
     private SubscriptionUsageCounter SeedFor(
         SubscriptionContext context,
         SubscriptionDetail subscription,
+        int? seat,
         PlanMeter meter,
         BillingPeriod period,
         decimal allowance) => new()
@@ -1063,7 +1097,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
         ItemId = SubscriptionUsageCounter.CreateId(
             subscription.ItemId,
             meter.MeterKey,
-            period.Key),
+            period.Key,
+            seat),
+        SeatNumber = seat,
         TenantId = context.TenantId,
         OrganizationId = context.OrganizationId,
         SubscriptionId = subscription.ItemId,

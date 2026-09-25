@@ -26,8 +26,18 @@ public interface ISubscriberSubscriptionResolver
     /// organization's alone.
     /// </para>
     /// </remarks>
-    Task<IReadOnlyList<SubscriptionDetail>> ResolveAsync(
+    Task<IReadOnlyList<ResolvedSubscription>> ResolveAsync(
         SubscriptionContext context,
         DateTime nowUtc,
         CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// A subscription a caller may draw on, and the seat they hold on it.
+/// </summary>
+/// <remarks>
+/// <see cref="SeatNumber"/> is null for an organization's own subscription, which has no seats:
+/// usage against it counts for the subscription as a whole, exactly as it always has. A seated one
+/// counts against that seat's own window, because a seat carries its own allowance.
+/// </remarks>
+public sealed record ResolvedSubscription(SubscriptionDetail Subscription, int? SeatNumber);

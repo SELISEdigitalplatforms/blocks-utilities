@@ -32,6 +32,15 @@ public sealed class SubscriptionUsageCounter
 
     public string PeriodKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Which seat this counts for, or null when it counts the subscription's own usage.
+    /// </summary>
+    /// <remarks>
+    /// Null on every counter written before seats existed, and on every organization-wise
+    /// subscription for as long as they exist — neither has seats, and neither changes.
+    /// </remarks>
+    public int? SeatNumber { get; set; }
+
     public decimal Balance { get; set; }
 
     /// <summary>
@@ -63,4 +72,26 @@ public sealed class SubscriptionUsageCounter
         string meterKey,
         string periodKey) =>
         $"{subscriptionId}:{meterKey}:{periodKey}";
+
+    /// <summary>
+    /// The counter for one seat's own window, or the subscription's own when there is no seat.
+    /// </summary>
+    /// <remarks>
+    /// A seat carries its own allowance, so it has to count separately: five seats on a plan
+    /// including ten million tokens is ten million each, and one person cannot spend what the other
+    /// four were bought.
+    /// <para>
+    /// A null seat composes exactly the three-part id above, which is what an organization's own
+    /// subscription has always used. Every counter already stored keeps its identity, so nothing
+    /// needs migrating and no balance moves.
+    /// </para>
+    /// </remarks>
+    public static string CreateId(
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        int? seatNumber) =>
+        seatNumber is { } seat
+            ? $"{CreateId(subscriptionId, meterKey, periodKey)}:{seat}"
+            : CreateId(subscriptionId, meterKey, periodKey);
 }

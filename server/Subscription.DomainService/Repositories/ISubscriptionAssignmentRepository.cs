@@ -4,6 +4,11 @@ using Subscription.DomainService.Enums;
 namespace Subscription.DomainService.Repositories;
 
 /// <summary>
+/// One seat somebody holds: which subscription, and which of its seats.
+/// </summary>
+public sealed record HeldSeat(string SubscriptionId, int SeatNumber);
+
+/// <summary>
 /// Who holds which seat.
 /// </summary>
 public interface ISubscriptionAssignmentRepository
@@ -39,14 +44,18 @@ public interface ISubscriptionAssignmentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// The subscriptions this person currently holds a seat on, within one organization.
+    /// The seats this person currently holds, within one organization.
     /// </summary>
     /// <remarks>
     /// What entitlement asks on every gated action. Returns identifiers rather than subscriptions:
     /// the caller already reads subscriptions by id and would otherwise pay for the same documents
     /// twice.
+    /// <para>
+    /// The seat number comes back with them because usage is counted per seat — knowing which
+    /// subscription somebody draws on is not enough to know which allowance they spend.
+    /// </para>
     /// </remarks>
-    Task<IReadOnlyList<string>> ListSubscriptionIdsForUserAsync(
+    Task<IReadOnlyList<HeldSeat>> ListSeatsForUserAsync(
         string tenantId,
         string organizationId,
         string userId,

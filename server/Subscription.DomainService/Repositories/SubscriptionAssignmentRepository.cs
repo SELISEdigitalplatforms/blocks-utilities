@@ -95,7 +95,7 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
             : MemberReleaseOutcome.NotHeld;
     }
 
-    public async Task<IReadOnlyList<string>> ListSubscriptionIdsForUserAsync(
+    public async Task<IReadOnlyList<HeldSeat>> ListSeatsForUserAsync(
         string tenantId,
         string organizationId,
         string userId,
@@ -111,7 +111,8 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
                     assignment => assignment.UserId, userId),
                 Builders<SubscriptionAssignment>.Filter.Eq(
                     assignment => assignment.ReleasedAtUtc, null)))
-            .Project(assignment => assignment.SubscriptionId)
+            .Project(assignment => new HeldSeat(
+                assignment.SubscriptionId, assignment.SeatNumber))
             .ToListAsync(cancellationToken);
 
         return [.. held];

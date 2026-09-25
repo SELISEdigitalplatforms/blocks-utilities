@@ -46,9 +46,9 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         outcome.Should().Be(MemberAssignmentOutcome.Assigned);
 
-        (await _assignments.ListSubscriptionIdsForUserAsync(
+        (await _assignments.ListSeatsForUserAsync(
                 tenantId, OrganizationId, "user-a", CancellationToken.None))
-            .Should().ContainSingle().Which.Should().Be("sub-a",
+            .Should().ContainSingle().Which.SubscriptionId.Should().Be("sub-a",
                 because: "entitlement reads this to find what a person may use, so a seat that " +
                          "does not come back here grants them nothing they have paid for");
     }
@@ -145,7 +145,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
         await _assignments.TryReleaseAsync(
             tenantId, "sub-a", "user-a", DateTime.UtcNow, CancellationToken.None);
 
-        (await _assignments.ListSubscriptionIdsForUserAsync(
+        (await _assignments.ListSeatsForUserAsync(
                 tenantId, OrganizationId, "user-a", CancellationToken.None))
             .Should().BeEmpty(
                 because: "someone who gave up their seat keeps access until this stops returning " +
@@ -226,7 +226,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
         elsewhere.OrganizationId = "org-2";
         await _assignments.TryAssignAsync(elsewhere, CancellationToken.None);
 
-        (await _assignments.ListSubscriptionIdsForUserAsync(
+        (await _assignments.ListSeatsForUserAsync(
                 tenantId, OrganizationId, "user-a", CancellationToken.None))
             .Should().BeEmpty(
                 because: "one person can belong to more than one organization, and reading a " +

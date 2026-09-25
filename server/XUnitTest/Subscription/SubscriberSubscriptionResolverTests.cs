@@ -31,7 +31,7 @@ public sealed class SubscriberSubscriptionResolverTests
     public SubscriberSubscriptionResolverTests()
     {
         _assignments
-            .Setup(repository => repository.ListSubscriptionIdsForUserAsync(
+            .Setup(repository => repository.ListSeatsForUserAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
@@ -51,7 +51,7 @@ public sealed class SubscriberSubscriptionResolverTests
 
         var resolved = await Resolver().ResolveAsync(Context(), Now, CancellationToken.None);
 
-        resolved.Select(subscription => subscription.ItemId)
+        resolved.Select(candidate => candidate.Subscription.ItemId)
             .Should().BeEquivalentTo(["sub-own", "sub-org"], options => options.WithStrictOrdering(),
                 because: "where both declare the same thing the more specific purchase answers, " +
                          "and the order is what carries that");
@@ -65,7 +65,7 @@ public sealed class SubscriberSubscriptionResolverTests
 
         var resolved = await Resolver().ResolveAsync(Context(), Now, CancellationToken.None);
 
-        SubscriberSubscriptionSelection.ForMeter(resolved, "widgets")!.ItemId
+        SubscriberSubscriptionSelection.ForMeter(resolved, "widgets")!.Subscription.ItemId
             .Should().Be("sub-org",
                 because: "being given an allowance of one's own must not silently stop recording " +
                          "usage the organization is still paying for");
@@ -79,7 +79,7 @@ public sealed class SubscriberSubscriptionResolverTests
 
         var resolved = await Resolver().ResolveAsync(Context(), Now, CancellationToken.None);
 
-        SubscriberSubscriptionSelection.ForMeter(resolved, "ai_tokens")!.ItemId
+        SubscriberSubscriptionSelection.ForMeter(resolved, "ai_tokens")!.Subscription.ItemId
             .Should().Be("sub-own",
                 because: "both meter it, and spending the organization's shared pool when the " +
                          "person has their own is what the seat was bought to avoid");
@@ -103,7 +103,7 @@ public sealed class SubscriberSubscriptionResolverTests
 
         var resolved = await Resolver().ResolveAsync(Context(), Now, CancellationToken.None);
 
-        resolved.Should().ContainSingle().Which.ItemId.Should().Be("sub-org",
+        resolved.Should().ContainSingle().Which.Subscription.ItemId.Should().Be("sub-org",
             because: "this is every subscriber in production, and the change has to be invisible " +
                      "to all of them");
     }
@@ -119,12 +119,31 @@ public sealed class SubscriberSubscriptionResolverTests
             CancellationToken.None);
 
         _assignments.Verify(
-            repository => repository.ListSubscriptionIdsForUserAsync(
+            repository => repository.ListSeatsForUserAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Never,
             "background work and machine tokens hold no seats, and asking is a round trip per " +
             "call for an answer that is always empty");
+    }
+
+    [Fact]
+    public async Task The_seat_a_caller_holds_comes_back_with_the_subscription()
+    {
+        GivenSeat("sub-own", "ai_tokens");
+        GivenOrganization("sub-org", "widgets");
+
+        var resolved = await Resolver().ResolveAsync(Context(), Now, CancellationToken.None);
+
+        SubscriberSubscriptionSelection.ForMeter(resolved, "ai_tokens")!.SeatNumber
+            .Should().Be(2,
+                because: "usage counts against the seat, so knowing which subscription somebody " +
+                         "draws on is not enough to know whose allowance they spend");
+
+        SubscriberSubscriptionSelection.ForMeter(resolved, "widgets")!.SeatNumber
+            .Should().BeNull(
+                because: "an organization's own subscription has no seats, and its usage counts " +
+                         "for the subscription as a whole exactly as it always has");
     }
 
     private static DateTime Now => new(2026, 8, 14, 12, 0, 0, DateTimeKind.Utc);
@@ -135,9 +154,9 @@ public sealed class SubscriberSubscriptionResolverTests
     private void GivenSeat(string subscriptionId, string meterKey)
     {
         _assignments
-            .Setup(repository => repository.ListSubscriptionIdsForUserAsync(
+            .Setup(repository => repository.ListSeatsForUserAsync(
                 TenantId, OrganizationId, "user-a", It.IsAny<CancellationToken>()))
-            .ReturnsAsync([subscriptionId]);
+            .ReturnsAsync([new HeldSeat(subscriptionId, SeatNumber: 2)]);
 
         _subscriptions
             .Setup(repository => repository.ListLiveByIdsAsync(

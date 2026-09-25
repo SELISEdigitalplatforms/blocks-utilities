@@ -25,7 +25,8 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? seat = null)
     {
         ArgumentNullException.ThrowIfNull(subscription);
         ArgumentNullException.ThrowIfNull(meter);
@@ -38,7 +39,8 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
             return @base;
         }
 
-        return @base + await CarriedIntoAsync(subscription, meter, period, cancellationToken);
+        return @base + await CarriedIntoAsync(
+            subscription, meter, period, cancellationToken, seat);
     }
 
     public async Task<decimal> EffectiveAsync(
@@ -46,7 +48,8 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
         PlanMeter meter,
         BillingPeriod period,
         SubscriptionUsageCounter? counter,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? seat = null)
     {
         // The window's own snapshot wins whenever there is one: it was frozen when the window
         // opened, so nothing computed afterwards may move it. The computation is only the answer
@@ -57,7 +60,7 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
             return frozen;
         }
 
-        return await OpeningAllowanceAsync(subscription, meter, period, cancellationToken);
+        return await OpeningAllowanceAsync(subscription, meter, period, cancellationToken, seat);
     }
 
     /// <summary>
@@ -72,7 +75,8 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? seat = null)
     {
         if (!MeterPeriodResolver.TryGetPreviousPeriod(
                 subscription,
@@ -88,7 +92,8 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
             SubscriptionUsageCounter.CreateId(
                 subscription.ItemId,
                 meter.MeterKey,
-                previousPeriod.Key),
+                previousPeriod.Key,
+                seat),
             cancellationToken);
 
         return MeterAllowance.CarriedIn(subscription, meter, previousPeriod, previousCounter);

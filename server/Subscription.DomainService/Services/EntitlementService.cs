@@ -19,7 +19,7 @@ namespace Subscription.DomainService.Services;
 public sealed class EntitlementService : IEntitlementService
 {
     private readonly ISubscriptionRepository _subscriptions;
-    private readonly ISubscriptionAssignmentRepository _assignments;
+    private readonly ISubscriberSubscriptionResolver _resolver;
     private readonly ISubscriptionUsageRepository _usage;
     private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
@@ -28,7 +28,7 @@ public sealed class EntitlementService : IEntitlementService
 
     public EntitlementService(
         ISubscriptionRepository subscriptions,
-        ISubscriptionAssignmentRepository assignments,
+        ISubscriberSubscriptionResolver resolver,
         ISubscriptionUsageRepository usage,
         IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
@@ -36,7 +36,7 @@ public sealed class EntitlementService : IEntitlementService
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
-        _assignments = assignments;
+        _resolver = resolver;
         _usage = usage;
         _allowances = allowances;
         _contextResolver = contextResolver;
@@ -215,47 +215,19 @@ public sealed class EntitlementService : IEntitlementService
             context.TenantId,
             context.OrganizationId,
             subscriberUserId,
-            () => ResolveAsync(context, subscriberUserId, nowUtc, cancellationToken));
+            async () =>
+            {
+                var resolved = await _resolver.ResolveAsync(
+                    context, nowUtc, cancellationToken);
+
+                // Entitlement asks what a plan grants, which does not depend on which
+                // seat of it somebody holds — that only decides whose allowance a
+                // recorded use spends.
+                return [.. resolved.Select(candidate => candidate.Subscription)];
+            });
     }
 
-    /// <summary>
-    /// Reads the seats and the organization's subscription, and puts them in precedence order.
-    /// </summary>
-    /// <remarks>
-    /// A subscription reached through a seat is not read a second time if it is also the
-    /// organization's own. That cannot happen while an organization-wise subscription carries no
-    /// seats, but the guard costs nothing and a duplicate would silently double a plan's
-    /// entitlements in the merge downstream.
-    /// </remarks>
-    private async Task<IReadOnlyList<SubscriptionDetail>> ResolveAsync(
-        SubscriptionContext context,
-        string subscriberUserId,
-        DateTime nowUtc,
-        CancellationToken cancellationToken)
-    {
-        var heldSeatIds = subscriberUserId.Length == 0
-            ? []
-            : await _assignments.ListSubscriptionIdsForUserAsync(
-                context.TenantId,
-                context.OrganizationId,
-                subscriberUserId,
-                cancellationToken);
 
-        var held = await _subscriptions.ListLiveByIdsAsync(
-            context.TenantId, heldSeatIds, nowUtc, cancellationToken);
-
-        var organization = await _subscriptions.GetLiveAsync(
-            context.TenantId, context.OrganizationId, nowUtc, cancellationToken);
-
-        if (organization is null ||
-            held.Any(seat => string.Equals(
-                seat.ItemId, organization.ItemId, StringComparison.Ordinal)))
-        {
-            return held;
-        }
-
-        return [.. held, organization];
-    }
 
     /// <summary>
     /// What a meter's window currently holds: how much is used, and — for a meter that carries
