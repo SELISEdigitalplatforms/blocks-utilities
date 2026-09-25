@@ -100,6 +100,9 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionAssignmentRepository,
             SubscriptionAssignmentRepository>();
         services.AddScoped<ISubscriptionMemberService, SubscriptionMemberService>();
+        services.AddScoped<
+            ISubscriberSubscriptionResolver,
+            SubscriberSubscriptionResolver>();
         services.AddSingleton<
             IMailDeliveryReportRepository,
             MailDeliveryReportRepository>();

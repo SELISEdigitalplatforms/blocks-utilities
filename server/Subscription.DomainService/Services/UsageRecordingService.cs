@@ -24,6 +24,7 @@ namespace Subscription.DomainService.Services;
 public sealed class UsageRecordingService : IUsageRecordingService
 {
     private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriberSubscriptionResolver? _resolver;
     private readonly ISubscriptionUsageRepository _usage;
     private readonly IUsagePeriodClosureRepository _closures;
     private readonly IMeterAllowanceResolver _allowances;
@@ -54,9 +55,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
         TimeProvider? time = null,
         // Optional so an existing caller or test that builds this service by hand keeps compiling.
         // Falls back to the shared instrument set, which is what the running process uses anyway.
-        UsageProjectionMetrics? metrics = null)
+        UsageProjectionMetrics? metrics = null,
+        // Optional for the same reason, and the fallback is what every caller had
+        // before seats existed: the organization's own subscription.
+        ISubscriberSubscriptionResolver? resolver = null)
     {
         _subscriptions = subscriptions;
+        _resolver = resolver;
         _usage = usage;
         _closures = closures;
         _allowances = allowances;
@@ -105,11 +110,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         var context = resolution.Context!;
         var readAt = _time.GetUtcNow().UtcDateTime;
 
-        var subscription = await _subscriptions.GetLiveAsync(
-            context.TenantId,
-            context.OrganizationId,
-            readAt,
-            cancellationToken);
+        // Chosen by the meter being recorded rather than by taking whatever the organization
+        // holds. Somebody on an allowance plan of their own spends theirs; a meter their plan says
+        // nothing about still records against the organization's, which is what it pays for.
+        var subscription = await ResolveForMeterAsync(
+            context, request.MeterKey, readAt, cancellationToken);
 
         if (subscription is null)
         {
@@ -236,6 +241,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         var context = resolution.Context!;
         var now = _time.GetUtcNow().UtcDateTime;
 
+        // Deliberately the organization's own subscription, unchanged. This read answers for every
+        // meter at once and is built around one subscription throughout — it counts how many
+        // meter-windows the plan should have and refuses a projection that holds fewer, which is a
+        // judgement that has no meaning spread across two plans. Reading a caller's own seat
+        // allowance belongs with the per-seat counters, where the projection learns about seats.
         var subscription = await _subscriptions.GetLiveAsync(
             context.TenantId,
             context.OrganizationId,
@@ -369,6 +379,38 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// whole request for such a meter — counting it here would make every projection read of an
     /// unresolvable subscription report a partial fallback on the way to that refusal.
     /// </remarks>
+    /// <summary>
+    /// The subscription this caller's usage of one meter belongs to.
+    /// </summary>
+    /// <remarks>
+    /// Falls back to the organization's own subscription when no resolver is supplied, which is
+    /// what every caller had before seats existed and what every test constructing this service
+    /// without one still gets.
+    /// <para>
+    /// When a resolver is there but nothing it returned meters this key, the first resolved
+    /// subscription is handed back anyway so the caller is told "that plan has no such meter"
+    /// rather than "you have no subscription" — two different problems that send a support
+    /// engineer to two different places.
+    /// </para>
+    /// </remarks>
+    private async Task<SubscriptionDetail?> ResolveForMeterAsync(
+        SubscriptionContext context,
+        string meterKey,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_resolver is null)
+        {
+            return await _subscriptions.GetLiveAsync(
+                context.TenantId, context.OrganizationId, nowUtc, cancellationToken);
+        }
+
+        var resolved = await _resolver.ResolveAsync(context, nowUtc, cancellationToken);
+
+        return SubscriberSubscriptionSelection.ForMeter(resolved, meterKey)
+            ?? resolved.FirstOrDefault();
+    }
+
     private static int CountCurrentWindows(SubscriptionDetail subscription, DateTime asOfUtc)
     {
         var windows = 0;
