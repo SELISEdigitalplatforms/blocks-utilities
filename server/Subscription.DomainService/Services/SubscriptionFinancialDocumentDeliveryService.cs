@@ -524,7 +524,11 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             Language = SubscriptionConstants.DefaultMailLanguage,
             Attachments = [storageId],
             SubjectDataContext = new Dictionary<string, string>(context),
-            BodyDataContext = context
+            BodyDataContext = context,
+            // The mail's own id rather than the document's correlation id, which the whole checkout
+            // shares: this one names exactly one mail, and is already stored on the document and its
+            // delivery report for matching an outcome back.
+            CorrelationId = messageId
         };
 
         try
