@@ -1082,6 +1082,41 @@
             </para>
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.AssignMembers(System.String,Subscription.DomainService.Requests.AssignMemberRequest,System.Threading.CancellationToken)">
+            <summary>Puts people on a user-wise subscription — one, or all of them at once.</summary>
+            <remarks>
+            The person is named in the body rather than taken from the token, because filling seats on
+            behalf of other people is the ordinary case. Which organization's subscription may be
+            touched is still decided by the token.
+            <para>
+            Past those checks the answer is per person, not one verdict for the batch: nothing here
+            spans documents, so a ten-name call that fills the last three places reports three assigned
+            and seven refused rather than failing whole. The count is checked before each write and
+            settled by the database, so two administrators filling the last place together produce one
+            assignment and one refusal.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ReleaseMember(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>Takes a seat back.</summary>
+            <remarks>
+            What the holder spent stays on the subscription and is not reset, so whoever takes the seat
+            next inherits the remainder of the period. The organization bought a period's allowance; it
+            does not renew because the person using it changed.
+            <para>
+            Allowed on a subscription that has stopped granting, so a seat can still be taken back from
+            somebody who has left after it lapses.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetMembers(System.String,System.Threading.CancellationToken)">
+            <summary>Who holds this subscription's seats, and how many remain.</summary>
+            <remarks>
+            The remaining count is what it was a moment ago rather than a promise about the next
+            assignment: only the database settles a race for the last seat. It is here so an
+            administrator can see how full a subscription is.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetAuditTrail(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
             <summary>Returns the immutable lifecycle trail used to investigate this subscription.</summary>
             <remarks>
@@ -1244,6 +1279,22 @@
             Both modes return the identical <c>UsageResponse[]</c> body. How the read was served is
             reported in <c>X-Usage-Read-*</c> response headers rather than in the body, so opting into a
             mode cannot change the shape a consumer parses.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.GetMine(System.String,System.Threading.CancellationToken)">
+            <summary>
+            Current usage for every meter the caller themselves may spend.
+            </summary>
+            <remarks>
+            Beside <c>GET current</c> rather than a flag on it, which goes on answering for the
+            organization's subscription as a whole and is unchanged. This one answers "what may I
+            spend": a seat's own allowance where the caller holds one, the organization's for every
+            meter no seat of theirs covers.
+            <para>
+            One item per meter, chosen exactly as a recording chooses — a seat first, the organization
+            otherwise — so the balance shown is the balance the next call actually draws down. Served
+            from the counters, with no <c>readMode</c>: a seat has no projection to read instead.
+            </para>
             </remarks>
         </member>
         <member name="M:Api.Controllers.SubscriptionUsageController.TryParseReadMode(System.String,Subscription.DomainService.Enums.UsageReadMode@)">

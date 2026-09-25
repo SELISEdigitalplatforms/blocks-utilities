@@ -36,11 +36,17 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
         _indexedTenants.TryAdd(tenantId, 0);
     }
 
-    public async Task<SeatAssignmentOutcome> TryAssignAsync(
+    public async Task<MemberAssignmentOutcome> TryAssignAsync(
         SubscriptionAssignment assignment,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(assignment);
+
+        // A seat is what carries an allowance, so an assignment without one is not a lesser
+        // record — it is a different thing entirely. Left to the index it would collide with every
+        // other seatless assignment on the subscription and report AlreadyHeld, which is true of
+        // the seat and misleading about the person.
+        ArgumentOutOfRangeException.ThrowIfLessThan(assignment.SeatNumber, 1);
 
         await EnsureIndexesAsync(assignment.TenantId, cancellationToken);
 
@@ -54,16 +60,16 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
             await Assignments(assignment.TenantId)
                 .InsertOneAsync(assignment, cancellationToken: cancellationToken);
 
-            return SeatAssignmentOutcome.Assigned;
+            return MemberAssignmentOutcome.Assigned;
         }
         catch (MongoWriteException exception)
             when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
         {
-            return SeatAssignmentOutcome.AlreadyHeld;
+            return MemberAssignmentOutcome.AlreadyHeld;
         }
     }
 
-    public async Task<SeatReleaseOutcome> TryReleaseAsync(
+    public async Task<MemberReleaseOutcome> TryReleaseAsync(
         string tenantId,
         string subscriptionId,
         string userId,
@@ -85,11 +91,11 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
         // Nothing modified means there was no live seat. The filter already excludes released
         // rows, so this cannot be a seat given up twice being reported as a release.
         return result.ModifiedCount == 1
-            ? SeatReleaseOutcome.Released
-            : SeatReleaseOutcome.NotHeld;
+            ? MemberReleaseOutcome.Released
+            : MemberReleaseOutcome.NotHeld;
     }
 
-    public async Task<IReadOnlyList<string>> ListSubscriptionIdsForUserAsync(
+    public async Task<IReadOnlyList<HeldSeat>> ListSeatsForUserAsync(
         string tenantId,
         string organizationId,
         string userId,
@@ -105,7 +111,8 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
                     assignment => assignment.UserId, userId),
                 Builders<SubscriptionAssignment>.Filter.Eq(
                     assignment => assignment.ReleasedAtUtc, null)))
-            .Project(assignment => assignment.SubscriptionId)
+            .Project(assignment => new HeldSeat(
+                assignment.SubscriptionId, assignment.SeatNumber))
             .ToListAsync(cancellationToken);
 
         return [.. held];

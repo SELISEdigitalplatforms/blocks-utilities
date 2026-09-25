@@ -13,7 +13,8 @@ namespace Subscription.DomainService.Repositories;
 /// </remarks>
 public static class SubscriptionAssignmentIndexDefinitions
 {
-    public const string ActiveSeatIndexName = "ux_assignment_subscription_user_active";
+    public const string ActiveMembershipIndexName = "ux_assignment_subscription_member_active";
+    public const string ActiveSeatIndexName = "ux_assignment_subscription_seat_active";
     public const string SubscriberLookupIndexName = "ix_assignment_tenant_org_user_active";
     public const string SubscriptionLookupIndexName = "ix_assignment_tenant_subscription_active";
 
@@ -43,6 +44,24 @@ public static class SubscriptionAssignmentIndexDefinitions
                 .Ascending(assignment => assignment.TenantId)
                 .Ascending(assignment => assignment.SubscriptionId)
                 .Ascending(assignment => assignment.UserId),
+            new CreateIndexOptions<SubscriptionAssignment>
+            {
+                Unique = true,
+                Name = ActiveMembershipIndexName,
+                PartialFilterExpression = new BsonDocument(
+                    nameof(SubscriptionAssignment.ReleasedAtUtc),
+                    new BsonDocument("$type", "null"))
+            }),
+
+        // One person per seat, enforced by the database for the same reason the rule above is:
+        // two administrators assigning into the last free seat would both read it as free. This is
+        // the other half of the pair — that one stops a person holding two seats on a
+        // subscription, this one stops a seat holding two people.
+        new(
+            Builders<SubscriptionAssignment>.IndexKeys
+                .Ascending(assignment => assignment.TenantId)
+                .Ascending(assignment => assignment.SubscriptionId)
+                .Ascending(assignment => assignment.SeatNumber),
             new CreateIndexOptions<SubscriptionAssignment>
             {
                 Unique = true,

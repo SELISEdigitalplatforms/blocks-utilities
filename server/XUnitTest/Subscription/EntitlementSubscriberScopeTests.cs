@@ -29,7 +29,7 @@ public sealed class EntitlementSubscriberScopeTests
     private const string UserKey = "ai_credits";
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
-    private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
+    private readonly Mock<ISubscriberSubscriptionResolver> _resolver = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly ControlledTimeProvider _time =
@@ -177,42 +177,25 @@ public sealed class EntitlementSubscriberScopeTests
         SubscriptionDetail? organization,
         params SubscriptionDetail[] seats)
     {
-        _subscriptions
-            .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId,
-                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(organization);
+        var resolved = new List<ResolvedSubscription>(
+            seats.Select((seat, index) => new ResolvedSubscription(seat, index + 1)));
 
-        _assignments
-            .Setup(repository => repository.ListSubscriptionIdsForUserAsync(
-                TenantId, OrganizationId, userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([.. seats.Select(seat => seat.ItemId)]);
-
-        foreach (var seat in seats)
+        if (organization is not null)
         {
-            var held = seat;
-
-            _subscriptions
-                .Setup(repository => repository.ListLiveByIdsAsync(
-                    TenantId,
-                    It.Is<IReadOnlyCollection<string>>(ids => ids.Contains(held.ItemId)),
-                    It.IsAny<DateTime>(),
-                    It.IsAny<CancellationToken>()))
-                .ReturnsAsync([held]);
+            resolved.Add(new ResolvedSubscription(organization, SeatNumber: null));
         }
 
-        _subscriptions
-            .Setup(repository => repository.ListLiveByIdsAsync(
-                TenantId,
-                It.Is<IReadOnlyCollection<string>>(ids => ids.Count == 0),
+        _resolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.Is<SubscriptionContext>(context => context.UserId == userId),
                 It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+            .ReturnsAsync(resolved);
     }
 
     private EntitlementService Service() => new(
         _subscriptions.Object,
-        _assignments.Object,
+        _resolver.Object,
         _usage.Object,
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,

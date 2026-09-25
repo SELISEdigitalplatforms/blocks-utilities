@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using Payment.DomainService.Utilities;
@@ -271,6 +271,15 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
+        // A user-wise plan has no subscription-wide allowance to seed. Its allowance belongs to
+        // each seat, so a zero-usage row for the subscription as a whole would advertise an
+        // included quantity nobody is able to spend — and whoever read it would see a balance that
+        // never moves however much the members actually use.
+        if (subscription.Plan.SubscriberScope == SubscriberScope.User)
+        {
+            return 0;
+        }
+
         var seeded = 0;
 
         foreach (var (meter, period) in CurrentWindows(subscription, asOfUtc))
@@ -340,7 +349,15 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
 
         var published = 0;
 
-        if (windows.Count > 0)
+        // The same reason the seed skips one: on a user-wise plan the allowance belongs to each
+        // seat, so neither a subscription-wide row nor a per-user one has an included quantity it
+        // can honestly report — both would name an allowance whose owner is somebody else. The
+        // seat's own row is published by the recording that moved it, which is the only place the
+        // seat is known. Reconciliation and entitlements below still run, because those describe
+        // the subscription itself and are true of either kind of plan.
+        var seated = subscription.Plan.SubscriberScope == SubscriberScope.User;
+
+        if (windows.Count > 0 && !seated)
         {
             // One batch for every meter, which matters here as much as on the read path: a repair
             // over a subscription with a dozen meters would otherwise be a dozen round trips.
@@ -783,10 +800,12 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         ItemId = SubscriptionUsageCurrent.CreateId(
             subscription.ItemId,
             meter.MeterKey,
-            period.Key),
+            period.Key,
+            counter?.SeatNumber),
         TenantId = subscription.TenantId,
         OrganizationId = subscription.OrganizationId,
         SubscriptionId = subscription.ItemId,
+        SeatNumber = counter?.SeatNumber,
         SubscriptionStatus = subscription.Status,
         CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
         CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,

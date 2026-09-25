@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -37,6 +37,16 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         {
             await collection.Indexes.DropOneAsync(
                 SubscriptionIndexDefinitions.UsageCurrentLegacyUniqueIndexName, cancellationToken);
+        }
+        catch (MongoCommandException exception) when (exception.Code is 27 or 26)
+        {
+        }
+
+        try
+        {
+            await collection.Indexes.DropOneAsync(
+                SubscriptionIndexDefinitions.UsageCurrentPreSeatUniqueIndexName,
+                cancellationToken);
         }
         catch (MongoCommandException exception) when (exception.Code is 27 or 26)
         {
@@ -359,7 +369,8 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         CancellationToken cancellationToken) =>
         await Current(tenantId)
             .Find(CurrentWindowFilter(tenantId, organizationId, subscriptionId, asOfUtc) &
-                  Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.UserId, string.Empty))
+                  Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.UserId, string.Empty) &
+                  AggregateSeatFilter())
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<SubscriptionUsageCurrent>> ListUserRowsAsync(
@@ -389,6 +400,22 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         Builders<SubscriptionUsageCurrent>.Filter.And(
             Builders<SubscriptionUsageCurrent>.Filter.Exists(current => current.UserId),
             Builders<SubscriptionUsageCurrent>.Filter.Ne(current => current.UserId, string.Empty));
+
+    /// <summary>
+    /// Matches the subscription's own row and never one seat's.
+    /// </summary>
+    /// <remarks>
+    /// <c>Eq(SeatNumber, null)</c> rather than an existence check, and for once the two are the
+    /// same thing: Mongo matches a missing field against null, which is exactly what every row
+    /// written before seats existed needs. A seat's row carries a number and is excluded.
+    /// <para>
+    /// Without this, an organization asking what it had used was shown whichever member's seat row
+    /// the query happened to return — one person's spending reported as everybody's, and counted
+    /// toward the window total that decides whether the projection may answer at all.
+    /// </para>
+    /// </remarks>
+    private static FilterDefinition<SubscriptionUsageCurrent> AggregateSeatFilter() =>
+        Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.SeatNumber, null);
 
     private static FilterDefinition<SubscriptionUsageCurrent> CurrentWindowFilter(
         string tenantId,

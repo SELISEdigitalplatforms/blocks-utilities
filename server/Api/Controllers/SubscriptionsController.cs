@@ -31,6 +31,7 @@ public sealed class SubscriptionsController : ControllerBase
     private readonly ISubscriptionPlanChangeService _planChange;
     private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
     private readonly ISubscriptionQuantityChangeService _quantityChange;
+    private readonly ISubscriptionMemberService _members;
     private readonly ISubscriptionFinancialDocumentHistoryService _documents;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionAuditTrail _audit;
@@ -44,6 +45,7 @@ public sealed class SubscriptionsController : ControllerBase
         ISubscriptionInvoiceDocumentService invoiceDocuments,
         ISubscriptionFinancialDocumentHistoryService documents,
         ISubscriptionQuantityChangeService quantityChange,
+        ISubscriptionMemberService seats,
         ISubscriptionContextResolver contextResolver,
         ISubscriptionAuditTrail audit,
         ISubscriptionAuditRepository auditRepository)
@@ -55,6 +57,7 @@ public sealed class SubscriptionsController : ControllerBase
         _invoiceDocuments = invoiceDocuments;
         _documents = documents;
         _quantityChange = quantityChange;
+        _members = seats;
         _contextResolver = contextResolver;
         _audit = audit;
         _auditRepository = auditRepository;
@@ -498,6 +501,97 @@ public sealed class SubscriptionsController : ControllerBase
         await AuditAsync("StartPaymentMethodSetup", organizationId, subscriptionId,
             result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
             null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>Puts people on a user-wise subscription — one, or all of them at once.</summary>
+    /// <remarks>
+    /// The person is named in the body rather than taken from the token, because filling seats on
+    /// behalf of other people is the ordinary case. Which organization's subscription may be
+    /// touched is still decided by the token.
+    /// <para>
+    /// Past those checks the answer is per person, not one verdict for the batch: nothing here
+    /// spans documents, so a ten-name call that fills the last three places reports three assigned
+    /// and seven refused rather than failing whole. The count is checked before each write and
+    /// settled by the database, so two administrators filling the last place together produce one
+    /// assignment and one refusal.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{subscriptionId}/members")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberAssignmentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberAssignmentResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberAssignmentResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberAssignmentResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
+    public async Task<IActionResult> AssignMembers(
+        string subscriptionId,
+        [FromBody] AssignMemberRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _members.AssignAsync(
+            subscriptionId, request, correlationId, cancellationToken);
+
+        await AuditAsync("AssignMember", null, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>Takes a seat back.</summary>
+    /// <remarks>
+    /// What the holder spent stays on the subscription and is not reset, so whoever takes the seat
+    /// next inherits the remainder of the period. The organization bought a period's allowance; it
+    /// does not renew because the person using it changed.
+    /// <para>
+    /// Allowed on a subscription that has stopped granting, so a seat can still be taken back from
+    /// somebody who has left after it lapses.
+    /// </para>
+    /// </remarks>
+    [HttpDelete("{subscriptionId}/members/{userId}")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
+    public async Task<IActionResult> ReleaseMember(
+        string subscriptionId,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _members.ReleaseAsync(
+            subscriptionId, userId, correlationId, cancellationToken);
+
+        await AuditAsync("ReleaseMember", null, subscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            null, null, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>Who holds this subscription's seats, and how many remain.</summary>
+    /// <remarks>
+    /// The remaining count is what it was a moment ago rather than a promise about the next
+    /// assignment: only the database settles a race for the last seat. It is here so an
+    /// administrator can see how full a subscription is.
+    /// </remarks>
+    [HttpGet("{subscriptionId}/members")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMembersResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMembersResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::read")]
+    public async Task<IActionResult> GetMembers(
+        string subscriptionId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _members.ListAsync(subscriptionId, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

@@ -1,5 +1,7 @@
 using MongoDB.Bson.Serialization.Attributes;
 
+using Subscription.DomainService.Enums;
+
 namespace Subscription.DomainService.Entities;
 
 /// <summary>
@@ -23,6 +25,22 @@ public sealed class PlanQuantityItem
     public long? MaxQuantity { get; set; }
 
     public long DefaultQuantity { get; set; } = 1;
+
+    /// <summary>
+    /// Whether this item's quantity is how many people may hold a seat.
+    /// </summary>
+    /// <remarks>
+    /// Needed because a plan may sell several quantities — seats and workspaces and whatever else
+    /// — and nothing else on an item distinguishes them. <see cref="ItemKey"/> is a free string a
+    /// product chose, so reading "seat" out of it would work for one tenant's naming and silently
+    /// fail for another's.
+    /// <para>
+    /// Only meaningful on a <see cref="SubscriberScope.User"/> plan, and only needed when it sells
+    /// more than one quantity: a plan with a single item has no ambiguity to resolve, which is what
+    /// keeps every plan authored before this from needing an edit.
+    /// </para>
+    /// </remarks>
+    public bool CountsMembers { get; set; }
 
     /// <summary>
     /// Volume bands, in ascending order. Empty means one price at every quantity.

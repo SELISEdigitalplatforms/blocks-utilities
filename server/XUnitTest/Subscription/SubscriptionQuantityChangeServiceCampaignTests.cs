@@ -109,6 +109,7 @@ public sealed class SubscriptionQuantityChangeServiceCampaignTests
     private SubscriptionQuantityChangeService Service() => new(
         _contextResolver.Object,
         _subscriptions.Object,
+        assignments: null,
         _billingAccounts.Object,
         _gateway.Object,
         new SubscriptionOutboxEventFactory(),

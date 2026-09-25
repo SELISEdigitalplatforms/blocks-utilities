@@ -116,6 +116,31 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                 meter.RuleFor(definition => definition.UnitLabel).NotEmpty().MaximumLength(64);
                 meter.RuleFor(definition => definition.IncludedQuantity)
                     .GreaterThanOrEqualTo(0);
+                // Both halves or neither. A window with no quantity caps nothing, and a quantity
+                // with no window has nowhere to apply — either saved alone is a cap the author
+                // believes they wrote and the meter does not enforce.
+                meter.RuleFor(definition => definition.SubLimitQuantity)
+                    .NotNull()
+                    .When(definition => definition.SubLimitWindow is not null)
+                    .WithMessage(
+                        "A sub-limit window needs a quantity to cap, or it caps nothing.")
+                    .WithErrorCode("subscription_meter_sub_limit_incomplete");
+
+                meter.RuleFor(definition => definition.SubLimitWindow)
+                    .NotNull()
+                    .When(definition => definition.SubLimitQuantity is not null)
+                    .WithMessage(
+                        "A sub-limit quantity needs a window to be measured in.")
+                    .WithErrorCode("subscription_meter_sub_limit_incomplete");
+
+                meter.RuleFor(definition => definition.SubLimitQuantity)
+                    .GreaterThan(0)
+                    .When(definition => definition.SubLimitQuantity is not null)
+                    .WithMessage(
+                        "A sub-limit of zero refuses everything. Leave it unset to cap by " +
+                        "period alone.")
+                    .WithErrorCode("subscription_meter_sub_limit_invalid");
+
                 meter.RuleFor(definition => definition.QuantityScale)
                     .InclusiveBetween(0, MeterQuantity.MaxScale)
                     .WithMessage(

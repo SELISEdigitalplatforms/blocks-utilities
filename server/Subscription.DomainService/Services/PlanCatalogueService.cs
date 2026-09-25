@@ -82,6 +82,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         var plan = BuildPlan(request, context.TenantId);
 
         plan.Code = request.Code;
+        plan.SubscriberScope = request.SubscriberScope;
         // Null is the tenant-wide catalogue scope and must remain null. For an organization-scoped
         // plan, persist the resolver's answer rather than the caller's request: only the console may
         // name another organization, while every other caller is kept in the organization carried
@@ -202,6 +203,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         var edited = BuildPlan(request, context.TenantId);
         edited.Code = plan.Code;
         edited.OrganizationId = plan.OrganizationId;
+        edited.SubscriberScope = plan.SubscriberScope;
 
         // Guarded by the version just read: a second edit landing in between moves it on, and
         // this one is refused rather than overwriting what it never saw.
@@ -1197,6 +1199,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             {
                 ItemKey = item.ItemKey,
                 UnitLabel = item.UnitLabel,
+                CountsMembers = item.CountsMembers,
                 MinQuantity = item.MinQuantity,
                 MaxQuantity = item.MaxQuantity,
                 DefaultQuantity = item.DefaultQuantity,
@@ -1228,6 +1231,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 // initializer the scale had to be added to.
                 CarryForwardCap = meter.CarryForwardCap,
                 OverageAllowed = meter.OverageAllowed,
+                SubLimitWindow = meter.SubLimitWindow,
+                SubLimitQuantity = meter.SubLimitQuantity,
+                SubLimitBehaviour = meter.SubLimitBehaviour,
                 ThresholdPercents = meter.ThresholdPercents.Distinct().Order().ToList(),
                 RateTables = meter.RateTables
                     .Select(table => new MeterRateTable

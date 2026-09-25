@@ -59,6 +59,35 @@ public sealed class PlanMeter
     public bool OverageAllowed { get; set; } = true;
 
     /// <summary>
+    /// A shorter window this meter also caps within, or null when only the period's allowance
+    /// applies.
+    /// </summary>
+    /// <remarks>
+    /// The pace a plan is sold at, as distinct from the amount. Ten million tokens a month with no
+    /// shorter cap can be spent in an afternoon, and a plan priced on the assumption they would not
+    /// be has no way to say so.
+    /// <para>
+    /// Null on every meter authored before this, which is every meter today: they cap by period
+    /// alone and go on doing exactly that.
+    /// </para>
+    /// </remarks>
+    public UsageWindow? SubLimitWindow { get; set; }
+
+    /// <summary>How much may be used within one <see cref="SubLimitWindow"/>.</summary>
+    public decimal? SubLimitQuantity { get; set; }
+
+    /// <summary>
+    /// What happens on reaching <see cref="SubLimitQuantity"/> while the period still has
+    /// allowance left.
+    /// </summary>
+    /// <remarks>
+    /// Refusing is the default because it is the safe reading of a cap: a plan that says "so much
+    /// an hour" and then allows more has not capped anything. A plan author who wants the softer
+    /// behaviour says so.
+    /// </remarks>
+    public MeterSubLimitBehaviour SubLimitBehaviour { get; set; } = MeterSubLimitBehaviour.Refuse;
+
+    /// <summary>
     /// Percentages of the included quantity that raise an event when first crossed, such as
     /// 80 and 100. Each fires once per period.
     /// </summary>
