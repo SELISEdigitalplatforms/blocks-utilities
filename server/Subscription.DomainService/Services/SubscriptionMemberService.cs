@@ -1,4 +1,4 @@
-using Payment.DomainService.Enums;
+﻿using Payment.DomainService.Enums;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
@@ -23,6 +23,8 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
     private readonly ISubscriptionAssignmentRepository _assignments;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly IEntitlementSnapshotCache _cache;
+    private readonly ISubscriptionUsageRepository? _usage;
+    private readonly IMeterAllowanceResolver? _allowances;
     private readonly TimeProvider _time;
 
     public SubscriptionMemberService(
@@ -30,12 +32,18 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         ISubscriptionAssignmentRepository assignments,
         ISubscriptionContextResolver contextResolver,
         IEntitlementSnapshotCache cache,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        // Optional together: without them a free seat cannot be told from another free seat, and
+        // the lowest free number is what this handed out before seats counted their own usage.
+        ISubscriptionUsageRepository? usage = null,
+        IMeterAllowanceResolver? allowances = null)
     {
         _subscriptions = subscriptions;
         _assignments = assignments;
         _contextResolver = contextResolver;
         _cache = cache;
+        _usage = usage;
+        _allowances = allowances;
         _time = time ?? TimeProvider.System;
     }
 
@@ -109,9 +117,18 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             .Select(assignment => assignment.SeatNumber)
             .ToHashSet();
 
+        // Ordered once for the whole batch, because ordering reads counters and the order cannot
+        // change while this call runs: nothing else is handing out seats, and what this call
+        // assigns is tracked below.
+        var offered = new Queue<int>(await OfferSeatsAsync(
+            subscription,
+            FreeSeats(taken, purchased.Value),
+            _time.GetUtcNow().UtcDateTime,
+            cancellationToken));
+
         foreach (var userId in named)
         {
-            var seat = NextSeat(taken, purchased.Value);
+            var seat = offered.Count == 0 ? (int?)null : offered.Peek();
 
             if (seat is null)
             {
@@ -143,6 +160,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 continue;
             }
 
+            offered.Dequeue();
             taken.Add(seat.Value);
             assigned.Add(Describe(assignment));
         }
@@ -165,34 +183,104 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
     }
 
     /// <summary>
-    /// The seat a newcomer should take, or null when every one bought is occupied.
+    /// Every seat bought that nobody is sitting in.
     /// </summary>
-    /// <remarks>
-    /// The lowest free number. Every free seat carries the same allowance while usage is counted
-    /// per subscription rather than per seat, so any of them is the seat with the most left and
-    /// the lowest is the one an administrator can predict.
-    /// <para>
-    /// Once each seat counts its own usage this becomes the seat with the most allowance
-    /// remaining, which is the rule the product wants and which only has meaning then: a newcomer
-    /// should get a fresh seat rather than one somebody already spent, where there is a choice.
-    /// </para>
-    /// </remarks>
-    private static int? NextSeat(HashSet<int> taken, long purchased)
+    private static List<int> FreeSeats(HashSet<int> taken, long purchased)
     {
+        var free = new List<int>();
+
         for (var seat = 1; seat <= purchased; seat++)
         {
-            if (taken.Add(seat))
+            if (!taken.Contains(seat))
             {
-                // Added speculatively and removed again: the caller marks it taken only once the
-                // write lands, and a seat handed out twice in one batch would be refused by the
-                // index with nothing to say why.
-                taken.Remove(seat);
-
-                return seat;
+                free.Add(seat);
             }
         }
 
-        return null;
+        return free;
+    }
+
+    /// <summary>
+    /// The free seats in the order newcomers should be given them: the one with the most allowance
+    /// left first.
+    /// </summary>
+    /// <remarks>
+    /// A seat carries its own allowance and keeps whatever the last person spent of it, so free
+    /// seats are not interchangeable. Handing out the lowest free number would give a newcomer
+    /// whatever somebody else left of it while an untouched seat sat empty beside it — and since
+    /// the allowance rides to the period boundary, that person would be short for the rest of the
+    /// period with no way to tell why.
+    /// <para>
+    /// Summed across the meters, because a seat is one thing to hand out and the plan may meter
+    /// several: a seat has to be ranked as a whole or the answer depends on which meter is asked.
+    /// Ties keep the lowest number, which is what an administrator can predict, and a subscription
+    /// nobody has used yet is entirely ties.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<int>> OfferSeatsAsync(
+        SubscriptionDetail subscription,
+        List<int> free,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_usage is null || _allowances is null || free.Count < 2)
+        {
+            return free;
+        }
+
+        var windows = new List<(PlanMeter Meter, BillingPeriod Period)>();
+
+        foreach (var meter in subscription.Plan.Meters)
+        {
+            if (MeterPeriodResolver.TryGetPeriod(subscription, meter, nowUtc, out var period))
+            {
+                windows.Add((meter, period));
+            }
+        }
+
+        if (windows.Count == 0)
+        {
+            return free;
+        }
+
+        // One round trip for every seat and window at once. A seat with no counter has spent
+        // nothing of that window, which is the common case and needs no read of its own.
+        var counters = await _usage.GetCountersAsync(
+            subscription.TenantId,
+            free.SelectMany(seat => windows.Select(window => SubscriptionUsageCounter.CreateId(
+                    subscription.ItemId, window.Meter.MeterKey, window.Period.Key, seat)))
+                .ToList(),
+            cancellationToken);
+
+        var remaining = new Dictionary<int, decimal>(free.Count);
+
+        foreach (var seat in free)
+        {
+            decimal left = 0;
+
+            foreach (var (meter, period) in windows)
+            {
+                counters.TryGetValue(
+                    SubscriptionUsageCounter.CreateId(
+                        subscription.ItemId, meter.MeterKey, period.Key, seat),
+                    out var counter);
+
+                // The effective allowance rather than the plan's included quantity: a seat that
+                // saved last window opens this one with more, and ignoring that would rank a seat
+                // below one holding less.
+                var allowance = await _allowances.EffectiveAsync(
+                    subscription, meter, period, counter, cancellationToken, seat);
+
+                left += Math.Max(0, allowance - (counter?.Balance ?? 0));
+            }
+
+            remaining[seat] = left;
+        }
+
+        return free
+            .OrderByDescending(seat => remaining[seat])
+            .ThenBy(seat => seat)
+            .ToList();
     }
 
     private static SubscriptionMemberRefusalResponse Refusal(
