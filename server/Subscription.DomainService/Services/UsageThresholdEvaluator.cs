@@ -99,10 +99,10 @@ public sealed class UsageThresholdEvaluator : IUsageThresholdEvaluator
             }
 
             _logger.LogInformation(
-                "Usage threshold reached TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+                "Usage threshold reached TenantId={TenantId} SubscriptionHash={SubscriptionHash} " +
                 "Meter={Meter} ThresholdPercent={ThresholdPercent} Balance={Balance} " +
                 "Included={Included} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 PaymentLogValue.Label(counter.MeterKey),
                 threshold,

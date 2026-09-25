@@ -195,9 +195,9 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         _logger.LogInformation(
-            "Subscription created TenantHash={TenantHash} OrganizationHash={OrganizationHash} " +
+            "Subscription created TenantId={TenantId} OrganizationHash={OrganizationHash} " +
             "SubscriptionHash={SubscriptionHash} Plan={Plan} Status={Status} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
             PaymentLogValue.Hash(subscription.ItemId),
             PaymentLogValue.Label(plan.Code),

@@ -62,4 +62,5 @@ public sealed record PaymentWorkQueueDepth(
     PaymentWorkType WorkType,
     BackgroundWorkStatus Status,
     long Count,
-    DateTime? OldestDueAtUtc);
+    DateTime? OldestDueAtUtc,
+    string TenantId = "");

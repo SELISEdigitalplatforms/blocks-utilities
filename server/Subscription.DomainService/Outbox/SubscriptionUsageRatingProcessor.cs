@@ -121,7 +121,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         {
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
             {
-                ["TenantHash"] = PaymentLogValue.Hash(tenantId),
+                ["TenantId"] = PaymentLogValue.Id(tenantId),
                 ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
             });
 
@@ -592,7 +592,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         {
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
             {
-                ["TenantHash"] = PaymentLogValue.Hash(tenantId),
+                ["TenantId"] = PaymentLogValue.Id(tenantId),
                 ["SubscriptionHash"] = PaymentLogValue.Hash(invoice.SubscriptionId)
             });
 

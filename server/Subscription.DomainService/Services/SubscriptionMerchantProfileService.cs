@@ -234,9 +234,9 @@ public sealed class SubscriptionMerchantProfileService : ISubscriptionMerchantPr
         {
             _logger.LogError(
                 exception,
-                "Merchant profile payment provider audit write failed TenantHash={TenantHash} " +
+                "Merchant profile payment provider audit write failed TenantId={TenantId} " +
                 "CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(context.TenantId),
+                PaymentLogValue.Id(context.TenantId),
                 correlationId);
         }
     }

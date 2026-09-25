@@ -489,9 +489,9 @@ public sealed class PaymentMethodSetupService : IPaymentMethodSetupService
         if (result.IsSuccess)
         {
             _logger.LogInformation(
-                "Card setup session opened TenantHash={TenantHash} PaymentHash={PaymentHash} " +
+                "Card setup session opened TenantId={TenantId} PaymentHash={PaymentHash} " +
                 "Provider={Provider} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(payment.TenantId),
+                PaymentLogValue.Id(payment.TenantId),
                 PaymentLogValue.Hash(payment.ItemId),
                 PaymentLogValue.Label(provider.ProviderName),
                 correlationId);

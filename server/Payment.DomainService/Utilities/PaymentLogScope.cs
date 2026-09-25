@@ -78,7 +78,7 @@ public static class PaymentLogScope
 
         if (tenantId != null)
         {
-            state["TenantHash"] = PaymentLogValue.Hash(tenantId);
+            state["TenantId"] = PaymentLogValue.Id(tenantId);
         }
 
         if (paymentId != null)

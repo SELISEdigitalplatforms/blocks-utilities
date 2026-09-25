@@ -131,10 +131,10 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             // document to say why.
             _logger.LogError(
                 exception,
-                "A financial document could not be delivered TenantHash={TenantHash} " +
+                "A financial document could not be delivered TenantId={TenantId} " +
                 "DocumentId={DocumentId} DocumentNumber={DocumentNumber} WorkItemId={WorkItemId} " +
                 "Attempt={Attempt} Stage={Stage} StorageId={StorageId}",
-                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Id(trace.TenantId),
                 PaymentLogValue.Label(trace.DocumentId),
                 PaymentLogValue.Label(trace.DocumentNumber),
                 PaymentLogValue.Label(trace.WorkItemId),
@@ -216,10 +216,10 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         {
             _logger.LogWarning(
                 "A financial document's logo could not be embedded; rendering from its merchant " +
-                "name instead TenantHash={TenantHash} DocumentId={DocumentId} " +
+                "name instead TenantId={TenantId} DocumentId={DocumentId} " +
                 "DocumentNumber={DocumentNumber} WorkItemId={WorkItemId} Attempt={Attempt} " +
                 "Stage={Stage} WarningCode={WarningCode}",
-                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Id(trace.TenantId),
                 PaymentLogValue.Label(trace.DocumentId),
                 PaymentLogValue.Label(trace.DocumentNumber),
                 PaymentLogValue.Label(trace.WorkItemId),
@@ -237,10 +237,10 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         if (content is not { Length: > 0 })
         {
             _logger.LogError(
-                "A financial document's PDF could not be rendered TenantHash={TenantHash} " +
+                "A financial document's PDF could not be rendered TenantId={TenantId} " +
                 "DocumentId={DocumentId} DocumentNumber={DocumentNumber} WorkItemId={WorkItemId} " +
                 "Attempt={Attempt} Stage={Stage}",
-                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Id(trace.TenantId),
                 PaymentLogValue.Label(trace.DocumentId),
                 PaymentLogValue.Label(trace.DocumentNumber),
                 PaymentLogValue.Label(trace.WorkItemId),
@@ -263,9 +263,9 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         {
             _logger.LogError(
                 "A financial document's PDF could not be written to storage " +
-                "TenantHash={TenantHash} DocumentId={DocumentId} DocumentNumber={DocumentNumber} " +
+                "TenantId={TenantId} DocumentId={DocumentId} DocumentNumber={DocumentNumber} " +
                 "WorkItemId={WorkItemId} Attempt={Attempt} Stage={Stage} StorageId={StorageId}",
-                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Id(trace.TenantId),
                 PaymentLogValue.Label(trace.DocumentId),
                 PaymentLogValue.Label(trace.DocumentNumber),
                 PaymentLogValue.Label(trace.WorkItemId),
@@ -288,10 +288,10 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         if (recorded)
         {
             _logger.LogInformation(
-                "Financial document rendered TenantHash={TenantHash} DocumentId={DocumentId} " +
+                "Financial document rendered TenantId={TenantId} DocumentId={DocumentId} " +
                 "DocumentNumber={DocumentNumber} WorkItemId={WorkItemId} Attempt={Attempt} " +
                 "Stage={Stage} StorageId={StorageId} Bytes={Bytes}",
-                PaymentLogValue.Hash(trace.TenantId),
+                PaymentLogValue.Id(trace.TenantId),
                 PaymentLogValue.Label(trace.DocumentId),
                 PaymentLogValue.Label(trace.DocumentNumber),
                 PaymentLogValue.Label(trace.WorkItemId),

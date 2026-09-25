@@ -363,9 +363,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         subscription.Version++;
 
         _logger.LogInformation(
-            "Scheduled subscription cancellation withdrawn TenantHash={TenantHash} " +
+            "Scheduled subscription cancellation withdrawn TenantId={TenantId} " +
             "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Id(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
             correlationId);
 
@@ -397,10 +397,10 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _cache.Invalidate(context.TenantId, context.OrganizationId);
 
         _logger.LogInformation(
-            "Subscription cancellation recorded TenantHash={TenantHash} " +
+            "Subscription cancellation recorded TenantId={TenantId} " +
             "OrganizationHash={OrganizationHash} SubscriptionHash={SubscriptionHash} " +
             "Immediate={Immediate} FromStatus={FromStatus} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
             PaymentLogValue.Hash(subscription.ItemId),
             immediately,

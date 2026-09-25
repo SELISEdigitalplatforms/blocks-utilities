@@ -93,9 +93,9 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             _logger.LogError(
                 exception,
                 "Usage projection publication failed after the usage committed; scheduling a repair " +
-                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} Meter={Meter} " +
+                "TenantId={TenantId} SubscriptionHash={SubscriptionHash} Meter={Meter} " +
                 "Period={Period} CounterVersion={CounterVersion} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 PaymentLogValue.Label(meter.MeterKey),
                 PaymentLogValue.Label(period.Key),
@@ -152,9 +152,9 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             _logger.LogWarning(
                 exception,
                 "Per-user usage projection write failed after the usage committed; repairing from the " +
-                "ledger TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} Meter={Meter} " +
+                "ledger TenantId={TenantId} SubscriptionHash={SubscriptionHash} Meter={Meter} " +
                 "Period={Period} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 PaymentLogValue.Label(meter.MeterKey),
                 PaymentLogValue.Label(period.Key),
@@ -211,9 +211,9 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             _logger.LogError(
                 exception,
                 "Per-user usage projection repair from the ledger also failed; scheduling a " +
-                "subscription-wide repair TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+                "subscription-wide repair TenantId={TenantId} SubscriptionHash={SubscriptionHash} " +
                 "Meter={Meter} Period={Period} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 PaymentLogValue.Label(meter.MeterKey),
                 PaymentLogValue.Label(period.Key),
@@ -314,9 +314,9 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
                 _logger.LogWarning(
                     exception,
                     "Could not seed a zero-usage projection; scheduling a repair " +
-                    "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} Meter={Meter} " +
+                    "TenantId={TenantId} SubscriptionHash={SubscriptionHash} Meter={Meter} " +
                     "CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(subscription.TenantId),
+                    PaymentLogValue.Id(subscription.TenantId),
                     PaymentLogValue.Hash(subscription.ItemId),
                     PaymentLogValue.Label(meter.MeterKey),
                     correlationId);
@@ -429,9 +429,9 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         }
 
         _logger.LogInformation(
-            "Usage projection refreshed TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "Usage projection refreshed TenantId={TenantId} SubscriptionHash={SubscriptionHash} " +
             "Windows={Windows} Written={Written} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Id(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
             windows.Count,
             published,
@@ -605,10 +605,10 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         if (reconciled > 0)
         {
             _logger.LogInformation(
-                "Usage projection reconciled stale stored rows TenantHash={TenantHash} " +
+                "Usage projection reconciled stale stored rows TenantId={TenantId} " +
                 "SubscriptionHash={SubscriptionHash} StoredRows={StoredRows} Reconciled={Reconciled} " +
                 "CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 stored.Count,
                 reconciled,
@@ -727,8 +727,8 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             _logger.LogWarning(
                 exception,
                 "Failed to publish the entitlements projection; the next refresh will retry " +
-                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                "TenantId={TenantId} SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 correlationId);
         }
@@ -841,10 +841,10 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         if (duration.TotalMilliseconds >= _options.CurrentValue.UsageReadSlowMilliseconds)
         {
             _logger.LogWarning(
-                "Usage projection publish was slow TenantHash={TenantHash} " +
+                "Usage projection publish was slow TenantId={TenantId} " +
                 "SubscriptionHash={SubscriptionHash} Meter={Meter} DurationMs={DurationMs} " +
                 "Written={Written} CounterVersion={CounterVersion} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 PaymentLogValue.Label(meter.MeterKey),
                 duration.TotalMilliseconds,
@@ -856,10 +856,10 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         }
 
         _logger.LogDebug(
-            "Usage projection published TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "Usage projection published TenantId={TenantId} SubscriptionHash={SubscriptionHash} " +
             "Meter={Meter} DurationMs={DurationMs} Written={Written} " +
             "CounterVersion={CounterVersion} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Id(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
             PaymentLogValue.Label(meter.MeterKey),
             duration.TotalMilliseconds,

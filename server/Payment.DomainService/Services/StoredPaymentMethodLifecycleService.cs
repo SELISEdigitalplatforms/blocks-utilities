@@ -144,8 +144,8 @@ public sealed class StoredPaymentMethodLifecycleService :
             !payment.RememberCard)
         {
             _logger.LogWarning(
-                "Stored payment method creation skipped because save consent was not requested TenantHash={TenantHash} PaymentHash={PaymentHash}",
-                PaymentLogValue.Hash(webhook.TenantId),
+                "Stored payment method creation skipped because save consent was not requested TenantId={TenantId} PaymentHash={PaymentHash}",
+                PaymentLogValue.Id(webhook.TenantId),
                 PaymentLogValue.Hash(payment.ItemId));
 
             return;
@@ -164,8 +164,8 @@ public sealed class StoredPaymentMethodLifecycleService :
                     cancellationToken))
             {
                 _logger.LogWarning(
-                    "Stored payment method reactivation skipped because fresh consent was not proven TenantHash={TenantHash} PaymentMethodHash={PaymentMethodHash}",
-                    PaymentLogValue.Hash(webhook.TenantId),
+                    "Stored payment method reactivation skipped because fresh consent was not proven TenantId={TenantId} PaymentMethodHash={PaymentMethodHash}",
+                    PaymentLogValue.Id(webhook.TenantId),
                     PaymentLogValue.Hash(existing.ItemId));
             }
 
@@ -238,8 +238,8 @@ public sealed class StoredPaymentMethodLifecycleService :
         await TryDetachSupersededAsync(existing, cancellationToken);
 
         _logger.LogInformation(
-            "Stored payment method moved onto a newly issued token TenantHash={TenantHash} PaymentMethodHash={PaymentMethodHash}",
-            PaymentLogValue.Hash(method.TenantId),
+            "Stored payment method moved onto a newly issued token TenantId={TenantId} PaymentMethodHash={PaymentMethodHash}",
+            PaymentLogValue.Id(method.TenantId),
             PaymentLogValue.Hash(existing.ItemId));
 
         return true;
@@ -398,8 +398,8 @@ public sealed class StoredPaymentMethodLifecycleService :
                 // not evidence the decline was wrong; storing it now would resurrect a setup that
                 // has already been told no.
                 _logger.LogInformation(
-                    "Card setup token ignored Reason=authorization_already_declined TenantHash={TenantHash} PaymentHash={PaymentHash}",
-                    PaymentLogValue.Hash(webhook.TenantId),
+                    "Card setup token ignored Reason=authorization_already_declined TenantId={TenantId} PaymentHash={PaymentHash}",
+                    PaymentLogValue.Id(webhook.TenantId),
                     PaymentLogValue.Hash(payment.ItemId));
 
                 return;
@@ -412,8 +412,8 @@ public sealed class StoredPaymentMethodLifecycleService :
                  PaymentMethodStatus.Active)
         {
             _logger.LogWarning(
-                "Stored payment method activation skipped because local removal is authoritative TenantHash={TenantHash} PaymentMethodHash={PaymentMethodHash} Status={Status}",
-                PaymentLogValue.Hash(webhook.TenantId),
+                "Stored payment method activation skipped because local removal is authoritative TenantId={TenantId} PaymentMethodHash={PaymentMethodHash} Status={Status}",
+                PaymentLogValue.Id(webhook.TenantId),
                 PaymentLogValue.Hash(existing.ItemId),
                 existing.Status);
 
@@ -436,8 +436,8 @@ public sealed class StoredPaymentMethodLifecycleService :
                 PaymentStatuses.MakePaymentFailed)
             {
                 _logger.LogInformation(
-                    "Card setup token ignored Reason=authorization_already_declined TenantHash={TenantHash} PaymentHash={PaymentHash}",
-                    PaymentLogValue.Hash(webhook.TenantId),
+                    "Card setup token ignored Reason=authorization_already_declined TenantId={TenantId} PaymentHash={PaymentHash}",
+                    PaymentLogValue.Id(webhook.TenantId),
                     PaymentLogValue.Hash(correlatedPayment.ItemId));
             }
             else
@@ -536,8 +536,8 @@ public sealed class StoredPaymentMethodLifecycleService :
         {
             _logger.LogWarning(
                 "Stored payment method encryption scope could not be resolved because no " +
-                "provider configuration matched TenantHash={TenantHash} Provider={Provider}",
-                PaymentLogValue.Hash(webhook.TenantId),
+                "provider configuration matched TenantId={TenantId} Provider={Provider}",
+                PaymentLogValue.Id(webhook.TenantId),
                 PaymentLogValue.Label(providerName));
 
             throw new InvalidOperationException(

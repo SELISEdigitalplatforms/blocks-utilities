@@ -330,9 +330,9 @@ public sealed class RecurringPaymentInitiationService :
                 providerResult.ResultCode;
 
             _logger.LogInformation(
-                "Recurring payment accepted PaymentIdHash={PaymentIdHash} TenantHash={TenantHash} Provider={Provider}",
+                "Recurring payment accepted PaymentIdHash={PaymentIdHash} TenantId={TenantId} Provider={Provider}",
                 PaymentLogValue.Hash(payment.ItemId),
-                PaymentLogValue.Hash(payment.TenantId),
+                PaymentLogValue.Id(payment.TenantId),
                 PaymentLogValue.Label(payment.ProviderName));
 
             return PaymentOperationResult.Success(

@@ -38,9 +38,9 @@ public sealed class PaymentProviderSecretHydrator : IPaymentProviderSecretHydrat
         }
 
         _logger.LogError(
-            "Payment provider secrets could not be resolved Provider={Provider} TenantHash={TenantHash} Reason=no_secret_hydrator_registered",
+            "Payment provider secrets could not be resolved Provider={Provider} TenantId={TenantId} Reason=no_secret_hydrator_registered",
             PaymentLogValue.Label(provider.ProviderName),
-            PaymentLogValue.Hash(provider.TenantId));
+            PaymentLogValue.Id(provider.TenantId));
 
         return Task.FromResult(false);
     }

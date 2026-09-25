@@ -170,4 +170,5 @@ public sealed record SubscriptionWorkQueueDepth(
     SubscriptionWorkType WorkType,
     BackgroundWorkStatus Status,
     long Count,
-    DateTime? OldestDueAtUtc);
+    DateTime? OldestDueAtUtc,
+    string TenantId = "");

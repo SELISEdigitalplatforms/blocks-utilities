@@ -29,7 +29,7 @@ public sealed class SubscriptionAuditTrail : ISubscriptionAuditTrail
         {
             ["OperationId"] = auditEvent.OperationId,
             ["CorrelationId"] = auditEvent.CorrelationId,
-            ["TenantHash"] = PaymentLogValue.Hash(auditEvent.TenantId),
+            ["TenantId"] = PaymentLogValue.Id(auditEvent.TenantId),
             ["OrganizationHash"] = PaymentLogValue.Hash(auditEvent.OrganizationId),
             ["SubscriptionHash"] = PaymentLogValue.Hash(auditEvent.SubscriptionId),
             ["SubscriptionOperation"] = auditEvent.Operation,

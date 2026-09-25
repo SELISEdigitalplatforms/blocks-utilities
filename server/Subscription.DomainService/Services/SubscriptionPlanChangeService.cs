@@ -279,9 +279,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
         _logger.LogInformation(
-            "Scheduled subscription plan change cancelled TenantHash={TenantHash} " +
+            "Scheduled subscription plan change cancelled TenantId={TenantId} " +
             "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Id(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
             correlationId);
 
@@ -906,9 +906,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         if (!charge.IsSuccess)
         {
             _logger.LogWarning(
-                "Subscription plan change was not charged TenantHash={TenantHash} " +
+                "Subscription plan change was not charged TenantId={TenantId} " +
                 "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 charge.FailureKind,
                 PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
@@ -1083,9 +1083,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         if (!charge.IsSuccess)
         {
             _logger.LogWarning(
-                "Subscription opening-stub upgrade was not charged TenantHash={TenantHash} " +
+                "Subscription opening-stub upgrade was not charged TenantId={TenantId} " +
                 "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 charge.FailureKind,
                 PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));
@@ -1228,10 +1228,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
         _logger.LogInformation(
-            "Subscription plan change scheduled TenantHash={TenantHash} " +
+            "Subscription plan change scheduled TenantId={TenantId} " +
             "SubscriptionHash={SubscriptionHash} CurrentPlan={CurrentPlan} TargetPlan={TargetPlan} " +
             "EffectiveAtUtc={EffectiveAtUtc} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Id(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
             PaymentLogValue.Label(subscription.Plan.Code),
             PaymentLogValue.Label(newPlan.Code),
@@ -1353,9 +1353,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             cancellationToken);
 
         _logger.LogInformation(
-            "Subscription plan changed TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "Subscription plan changed TenantId={TenantId} SubscriptionHash={SubscriptionHash} " +
             "PreviousPlan={PreviousPlan} NewPlan={NewPlan} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Id(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
             PaymentLogValue.Label(previousPlanCode),
             PaymentLogValue.Label(newPlan.Code),

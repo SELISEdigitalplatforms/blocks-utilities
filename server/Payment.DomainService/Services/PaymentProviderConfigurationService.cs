@@ -149,9 +149,9 @@ public sealed class PaymentProviderConfigurationService :
             cancellationToken);
 
         _logger.LogInformation(
-            "Payment provider configuration updated Provider={Provider} TenantHash={TenantHash} Version={Version}",
+            "Payment provider configuration updated Provider={Provider} TenantId={TenantId} Version={Version}",
             PaymentLogValue.Label(updated.ProviderName),
-            PaymentLogValue.Hash(tenantId),
+            PaymentLogValue.Id(tenantId),
             updated.Version);
 
         return PaymentProviderMutationResult.Success(
@@ -195,9 +195,9 @@ public sealed class PaymentProviderConfigurationService :
         {
             _logger.LogError(
                 exception,
-                "Payment provider cache refresh failed after configuration update Provider={Provider} TenantHash={TenantHash}",
+                "Payment provider cache refresh failed after configuration update Provider={Provider} TenantId={TenantId}",
                 PaymentLogValue.Label(providerName),
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
 
             return;
         }
@@ -205,9 +205,9 @@ public sealed class PaymentProviderConfigurationService :
         if (refreshed == null && expectAvailable)
         {
             _logger.LogError(
-                "Payment provider cache refresh failed after configuration update Provider={Provider} TenantHash={TenantHash}",
+                "Payment provider cache refresh failed after configuration update Provider={Provider} TenantId={TenantId}",
                 PaymentLogValue.Label(providerName),
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
         }
     }
 
@@ -271,8 +271,8 @@ public sealed class PaymentProviderConfigurationService :
     {
         _logger.LogError(
             exception,
-            "Payment provider configuration persistence failed TenantHash={TenantHash}",
-            PaymentLogValue.Hash(tenantId));
+            "Payment provider configuration persistence failed TenantId={TenantId}",
+            PaymentLogValue.Id(tenantId));
 
         return PaymentProviderMutationResult.Failure(
             PaymentFailureKind.Unavailable,

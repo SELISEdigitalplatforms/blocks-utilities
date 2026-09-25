@@ -202,8 +202,8 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         if (!secrets.IsProtected)
         {
             _logger.LogError(
-                "Payment provider registration is unavailable Reason=encryption_unavailable TenantHash={TenantHash}",
-                PaymentLogValue.Hash(tenantId));
+                "Payment provider registration is unavailable Reason=encryption_unavailable TenantId={TenantId}",
+                PaymentLogValue.Id(tenantId));
 
             return PaymentProviderRegistrationOutcome.Failed(
                 organizationId,
@@ -258,9 +258,9 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         }
 
         _logger.LogInformation(
-            "Payment provider registered Provider={Provider} TenantHash={TenantHash} OrganizationHash={OrganizationHash} MerchantSlug={MerchantSlug}",
+            "Payment provider registered Provider={Provider} TenantId={TenantId} OrganizationHash={OrganizationHash} MerchantSlug={MerchantSlug}",
             PaymentLogValue.Label(provider.ProviderName),
-            PaymentLogValue.Hash(tenantId),
+            PaymentLogValue.Id(tenantId),
             PaymentLogValue.Hash(organizationId),
             PaymentSlug.Create(request.MerchantId));
 
@@ -323,8 +323,8 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
         if (outcome == KeyRingProvisionOutcome.Unavailable)
         {
             _logger.LogError(
-                "Payment provider registration is unavailable Reason=key_ring_provisioning_failed TenantHash={TenantHash}",
-                PaymentLogValue.Hash(scope.TenantId));
+                "Payment provider registration is unavailable Reason=key_ring_provisioning_failed TenantId={TenantId}",
+                PaymentLogValue.Id(scope.TenantId));
 
             return PaymentOperationResult.Failure(
                 PaymentFailureKind.Unavailable,

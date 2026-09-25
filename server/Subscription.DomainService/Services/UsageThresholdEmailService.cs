@@ -56,8 +56,8 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
         {
             _logger.LogWarning(
                 "Usage threshold email skipped because the subscription was not found " +
-                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} EventId={EventId}",
-                PaymentLogValue.Hash(lifecycleEvent.TenantId),
+                "TenantId={TenantId} SubscriptionHash={SubscriptionHash} EventId={EventId}",
+                PaymentLogValue.Id(lifecycleEvent.TenantId),
                 PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
                 lifecycleEvent.EventId);
             return;
@@ -72,8 +72,8 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
         {
             _logger.LogWarning(
                 "Usage threshold email skipped because the billing account has no recipient " +
-                "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} EventId={EventId}",
-                PaymentLogValue.Hash(lifecycleEvent.TenantId),
+                "TenantId={TenantId} SubscriptionHash={SubscriptionHash} EventId={EventId}",
+                PaymentLogValue.Id(lifecycleEvent.TenantId),
                 PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
                 lifecycleEvent.EventId);
             return;
@@ -138,10 +138,10 @@ public sealed class UsageThresholdEmailService : IUsageThresholdEmailService
         }
 
         _logger.LogInformation(
-            "Usage threshold email queued TenantHash={TenantHash} " +
+            "Usage threshold email queued TenantId={TenantId} " +
             "SubscriptionHash={SubscriptionHash} ThresholdPercent={ThresholdPercent} " +
             "EventId={EventId}",
-            PaymentLogValue.Hash(lifecycleEvent.TenantId),
+            PaymentLogValue.Id(lifecycleEvent.TenantId),
             PaymentLogValue.Hash(lifecycleEvent.SubscriptionId),
             lifecycleEvent.ThresholdPercent,
             lifecycleEvent.EventId);

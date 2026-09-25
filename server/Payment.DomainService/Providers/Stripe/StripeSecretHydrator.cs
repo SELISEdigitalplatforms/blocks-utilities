@@ -123,8 +123,8 @@ public sealed class StripeSecretHydrator : IProviderSecretHydrator
 
     private void LogFailure(PaymentProvider provider, string reason) =>
         _logger.LogError(
-            "Payment provider secrets could not be resolved Provider={Provider} TenantHash={TenantHash} Reason={Reason}",
+            "Payment provider secrets could not be resolved Provider={Provider} TenantId={TenantId} Reason={Reason}",
             PaymentLogValue.Label(provider.ProviderName),
-            PaymentLogValue.Hash(provider.TenantId),
+            PaymentLogValue.Id(provider.TenantId),
             reason);
 }

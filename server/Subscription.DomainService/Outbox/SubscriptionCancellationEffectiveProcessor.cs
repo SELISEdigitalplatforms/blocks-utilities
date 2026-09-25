@@ -71,7 +71,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         {
             using var logScope = _logger.BeginScope(new Dictionary<string, object?>
             {
-                ["TenantHash"] = PaymentLogValue.Hash(tenantId),
+                ["TenantId"] = PaymentLogValue.Id(tenantId),
                 ["SubscriptionHash"] = PaymentLogValue.Hash(subscription.ItemId)
             });
 

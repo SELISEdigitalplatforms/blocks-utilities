@@ -67,7 +67,7 @@ return {allowed, math.floor(tokens), retryMs}
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Payment rate limiter unavailable TenantHash={TenantHash}", Hash(tenantId));
+            _logger.LogError(ex, "Payment rate limiter unavailable TenantId={TenantId}", PaymentLogValue.Id(tenantId));
             return new PaymentRateLimitResult { IsAvailable = false, IsAllowed = false, RetryAfterSeconds = 30 };
         }
     }

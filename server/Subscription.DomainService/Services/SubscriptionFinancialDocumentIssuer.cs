@@ -374,9 +374,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         {
             _logger.LogWarning(
                 "A recovery pass issued financial documents that the money path had not " +
-                "IssuedCount={IssuedCount} TenantHash={TenantHash}",
+                "IssuedCount={IssuedCount} TenantId={TenantId}",
                 issued,
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
         }
 
         return issued;
@@ -1111,11 +1111,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         _logger.LogInformation(
             "Financial document issued DocumentNumber={DocumentNumber} " +
-            "DocumentType={DocumentType} TenantHash={TenantHash} " +
+            "DocumentType={DocumentType} TenantId={TenantId} " +
             "SubscriptionHash={SubscriptionHash} TotalMinor={TotalMinor}",
             PaymentLogValue.Label(number),
             documentType,
-            PaymentLogValue.Hash(subscription.TenantId),
+            PaymentLogValue.Id(subscription.TenantId),
             PaymentLogValue.Hash(subscription.ItemId),
             amounts.TotalMinor);
 

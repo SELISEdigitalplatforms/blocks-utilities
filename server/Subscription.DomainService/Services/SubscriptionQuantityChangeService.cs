@@ -588,9 +588,9 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         if (!charge.IsSuccess)
         {
             _logger.LogWarning(
-                "Subscription quantity increase was not charged TenantHash={TenantHash} " +
+                "Subscription quantity increase was not charged TenantId={TenantId} " +
                 "SubscriptionHash={SubscriptionHash} Kind={Kind} Reason={Reason}",
-                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Id(subscription.TenantId),
                 PaymentLogValue.Hash(subscription.ItemId),
                 charge.FailureKind,
                 PaymentLogValue.Label(charge.ErrorCode ?? "unknown"));

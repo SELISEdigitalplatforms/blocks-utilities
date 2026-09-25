@@ -87,8 +87,8 @@ return {allowed, math.floor(tokens), retryMs}
         {
             _logger.LogError(
                 exception,
-                "Payment query rate limiter unavailable TenantHash={TenantHash}",
-                Hash(tenantId));
+                "Payment query rate limiter unavailable TenantId={TenantId}",
+                PaymentLogValue.Id(tenantId));
 
             return new PaymentRateLimitResult
             {

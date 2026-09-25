@@ -264,8 +264,8 @@ public sealed class StoredPaymentMethodRemovalService :
                 cancellationToken);
 
             _logger.LogError(
-                "Stored payment method removal requires attention TenantHash={TenantHash} PaymentMethodHash={PaymentMethodHash}",
-                PaymentLogValue.Hash(context.TenantId),
+                "Stored payment method removal requires attention TenantId={TenantId} PaymentMethodHash={PaymentMethodHash}",
+                PaymentLogValue.Id(context.TenantId),
                 PaymentLogValue.Hash(claimed.ItemId));
 
             return Unavailable(

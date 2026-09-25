@@ -557,7 +557,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
         ParsedWebhookEvent webhookEvent) =>
         _logger.BeginScope(new Dictionary<string, object?>
         {
-            ["TenantHash"] = PaymentLogValue.Hash(tenantId),
+            ["TenantId"] = PaymentLogValue.Id(tenantId),
             ["PaymentDetailIdHash"] = PaymentLogValue.Hash(paymentDetailId),
             ["ProviderEventIdHash"] = PaymentLogValue.Hash(webhookEvent.ProviderEventId),
             ["EventCode"] = PaymentLogValue.Label(webhookEvent.EventCode)
