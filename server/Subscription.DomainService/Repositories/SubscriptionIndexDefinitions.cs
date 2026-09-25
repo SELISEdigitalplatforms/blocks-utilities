@@ -470,7 +470,7 @@ public static class SubscriptionIndexDefinitions
     /// rather than failing to create an index that already exists under this name with different keys.
     /// </summary>
     public const string UsageCurrentUniqueIndexName =
-        "ux_usage_current_subscription_meter_period_user_v2";
+        "ux_usage_current_subscription_meter_period_user_seat_v3";
 
     /// <summary>
     /// The pre-<see cref="SubscriptionUsageCurrent.UserId"/> unique index, kept only so
@@ -485,6 +485,18 @@ public static class SubscriptionIndexDefinitions
     /// </remarks>
     public const string UsageCurrentLegacyUniqueIndexName =
         "ux_usage_current_subscription_meter_period";
+
+    /// <summary>
+    /// The pre-<see cref="SubscriptionUsageCurrent.SeatNumber"/> unique index, kept only so it can
+    /// be dropped by name.
+    /// </summary>
+    /// <remarks>
+    /// Unique on subscription, meter, period and user alone, so it rejects a second seat's row as a
+    /// duplicate of the first's — both carry no user. Left in place, a seated subscription could
+    /// publish exactly one seat and every other seat's usage would go unprojected.
+    /// </remarks>
+    public const string UsageCurrentPreSeatUniqueIndexName =
+        "ux_usage_current_subscription_meter_period_user_v2";
     public const string UsageCurrentReadIndexName =
         "ix_usage_current_org_subscription_status_period";
     public const string UsageCurrentStalenessIndexName =
@@ -525,7 +537,12 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(current => current.SubscriptionId)
                 .Ascending(current => current.MeterKey)
                 .Ascending(current => current.PeriodKey)
-                .Ascending(current => current.UserId),
+                .Ascending(current => current.UserId)
+                // Added rather than replacing: a key that gains a field can only tell more rows
+                // apart, never fewer, so every row already stored stays as unique as it was and
+                // none needs migrating. An organization's own subscription has no seat, so its
+                // rows are keyed exactly as before.
+                .Ascending(current => current.SeatNumber),
             new CreateIndexOptions { Name = UsageCurrentUniqueIndexName, Unique = true }),
         new(
             Builders<SubscriptionUsageCurrent>.IndexKeys

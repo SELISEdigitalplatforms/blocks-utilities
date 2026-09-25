@@ -53,6 +53,19 @@ public sealed class SubscriptionUsageCurrent
     public string UserId { get; set; } = string.Empty;
 
     /// <summary>
+    /// Which seat this row reports, or null when it reports the subscription as a whole.
+    /// </summary>
+    /// <remarks>
+    /// A seated subscription counts each seat against its own window, so one row per subscription
+    /// could only hold whichever seat published last — neither person's usage and not the total.
+    /// <para>
+    /// Null on every row written before seats existed and on every organization-wise subscription,
+    /// which is what keeps those reading exactly as they always have.
+    /// </para>
+    /// </remarks>
+    public int? SeatNumber { get; set; }
+
+    /// <summary>
     /// The subscription's status when this was published, so a reader can tell a live allowance from
     /// one frozen by cancellation without joining to the subscription.
     /// </summary>
@@ -222,4 +235,21 @@ public sealed class SubscriptionUsageCurrent
         string periodKey,
         string userId) =>
         $"{CreateId(subscriptionId, meterKey, periodKey)}:{userId}";
+
+    /// <summary>
+    /// One seat's row, or the subscription's own when there is no seat.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors how the counter it projects is addressed, so a reader comparing the two is comparing
+    /// the same window. A null seat composes the three-part identity every row already written
+    /// uses, so nothing needs migrating.
+    /// </remarks>
+    public static string CreateId(
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        int? seatNumber) =>
+        seatNumber is { } seat
+            ? $"{CreateId(subscriptionId, meterKey, periodKey)}:s{seat}"
+            : CreateId(subscriptionId, meterKey, periodKey);
 }

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using Payment.DomainService.Utilities;
@@ -783,10 +783,12 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         ItemId = SubscriptionUsageCurrent.CreateId(
             subscription.ItemId,
             meter.MeterKey,
-            period.Key),
+            period.Key,
+            counter?.SeatNumber),
         TenantId = subscription.TenantId,
         OrganizationId = subscription.OrganizationId,
         SubscriptionId = subscription.ItemId,
+        SeatNumber = counter?.SeatNumber,
         SubscriptionStatus = subscription.Status,
         CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
         CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,

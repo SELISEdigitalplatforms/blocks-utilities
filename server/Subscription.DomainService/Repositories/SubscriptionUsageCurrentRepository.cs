@@ -40,6 +40,16 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         }
         catch (MongoCommandException exception) when (exception.Code is 27 or 26)
         {
+        }
+
+        try
+        {
+            await collection.Indexes.DropOneAsync(
+                SubscriptionIndexDefinitions.UsageCurrentPreSeatUniqueIndexName,
+                cancellationToken);
+        }
+        catch (MongoCommandException exception) when (exception.Code is 27 or 26)
+        {
             // IndexNotFound (27) or NamespaceNotFound (26): nothing to drop, a fresh tenant or one
             // already migrated by an earlier call.
         }
