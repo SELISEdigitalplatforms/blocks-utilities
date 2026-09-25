@@ -9,13 +9,15 @@ namespace Subscription.DomainService.Services;
 public interface ISubscriptionMemberService
 {
     /// <summary>
-    /// Puts one person on a seat.
+    /// Puts people on a subscription — one, or all of them at once.
     /// </summary>
     /// <remarks>
-    /// Refused when the subscription is not user-wise, when it grants nothing any more, or when
-    /// every seat it paid for is already held.
+    /// The whole call is refused when the subscription is not user-wise, grants nothing any more,
+    /// or does not say how many people it is for. Past that the answer is per person: a batch
+    /// cannot be atomic, since nothing here spans documents, so reporting one verdict for ten
+    /// names would send an administrator looking for assignments that already landed.
     /// </remarks>
-    Task<SubscriptionOperationResult<SubscriptionMemberResponse>> AssignAsync(
+    Task<SubscriptionOperationResult<SubscriptionMemberAssignmentResponse>> AssignAsync(
         string subscriptionId,
         AssignMemberRequest request,
         string correlationId,

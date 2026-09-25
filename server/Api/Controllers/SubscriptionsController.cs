@@ -505,25 +505,27 @@ public sealed class SubscriptionsController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
-    /// <summary>Puts one person on a seat of a user-wise subscription.</summary>
+    /// <summary>Puts people on a user-wise subscription — one, or all of them at once.</summary>
     /// <remarks>
     /// The person is named in the body rather than taken from the token, because filling seats on
     /// behalf of other people is the ordinary case. Which organization's subscription may be
     /// touched is still decided by the token.
     /// <para>
-    /// Refused with 409 when every seat bought is already held, and when the named person already
-    /// holds one. The seat count is checked before the write and settled by the database, so two
-    /// administrators filling the last seat together produce one success and one conflict.
+    /// Past those checks the answer is per person, not one verdict for the batch: nothing here
+    /// spans documents, so a ten-name call that fills the last three places reports three assigned
+    /// and seven refused rather than failing whole. The count is checked before each write and
+    /// settled by the database, so two administrators filling the last place together produce one
+    /// assignment and one refusal.
     /// </para>
     /// </remarks>
     [HttpPost("{subscriptionId}/members")]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberAssignmentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberAssignmentResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberAssignmentResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberAssignmentResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProtectedEndPoint("blocks-utilities::subscription::manage")]
-    public async Task<IActionResult> AssignMember(
+    public async Task<IActionResult> AssignMembers(
         string subscriptionId,
         [FromBody] AssignMemberRequest request,
         CancellationToken cancellationToken)

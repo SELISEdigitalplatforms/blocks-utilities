@@ -13,7 +13,36 @@ public sealed class SubscriptionMemberResponse
 }
 
 /// <summary>
-/// Who holds this subscription's seats, and how many remain.
+/// What became of each name in an assignment request.
+/// </summary>
+/// <remarks>
+/// Reported per person rather than as one verdict for the batch. Nothing here spans documents, so
+/// a batch cannot be atomic, and saying it had failed when seven of ten landed would send an
+/// administrator looking for seven assignments that are already there.
+/// </remarks>
+public sealed class SubscriptionMemberAssignmentResponse
+{
+    public string SubscriptionId { get; init; } = string.Empty;
+
+    /// <summary>The people now holding a place, whether this call put them there or they already did.</summary>
+    public List<SubscriptionMemberResponse> Assigned { get; init; } = [];
+
+    /// <summary>Who could not be assigned, and why, in the order they were named.</summary>
+    public List<SubscriptionMemberRefusalResponse> Refused { get; init; } = [];
+}
+
+public sealed class SubscriptionMemberRefusalResponse
+{
+    public string UserId { get; init; } = string.Empty;
+
+    /// <summary>The same code a single assignment would have failed with.</summary>
+    public string ReasonCode { get; init; } = string.Empty;
+
+    public string Reason { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Who holds this subscription's places, and how many remain.
 /// </summary>
 /// <remarks>
 /// <see cref="Available"/> is what it was a moment ago, not a promise about the next assignment:

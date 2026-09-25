@@ -1,14 +1,18 @@
 namespace Subscription.DomainService.Requests;
 
 /// <summary>
-/// Who to put on a seat.
+/// Who to put on a subscription.
 /// </summary>
 /// <remarks>
-/// The user is named in the body rather than taken from the caller's token, because the ordinary
-/// case is an administrator filling seats on behalf of other people. Which organization's
-/// subscription may be touched is still decided by the token, not by this.
+/// A list, because an administrator filling a ten-person subscription should not make ten calls
+/// and reconcile ten answers. One name is a list of one.
+/// <para>
+/// People are named in the body rather than taken from the caller's token: filling places on
+/// behalf of others is the ordinary case. Which organization's subscription may be touched is
+/// still decided by the token.
+/// </para>
 /// </remarks>
 public sealed class AssignMemberRequest
 {
-    public string UserId { get; set; } = string.Empty;
+    public List<string> UserIds { get; set; } = [];
 }

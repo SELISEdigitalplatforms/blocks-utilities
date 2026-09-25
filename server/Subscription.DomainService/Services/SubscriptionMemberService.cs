@@ -39,7 +39,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<SubscriptionOperationResult<SubscriptionMemberResponse>> AssignAsync(
+    public async Task<SubscriptionOperationResult<SubscriptionMemberAssignmentResponse>> AssignAsync(
         string subscriptionId,
         AssignMemberRequest request,
         string correlationId,
@@ -47,7 +47,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var resolved = await ResolveAsync<SubscriptionMemberResponse>(
+        var resolved = await ResolveAsync<SubscriptionMemberAssignmentResponse>(
             subscriptionId, correlationId, cancellationToken);
 
         if (resolved.Failure is { } failure)
@@ -57,12 +57,18 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
 
         var (context, subscription) = resolved.Value;
 
-        if (string.IsNullOrWhiteSpace(request.UserId))
+        var named = request.UserIds
+            .Where(userId => !string.IsNullOrWhiteSpace(userId))
+            .Select(userId => userId.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (named.Count == 0)
         {
-            return Failure<SubscriptionMemberResponse>(
+            return Failure<SubscriptionMemberAssignmentResponse>(
                 PaymentFailureKind.Validation,
                 "subscription_member_required",
-                "Name the person the seat is for.",
+                "Name at least one person.",
                 correlationId);
         }
 
@@ -72,7 +78,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
 
         if (purchased is null)
         {
-            return Failure<SubscriptionMemberResponse>(
+            return Failure<SubscriptionMemberAssignmentResponse>(
                 PaymentFailureKind.Validation,
                 "subscription_member_count_ambiguous",
                 "This plan does not say how many people it is for. Mark exactly one quantity as " +
@@ -81,49 +87,76 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 correlationId);
         }
 
-        // Read before writing, and the write is what decides. A count is a moment old by the time
-        // it is acted on, so two administrators filling the last seat together would both pass
-        // this; the unique index refuses the loser. This exists to give an honest answer to the
-        // ordinary case, not to make the race safe.
-        if (await _assignments.CountActiveAsync(
-                context.TenantId, subscription.ItemId, cancellationToken) >= purchased)
+        var assigned = new List<SubscriptionMemberResponse>();
+        var refused = new List<SubscriptionMemberRefusalResponse>();
+
+        // Counted once and then counted down, rather than re-read per person: a fresh count each
+        // time would let a ten-person batch past a two-place subscription, because nothing this
+        // call wrote is visible to it until it lands.
+        var remaining = purchased.Value - await _assignments.CountActiveAsync(
+            context.TenantId, subscription.ItemId, cancellationToken);
+
+        foreach (var userId in named)
         {
-            return Failure<SubscriptionMemberResponse>(
-                PaymentFailureKind.Conflict,
-                "subscription_members_exhausted",
-                "Every seat on this subscription is taken. Release one, or buy more.",
-                correlationId);
+            if (remaining <= 0)
+            {
+                refused.Add(Refusal(userId, "subscription_member_limit_reached",
+                    "This subscription already has all the people it was bought for."));
+                continue;
+            }
+
+            var assignment = new SubscriptionAssignment
+            {
+                TenantId = context.TenantId,
+                OrganizationId = subscription.OrganizationId,
+                SubscriptionId = subscription.ItemId,
+                UserId = userId,
+                AssignedAtUtc = _time.GetUtcNow().UtcDateTime,
+                AssignedByUserId = context.UserId,
+                CorrelationId = correlationId
+            };
+
+            var outcome = await _assignments.TryAssignAsync(assignment, cancellationToken);
+
+            if (outcome == MemberAssignmentOutcome.AlreadyHeld)
+            {
+                // Not counted against the remainder: they were already occupying a place, so the
+                // count this started from already included them.
+                refused.Add(Refusal(userId, "subscription_member_already_assigned",
+                    "This person is already on this subscription."));
+                continue;
+            }
+
+            remaining--;
+            assigned.Add(Describe(assignment));
         }
 
-        var assignment = new SubscriptionAssignment
+        if (assigned.Count > 0)
         {
-            TenantId = context.TenantId,
-            OrganizationId = subscription.OrganizationId,
-            SubscriptionId = subscription.ItemId,
-            UserId = request.UserId.Trim(),
-            AssignedAtUtc = _time.GetUtcNow().UtcDateTime,
-            AssignedByUserId = context.UserId,
-            CorrelationId = correlationId
-        };
-
-        var outcome = await _assignments.TryAssignAsync(assignment, cancellationToken);
-
-        if (outcome == MemberAssignmentOutcome.AlreadyHeld)
-        {
-            return Failure<SubscriptionMemberResponse>(
-                PaymentFailureKind.Conflict,
-                "subscription_member_already_assigned",
-                "This person already holds a seat on this subscription.",
-                correlationId);
+            // What these people may do has changed, and every subscriber in the organization
+            // caches the organization's own subscription alongside their own places.
+            _cache.Invalidate(context.TenantId, subscription.OrganizationId);
         }
 
-        // What the new holder may do has changed, and every subscriber in the organization caches
-        // the organization's own subscription alongside their own seats.
-        _cache.Invalidate(context.TenantId, subscription.OrganizationId);
-
-        return SubscriptionOperationResult<SubscriptionMemberResponse>.Success(
-            Describe(assignment), correlationId);
+        return SubscriptionOperationResult<SubscriptionMemberAssignmentResponse>.Success(
+            new SubscriptionMemberAssignmentResponse
+            {
+                SubscriptionId = subscription.ItemId,
+                Assigned = assigned,
+                Refused = refused
+            },
+            correlationId);
     }
+
+    private static SubscriptionMemberRefusalResponse Refusal(
+        string userId,
+        string reasonCode,
+        string reason) => new()
+    {
+        UserId = userId,
+        ReasonCode = reasonCode,
+        Reason = reason
+    };
 
     public async Task<SubscriptionOperationResult<SubscriptionMemberResponse>> ReleaseAsync(
         string subscriptionId,
