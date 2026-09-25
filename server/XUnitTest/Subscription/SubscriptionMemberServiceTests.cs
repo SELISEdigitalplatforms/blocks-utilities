@@ -21,7 +21,7 @@ namespace XUnitTest.Subscription;
 /// organization's own subscription would hand the whole organization's plan to one person; and
 /// seating somebody on a subscription that no longer grants anything sells them nothing.
 /// </remarks>
-public sealed class SubscriptionSeatServiceTests
+public sealed class SubscriptionMemberServiceTests
 {
     private const string TenantId = "tenant-1";
     private const string OrganizationId = "org-1";
@@ -36,7 +36,7 @@ public sealed class SubscriptionSeatServiceTests
     private SubscriptionDetail _subscription = UserWise(seats: 3);
     private long _held;
 
-    public SubscriptionSeatServiceTests()
+    public SubscriptionMemberServiceTests()
     {
         _contextResolver
             .Setup(resolver => resolver.ResolveAsync(
@@ -57,13 +57,13 @@ public sealed class SubscriptionSeatServiceTests
         _assignments
             .Setup(repository => repository.TryAssignAsync(
                 It.IsAny<SubscriptionAssignment>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(SeatAssignmentOutcome.Assigned);
+            .ReturnsAsync(MemberAssignmentOutcome.Assigned);
 
         _assignments
             .Setup(repository => repository.TryReleaseAsync(
                 TenantId, SubscriptionId, It.IsAny<string>(),
                 It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(SeatReleaseOutcome.Released);
+            .ReturnsAsync(MemberReleaseOutcome.Released);
     }
 
     [Fact]
@@ -75,10 +75,10 @@ public sealed class SubscriptionSeatServiceTests
             .Setup(repository => repository.TryAssignAsync(
                 It.IsAny<SubscriptionAssignment>(), It.IsAny<CancellationToken>()))
             .Callback<SubscriptionAssignment, CancellationToken>((a, _) => written = a)
-            .ReturnsAsync(SeatAssignmentOutcome.Assigned);
+            .ReturnsAsync(MemberAssignmentOutcome.Assigned);
 
         await Service().AssignAsync(
-            SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+            SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
             "corr-1", CancellationToken.None);
 
         written!.UserId.Should().Be("user-b",
@@ -94,7 +94,7 @@ public sealed class SubscriptionSeatServiceTests
         _held = 3;
 
         var result = await Service().AssignAsync(
-            SubscriptionId, new AssignSeatRequest { UserId = "user-d" },
+            SubscriptionId, new AssignMemberRequest { UserId = "user-d" },
             "corr-1", CancellationToken.None);
 
         result.FailureKind.Should().Be(PaymentFailureKind.Conflict,
@@ -112,7 +112,7 @@ public sealed class SubscriptionSeatServiceTests
         _held = 2;
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-c" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-c" },
                 "corr-1", CancellationToken.None))
             .IsSuccess.Should().BeTrue(
                 because: "an off-by-one here would leave an organization paying for a seat it " +
@@ -126,7 +126,7 @@ public sealed class SubscriptionSeatServiceTests
         _held = 1;
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Conflict,
                 because: "a user-wise plan with nothing to count is one person's plan, and " +
@@ -136,7 +136,7 @@ public sealed class SubscriptionSeatServiceTests
     [Fact]
     public async Task The_marked_quantity_is_the_one_that_counts_people()
     {
-        _subscription = UserWise(seats: 3, countsSeats: true);
+        _subscription = UserWise(seats: 3, countsMembers: true);
         _subscription.QuantityItems.Add(new SubscriptionQuantityItem
         {
             ItemKey = "workspace",
@@ -146,7 +146,7 @@ public sealed class SubscriptionSeatServiceTests
         _held = 3;
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-d" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-d" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Conflict,
                 because: "three seats were sold and three are held — counting the fifty " +
@@ -165,7 +165,7 @@ public sealed class SubscriptionSeatServiceTests
         });
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Validation,
                 because: "defaulting to one would seat a single person on a subscription charged " +
@@ -175,17 +175,17 @@ public sealed class SubscriptionSeatServiceTests
     [Fact]
     public async Task A_plan_marking_two_quantities_as_people_is_refused()
     {
-        _subscription = UserWise(seats: 3, countsSeats: true);
+        _subscription = UserWise(seats: 3, countsMembers: true);
         _subscription.QuantityItems.Add(new SubscriptionQuantityItem
         {
             ItemKey = "workspace",
             UnitLabel = "workspace",
             Quantity = 50,
-            CountsSeats = true
+            CountsMembers = true
         });
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Validation,
                 because: "whichever of the two was picked would be arbitrary, and one of them " +
@@ -199,7 +199,7 @@ public sealed class SubscriptionSeatServiceTests
         _held = 2;
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-c" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-c" },
                 "corr-1", CancellationToken.None))
             .IsSuccess.Should().BeTrue(
                 because: "there is nothing to disambiguate, which is what keeps every plan " +
@@ -207,13 +207,13 @@ public sealed class SubscriptionSeatServiceTests
     }
 
     [Fact]
-    public async Task An_organizations_own_subscription_has_no_seats_to_give_out()
+    public async Task An_organizations_own_subscription_has_no_members_to_give_out()
     {
         _subscription = UserWise(seats: 3);
         _subscription.Plan.SubscriberScope = SubscriberScope.Organization;
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Validation,
                 because: "it is reached through the organization, so seating one person on it " +
@@ -227,7 +227,7 @@ public sealed class SubscriptionSeatServiceTests
         _subscription.Status = SubscriptionStatus.Canceled;
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Conflict,
                 because: "the seat would grant nothing, and telling an administrator it worked " +
@@ -256,7 +256,7 @@ public sealed class SubscriptionSeatServiceTests
             .ReturnsAsync((SubscriptionDetail?)null);
 
         (await Service().AssignAsync(
-                "sub-elsewhere", new AssignSeatRequest { UserId = "user-b" },
+                "sub-elsewhere", new AssignMemberRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.NotFound,
                 because: "the subscription is read through the caller's own organization, so an " +
@@ -269,10 +269,10 @@ public sealed class SubscriptionSeatServiceTests
         _assignments
             .Setup(repository => repository.TryAssignAsync(
                 It.IsAny<SubscriptionAssignment>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(SeatAssignmentOutcome.AlreadyHeld);
+            .ReturnsAsync(MemberAssignmentOutcome.AlreadyHeld);
 
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Conflict,
                 because: "reporting it as a fresh assignment would let a caller counting " +
@@ -283,7 +283,7 @@ public sealed class SubscriptionSeatServiceTests
     public async Task A_request_naming_nobody_is_refused()
     {
         (await Service().AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "  " },
+                SubscriptionId, new AssignMemberRequest { UserId = "  " },
                 "corr-1", CancellationToken.None))
             .FailureKind.Should().Be(PaymentFailureKind.Validation);
     }
@@ -293,11 +293,11 @@ public sealed class SubscriptionSeatServiceTests
     {
         var cache = new Mock<IEntitlementSnapshotCache>();
 
-        await new SubscriptionSeatService(
+        await new SubscriptionMemberService(
             _subscriptions.Object, _assignments.Object, _contextResolver.Object,
             cache.Object, _time)
             .AssignAsync(
-                SubscriptionId, new AssignSeatRequest { UserId = "user-b" },
+                SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
                 "corr-1", CancellationToken.None);
 
         cache.Verify(
@@ -307,14 +307,82 @@ public sealed class SubscriptionSeatServiceTests
             "for them");
     }
 
-    private SubscriptionSeatService Service() => new(
+
+    /// <remarks>
+    /// The shape live plans already use: one charge however many people there are, a ceiling of
+    /// ten, and a quantity nobody has ever touched because changing it costs nothing.
+    /// </remarks>
+    [Fact]
+    public async Task A_flat_priced_plan_is_for_as_many_people_as_its_ceiling_allows()
+    {
+        _subscription = UserWise(seats: 1, maxQuantity: 10, pricedPerMember: false);
+        _held = 9;
+
+        (await Service().AssignAsync(
+                SubscriptionId, new AssignMemberRequest { UserId = "user-j" },
+                "corr-1", CancellationToken.None))
+            .IsSuccess.Should().BeTrue(
+                because: "115 CHF bought the plan for up to ten people — reading the untouched " +
+                         "quantity of one would give nine of them nothing they paid for");
+    }
+
+    [Fact]
+    public async Task A_flat_priced_plan_still_stops_at_its_ceiling()
+    {
+        _subscription = UserWise(seats: 1, maxQuantity: 10, pricedPerMember: false);
+        _held = 10;
+
+        (await Service().AssignAsync(
+                SubscriptionId, new AssignMemberRequest { UserId = "user-k" },
+                "corr-1", CancellationToken.None))
+            .FailureKind.Should().Be(PaymentFailureKind.Conflict,
+                because: "up to ten is a ceiling, not an opening offer");
+    }
+
+    [Fact]
+    public async Task A_flat_priced_plan_with_no_ceiling_is_refused_rather_than_unlimited()
+    {
+        _subscription = UserWise(seats: 1, maxQuantity: null, pricedPerMember: false);
+
+        (await Service().AssignAsync(
+                SubscriptionId, new AssignMemberRequest { UserId = "user-b" },
+                "corr-1", CancellationToken.None))
+            .FailureKind.Should().Be(PaymentFailureKind.Validation,
+                because: "unlimited is the honest reading of a flat fee with no cap, and also " +
+                         "the one where forgetting to set a maximum gives the product away");
+    }
+
+    [Fact]
+    public async Task A_per_member_price_charges_for_what_was_bought_not_the_ceiling()
+    {
+        _subscription = UserWise(seats: 3, maxQuantity: 10, pricedPerMember: true);
+        _held = 3;
+
+        (await Service().AssignAsync(
+                SubscriptionId, new AssignMemberRequest { UserId = "user-d" },
+                "corr-1", CancellationToken.None))
+            .FailureKind.Should().Be(PaymentFailureKind.Conflict,
+                because: "three were paid for at a price per person, so the plan's ceiling of ten " +
+                         "is what could be bought, not what was");
+    }
+
+    private SubscriptionMemberService Service() => new(
         _subscriptions.Object,
         _assignments.Object,
         _contextResolver.Object,
         new EntitlementSnapshotCache(new OptionsStub(), _time),
         _time);
 
-    private static SubscriptionDetail UserWise(long? seats, bool countsSeats = false) => new()
+    /// <summary>
+    /// A user-wise subscription. <paramref name="pricedPerMember"/> is the difference between the
+    /// two pricing modes: a flat price charges once however many people there are, a per-member
+    /// price multiplies by how many were bought.
+    /// </summary>
+    private static SubscriptionDetail UserWise(
+        long? seats,
+        bool countsMembers = false,
+        long? maxQuantity = null,
+        bool pricedPerMember = true) => new()
     {
         ItemId = SubscriptionId,
         TenantId = TenantId,
@@ -329,8 +397,13 @@ public sealed class SubscriptionSeatServiceTests
                 ItemKey = "seat",
                 UnitLabel = "seat",
                 Quantity = seats.Value,
-                CountsSeats = countsSeats
+                CountsMembers = countsMembers,
+                MaxQuantity = maxQuantity
             }],
+        Price = new PriceSnapshot
+        {
+            QuantityItemKey = pricedPerMember ? "seat" : null
+        },
         Plan = new PlanSnapshot
         {
             Code = "starter",

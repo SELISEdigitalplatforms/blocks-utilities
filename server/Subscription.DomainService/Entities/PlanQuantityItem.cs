@@ -40,7 +40,7 @@ public sealed class PlanQuantityItem
     /// keeps every plan authored before this from needing an edit.
     /// </para>
     /// </remarks>
-    public bool CountsSeats { get; set; }
+    public bool CountsMembers { get; set; }
 
     /// <summary>
     /// Volume bands, in ascending order. Empty means one price at every quantity.

@@ -24,13 +24,13 @@ public sealed class CreatePlanRequestValidator : AbstractValidator<CreatePlanReq
         // person writing the plan is the one who can fix it; an administrator filling seats weeks
         // later can only file a ticket.
         RuleFor(request => request.QuantityItems)
-            .Must(ExactlyOneCountsSeats)
+            .Must(ExactlyOneCountsMembers)
             .When(request => request.SubscriberScope == SubscriberScope.User &&
                 request.QuantityItems.Count > 1)
             .WithMessage(
                 "A user-wise plan selling more than one quantity must mark exactly one of them " +
                 "as the quantity that counts people.")
-            .WithErrorCode("subscription_plan_seat_quantity_ambiguous");
+            .WithErrorCode("subscription_plan_member_quantity_ambiguous");
     }
 
     /// <summary>
@@ -41,6 +41,6 @@ public sealed class CreatePlanRequestValidator : AbstractValidator<CreatePlanReq
     /// sold eight seats and fifty workspaces and claims both count people, and whichever the seat
     /// service picked would be arbitrary.
     /// </remarks>
-    private static bool ExactlyOneCountsSeats(List<PlanQuantityItemRequest> items) =>
-        items.Count(item => item.CountsSeats) == 1;
+    private static bool ExactlyOneCountsMembers(List<PlanQuantityItemRequest> items) =>
+        items.Count(item => item.CountsMembers) == 1;
 }

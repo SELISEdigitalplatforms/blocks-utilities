@@ -17,7 +17,7 @@ namespace Subscription.DomainService.Services;
 /// subscription was bought or last changed. This only decides who sits in them, and refuses to seat
 /// more people than were paid for.
 /// </remarks>
-public sealed class SubscriptionSeatService : ISubscriptionSeatService
+public sealed class SubscriptionMemberService : ISubscriptionMemberService
 {
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionAssignmentRepository _assignments;
@@ -25,7 +25,7 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
     private readonly IEntitlementSnapshotCache _cache;
     private readonly TimeProvider _time;
 
-    public SubscriptionSeatService(
+    public SubscriptionMemberService(
         ISubscriptionRepository subscriptions,
         ISubscriptionAssignmentRepository assignments,
         ISubscriptionContextResolver contextResolver,
@@ -39,15 +39,15 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<SubscriptionOperationResult<SubscriptionSeatResponse>> AssignAsync(
+    public async Task<SubscriptionOperationResult<SubscriptionMemberResponse>> AssignAsync(
         string subscriptionId,
-        AssignSeatRequest request,
+        AssignMemberRequest request,
         string correlationId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var resolved = await ResolveAsync<SubscriptionSeatResponse>(
+        var resolved = await ResolveAsync<SubscriptionMemberResponse>(
             subscriptionId, correlationId, cancellationToken);
 
         if (resolved.Failure is { } failure)
@@ -59,22 +59,25 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
 
         if (string.IsNullOrWhiteSpace(request.UserId))
         {
-            return Failure<SubscriptionSeatResponse>(
+            return Failure<SubscriptionMemberResponse>(
                 PaymentFailureKind.Validation,
-                "subscription_seat_user_required",
+                "subscription_member_required",
                 "Name the person the seat is for.",
                 correlationId);
         }
 
-        var purchased = PurchasedSeatsOf(subscription);
+        var purchased = subscription.QuantityItems.Count == 0
+            ? 1
+            : PurchasedMembersOf(subscription);
 
         if (purchased is null)
         {
-            return Failure<SubscriptionSeatResponse>(
+            return Failure<SubscriptionMemberResponse>(
                 PaymentFailureKind.Validation,
-                "subscription_seat_count_ambiguous",
-                "This plan sells several quantities and none of them — or more than one — is " +
-                    "marked as the one that counts people. Mark exactly one.",
+                "subscription_member_count_ambiguous",
+                "This plan does not say how many people it is for. Mark exactly one quantity as " +
+                    "the one that counts them, and on a flat-priced plan give that quantity a " +
+                    "maximum.",
                 correlationId);
         }
 
@@ -85,9 +88,9 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
         if (await _assignments.CountActiveAsync(
                 context.TenantId, subscription.ItemId, cancellationToken) >= purchased)
         {
-            return Failure<SubscriptionSeatResponse>(
+            return Failure<SubscriptionMemberResponse>(
                 PaymentFailureKind.Conflict,
-                "subscription_seats_exhausted",
+                "subscription_members_exhausted",
                 "Every seat on this subscription is taken. Release one, or buy more.",
                 correlationId);
         }
@@ -105,11 +108,11 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
 
         var outcome = await _assignments.TryAssignAsync(assignment, cancellationToken);
 
-        if (outcome == SeatAssignmentOutcome.AlreadyHeld)
+        if (outcome == MemberAssignmentOutcome.AlreadyHeld)
         {
-            return Failure<SubscriptionSeatResponse>(
+            return Failure<SubscriptionMemberResponse>(
                 PaymentFailureKind.Conflict,
-                "subscription_seat_already_held",
+                "subscription_member_already_assigned",
                 "This person already holds a seat on this subscription.",
                 correlationId);
         }
@@ -118,17 +121,17 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
         // the organization's own subscription alongside their own seats.
         _cache.Invalidate(context.TenantId, subscription.OrganizationId);
 
-        return SubscriptionOperationResult<SubscriptionSeatResponse>.Success(
+        return SubscriptionOperationResult<SubscriptionMemberResponse>.Success(
             Describe(assignment), correlationId);
     }
 
-    public async Task<SubscriptionOperationResult<SubscriptionSeatResponse>> ReleaseAsync(
+    public async Task<SubscriptionOperationResult<SubscriptionMemberResponse>> ReleaseAsync(
         string subscriptionId,
         string userId,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolved = await ResolveAsync<SubscriptionSeatResponse>(
+        var resolved = await ResolveAsync<SubscriptionMemberResponse>(
             subscriptionId, correlationId, cancellationToken, requireLive: false);
 
         if (resolved.Failure is { } failure)
@@ -142,19 +145,19 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
         var outcome = await _assignments.TryReleaseAsync(
             context.TenantId, subscription.ItemId, userId, releasedAtUtc, cancellationToken);
 
-        if (outcome == SeatReleaseOutcome.NotHeld)
+        if (outcome == MemberReleaseOutcome.NotHeld)
         {
-            return Failure<SubscriptionSeatResponse>(
+            return Failure<SubscriptionMemberResponse>(
                 PaymentFailureKind.NotFound,
-                "subscription_seat_not_held",
+                "subscription_member_not_assigned",
                 "This person does not hold a seat on this subscription.",
                 correlationId);
         }
 
         _cache.Invalidate(context.TenantId, subscription.OrganizationId);
 
-        return SubscriptionOperationResult<SubscriptionSeatResponse>.Success(
-            new SubscriptionSeatResponse
+        return SubscriptionOperationResult<SubscriptionMemberResponse>.Success(
+            new SubscriptionMemberResponse
             {
                 SubscriptionId = subscription.ItemId,
                 UserId = userId,
@@ -163,12 +166,12 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
             correlationId);
     }
 
-    public async Task<SubscriptionOperationResult<SubscriptionSeatsResponse>> ListAsync(
+    public async Task<SubscriptionOperationResult<SubscriptionMembersResponse>> ListAsync(
         string subscriptionId,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolved = await ResolveAsync<SubscriptionSeatsResponse>(
+        var resolved = await ResolveAsync<SubscriptionMembersResponse>(
             subscriptionId, correlationId, cancellationToken, requireLive: false);
 
         if (resolved.Failure is { } failure)
@@ -181,10 +184,12 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
         var held = await _assignments.ListActiveAsync(
             context.TenantId, subscription.ItemId, cancellationToken);
 
-        var purchased = PurchasedSeatsOf(subscription) ?? 0;
+        var purchased = (subscription.QuantityItems.Count == 0
+            ? 1
+            : PurchasedMembersOf(subscription)) ?? 0;
 
-        return SubscriptionOperationResult<SubscriptionSeatsResponse>.Success(
-            new SubscriptionSeatsResponse
+        return SubscriptionOperationResult<SubscriptionMembersResponse>.Success(
+            new SubscriptionMembersResponse
             {
                 SubscriptionId = subscription.ItemId,
                 Purchased = purchased,
@@ -196,43 +201,66 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
     }
 
     /// <summary>
-    /// How many people this subscription paid to seat, or null when nothing says.
+    /// How many people this subscription may have, or null when nothing says.
     /// </summary>
     /// <remarks>
-    /// A plan may sell several quantities — seats, workspaces, whatever else — so the item that
-    /// counts people is the one marked <see cref="SubscriptionQuantityItem.CountsSeats"/>. Nothing
-    /// else on an item distinguishes them: <c>ItemKey</c> is a free string a product chose, and
-    /// reading "seat" out of it would work for one tenant's naming and fail silently for another's.
+    /// Which number answers depends on how the plan charges, because only one of the two means
+    /// anything in each case.
     /// <para>
-    /// A plan selling a single quantity needs no mark, which is what keeps every plan authored
-    /// before this from needing an edit. A plan selling none sells one seat, because a user-wise
-    /// subscription with nothing to count is a single person's plan.
+    /// When the price multiplies a quantity — <see cref="PriceSnapshot.QuantityItemKey"/> naming
+    /// the item that counts people — the subscription paid for exactly that many, so
+    /// <see cref="SubscriptionQuantityItem.Quantity"/> is the answer.
     /// </para>
     /// <para>
-    /// Several quantities and no mark is refused rather than guessed. Summing them would seat
-    /// people against workspaces nobody sold as seats; taking the first would make the answer
-    /// depend on authoring order; defaulting to one would quietly seat a single person on a
-    /// subscription charged for eight. Each of those is wrong without anything failing, and the
-    /// administrator finds out when the seventh person cannot work.
+    /// When the price is flat it multiplies nothing, and the quantity stored against the item is a
+    /// number nobody charged for or interacted with. What was sold is "this plan, for up to N
+    /// people", and N is <see cref="SubscriptionQuantityItem.MaxQuantity"/>. Reading Quantity there
+    /// would give one person a plan bought for ten, because the default was never changed and
+    /// changing it would have cost nothing.
+    /// </para>
+    /// <para>
+    /// A flat plan with no ceiling is refused rather than treated as unlimited. Unlimited is the
+    /// honest reading of "flat fee, no cap", and it is also the reading where an unnoticed omission
+    /// gives the product away, so it has to be said deliberately.
     /// </para>
     /// </remarks>
-    private static long? PurchasedSeatsOf(SubscriptionDetail subscription)
+    private static long? PurchasedMembersOf(SubscriptionDetail subscription)
     {
-        if (subscription.QuantityItems.Count == 0)
+        var counting = CountingItemOf(subscription);
+
+        if (counting is null)
         {
-            return 1;
+            return null;
         }
 
+        var pricedPerMember = !string.IsNullOrWhiteSpace(subscription.Price.QuantityItemKey) &&
+            string.Equals(
+                subscription.Price.QuantityItemKey,
+                counting.ItemKey,
+                StringComparison.Ordinal);
+
+        return pricedPerMember ? counting.Quantity : counting.MaxQuantity;
+    }
+
+    /// <summary>
+    /// The quantity item that says how many people, or null when the plan does not say.
+    /// </summary>
+    /// <remarks>
+    /// A plan selling one quantity needs no mark, which keeps every plan authored before this from
+    /// needing an edit. A plan selling none is one person's plan and is handled by the caller.
+    /// </remarks>
+    private static SubscriptionQuantityItem? CountingItemOf(SubscriptionDetail subscription)
+    {
         if (subscription.QuantityItems.Count == 1)
         {
-            return subscription.QuantityItems[0].Quantity;
+            return subscription.QuantityItems[0];
         }
 
-        var seating = subscription.QuantityItems
-            .Where(item => item.CountsSeats)
+        var marked = subscription.QuantityItems
+            .Where(item => item.CountsMembers)
             .ToList();
 
-        return seating.Count == 1 ? seating[0].Quantity : null;
+        return marked.Count == 1 ? marked[0] : null;
     }
 
     /// <summary>
@@ -275,7 +303,7 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
         {
             return (Failure<T>(
                 PaymentFailureKind.Validation,
-                "subscription_not_seat_based",
+                "subscription_not_member_based",
                 "This subscription belongs to the organization itself, so it has no seats to " +
                     "give out.",
                 correlationId), default);
@@ -305,7 +333,7 @@ public sealed class SubscriptionSeatService : ISubscriptionSeatService
         string correlationId) =>
         SubscriptionOperationResult<T>.Failure(kind, code, message, correlationId);
 
-    private static SubscriptionSeatResponse Describe(SubscriptionAssignment assignment) => new()
+    private static SubscriptionMemberResponse Describe(SubscriptionAssignment assignment) => new()
     {
         SubscriptionId = assignment.SubscriptionId,
         UserId = assignment.UserId,

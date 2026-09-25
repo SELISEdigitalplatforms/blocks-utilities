@@ -29,5 +29,17 @@ public sealed class SubscriptionQuantityItem
     /// that has already seated them. False on every subscription written before seats existed,
     /// which is correct: none of them sells any.
     /// </remarks>
-    public bool CountsSeats { get; set; }
+    public bool CountsMembers { get; set; }
+
+    /// <summary>
+    /// The most of this item the plan allowed when the subscription bought it, or null for no
+    /// ceiling.
+    /// </summary>
+    /// <remarks>
+    /// Snapshotted like everything else here, because on a flat-priced plan this is the number that
+    /// says how many people the subscription may have. Read live from the plan it would move under
+    /// a subscription that has already assigned them — and a plan with subscribers is frozen
+    /// precisely so that cannot happen.
+    /// </remarks>
+    public long? MaxQuantity { get; set; }
 }

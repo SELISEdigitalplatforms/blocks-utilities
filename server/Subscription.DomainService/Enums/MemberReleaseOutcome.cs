@@ -9,7 +9,7 @@ namespace Subscription.DomainService.Enums;
 /// apart would mean reading the released rows back to find out which — a query that exists only to
 /// refine an answer nobody acts on.
 /// </remarks>
-public enum SeatReleaseOutcome
+public enum MemberReleaseOutcome
 {
     Released = 0,
 

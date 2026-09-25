@@ -57,7 +57,8 @@ internal static class SubscriptionQuantityBuilder
                 Quantity = quantity,
                 // Carried onto the subscription so which item counts people cannot move under
                 // somebody already seated against it.
-                CountsSeats = item.CountsSeats,
+                CountsMembers = item.CountsMembers,
+                MaxQuantity = item.MaxQuantity,
                 // Snapshotted so a later catalogue edit cannot move what this subscriber pays.
                 UnitAmountMinor = string.Equals(
                     item.ItemKey,

@@ -9,7 +9,7 @@ namespace Subscription.DomainService.Enums;
 /// should be told the second one changed nothing, and a caller that counts seats off successful
 /// assignments would otherwise consume two.
 /// </remarks>
-public enum SeatAssignmentOutcome
+public enum MemberAssignmentOutcome
 {
     Assigned = 0,
 

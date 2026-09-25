@@ -19,7 +19,7 @@ public interface ISubscriptionAssignmentRepository
     /// reserves against the purchased quantity and this records the result — see
     /// <see cref="CountActiveAsync"/> for the figure that reservation is made against.
     /// </remarks>
-    Task<SeatAssignmentOutcome> TryAssignAsync(
+    Task<MemberAssignmentOutcome> TryAssignAsync(
         SubscriptionAssignment assignment,
         CancellationToken cancellationToken);
 
@@ -31,7 +31,7 @@ public interface ISubscriptionAssignmentRepository
     /// The meter counts against the subscription and is not reset when a seat changes hands, so
     /// this is the only record of why the next holder inherited a part-spent window.
     /// </remarks>
-    Task<SeatReleaseOutcome> TryReleaseAsync(
+    Task<MemberReleaseOutcome> TryReleaseAsync(
         string tenantId,
         string subscriptionId,
         string userId,

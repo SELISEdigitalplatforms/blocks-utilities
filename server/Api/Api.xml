@@ -1082,7 +1082,7 @@
             </para>
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionsController.AssignSeat(System.String,Subscription.DomainService.Requests.AssignSeatRequest,System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionsController.AssignMember(System.String,Subscription.DomainService.Requests.AssignMemberRequest,System.Threading.CancellationToken)">
             <summary>Puts one person on a seat of a user-wise subscription.</summary>
             <remarks>
             The person is named in the body rather than taken from the token, because filling seats on
@@ -1095,7 +1095,7 @@
             </para>
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionsController.ReleaseSeat(System.String,System.String,System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionsController.ReleaseMember(System.String,System.String,System.Threading.CancellationToken)">
             <summary>Takes a seat back.</summary>
             <remarks>
             What the holder spent stays on the subscription and is not reset, so whoever takes the seat
@@ -1107,7 +1107,7 @@
             </para>
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionsController.GetSeats(System.String,System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionsController.GetMembers(System.String,System.Threading.CancellationToken)">
             <summary>Who holds this subscription's seats, and how many remain.</summary>
             <remarks>
             The remaining count is what it was a moment ago rather than a promise about the next

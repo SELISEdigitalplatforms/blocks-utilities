@@ -1,7 +1,7 @@
 namespace Subscription.DomainService.Responses;
 
 /// <summary>One seat, as a caller sees it.</summary>
-public sealed class SubscriptionSeatResponse
+public sealed class SubscriptionMemberResponse
 {
     public string SubscriptionId { get; init; } = string.Empty;
 
@@ -20,7 +20,7 @@ public sealed class SubscriptionSeatResponse
 /// only the unique index settles a race for the last seat. It is here so an administrator can be
 /// shown how full a subscription is, not so a caller can decide whether an assignment will succeed.
 /// </remarks>
-public sealed class SubscriptionSeatsResponse
+public sealed class SubscriptionMembersResponse
 {
     public string SubscriptionId { get; init; } = string.Empty;
 
@@ -31,5 +31,5 @@ public sealed class SubscriptionSeatsResponse
 
     public long Available { get; init; }
 
-    public List<SubscriptionSeatResponse> Seats { get; init; } = [];
+    public List<SubscriptionMemberResponse> Seats { get; init; } = [];
 }

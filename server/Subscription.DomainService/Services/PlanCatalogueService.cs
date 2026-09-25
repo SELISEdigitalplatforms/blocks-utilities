@@ -1199,7 +1199,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             {
                 ItemKey = item.ItemKey,
                 UnitLabel = item.UnitLabel,
-                CountsSeats = item.CountsSeats,
+                CountsMembers = item.CountsMembers,
                 MinQuantity = item.MinQuantity,
                 MaxQuantity = item.MaxQuantity,
                 DefaultQuantity = item.DefaultQuantity,

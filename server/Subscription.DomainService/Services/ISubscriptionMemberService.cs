@@ -6,7 +6,7 @@ namespace Subscription.DomainService.Services;
 /// <summary>
 /// Giving out and taking back the seats a subscription was bought with.
 /// </summary>
-public interface ISubscriptionSeatService
+public interface ISubscriptionMemberService
 {
     /// <summary>
     /// Puts one person on a seat.
@@ -15,9 +15,9 @@ public interface ISubscriptionSeatService
     /// Refused when the subscription is not user-wise, when it grants nothing any more, or when
     /// every seat it paid for is already held.
     /// </remarks>
-    Task<SubscriptionOperationResult<SubscriptionSeatResponse>> AssignAsync(
+    Task<SubscriptionOperationResult<SubscriptionMemberResponse>> AssignAsync(
         string subscriptionId,
-        AssignSeatRequest request,
+        AssignMemberRequest request,
         string correlationId,
         CancellationToken cancellationToken);
 
@@ -30,14 +30,14 @@ public interface ISubscriptionSeatService
     /// organization bought a period's worth of allowance, and it does not renew because the person
     /// using it changed.
     /// </remarks>
-    Task<SubscriptionOperationResult<SubscriptionSeatResponse>> ReleaseAsync(
+    Task<SubscriptionOperationResult<SubscriptionMemberResponse>> ReleaseAsync(
         string subscriptionId,
         string userId,
         string correlationId,
         CancellationToken cancellationToken);
 
     /// <summary>Who is holding this subscription's seats, and how many are left.</summary>
-    Task<SubscriptionOperationResult<SubscriptionSeatsResponse>> ListAsync(
+    Task<SubscriptionOperationResult<SubscriptionMembersResponse>> ListAsync(
         string subscriptionId,
         string correlationId,
         CancellationToken cancellationToken);

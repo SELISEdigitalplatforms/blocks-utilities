@@ -44,7 +44,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
         var outcome = await _assignments.TryAssignAsync(
             NewAssignment(tenantId, "sub-a", "user-a"), CancellationToken.None);
 
-        outcome.Should().Be(SeatAssignmentOutcome.Assigned);
+        outcome.Should().Be(MemberAssignmentOutcome.Assigned);
 
         (await _assignments.ListSubscriptionIdsForUserAsync(
                 tenantId, OrganizationId, "user-a", CancellationToken.None))
@@ -81,7 +81,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         (await _assignments.TryAssignAsync(
                 NewAssignment(tenantId, "sub-a", "user-a"), CancellationToken.None))
-            .Should().Be(SeatAssignmentOutcome.AlreadyHeld,
+            .Should().Be(MemberAssignmentOutcome.AlreadyHeld,
                 because: "a caller that counts seats off successful assignments would otherwise " +
                          "consume two of them for one person");
     }
@@ -97,14 +97,14 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
             _assignments.TryAssignAsync(
                 NewAssignment(tenantId, "sub-race", "user-a"), CancellationToken.None));
 
-        outcomes.Count(outcome => outcome == SeatAssignmentOutcome.Assigned)
+        outcomes.Count(outcome => outcome == MemberAssignmentOutcome.Assigned)
             .Should().Be(1,
                 because: "both would pass a read-then-write, and the subscription would look one " +
                          "seat fuller than it is");
     }
 
     [Fact]
-    public async Task One_person_may_hold_seats_on_two_different_subscriptions()
+    public async Task One_person_may_hold_members_on_two_different_subscriptions()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
@@ -113,7 +113,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         (await _assignments.TryAssignAsync(
                 NewAssignment(tenantId, "sub-storage", "user-a"), CancellationToken.None))
-            .Should().Be(SeatAssignmentOutcome.Assigned,
+            .Should().Be(MemberAssignmentOutcome.Assigned,
                 because: "two plans are two purchases — uniqueness is per subscription, and a " +
                          "rule spanning them would refuse a sale the organization is entitled to");
     }
@@ -130,7 +130,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         (await _assignments.TryAssignAsync(
                 NewAssignment(tenantId, "sub-a", "user-a"), CancellationToken.None))
-            .Should().Be(SeatAssignmentOutcome.Assigned,
+            .Should().Be(MemberAssignmentOutcome.Assigned,
                 because: "released rows stay for the history of a part-spent period, so they are " +
                          "outside the index — had they counted, the seat could never be reused");
     }
@@ -159,7 +159,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         (await _assignments.TryReleaseAsync(
                 tenantId, "sub-a", "user-ghost", DateTime.UtcNow, CancellationToken.None))
-            .Should().Be(SeatReleaseOutcome.NotHeld);
+            .Should().Be(MemberReleaseOutcome.NotHeld);
     }
 
     [Fact]
@@ -174,13 +174,13 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         (await _assignments.TryReleaseAsync(
                 tenantId, "sub-a", "user-a", DateTime.UtcNow, CancellationToken.None))
-            .Should().Be(SeatReleaseOutcome.NotHeld,
+            .Should().Be(MemberReleaseOutcome.NotHeld,
                 because: "the filter already excludes released rows, so a repeat cannot be " +
                          "reported as a fresh release");
     }
 
     [Fact]
-    public async Task Held_seats_are_counted_and_released_ones_are_not()
+    public async Task Held_members_are_counted_and_released_ones_are_not()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
@@ -218,7 +218,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
     }
 
     [Fact]
-    public async Task Another_organizations_seats_are_never_returned()
+    public async Task Another_organizations_members_are_never_returned()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
 

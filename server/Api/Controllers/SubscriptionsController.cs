@@ -31,7 +31,7 @@ public sealed class SubscriptionsController : ControllerBase
     private readonly ISubscriptionPlanChangeService _planChange;
     private readonly ISubscriptionInvoiceDocumentService _invoiceDocuments;
     private readonly ISubscriptionQuantityChangeService _quantityChange;
-    private readonly ISubscriptionSeatService _seats;
+    private readonly ISubscriptionMemberService _members;
     private readonly ISubscriptionFinancialDocumentHistoryService _documents;
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionAuditTrail _audit;
@@ -45,7 +45,7 @@ public sealed class SubscriptionsController : ControllerBase
         ISubscriptionInvoiceDocumentService invoiceDocuments,
         ISubscriptionFinancialDocumentHistoryService documents,
         ISubscriptionQuantityChangeService quantityChange,
-        ISubscriptionSeatService seats,
+        ISubscriptionMemberService seats,
         ISubscriptionContextResolver contextResolver,
         ISubscriptionAuditTrail audit,
         ISubscriptionAuditRepository auditRepository)
@@ -57,7 +57,7 @@ public sealed class SubscriptionsController : ControllerBase
         _invoiceDocuments = invoiceDocuments;
         _documents = documents;
         _quantityChange = quantityChange;
-        _seats = seats;
+        _members = seats;
         _contextResolver = contextResolver;
         _audit = audit;
         _auditRepository = auditRepository;
@@ -516,24 +516,24 @@ public sealed class SubscriptionsController : ControllerBase
     /// administrators filling the last seat together produce one success and one conflict.
     /// </para>
     /// </remarks>
-    [HttpPost("{subscriptionId}/seats")]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status409Conflict)]
+    [HttpPost("{subscriptionId}/members")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProtectedEndPoint("blocks-utilities::subscription::manage")]
-    public async Task<IActionResult> AssignSeat(
+    public async Task<IActionResult> AssignMember(
         string subscriptionId,
-        [FromBody] AssignSeatRequest request,
+        [FromBody] AssignMemberRequest request,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _seats.AssignAsync(
+        var result = await _members.AssignAsync(
             subscriptionId, request, correlationId, cancellationToken);
 
-        await AuditAsync("AssignSeat", null, subscriptionId,
+        await AuditAsync("AssignMember", null, subscriptionId,
             result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
             null, null, cancellationToken);
 
@@ -550,22 +550,22 @@ public sealed class SubscriptionsController : ControllerBase
     /// somebody who has left after it lapses.
     /// </para>
     /// </remarks>
-    [HttpDelete("{subscriptionId}/seats/{userId}")]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatResponse>), StatusCodes.Status404NotFound)]
+    [HttpDelete("{subscriptionId}/members/{userId}")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMemberResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProtectedEndPoint("blocks-utilities::subscription::manage")]
-    public async Task<IActionResult> ReleaseSeat(
+    public async Task<IActionResult> ReleaseMember(
         string subscriptionId,
         string userId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _seats.ReleaseAsync(
+        var result = await _members.ReleaseAsync(
             subscriptionId, userId, correlationId, cancellationToken);
 
-        await AuditAsync("ReleaseSeat", null, subscriptionId,
+        await AuditAsync("ReleaseMember", null, subscriptionId,
             result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
             null, null, cancellationToken);
 
@@ -578,18 +578,18 @@ public sealed class SubscriptionsController : ControllerBase
     /// assignment: only the database settles a race for the last seat. It is here so an
     /// administrator can see how full a subscription is.
     /// </remarks>
-    [HttpGet("{subscriptionId}/seats")]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatsResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<SubscriptionSeatsResponse>), StatusCodes.Status404NotFound)]
+    [HttpGet("{subscriptionId}/members")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMembersResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionMembersResponse>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProtectedEndPoint("blocks-utilities::subscription::read")]
-    public async Task<IActionResult> GetSeats(
+    public async Task<IActionResult> GetMembers(
         string subscriptionId,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _seats.ListAsync(subscriptionId, correlationId, cancellationToken);
+        var result = await _members.ListAsync(subscriptionId, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

@@ -17,7 +17,7 @@ namespace XUnitTest.Subscription;
 /// Caught here instead, the error reaches the person writing the plan while they are writing it.
 /// </para>
 /// </remarks>
-public sealed class SeatQuantityAuthoringTests
+public sealed class MemberQuantityAuthoringTests
 {
     [Fact]
     public void A_user_wise_plan_selling_several_quantities_must_say_which_counts_people()
@@ -29,7 +29,7 @@ public sealed class SeatQuantityAuthoringTests
             because: "unmarked, the plan cannot be seated at all, and the administrator who " +
                      "discovers that is not the one who can fix it");
         result.Errors.Should().Contain(error =>
-            error.ErrorCode == "subscription_plan_seat_quantity_ambiguous");
+            error.ErrorCode == "subscription_plan_member_quantity_ambiguous");
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class SeatQuantityAuthoringTests
         UnitLabel = "seat",
         MinQuantity = 1,
         DefaultQuantity = 1,
-        CountsSeats = marked
+        CountsMembers = marked
     };
 
     private static PlanQuantityItemRequest Workspaces(bool marked) => new()
@@ -89,7 +89,7 @@ public sealed class SeatQuantityAuthoringTests
         UnitLabel = "workspace",
         MinQuantity = 1,
         DefaultQuantity = 1,
-        CountsSeats = marked
+        CountsMembers = marked
     };
 
     private static CreatePlanRequest UserWisePlan(params PlanQuantityItemRequest[] items) => new()

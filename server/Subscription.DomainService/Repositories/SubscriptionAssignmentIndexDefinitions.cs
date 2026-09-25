@@ -13,7 +13,7 @@ namespace Subscription.DomainService.Repositories;
 /// </remarks>
 public static class SubscriptionAssignmentIndexDefinitions
 {
-    public const string ActiveSeatIndexName = "ux_assignment_subscription_user_active";
+    public const string ActiveMembershipIndexName = "ux_assignment_subscription_member_active";
     public const string SubscriberLookupIndexName = "ix_assignment_tenant_org_user_active";
     public const string SubscriptionLookupIndexName = "ix_assignment_tenant_subscription_active";
 
@@ -46,7 +46,7 @@ public static class SubscriptionAssignmentIndexDefinitions
             new CreateIndexOptions<SubscriptionAssignment>
             {
                 Unique = true,
-                Name = ActiveSeatIndexName,
+                Name = ActiveMembershipIndexName,
                 PartialFilterExpression = new BsonDocument(
                     nameof(SubscriptionAssignment.ReleasedAtUtc),
                     new BsonDocument("$type", "null"))
