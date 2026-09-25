@@ -124,8 +124,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             // where the other no-ops here are not.
             _logger.LogInformation(
                 "No document was issued because the payment is not settled " +
-                "PaymentHash={PaymentHash} Status={Status}",
-                PaymentLogValue.Hash(paymentDetailId),
+                "PaymentId={PaymentId} Status={Status}",
+                PaymentLogValue.Id(paymentDetailId),
                 payment?.PaymentStatus ?? "absent");
 
             return FinancialDocumentIssueResult.Nothing(
@@ -142,12 +142,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             // reason travels back and the handler decides.
             _logger.LogInformation(
                 "No document was issued because the payment's order id names no subscription " +
-                "charge PaymentHash={PaymentHash}",
-                PaymentLogValue.Hash(paymentDetailId));
+                "charge PaymentId={PaymentId}",
+                PaymentLogValue.Id(paymentDetailId));
 
             return FinancialDocumentIssueResult.Nothing(
                 FinancialDocumentIssueOutcome.UnknownCharge);
         }
+
+        // From here the charge is known to belong to this subscription; the queue item was keyed on
+        // the payment and could not say so.
+        using var subscriptionScope = SubscriptionWorkLogValue.SubscriptionScope(_logger, subscriptionId);
 
         var subscription = await _subscriptions.GetByIdAsync(
             tenantId,
@@ -158,8 +162,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         {
             _logger.LogWarning(
                 "A settled subscription charge names a subscription that no longer exists, so no " +
-                "document was issued PaymentHash={PaymentHash} ChargeKind={ChargeKind}",
-                PaymentLogValue.Hash(paymentDetailId),
+                "document was issued PaymentId={PaymentId} ChargeKind={ChargeKind}",
+                PaymentLogValue.Id(paymentDetailId),
                 charge.Kind);
 
             return FinancialDocumentIssueResult.Nothing(
@@ -183,8 +187,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
             _logger.LogInformation(
                 "No document was issued because the charge came to nothing payable " +
-                "PaymentHash={PaymentHash} ChargeKind={ChargeKind}",
-                PaymentLogValue.Hash(paymentDetailId),
+                "PaymentId={PaymentId} ChargeKind={ChargeKind}",
+                PaymentLogValue.Id(paymentDetailId),
                 charge.Kind);
 
             return FinancialDocumentIssueResult.Nothing(
@@ -844,6 +848,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             return null;
         }
 
+        using var subscriptionScope = SubscriptionWorkLogValue.SubscriptionScope(_logger, subscriptionId);
+
         var subscription = await _subscriptions.GetByIdAsync(
             tenantId,
             subscriptionId,
@@ -1036,6 +1042,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         SubscriptionFinancialDocument? originalDocument = null,
         string? refundId = null)
     {
+        // Every issuing path passes through here, including the sweeps that walk many subscriptions.
+        using var subscriptionScope = SubscriptionWorkLogValue.SubscriptionScope(_logger, subscription.ItemId);
+
         // Asked first, so a document that already exists costs one indexed read rather than a
         // number allocation it would have to throw away. The unique index is still what guarantees
         // the outcome; this only keeps the sequence tidy in the common replay.

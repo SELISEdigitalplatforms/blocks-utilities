@@ -144,9 +144,9 @@ public sealed class StoredPaymentMethodLifecycleService :
             !payment.RememberCard)
         {
             _logger.LogWarning(
-                "Stored payment method creation skipped because save consent was not requested TenantId={TenantId} PaymentHash={PaymentHash}",
+                "Stored payment method creation skipped because save consent was not requested TenantId={TenantId} PaymentId={PaymentId}",
                 PaymentLogValue.Id(webhook.TenantId),
-                PaymentLogValue.Hash(payment.ItemId));
+                PaymentLogValue.Id(payment.ItemId));
 
             return;
         }
@@ -398,9 +398,9 @@ public sealed class StoredPaymentMethodLifecycleService :
                 // not evidence the decline was wrong; storing it now would resurrect a setup that
                 // has already been told no.
                 _logger.LogInformation(
-                    "Card setup token ignored Reason=authorization_already_declined TenantId={TenantId} PaymentHash={PaymentHash}",
+                    "Card setup token ignored Reason=authorization_already_declined TenantId={TenantId} PaymentId={PaymentId}",
                     PaymentLogValue.Id(webhook.TenantId),
-                    PaymentLogValue.Hash(payment.ItemId));
+                    PaymentLogValue.Id(payment.ItemId));
 
                 return;
             }
@@ -436,9 +436,9 @@ public sealed class StoredPaymentMethodLifecycleService :
                 PaymentStatuses.MakePaymentFailed)
             {
                 _logger.LogInformation(
-                    "Card setup token ignored Reason=authorization_already_declined TenantId={TenantId} PaymentHash={PaymentHash}",
+                    "Card setup token ignored Reason=authorization_already_declined TenantId={TenantId} PaymentId={PaymentId}",
                     PaymentLogValue.Id(webhook.TenantId),
-                    PaymentLogValue.Hash(correlatedPayment.ItemId));
+                    PaymentLogValue.Id(correlatedPayment.ItemId));
             }
             else
             {
@@ -501,10 +501,10 @@ public sealed class StoredPaymentMethodLifecycleService :
 
         _logger.LogInformation(
             "Card setup readiness evaluated from token signal Completed={Completed} " +
-            "HasAuthorizationSignal={HasAuthorizationSignal} PaymentHash={PaymentHash}",
+            "HasAuthorizationSignal={HasAuthorizationSignal} PaymentId={PaymentId}",
             completed,
             current.SetupAuthorizationConfirmedAtUtc is not null,
-            PaymentLogValue.Hash(payment.ItemId));
+            PaymentLogValue.Id(payment.ItemId));
     }
 
     private async Task<StoredPaymentMethod> CreateProtectedMethodAsync(

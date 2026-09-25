@@ -1,6 +1,7 @@
 using Blocks.Genesis;
 using DomainService.Utilities;
 using Payment.DomainService.Commands;
+using Payment.DomainService.Entities;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Utility.DomainService.MagicLink.Utilities;
@@ -33,8 +34,8 @@ var secret =
             _serviceName,
             vaultType);
 // Right after the platform builds the logger and before the host resolves any ILogger<T>: every
-// line written inside a subscription's scope then carries its id in the searchable message.
-SubscriptionIdLogSink.Install();
+// line written inside a subscription or payment scope then carries its id in the searchable message.
+SearchableIdLogSink.Install();
 // Key rings are resolved per tenant and organization on first use, not loaded here: at
 // startup the service does not yet know which organizations exist.
 var paymentVault = Vault.GetCloudVault(vaultType);
@@ -80,6 +81,9 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             services.AddSingleton<
                 IConsumer<SubscriptionLifecycleEvent>,
                 UsageThresholdReachedConsumer>();
+            services.AddSingleton<
+                IConsumer<PaymentLifecycleEvent>,
+                PaymentLifecycleEventConsumer>();
             // Register the test consumer
             services.RegisterUtilityServices();
             services.RegisterPdfGeneratorConsumers();

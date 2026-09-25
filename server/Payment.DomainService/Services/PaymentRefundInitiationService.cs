@@ -136,9 +136,9 @@ public sealed class PaymentRefundInitiationService :
             refund.SubmittedAtUtc = _time.GetUtcNow().UtcDateTime;
 
             _logger.LogInformation(
-                "Payment refund submitted TenantId={TenantId} PaymentHash={PaymentHash} RefundHash={RefundHash}",
+                "Payment refund submitted TenantId={TenantId} PaymentId={PaymentId} RefundHash={RefundHash}",
                 PaymentLogValue.Id(payment.TenantId),
-                PaymentLogValue.Hash(payment.ItemId),
+                PaymentLogValue.Id(payment.ItemId),
                 PaymentLogValue.Hash(refund.RefundId));
 
             return PaymentRefundOperationResult.Success(
@@ -253,9 +253,9 @@ public sealed class PaymentRefundInitiationService :
         refund.CompletedAtUtc = _time.GetUtcNow().UtcDateTime;
 
         _logger.LogInformation(
-            "Payment reversal settled during submission TenantId={TenantId} PaymentHash={PaymentHash} RefundHash={RefundHash}",
+            "Payment reversal settled during submission TenantId={TenantId} PaymentId={PaymentId} RefundHash={RefundHash}",
             PaymentLogValue.Id(payment.TenantId),
-            PaymentLogValue.Hash(payment.ItemId),
+            PaymentLogValue.Id(payment.ItemId),
             PaymentLogValue.Hash(refund.RefundId));
 
         return PaymentRefundOperationResult.Success(

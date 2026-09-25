@@ -561,11 +561,14 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         PaymentDetail payment,
         CancellationToken cancellationToken)
     {
-        var activated = await ActivateAsync(link, payment, cancellationToken);
-        await AuditAsync(link, "ActivationApplied", activated ? "Succeeded" : "Deferred",
-            activated ? null : "activation_state_conflict", cancellationToken);
+        // The reason recorded is the one that stopped it. Every failure used to be recorded as
+        // activation_state_conflict, which sent whoever read it looking for a race when the usual
+        // cause is a card with no provider customer behind it.
+        var failure = await ActivateAsync(link, payment, cancellationToken);
+        await AuditAsync(link, "ActivationApplied", failure is null ? "Succeeded" : "Deferred",
+            failure, cancellationToken);
 
-        return activated;
+        return failure is null;
     }
 
     private async Task<bool> ApplyAbandonmentAsync(
@@ -620,7 +623,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private static bool IsCardSetup(SubscriptionPaymentLink link) =>
         link.Purpose == SubscriptionPaymentPurpose.PaymentMethodSetup;
 
-    private async Task<bool> ActivateAsync(
+    /// <returns>Null once the link is settled; otherwise why it was not, as an audit error code.</returns>
+    private async Task<string?> ActivateAsync(
         SubscriptionPaymentLink link,
         PaymentDetail payment,
         CancellationToken cancellationToken)
@@ -632,7 +636,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
 
         if (subscription is null)
         {
-            return await AbandonAsync(link, cancellationToken);
+            return await AbandonAsync(link, cancellationToken) ? null : LinkNotPending;
         }
 
         if (subscription.Status != SubscriptionStatus.Incomplete)
@@ -647,9 +651,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             // Left pending on failure, exactly as the activation path does, so the sweep tries
             // again rather than losing a card the subscriber has already entered.
             if (IsCardSetup(link) &&
-                !await AdoptProviderCustomerAsync(subscription, payment, cancellationToken))
+                await AdoptProviderCustomerAsync(subscription, payment, cancellationToken)
+                    is { } cardFailure)
             {
-                return false;
+                return cardFailure;
             }
 
             // The card just adopted is what an Unpaid subscription was missing, so this is the
@@ -665,11 +670,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             }
 
             // Already carried across by an earlier pass. Settle the link so it stops coming back.
-            return await _links.TrySettleAsync(
-                link.TenantId,
-                link.ItemId,
-                SubscriptionPaymentLinkState.Applied,
-                cancellationToken);
+            return await SettleAsync(link, cancellationToken);
         }
 
         var target = subscription.Trial is null
@@ -684,9 +685,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         // the billing account. Do this before granting access; unlike a paid checkout there is no
         // captured money whose entitlement must be honoured while a repair is retried.
         if (IsCardSetup(link) &&
-            !await AdoptProviderCustomerAsync(subscription, payment, cancellationToken))
+            await AdoptProviderCustomerAsync(subscription, payment, cancellationToken)
+                is { } adoptionFailure)
         {
-            return false;
+            return adoptionFailure;
         }
 
         var applied = await _subscriptions.TryTransitionAsync(
@@ -723,7 +725,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         if (!applied)
         {
             // Another worker got there first. Its transition is as good as this one's.
-            return false;
+            return "activation_state_conflict";
         }
 
         if (_redemptions is not null &&
@@ -814,16 +816,26 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         }
 
         _logger.LogInformation(
-            "Subscription activated Status={Status} PaymentHash={PaymentHash}",
+            "Subscription activated Status={Status} PaymentId={PaymentId}",
             PaymentLogValue.Label(target.ToString()),
-            PaymentLogValue.Hash(payment.ItemId));
+            PaymentLogValue.Id(payment.ItemId));
 
-        return await _links.TrySettleAsync(
+        return await SettleAsync(link, cancellationToken);
+    }
+
+    /// <summary>Another pass settled or abandoned the link first; this one had nothing left to do.</summary>
+    private const string LinkNotPending = "link_not_pending";
+
+    private async Task<string?> SettleAsync(
+        SubscriptionPaymentLink link,
+        CancellationToken cancellationToken) =>
+        await _links.TrySettleAsync(
             link.TenantId,
             link.ItemId,
             SubscriptionPaymentLinkState.Applied,
-            cancellationToken);
-    }
+            cancellationToken)
+            ? null
+            : LinkNotPending;
 
     /// <summary>
     /// Records the provider's customer from the card the charge saved.
@@ -834,7 +846,8 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     /// on every signup. The renewal needs this identifier, so a failure here is logged rather
     /// than swallowed — but it does not undo an activation the customer has already paid for.
     /// </remarks>
-    private async Task<bool> AdoptProviderCustomerAsync(
+    /// <returns>Null once the card is recorded; otherwise why it was not, as an audit error code.</returns>
+    private async Task<string?> AdoptProviderCustomerAsync(
         SubscriptionDetail subscription,
         PaymentDetail payment,
         CancellationToken cancellationToken)
@@ -845,7 +858,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 "A paid subscription has no shopper reference to find its card by; renewals " +
                 "will fail until one is recorded");
 
-            return false;
+            return "no_shopper_reference";
         }
 
         // Found by the reference the card was saved under, not by a link from the payment.
@@ -884,7 +897,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             _logger.LogWarning(
                 "No provider customer recorded for a subscription; renewals will need one");
 
-            return false;
+            return "no_provider_customer";
         }
 
         var outcome = await _billingAccounts.TrySetProviderCustomerAsync(
@@ -921,7 +934,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 break;
         }
 
-        return outcome != SetProviderCustomerOutcome.AccountMissing;
+        return outcome == SetProviderCustomerOutcome.AccountMissing ? "billing_account_missing" : null;
     }
 
     /// <summary>

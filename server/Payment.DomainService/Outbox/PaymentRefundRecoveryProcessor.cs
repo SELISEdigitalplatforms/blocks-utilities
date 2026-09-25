@@ -97,9 +97,9 @@ public sealed class PaymentRefundRecoveryProcessor :
                         cancellationToken);
 
                     _logger.LogCritical(
-                        "Payment refund recovery exhausted TenantId={TenantId} PaymentHash={PaymentHash} RefundHash={RefundHash} AttemptCount={AttemptCount}",
+                        "Payment refund recovery exhausted TenantId={TenantId} PaymentId={PaymentId} RefundHash={RefundHash} AttemptCount={AttemptCount}",
                         PaymentLogValue.Id(tenantId),
-                        PaymentLogValue.Hash(payment.ItemId),
+                        PaymentLogValue.Id(payment.ItemId),
                         PaymentLogValue.Hash(refund.RefundId),
                         refund.InitiationAttemptCount);
 

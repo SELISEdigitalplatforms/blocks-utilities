@@ -83,7 +83,7 @@ public static class PaymentLogScope
 
         if (paymentId != null)
         {
-            state["PaymentDetailId"] = PaymentLogValue.Id(paymentId);
+            state["PaymentId"] = PaymentLogValue.Id(paymentId);
         }
 
         if (organizationId != null)
