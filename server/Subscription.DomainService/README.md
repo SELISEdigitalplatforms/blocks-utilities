@@ -10,6 +10,11 @@ a real invoice document, a mid-period plan change is prorated, metered overage i
 plan's rate tiers and charged as its own, independent invoice, and every one of those charges can
 carry tax. SCA recovery is still later work.
 
+A subscription can also be sold **per person** rather than to the organization as a whole — see
+[docs/user-wise-subscriptions/](../../docs/user-wise-subscriptions/) for how places, per-place allowances and
+sub-caps work, and for what stays identical on the organization-wise plans everything below
+describes.
+
 ## The rule everything else follows from
 
 **The platform never learns a domain word.** There is no `Seats` column and no
