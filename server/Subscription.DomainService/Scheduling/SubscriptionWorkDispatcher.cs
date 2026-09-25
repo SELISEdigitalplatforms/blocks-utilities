@@ -170,7 +170,7 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
         // Everything about this attempt, on every line it writes: the item, who is on it, which
         // attempt, and the correlation the work was created under. One operation has to be
         // traceable from the API call that scheduled it to the provider request that finished it.
-        using var scope = _logger.BeginScope(new Dictionary<string, object?>
+        var scopeState = new Dictionary<string, object?>
         {
             ["WorkItemId"] = work.ItemId,
             ["WorkType"] = work.WorkType,
@@ -182,7 +182,7 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
             ["TenantId"] = PaymentLogValue.Id(work.TenantId),
             // "none" rather than "missing" when the work is tenant-wide, so a sweep is not read as
             // an item that lost its subscription.
-            ["SubscriptionId"] = SubscriptionWorkLogValue.AggregateId(work.AggregateId),
+            ["AggregateId"] = SubscriptionWorkLogValue.AggregateId(work.AggregateId),
             ["OrganizationId"] = SubscriptionWorkLogValue.AggregateId(work.OrganizationId),
             ["CorrelationId"] = PaymentLogValue.Id(work.CorrelationId),
             // The trace the request that scheduled this ran under, so the two sides can be joined
@@ -194,7 +194,18 @@ public sealed class SubscriptionWorkDispatcher : ISubscriptionWorkDispatcher
             ["OperationId"] = work.OperationId,
             ["LeaseId"] = leaseId,
             ["AttemptCount"] = work.AttemptCount
-        });
+        };
+
+        // Only when the aggregate really is one subscription. A scope value overrides a template value
+        // of the same name, so a payment or document id here, or the sweep's "none", would replace
+        // the real subscription id on every line the handler writes.
+        if (SubscriptionWorkLogValue.AggregateIsSubscription(work.WorkType) &&
+            !string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            scopeState["SubscriptionId"] = PaymentLogValue.Id(work.AggregateId);
+        }
+
+        using var scope = _logger.BeginScope(scopeState);
 
         var startedAt = _time.GetUtcNow().UtcDateTime;
         var options = _options.CurrentValue;

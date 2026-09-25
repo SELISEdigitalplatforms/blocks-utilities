@@ -121,7 +121,7 @@ public sealed class PaymentBackgroundWorkDispatcher : IPaymentBackgroundWorkDisp
         // Everything about this attempt, on every line it writes: the item, who is on it, which
         // attempt, and the correlation the work was created under. One operation has to be
         // traceable from the API call that scheduled it to the provider request that finished it.
-        using var scope = _logger.BeginScope(new Dictionary<string, object?>
+        var scopeState = new Dictionary<string, object?>
         {
             ["WorkItemId"] = work.ItemId,
             ["WorkType"] = work.WorkType,
@@ -131,13 +131,21 @@ public sealed class PaymentBackgroundWorkDispatcher : IPaymentBackgroundWorkDisp
             // scheduler lines without recomputing a digest — which is the reason PaymentLogValue.Id
             // exists at all.
             ["TenantId"] = PaymentLogValue.Id(work.TenantId),
-            ["PaymentId"] = PaymentLogValue.Id(work.AggregateId),
             ["OrganizationId"] = PaymentLogValue.Id(work.OrganizationId ?? string.Empty),
             ["CorrelationId"] = PaymentLogValue.Id(work.CorrelationId),
             ["OperationId"] = work.OperationId,
             ["LeaseId"] = leaseId,
             ["AttemptCount"] = work.AttemptCount
-        });
+        };
+
+        // Only a real payment. A scope value overrides a template value of the same name, so a
+        // "missing" here would replace the payment id on every line a tenant-wide handler writes.
+        if (!string.IsNullOrWhiteSpace(work.AggregateId))
+        {
+            scopeState["PaymentId"] = PaymentLogValue.Id(work.AggregateId);
+        }
+
+        using var scope = _logger.BeginScope(scopeState);
 
         var startedAt = _time.GetUtcNow().UtcDateTime;
         var options = _options.CurrentValue;

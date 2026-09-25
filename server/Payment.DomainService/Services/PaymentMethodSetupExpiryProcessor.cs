@@ -78,10 +78,10 @@ public sealed class PaymentMethodSetupExpiryProcessor : IPaymentMethodSetupExpir
             _metrics.RecordSetupExpired(missingSignal);
 
             _logger.LogWarning(
-                "Card setup expired by recovery sweep TenantId={TenantId} PaymentHash={PaymentHash} " +
+                "Card setup expired by recovery sweep TenantId={TenantId} PaymentId={PaymentId} " +
                 "AgeSeconds={AgeSeconds} MissingSignal={MissingSignal}",
                 PaymentLogValue.Id(tenantId),
-                PaymentLogValue.Hash(candidate.ItemId),
+                PaymentLogValue.Id(candidate.ItemId),
                 age.TotalSeconds,
                 missingSignal);
         }
@@ -158,9 +158,9 @@ public sealed class PaymentMethodSetupExpiryProcessor : IPaymentMethodSetupExpir
 
                     _logger.LogWarning(
                         "Card setup completed by recovery sweep after both signals were already " +
-                        "on record TenantId={TenantId} PaymentHash={PaymentHash}",
+                        "on record TenantId={TenantId} PaymentId={PaymentId}",
                         PaymentLogValue.Id(tenantId),
-                        PaymentLogValue.Hash(setup.ItemId));
+                        PaymentLogValue.Id(setup.ItemId));
                 }
             }
 

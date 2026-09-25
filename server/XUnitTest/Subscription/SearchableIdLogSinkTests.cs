@@ -10,7 +10,7 @@ namespace XUnitTest.Subscription;
 /// The log store keeps only the rendered message, so a subscription id that is not in the message
 /// text cannot be searched for. The sink puts it there.
 /// </summary>
-public sealed class SubscriptionIdLogSinkTests
+public sealed class SearchableIdLogSinkTests
 {
     private sealed class Capture : ILogEventSink
     {
@@ -25,7 +25,7 @@ public sealed class SubscriptionIdLogSinkTests
         var inner = new LoggerConfiguration().WriteTo.Sink(captured).CreateLogger();
         var outer = new LoggerConfiguration()
             .Enrich.FromLogContext()
-            .WriteTo.Sink(new SubscriptionIdLogSink(inner))
+            .WriteTo.Sink(new SearchableIdLogSink(inner))
             .CreateLogger();
 
         return (outer, captured);
@@ -69,6 +69,21 @@ public sealed class SubscriptionIdLogSinkTests
         }
 
         captured.Events.Single().RenderMessage().Should().Be("Subscription work completed DurationMs=7");
+    }
+
+    [Fact]
+    public void A_line_inside_a_payment_and_a_subscription_scope_gets_both_ids()
+    {
+        var (logger, captured) = Pipeline();
+
+        using (Serilog.Context.LogContext.PushProperty("SubscriptionId", "sub-42"))
+        using (Serilog.Context.LogContext.PushProperty("PaymentId", "pay-7"))
+        {
+            logger.Information("Webhook state transition payment loaded");
+        }
+
+        captured.Events.Single().RenderMessage()
+            .Should().Be("Webhook state transition payment loaded SubscriptionId=\"sub-42\" PaymentId=\"pay-7\"");
     }
 
     [Fact]

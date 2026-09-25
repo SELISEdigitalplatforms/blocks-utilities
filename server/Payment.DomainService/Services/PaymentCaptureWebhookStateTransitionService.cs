@@ -140,11 +140,11 @@ public sealed class PaymentCaptureWebhookStateTransitionService :
             cancellationToken);
 
         _logger.LogInformation(
-            "Payment capture webhook transition completed EventCode={EventCode} TargetStatus={TargetStatus} Applied={Applied} PaymentHash={PaymentHash} CaptureHash={CaptureHash} FailureCode={FailureCode}",
+            "Payment capture webhook transition completed EventCode={EventCode} TargetStatus={TargetStatus} Applied={Applied} PaymentId={PaymentId} CaptureHash={CaptureHash} FailureCode={FailureCode}",
             PaymentLogValue.Label(webhook.EventCode),
             targetCaptureStatus,
             applied,
-            PaymentLogValue.Hash(payment.ItemId),
+            PaymentLogValue.Id(payment.ItemId),
             PaymentLogValue.Hash(capture.CaptureId),
             PaymentLogValue.Label(failureCode));
     }
@@ -180,8 +180,8 @@ public sealed class PaymentCaptureWebhookStateTransitionService :
         {
             // Nothing was captured, and there is no capture record to fail.
             _logger.LogInformation(
-                "External capture reported as failed PaymentHash={PaymentHash}",
-                PaymentLogValue.Hash(payment.ItemId));
+                "External capture reported as failed PaymentId={PaymentId}",
+                PaymentLogValue.Id(payment.ItemId));
 
             return;
         }
@@ -232,9 +232,9 @@ public sealed class PaymentCaptureWebhookStateTransitionService :
             cancellationToken);
 
         _logger.LogInformation(
-            "External capture applied to the payment Applied={Applied} TargetPaymentStatus={TargetPaymentStatus} PaymentHash={PaymentHash}",
+            "External capture applied to the payment Applied={Applied} TargetPaymentStatus={TargetPaymentStatus} PaymentId={PaymentId}",
             applied,
             targetPaymentStatus,
-            PaymentLogValue.Hash(payment.ItemId));
+            PaymentLogValue.Id(payment.ItemId));
     }
 }

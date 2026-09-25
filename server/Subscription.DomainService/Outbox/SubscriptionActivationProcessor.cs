@@ -814,9 +814,9 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         }
 
         _logger.LogInformation(
-            "Subscription activated Status={Status} PaymentHash={PaymentHash}",
+            "Subscription activated Status={Status} PaymentId={PaymentId}",
             PaymentLogValue.Label(target.ToString()),
-            PaymentLogValue.Hash(payment.ItemId));
+            PaymentLogValue.Id(payment.ItemId));
 
         return await _links.TrySettleAsync(
             link.TenantId,

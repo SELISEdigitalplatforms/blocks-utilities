@@ -72,6 +72,9 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             return true;
         }
 
+        // The queue item was keyed on the document; the document knows its subscription.
+        using var subscriptionScope = SubscriptionWorkLogValue.SubscriptionScope(_logger, document.SubscriptionId);
+
         var trace = new DeliveryTrace(tenantId, document, workItemId, attempt ?? document.Delivery.AttemptCount);
 
         try

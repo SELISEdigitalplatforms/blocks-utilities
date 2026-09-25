@@ -156,8 +156,8 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
                 // or decline overwrite that would take a subscription that is already running and
                 // mark its card as never collected.
                 _logger.LogInformation(
-                    "Card setup decline ignored Reason=already_stored PaymentHash={PaymentHash}",
-                    PaymentLogValue.Hash(payment.ItemId));
+                    "Card setup decline ignored Reason=already_stored PaymentId={PaymentId}",
+                    PaymentLogValue.Id(payment.ItemId));
 
                 return;
             }
@@ -169,9 +169,9 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
                 // cancellation or the timeout sweep settle a session that is really left.
                 _logger.LogInformation(
                     "Card setup attempt failed, session still open FailureCode={FailureCode} " +
-                    "PaymentHash={PaymentHash}",
+                    "PaymentId={PaymentId}",
                     PaymentLogValue.Label(payload.ProviderFailureCode),
-                    PaymentLogValue.Hash(payment.ItemId));
+                    PaymentLogValue.Id(payment.ItemId));
 
                 return;
             }
@@ -250,11 +250,11 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
         _logger.LogInformation(
             "Card setup readiness evaluated Completed={Completed} " +
             "HasAuthorizationSignal={HasAuthorizationSignal} HasTokenSignal={HasTokenSignal} " +
-            "PaymentHash={PaymentHash}",
+            "PaymentId={PaymentId}",
             completed,
             current.SetupAuthorizationConfirmedAtUtc is not null,
             current.SetupTokenConfirmedAtUtc is not null,
-            PaymentLogValue.Hash(payment.ItemId));
+            PaymentLogValue.Id(payment.ItemId));
     }
 
     private async Task FinalizeFailureAsync(
@@ -290,17 +290,17 @@ public sealed class PaymentMethodSetupWebhookStateTransitionService :
 
         _logger.LogInformation(
             "Card setup transition applied Applied={Applied} Succeeded=False " +
-            "PaymentHash={PaymentHash} ReasonWhenNotApplied=duplicate_or_stale_event",
+            "PaymentId={PaymentId} ReasonWhenNotApplied=duplicate_or_stale_event",
             applied,
-            PaymentLogValue.Hash(payment.ItemId));
+            PaymentLogValue.Id(payment.ItemId));
 
         if (applied)
         {
             _logger.LogWarning(
-                "Card setup refused by provider Provider={Provider} FailureCode={FailureCode} PaymentHash={PaymentHash}",
+                "Card setup refused by provider Provider={Provider} FailureCode={FailureCode} PaymentId={PaymentId}",
                 PaymentLogValue.Label(webhook.ProviderName),
                 PaymentLogValue.Label(failureCode),
-                PaymentLogValue.Hash(payment.ItemId));
+                PaymentLogValue.Id(payment.ItemId));
         }
     }
 
