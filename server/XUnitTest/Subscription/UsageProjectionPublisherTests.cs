@@ -904,6 +904,65 @@ public sealed class UsageProjectionPublisherTests
         document.SeatNumber.Should().BeNull();
     }
 
+    /// <summary>
+    /// A user-wise plan has no subscription-wide allowance, so nothing advertises one.
+    /// </summary>
+    /// <remarks>
+    /// The allowance belongs to each seat. A subscription-wide row would name an included quantity
+    /// nobody is able to spend, beside a balance that stays at zero however much the members use —
+    /// and it is the organization's own read that would show it, as though that were the answer.
+    /// </remarks>
+    [Fact]
+    public async Task Seeding_a_user_wise_plan_advertises_no_allowance_for_the_subscription()
+    {
+        var seeded = await Publisher().SeedCurrentAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        seeded.Should().Be(0);
+        _seeded.Should().BeEmpty(
+            because: "an allowance shown against the subscription as a whole belongs to nobody " +
+                     "on a plan sold by the seat");
+    }
+
+    [Fact]
+    public async Task Refreshing_a_user_wise_plan_writes_no_row_for_the_subscription()
+    {
+        await Publisher().RefreshAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _seeded.Should().BeEmpty();
+        _published.Should().BeEmpty(
+            because: "a background sweep knows nothing of who holds which seat, so the only row " +
+                     "it could write is the one that is not anybody's");
+    }
+
+    /// <summary>
+    /// The organization-wise plan every subscriber in production is on, unchanged.
+    /// </summary>
+    [Fact]
+    public async Task Refreshing_an_organization_wise_plan_still_writes_its_rows()
+    {
+        await Publisher().RefreshAsync(
+            Subscription(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _seeded.Should().HaveCount(2);
+    }
+
+    /// <summary>
+    /// A row and the counter it projects must be addressed identically.
+    /// </summary>
+    /// <remarks>
+    /// The drift reconciler finds a stale row by looking its counter up under the row's own id. Two
+    /// spellings of one seat would mean that lookup never matched, so a seat's row could fall
+    /// arbitrarily far behind what its member had actually spent with nothing left to notice.
+    /// </remarks>
+    [Fact]
+    public void A_seats_row_is_addressed_exactly_as_its_counter_is()
+    {
+        SubscriptionUsageCurrent.CreateId("sub-1", "screening", "M2026-09", 2)
+            .Should().Be(SubscriptionUsageCounter.CreateId("sub-1", "screening", "M2026-09", 2));
+    }
+
     private static SubscriptionUsageCounter Counter(
         long balance,
         long appliedRecordCount,
@@ -969,6 +1028,18 @@ public sealed class UsageProjectionPublisherTests
         var terms = _publishedEntitlements.Should().ContainSingle().Subject;
         terms.CancelAtPeriodEnd.Should().BeTrue();
         terms.CurrentPeriodEndUtc.Should().Be(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    /// <summary>
+    /// The same subscription, sold by the seat.
+    /// </summary>
+    private static SubscriptionDetail UserWise()
+    {
+        var subscription = Subscription();
+
+        subscription.Plan.SubscriberScope = SubscriberScope.User;
+
+        return subscription;
     }
 
     private static SubscriptionDetail Subscription() => new()

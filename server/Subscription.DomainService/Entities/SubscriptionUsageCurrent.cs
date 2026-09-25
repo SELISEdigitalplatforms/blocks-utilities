@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Entities;
@@ -249,7 +249,5 @@ public sealed class SubscriptionUsageCurrent
         string meterKey,
         string periodKey,
         int? seatNumber) =>
-        seatNumber is { } seat
-            ? $"{CreateId(subscriptionId, meterKey, periodKey)}:s{seat}"
-            : CreateId(subscriptionId, meterKey, periodKey);
+        SubscriptionUsageCounter.CreateId(subscriptionId, meterKey, periodKey, seatNumber);
 }

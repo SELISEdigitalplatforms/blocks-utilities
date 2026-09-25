@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Moq;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -43,7 +43,7 @@ public sealed class PerSeatCarryForwardTests
         await Resolver().OpeningAllowanceAsync(
             Subscription(), Meter(), CurrentPeriod, CancellationToken.None, seat: 3);
 
-        requested.Should().ContainSingle().Which.Should().EndWith(":3",
+        requested.Should().ContainSingle().Which.Should().EndWith(":s3",
             because: "seat three opens with what seat three left behind — reading the " +
                      "subscription's window would give every seat the same leftovers");
     }
@@ -62,9 +62,11 @@ public sealed class PerSeatCarryForwardTests
         await Resolver().OpeningAllowanceAsync(
             Subscription(), Meter(), CurrentPeriod, CancellationToken.None, seat: null);
 
-        requested.Should().ContainSingle().Which.Should().NotContain(":0",
+        requested.Should().ContainSingle().Which.Should().Be(
+            SubscriptionUsageCounter.CreateId(SubscriptionId, MeterKey, "M20260901T000000Z"),
             because: "an organization's own subscription has no seat, and its counter keeps the " +
-                     "identity it has always had");
+                     "identity it has always had — any suffix at all would orphan every balance " +
+                     "already stored");
     }
 
     [Fact]
@@ -73,12 +75,12 @@ public sealed class PerSeatCarryForwardTests
         // Seat one spent nothing last window; seat two spent all of it.
         _usage
             .Setup(repository => repository.GetCounterAsync(
-                TenantId, It.Is<string>(id => id.EndsWith(":1")), It.IsAny<CancellationToken>()))
+                TenantId, It.Is<string>(id => id.EndsWith(":s1")), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SubscriptionUsageCounter { Balance = 0, LimitSnapshot = 100 });
 
         _usage
             .Setup(repository => repository.GetCounterAsync(
-                TenantId, It.Is<string>(id => id.EndsWith(":2")), It.IsAny<CancellationToken>()))
+                TenantId, It.Is<string>(id => id.EndsWith(":s2")), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SubscriptionUsageCounter { Balance = 100, LimitSnapshot = 100 });
 
         var first = await Resolver().OpeningAllowanceAsync(

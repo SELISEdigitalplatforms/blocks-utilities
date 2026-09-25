@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 
 namespace Subscription.DomainService.Entities;
 
@@ -92,6 +92,6 @@ public sealed class SubscriptionUsageCounter
         string periodKey,
         int? seatNumber) =>
         seatNumber is { } seat
-            ? $"{CreateId(subscriptionId, meterKey, periodKey)}:{seat}"
+            ? $"{CreateId(subscriptionId, meterKey, periodKey)}:s{seat}"
             : CreateId(subscriptionId, meterKey, periodKey);
 }
