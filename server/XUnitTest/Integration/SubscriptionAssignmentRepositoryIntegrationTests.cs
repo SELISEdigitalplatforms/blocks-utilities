@@ -93,9 +93,9 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         var outcomes = await Task.WhenAll(
             _assignments.TryAssignAsync(
-                NewAssignment(tenantId, "sub-race", "user-a"), CancellationToken.None),
+                NewAssignment(tenantId, "sub-race", "user-a", seat: 1), CancellationToken.None),
             _assignments.TryAssignAsync(
-                NewAssignment(tenantId, "sub-race", "user-a"), CancellationToken.None));
+                NewAssignment(tenantId, "sub-race", "user-a", seat: 1), CancellationToken.None));
 
         outcomes.Count(outcome => outcome == MemberAssignmentOutcome.Assigned)
             .Should().Be(1,
@@ -185,9 +185,9 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         await _assignments.TryAssignAsync(
-            NewAssignment(tenantId, "sub-count", "user-a"), CancellationToken.None);
+            NewAssignment(tenantId, "sub-count", "user-a", seat: 1), CancellationToken.None);
         await _assignments.TryAssignAsync(
-            NewAssignment(tenantId, "sub-count", "user-b"), CancellationToken.None);
+            NewAssignment(tenantId, "sub-count", "user-b", seat: 2), CancellationToken.None);
         await _assignments.TryReleaseAsync(
             tenantId, "sub-count", "user-a", DateTime.UtcNow, CancellationToken.None);
 
@@ -203,9 +203,9 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
         var tenantId = MongoIntegrationFixture.NewTenantId();
 
         await _assignments.TryAssignAsync(
-            NewAssignment(tenantId, "sub-end", "user-a"), CancellationToken.None);
+            NewAssignment(tenantId, "sub-end", "user-a", seat: 1), CancellationToken.None);
         await _assignments.TryAssignAsync(
-            NewAssignment(tenantId, "sub-end", "user-b"), CancellationToken.None);
+            NewAssignment(tenantId, "sub-end", "user-b", seat: 2), CancellationToken.None);
 
         (await _assignments.ReleaseAllAsync(
                 tenantId, "sub-end", DateTime.UtcNow, CancellationToken.None))
@@ -233,11 +233,37 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
                          "seat across the boundary grants them another organization's plan");
     }
 
+    /// <remarks>
+    /// Refused rather than stored, because the index would otherwise answer for it: every seatless
+    /// assignment on a subscription shares seat zero, so the second one comes back AlreadyHeld —
+    /// true of the seat and quite wrong about the person.
+    /// </remarks>
+    [Fact]
+    public async Task An_assignment_with_no_seat_is_refused_outright()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var seatless = NewAssignment(tenantId, "sub-a", "user-a");
+        seatless.SeatNumber = 0;
+
+        await FluentActions
+            .Awaiting(() => _assignments.TryAssignAsync(seatless, CancellationToken.None))
+            .Should().ThrowAsync<ArgumentOutOfRangeException>(
+                because: "a seat is what carries an allowance, so an assignment without one is " +
+                         "not a lesser record but a different thing entirely");
+    }
+
+    /// <summary>
+    /// One assignment. <paramref name="seat"/> is which of the subscription's seats it occupies —
+    /// the thing that carries an allowance, and the thing the unique index keys on, so two people
+    /// on one subscription must not share it.
+    /// </summary>
     private static SubscriptionAssignment NewAssignment(
         string tenantId,
         string subscriptionId,
-        string userId) => new()
+        string userId,
+        int seat = 1) => new()
         {
+            SeatNumber = seat,
             TenantId = tenantId,
             OrganizationId = OrganizationId,
             SubscriptionId = subscriptionId,

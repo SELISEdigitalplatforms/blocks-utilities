@@ -55,6 +55,21 @@ public sealed class SubscriptionMemberServiceTests
                 TenantId, OrganizationId, SubscriptionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => _subscription);
 
+        // Held seats rather than a count: the service picks a seat number, so it needs to know
+        // which ones are taken. Seats fill from one upwards, as assignment hands them out.
+        _assignments
+            .Setup(repository => repository.ListActiveAsync(
+                TenantId, SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => [.. Enumerable.Range(1, (int)_held)
+                .Select(seat => new SubscriptionAssignment
+                {
+                    TenantId = TenantId,
+                    OrganizationId = OrganizationId,
+                    SubscriptionId = SubscriptionId,
+                    UserId = $"held-{seat}",
+                    SeatNumber = seat
+                })]);
+
         _assignments
             .Setup(repository => repository.CountActiveAsync(
                 TenantId, SubscriptionId, It.IsAny<CancellationToken>()))
@@ -352,6 +367,109 @@ public sealed class SubscriptionMemberServiceTests
             "the new holder would otherwise wait out the cache before reaching what was bought " +
             "for them");
     }
+
+
+    [Fact]
+    public async Task People_are_given_distinct_seats()
+    {
+        var written = new List<SubscriptionAssignment>();
+
+        _subscription = UserWise(seats: 3);
+        _assignments
+            .Setup(repository => repository.TryAssignAsync(
+                It.IsAny<SubscriptionAssignment>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAssignment, CancellationToken>((a, _) => written.Add(a))
+            .ReturnsAsync(MemberAssignmentOutcome.Assigned);
+
+        await Assign("u1", "u2", "u3");
+
+        written.Select(assignment => assignment.SeatNumber)
+            .Should().BeEquivalentTo([1, 2, 3],
+                because: "a seat is what carries an allowance, so two people on one seat would " +
+                         "share what was bought for one of them");
+    }
+
+    [Fact]
+    public async Task A_newcomer_takes_a_seat_nobody_is_on()
+    {
+        SubscriptionAssignment? written = null;
+
+        _subscription = UserWise(seats: 3);
+        _held = 2;
+        _assignments
+            .Setup(repository => repository.TryAssignAsync(
+                It.IsAny<SubscriptionAssignment>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAssignment, CancellationToken>((a, _) => written = a)
+            .ReturnsAsync(MemberAssignmentOutcome.Assigned);
+
+        await Assign("u3");
+
+        written!.SeatNumber.Should().Be(3,
+            because: "seats one and two are occupied, and putting a third person on one of them " +
+                     "would hand them somebody else's remaining allowance");
+    }
+
+    /// <remarks>
+    /// The reason a seat is numbered at all. Were the allowance attached to the person rather than
+    /// the seat, an organization could release somebody who had spent their window, assign
+    /// somebody else, and start again — minting usage without limit from one paid seat.
+    /// </remarks>
+    [Fact]
+    public async Task A_freed_seat_is_handed_out_again_rather_than_a_new_one_invented()
+    {
+        SubscriptionAssignment? written = null;
+
+        _subscription = UserWise(seats: 3);
+
+        // Seat 2 was given up; one and three are still held.
+        _assignments
+            .Setup(repository => repository.ListActiveAsync(
+                TenantId, SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                Held("u1", seat: 1),
+                Held("u3", seat: 3)
+            ]);
+
+        _assignments
+            .Setup(repository => repository.TryAssignAsync(
+                It.IsAny<SubscriptionAssignment>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAssignment, CancellationToken>((a, _) => written = a)
+            .ReturnsAsync(MemberAssignmentOutcome.Assigned);
+
+        await Assign("u2");
+
+        written!.SeatNumber.Should().Be(2,
+            because: "the freed seat is the one to reuse — inventing a fourth would let an " +
+                     "organization cycle people through three paid seats forever");
+    }
+
+    [Fact]
+    public async Task Seats_a_scheduled_decrease_will_remove_are_not_filled()
+    {
+        _subscription = UserWise(seats: 5);
+        _subscription.PendingQuantityChange = new PendingQuantityChange
+        {
+            RequestedQuantities =
+            [
+                new SubscriptionQuantityItem { ItemKey = "seat", Quantity = 2 }
+            ]
+        };
+        _held = 2;
+
+        (await Assign("u3")).Value!.Refused.Should().ContainSingle()
+            .Which.ReasonCode.Should().Be("subscription_member_limit_reached",
+                because: "a decrease is not refunded, so it will take effect — filling a seat it " +
+                         "removes strands somebody the moment the period turns over");
+    }
+
+    private static SubscriptionAssignment Held(string userId, int seat) => new()
+    {
+        TenantId = TenantId,
+        OrganizationId = OrganizationId,
+        SubscriptionId = SubscriptionId,
+        UserId = userId,
+        SeatNumber = seat
+    };
 
     private async Task<SubscriptionOperationResult<SubscriptionMemberAssignmentResponse>> Assign(
         params string[] userIds) =>

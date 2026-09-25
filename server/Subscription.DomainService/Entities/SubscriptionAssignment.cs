@@ -46,6 +46,21 @@ public sealed class SubscriptionAssignment
     /// <summary>The person holding the seat.</summary>
     public string UserId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Which of the subscription's seats this is — 1 to however many were bought.
+    /// </summary>
+    /// <remarks>
+    /// The seat is what holds an allowance, not the person in it. Without a stable identity for
+    /// the seat, releasing somebody and assigning somebody else would be a new record and so a
+    /// fresh allowance, and an organization could mint usage without limit by cycling people
+    /// through one place. Whoever takes a seat inherits what is left of that seat's window.
+    /// <para>
+    /// Numbered rather than given an opaque id so an administrator can be shown the same thing the
+    /// billing does: five seats bought, three of them occupied.
+    /// </para>
+    /// </remarks>
+    public int SeatNumber { get; set; }
+
     public DateTime AssignedAtUtc { get; set; } = DateTime.UtcNow;
 
     /// <summary>

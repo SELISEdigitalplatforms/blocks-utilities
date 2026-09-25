@@ -29,6 +29,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     private readonly IUsagePeriodClosureRepository? _closures;
     private readonly ISubscriptionUsageRepository? _usage;
     private readonly IMeterAllowanceResolver? _allowances;
+    private readonly ISubscriptionAssignmentRepository? _assignments;
 
     public SubscriptionCancellationEffectiveProcessor(
         ISubscriptionRepository subscriptions,
@@ -39,7 +40,8 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         TimeProvider? time = null,
         IUsagePeriodClosureRepository? closures = null,
         ISubscriptionUsageRepository? usage = null,
-        IMeterAllowanceResolver? allowances = null)
+        IMeterAllowanceResolver? allowances = null,
+        ISubscriptionAssignmentRepository? assignments = null)
     {
         _subscriptions = subscriptions;
         _events = events;
@@ -50,6 +52,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         _closures = closures;
         _usage = usage;
         _allowances = allowances;
+        _assignments = assignments;
     }
 
     public async Task<int> ProcessDueAsync(
@@ -210,7 +213,76 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
+        await ReleaseMembersAsync(subscription, cancellationToken);
+
         return true;
+    }
+
+    /// <summary>
+    /// Takes everyone off a subscription that has stopped granting anything.
+    /// </summary>
+    /// <remarks>
+    /// Safe to do here and nowhere earlier. This sweep runs once the paid period has actually
+    /// ended, so the cancellation can no longer be withdrawn and nobody is going to want their
+    /// seat back — a release during the notice period would have emptied a subscription the
+    /// subscriber was still paying for and still using.
+    /// <para>
+    /// Access does not depend on this. Entitlement resolves only live subscriptions, so an
+    /// unreleased seat on an ended one already grants nothing. What it corrects is the record:
+    /// "active" is supposed to mean somebody is holding a seat right now, and an administrator
+    /// reading the roster of a cancelled subscription should see it empty.
+    /// </para>
+    /// <para>
+    /// A failure is logged and swallowed rather than failing the finalisation. The status
+    /// transition above has already landed, so throwing would leave the outbox retrying an event
+    /// whose own compare-and-set now refuses it — the subscription would be correctly cancelled
+    /// and the event would look permanently broken. Stale rows on a dead subscription are the
+    /// cheaper wrong, and releasing again is harmless because it only ever touches seats still
+    /// held.
+    /// </para>
+    /// </remarks>
+    private async Task ReleaseMembersAsync(
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        if (_assignments is null ||
+            subscription.Plan.SubscriberScope != SubscriberScope.User)
+        {
+            return;
+        }
+
+        try
+        {
+            var released = await _assignments.ReleaseAllAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                _time.GetUtcNow().UtcDateTime,
+                cancellationToken);
+
+            if (released > 0)
+            {
+                _logger.LogInformation(
+                    "Released members from a cancelled subscription "
+                        + "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} "
+                        + "Released={Released} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Hash(subscription.TenantId),
+                    PaymentLogValue.Hash(subscription.ItemId),
+                    released,
+                    subscription.CorrelationId);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Could not release members from a cancelled subscription; the cancellation stands "
+                    + "and they are granted nothing, but the roster still lists them "
+                    + "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} "
+                    + "CorrelationId={CorrelationId}",
+                PaymentLogValue.Hash(subscription.TenantId),
+                PaymentLogValue.Hash(subscription.ItemId),
+                subscription.CorrelationId);
+        }
     }
 
     private sealed record ClosureReservation(string PeriodKey, string CloseOperationId);

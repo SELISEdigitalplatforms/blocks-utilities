@@ -76,6 +76,15 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             ? 1
             : PurchasedMembersOf(subscription);
 
+        // A decrease already scheduled is the number that matters, when it is the smaller one.
+        // Filling seats that are about to be taken away would leave people assigned to seats the
+        // subscription no longer has the moment the period turns over — and a decrease cannot be
+        // refunded, so it will turn over.
+        if (purchased is { } bought && PendingMembersOf(subscription) is { } pending)
+        {
+            purchased = Math.Min(bought, pending);
+        }
+
         if (purchased is null)
         {
             return Failure<SubscriptionMemberAssignmentResponse>(
@@ -90,15 +99,21 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         var assigned = new List<SubscriptionMemberResponse>();
         var refused = new List<SubscriptionMemberRefusalResponse>();
 
-        // Counted once and then counted down, rather than re-read per person: a fresh count each
-        // time would let a ten-person batch past a two-place subscription, because nothing this
-        // call wrote is visible to it until it lands.
-        var remaining = purchased.Value - await _assignments.CountActiveAsync(
+        // Read once and tracked in memory, rather than re-read per person: nothing this call
+        // writes is visible to a fresh read until it lands, so a ten-name batch would walk past a
+        // two-seat subscription.
+        var held = await _assignments.ListActiveAsync(
             context.TenantId, subscription.ItemId, cancellationToken);
+
+        var taken = held
+            .Select(assignment => assignment.SeatNumber)
+            .ToHashSet();
 
         foreach (var userId in named)
         {
-            if (remaining <= 0)
+            var seat = NextSeat(taken, purchased.Value);
+
+            if (seat is null)
             {
                 refused.Add(Refusal(userId, "subscription_member_limit_reached",
                     "This subscription already has all the people it was bought for."));
@@ -111,6 +126,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 OrganizationId = subscription.OrganizationId,
                 SubscriptionId = subscription.ItemId,
                 UserId = userId,
+                SeatNumber = seat.Value,
                 AssignedAtUtc = _time.GetUtcNow().UtcDateTime,
                 AssignedByUserId = context.UserId,
                 CorrelationId = correlationId
@@ -127,7 +143,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 continue;
             }
 
-            remaining--;
+            taken.Add(seat.Value);
             assigned.Add(Describe(assignment));
         }
 
@@ -146,6 +162,37 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 Refused = refused
             },
             correlationId);
+    }
+
+    /// <summary>
+    /// The seat a newcomer should take, or null when every one bought is occupied.
+    /// </summary>
+    /// <remarks>
+    /// The lowest free number. Every free seat carries the same allowance while usage is counted
+    /// per subscription rather than per seat, so any of them is the seat with the most left and
+    /// the lowest is the one an administrator can predict.
+    /// <para>
+    /// Once each seat counts its own usage this becomes the seat with the most allowance
+    /// remaining, which is the rule the product wants and which only has meaning then: a newcomer
+    /// should get a fresh seat rather than one somebody already spent, where there is a choice.
+    /// </para>
+    /// </remarks>
+    private static int? NextSeat(HashSet<int> taken, long purchased)
+    {
+        for (var seat = 1; seat <= purchased; seat++)
+        {
+            if (taken.Add(seat))
+            {
+                // Added speculatively and removed again: the caller marks it taken only once the
+                // write lands, and a seat handed out twice in one batch would be refused by the
+                // index with nothing to say why.
+                taken.Remove(seat);
+
+                return seat;
+            }
+        }
+
+        return null;
     }
 
     private static SubscriptionMemberRefusalResponse Refusal(
@@ -273,6 +320,34 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 StringComparison.Ordinal);
 
         return pricedPerMember ? counting.Quantity : counting.MaxQuantity;
+    }
+
+    /// <summary>
+    /// How many people a scheduled decrease will leave room for, or null when none is scheduled.
+    /// </summary>
+    /// <remarks>
+    /// Read from the pending change rather than the subscription, because a decrease takes effect
+    /// at the period end and the subscription still carries what was paid for until then.
+    /// </remarks>
+    private static long? PendingMembersOf(SubscriptionDetail subscription)
+    {
+        if (subscription.PendingQuantityChange is not { } pending)
+        {
+            return null;
+        }
+
+        var counting = CountingItemOf(subscription);
+
+        if (counting is null)
+        {
+            return null;
+        }
+
+        return pending.RequestedQuantities
+            .Where(item => string.Equals(
+                item.ItemKey, counting.ItemKey, StringComparison.Ordinal))
+            .Select(item => (long?)item.Quantity)
+            .FirstOrDefault();
     }
 
     /// <summary>

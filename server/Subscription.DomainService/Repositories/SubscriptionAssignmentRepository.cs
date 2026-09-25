@@ -42,6 +42,12 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
     {
         ArgumentNullException.ThrowIfNull(assignment);
 
+        // A seat is what carries an allowance, so an assignment without one is not a lesser
+        // record — it is a different thing entirely. Left to the index it would collide with every
+        // other seatless assignment on the subscription and report AlreadyHeld, which is true of
+        // the seat and misleading about the person.
+        ArgumentOutOfRangeException.ThrowIfLessThan(assignment.SeatNumber, 1);
+
         await EnsureIndexesAsync(assignment.TenantId, cancellationToken);
 
         // Insert first and let the unique index answer, rather than reading whether the seat is
