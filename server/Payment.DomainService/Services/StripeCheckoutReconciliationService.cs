@@ -104,8 +104,8 @@ public sealed class StripeCheckoutReconciliationService : ISubscriptionPaymentRe
         if (!string.Equals(session.Id, payment.SessionId, StringComparison.Ordinal))
         {
             _logger.LogError(
-                "Checkout session reconciliation rejected Reason=session_mismatch PaymentHash={PaymentHash}",
-                PaymentLogValue.Hash(payment.ItemId));
+                "Checkout session reconciliation rejected Reason=session_mismatch PaymentId={PaymentId}",
+                PaymentLogValue.Id(payment.ItemId));
 
             return false;
         }
@@ -191,8 +191,8 @@ public sealed class StripeCheckoutReconciliationService : ISubscriptionPaymentRe
             // rather than guessed at.
             _logger.LogWarning(
                 "Checkout session reconciliation found no intent on a completed session " +
-                "PaymentHash={PaymentHash}",
-                PaymentLogValue.Hash(payment.ItemId));
+                "PaymentId={PaymentId}",
+                PaymentLogValue.Id(payment.ItemId));
 
             return false;
         }
@@ -208,8 +208,8 @@ public sealed class StripeCheckoutReconciliationService : ISubscriptionPaymentRe
                 // anything, and there is nothing to check it against here.
                 _logger.LogWarning(
                     "Checkout session reconciliation found no amount on a completed charge " +
-                    "session PaymentHash={PaymentHash}",
-                    PaymentLogValue.Hash(payment.ItemId));
+                    "session PaymentId={PaymentId}",
+                    PaymentLogValue.Id(payment.ItemId));
 
                 return false;
             }
@@ -315,9 +315,9 @@ public sealed class StripeCheckoutReconciliationService : ISubscriptionPaymentRe
             // payment. Reported and left undecided rather than crashing the activation sweep that
             // called this.
             _logger.LogError(
-                "Checkout session reconciliation could not be applied PaymentHash={PaymentHash} " +
+                "Checkout session reconciliation could not be applied PaymentId={PaymentId} " +
                 "ExceptionMessage={ExceptionMessage}",
-                PaymentLogValue.Hash(payment.ItemId),
+                PaymentLogValue.Id(payment.ItemId),
                 exception.Message);
 
             return false;

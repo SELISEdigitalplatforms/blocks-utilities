@@ -361,7 +361,7 @@ public sealed class PaymentWorkQueue : IPaymentWorkQueue
                 work => work.Status,
                 BackgroundWorkStatus.Completed))
             .Group(
-                work => new { work.WorkType, work.Status },
+                work => new { work.TenantId, work.WorkType, work.Status },
                 group => new
                 {
                     group.Key,
@@ -375,7 +375,8 @@ public sealed class PaymentWorkQueue : IPaymentWorkQueue
                 entry.Key.WorkType,
                 entry.Key.Status,
                 entry.Count,
-                entry.OldestDueAtUtc))
+                entry.OldestDueAtUtc,
+                entry.Key.TenantId))
             .ToList();
     }
 

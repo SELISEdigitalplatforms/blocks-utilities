@@ -207,12 +207,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         }
 
         _logger.LogInformation(
-            "Existing subscription checkout resumed TenantHash={TenantHash} " +
-            "OrganizationHash={OrganizationHash} SubscriptionHash={SubscriptionHash} " +
+            "Existing subscription checkout resumed TenantId={TenantId} " +
+            "OrganizationHash={OrganizationHash} SubscriptionId={SubscriptionId} " +
             "CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(context.TenantId),
+            PaymentLogValue.Id(context.TenantId),
             PaymentLogValue.Hash(context.OrganizationId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.ItemId),
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
@@ -526,10 +526,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         _logger.LogError(
             "Subscription billing account has no usable payment provider on file -- refusing to " +
-            "fall back to a different provider TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
+            "fall back to a different provider TenantId={TenantId} SubscriptionId={SubscriptionId} " +
             "BillingAccountHash={BillingAccountHash} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
             PaymentLogValue.Hash(subscription.BillingAccountId),
             correlationId);
 
@@ -745,10 +745,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         if (!setup.IsSuccess || setup.Payment is null)
         {
             _logger.LogWarning(
-                "Subscription card setup failed TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} Reason={Reason} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                "Subscription card setup failed TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} Reason={Reason} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId),
                 PaymentLogValue.Label(setup.ErrorCode),
                 correlationId);
 
@@ -789,11 +789,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         {
             _logger.LogError(
                 "Subscription card setup resolved a different provider configuration than the " +
-                "billing account was pinned to -- refusing to adopt it TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} PaymentHash={PaymentHash} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
-                PaymentLogValue.Hash(setup.Payment.PaymentDetailId),
+                "billing account was pinned to -- refusing to adopt it TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} PaymentId={PaymentId} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId),
+                PaymentLogValue.Id(setup.Payment.PaymentDetailId),
                 correlationId);
 
             return Failure(
@@ -819,12 +819,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             cancellationToken);
 
         _logger.LogInformation(
-            "Subscription card setup started TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} PaymentHash={PaymentHash} Attempt={Attempt} " +
+            "Subscription card setup started TenantId={TenantId} " +
+            "SubscriptionId={SubscriptionId} PaymentId={PaymentId} Attempt={Attempt} " +
             "CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
-            PaymentLogValue.Hash(setup.Payment.PaymentDetailId),
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
+            PaymentLogValue.Id(setup.Payment.PaymentDetailId),
             subscription.PaymentMethodSetupAttempt,
             correlationId);
 
@@ -951,10 +951,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         if (!payment.IsSuccess || payment.Payment is null)
         {
             _logger.LogWarning(
-                "Subscription initial charge failed TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} Reason={Reason} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
+                "Subscription initial charge failed TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} Reason={Reason} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId),
                 PaymentLogValue.Label(payment.ErrorCode),
                 correlationId);
 
@@ -980,11 +980,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         {
             _logger.LogError(
                 "Subscription initial charge resolved a different provider configuration than " +
-                "the billing account was pinned to -- refusing to adopt it TenantHash={TenantHash} " +
-                "SubscriptionHash={SubscriptionHash} PaymentHash={PaymentHash} CorrelationId={CorrelationId}",
-                PaymentLogValue.Hash(subscription.TenantId),
-                PaymentLogValue.Hash(subscription.ItemId),
-                PaymentLogValue.Hash(payment.Payment.PaymentDetailId),
+                "the billing account was pinned to -- refusing to adopt it TenantId={TenantId} " +
+                "SubscriptionId={SubscriptionId} PaymentId={PaymentId} CorrelationId={CorrelationId}",
+                PaymentLogValue.Id(subscription.TenantId),
+                PaymentLogValue.Id(subscription.ItemId),
+                PaymentLogValue.Id(payment.Payment.PaymentDetailId),
                 correlationId);
 
             return Failure(
@@ -1010,11 +1010,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             cancellationToken);
 
         _logger.LogInformation(
-            "Subscription checkout started TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} " +
-            "PaymentHash={PaymentHash} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
-            PaymentLogValue.Hash(payment.Payment.PaymentDetailId),
+            "Subscription checkout started TenantId={TenantId} SubscriptionId={SubscriptionId} " +
+            "PaymentId={PaymentId} CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
+            PaymentLogValue.Id(payment.Payment.PaymentDetailId),
             correlationId);
 
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
@@ -1094,19 +1094,19 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 _logger.LogError(
                     ex,
                     "Failed to publish the initial usage projection for a subscription started " +
-                    "without payment; the repair sweep will catch it TenantHash={TenantHash} " +
-                    "SubscriptionHash={SubscriptionHash} CorrelationId={CorrelationId}",
-                    PaymentLogValue.Hash(subscription.TenantId),
-                    PaymentLogValue.Hash(subscription.ItemId),
+                    "without payment; the repair sweep will catch it TenantId={TenantId} " +
+                    "SubscriptionId={SubscriptionId} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Id(subscription.TenantId),
+                    PaymentLogValue.Id(subscription.ItemId),
                     correlationId);
             }
         }
 
         _logger.LogInformation(
-            "Subscription started without payment TenantHash={TenantHash} " +
-            "SubscriptionHash={SubscriptionHash} Status={Status} CorrelationId={CorrelationId}",
-            PaymentLogValue.Hash(subscription.TenantId),
-            PaymentLogValue.Hash(subscription.ItemId),
+            "Subscription started without payment TenantId={TenantId} " +
+            "SubscriptionId={SubscriptionId} Status={Status} CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(subscription.TenantId),
+            PaymentLogValue.Id(subscription.ItemId),
             PaymentLogValue.Label(target.ToString()),
             correlationId);
 

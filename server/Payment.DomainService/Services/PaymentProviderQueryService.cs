@@ -62,8 +62,8 @@ public sealed class PaymentProviderQueryService :
         {
             _logger.LogError(
                 exception,
-                "Payment provider listing failed TenantHash={TenantHash}",
-                PaymentLogValue.Hash(tenantId));
+                "Payment provider listing failed TenantId={TenantId}",
+                PaymentLogValue.Id(tenantId));
 
             return PaymentProviderListResult.Failure(
                 PaymentFailureKind.Unavailable,

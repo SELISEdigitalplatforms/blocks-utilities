@@ -132,8 +132,8 @@ return {allowed, math.floor(tokens), retryMs}
         {
             _logger.LogError(
                 exception,
-                "Stored payment method rate limiter unavailable TenantHash={TenantHash} Operation={Operation}",
-                Hash(tenantId),
+                "Stored payment method rate limiter unavailable TenantId={TenantId} Operation={Operation}",
+                PaymentLogValue.Id(tenantId),
                 operation);
 
             return new PaymentRateLimitResult

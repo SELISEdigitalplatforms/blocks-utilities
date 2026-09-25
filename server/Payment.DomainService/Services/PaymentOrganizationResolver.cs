@@ -52,8 +52,8 @@ public sealed class PaymentOrganizationResolver : IPaymentOrganizationResolver
             if (!string.Equals(requested, context.OrganizationId, StringComparison.Ordinal))
             {
                 _logger.LogInformation(
-                    "Ignoring a requested organization Reason=caller_is_not_the_console TenantHash={TenantHash} ContextOrganizationHash={ContextOrganizationHash} RequestedOrganizationHash={RequestedOrganizationHash}",
-                    PaymentLogValue.Hash(context.TenantId),
+                    "Ignoring a requested organization Reason=caller_is_not_the_console TenantId={TenantId} ContextOrganizationHash={ContextOrganizationHash} RequestedOrganizationHash={RequestedOrganizationHash}",
+                    PaymentLogValue.Id(context.TenantId),
                     PaymentLogValue.Hash(context.OrganizationId),
                     PaymentLogValue.Hash(requested));
             }
@@ -67,8 +67,8 @@ public sealed class PaymentOrganizationResolver : IPaymentOrganizationResolver
             // and a silent gap is worse than an inconvenient one: within the tenant the caller
             // is now trusted to name any organization, including one they have no part in.
             _logger.LogWarning(
-                "Accepting an unverified organization Reason=iam_verification_disabled TenantHash={TenantHash} OrganizationHash={OrganizationHash}",
-                PaymentLogValue.Hash(context.TenantId),
+                "Accepting an unverified organization Reason=iam_verification_disabled TenantId={TenantId} OrganizationHash={OrganizationHash}",
+                PaymentLogValue.Id(context.TenantId),
                 PaymentLogValue.Hash(requested));
 
             return new PaymentOrganizationResolution(requested, null, true);

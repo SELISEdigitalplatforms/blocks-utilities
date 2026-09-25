@@ -78,10 +78,10 @@ public sealed class PaymentMethodSetupExpiryProcessor : IPaymentMethodSetupExpir
             _metrics.RecordSetupExpired(missingSignal);
 
             _logger.LogWarning(
-                "Card setup expired by recovery sweep TenantHash={TenantHash} PaymentHash={PaymentHash} " +
+                "Card setup expired by recovery sweep TenantId={TenantId} PaymentId={PaymentId} " +
                 "AgeSeconds={AgeSeconds} MissingSignal={MissingSignal}",
-                PaymentLogValue.Hash(tenantId),
-                PaymentLogValue.Hash(candidate.ItemId),
+                PaymentLogValue.Id(tenantId),
+                PaymentLogValue.Id(candidate.ItemId),
                 age.TotalSeconds,
                 missingSignal);
         }
@@ -89,9 +89,9 @@ public sealed class PaymentMethodSetupExpiryProcessor : IPaymentMethodSetupExpir
         if (candidates.Count > 0)
         {
             _logger.LogInformation(
-                "Card setup expiry sweep completed TenantHash={TenantHash} CandidateCount={CandidateCount} " +
+                "Card setup expiry sweep completed TenantId={TenantId} CandidateCount={CandidateCount} " +
                 "ExpiredCount={ExpiredCount}",
-                PaymentLogValue.Hash(tenantId),
+                PaymentLogValue.Id(tenantId),
                 candidates.Count,
                 expired);
         }
@@ -158,9 +158,9 @@ public sealed class PaymentMethodSetupExpiryProcessor : IPaymentMethodSetupExpir
 
                     _logger.LogWarning(
                         "Card setup completed by recovery sweep after both signals were already " +
-                        "on record TenantHash={TenantHash} PaymentHash={PaymentHash}",
-                        PaymentLogValue.Hash(tenantId),
-                        PaymentLogValue.Hash(setup.ItemId));
+                        "on record TenantId={TenantId} PaymentId={PaymentId}",
+                        PaymentLogValue.Id(tenantId),
+                        PaymentLogValue.Id(setup.ItemId));
                 }
             }
 

@@ -735,6 +735,16 @@ public sealed class SubscriptionActivationProcessorTests
         _links.Verify(repository => repository.TrySettleAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionPaymentLinkState>(),
             It.IsAny<CancellationToken>()), Times.Never);
+
+        // Why, in the audit trail: the card has no provider customer behind it. This used to be
+        // recorded as activation_state_conflict, which reads as a race nobody could find.
+        _audit.Verify(
+            trail => trail.RecordAsync(
+                It.Is<SubscriptionAuditEvent>(audit =>
+                    audit.Stage == "ActivationApplied" &&
+                    audit.ErrorCode == "no_provider_customer"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     /// <summary>

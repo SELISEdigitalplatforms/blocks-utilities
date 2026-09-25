@@ -28,6 +28,9 @@ var secret =
         .ConfigureLogAndSecretsAsync(
             serviceName,
             vaultType);
+// Right after the platform builds the logger and before the host resolves any ILogger<T>: every
+// line written inside a subscription or payment scope then carries its id in the searchable message.
+SearchableIdLogSink.Install();
 // Key rings are resolved per tenant and organization on first use, not loaded here: at
 // startup the service does not yet know which organizations exist.
 var paymentVault = Vault.GetCloudVault(vaultType);

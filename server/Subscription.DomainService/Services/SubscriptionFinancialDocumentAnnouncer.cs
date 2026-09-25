@@ -207,8 +207,8 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
                 exception,
                 "A settled subscription event could not record what its document is for; the " +
                 "document will be recovered from the payment instead " +
-                "SubscriptionHash={SubscriptionHash} DocumentType={DocumentType}",
-                PaymentLogValue.Hash(subscription.ItemId),
+                "SubscriptionId={SubscriptionId} DocumentType={DocumentType}",
+                PaymentLogValue.Id(subscription.ItemId),
                 source.DocumentType);
         }
     }
@@ -237,8 +237,8 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
             _logger.LogError(
                 exception,
                 "A settled subscription event could not have its document scheduled; the repair " +
-                "sweep will pick it up SubscriptionHash={SubscriptionHash}",
-                PaymentLogValue.Hash(subscription.ItemId));
+                "sweep will pick it up SubscriptionId={SubscriptionId}",
+                PaymentLogValue.Id(subscription.ItemId));
         }
     }
 }

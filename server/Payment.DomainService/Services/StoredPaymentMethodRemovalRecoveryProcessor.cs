@@ -162,8 +162,8 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
         if (candidates.Count > 0)
         {
             _logger.LogInformation(
-                "Stored payment method removal recovery completed TenantHash={TenantHash} CandidateCount={CandidateCount} RecoveredCount={RecoveredCount}",
-                PaymentLogValue.Hash(tenantId),
+                "Stored payment method removal recovery completed TenantId={TenantId} CandidateCount={CandidateCount} RecoveredCount={RecoveredCount}",
+                PaymentLogValue.Id(tenantId),
                 candidates.Count,
                 recovered);
         }
@@ -193,8 +193,8 @@ public sealed class StoredPaymentMethodRemovalRecoveryProcessor :
                 cancellationToken);
 
             _logger.LogError(
-                "Stored payment method removal exhausted retries TenantHash={TenantHash} PaymentMethodHash={PaymentMethodHash} AttemptCount={AttemptCount}",
-                PaymentLogValue.Hash(method.TenantId),
+                "Stored payment method removal exhausted retries TenantId={TenantId} PaymentMethodHash={PaymentMethodHash} AttemptCount={AttemptCount}",
+                PaymentLogValue.Id(method.TenantId),
                 PaymentLogValue.Hash(method.ItemId),
                 attempts);
 

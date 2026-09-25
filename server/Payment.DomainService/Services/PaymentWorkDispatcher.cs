@@ -57,11 +57,11 @@ public sealed class PaymentWorkDispatcher : IPaymentWorkDispatcher
         // Logged so the queue hop has a start as well as an end. Without this line the consumer
         // reports work arriving that nothing is recorded as having asked for.
         _logger.LogInformation(
-            "Payment work dispatched Operation={Operation} Phase={Phase} CorrelationId={CorrelationId} TenantHash={TenantHash} IncludeRecovery={IncludeRecovery} Scheduled={Scheduled}",
+            "Payment work dispatched Operation={Operation} Phase={Phase} CorrelationId={CorrelationId} TenantId={TenantId} IncludeRecovery={IncludeRecovery} Scheduled={Scheduled}",
             PaymentOperations.WorkDispatch,
             PaymentPhases.Completed,
             PaymentLogValue.Id(correlationId),
-            PaymentLogValue.Hash(tenantId),
+            PaymentLogValue.Id(tenantId),
             includeRecovery,
             scheduledAtUtc.HasValue);
 
@@ -93,11 +93,11 @@ public sealed class PaymentWorkDispatcher : IPaymentWorkDispatcher
         {
             _logger.LogWarning(
                 exception,
-                "Payment work dispatch failed Operation={Operation} Phase={Phase} CorrelationId={CorrelationId} TenantHash={TenantHash} IncludeRecovery={IncludeRecovery} Scheduled={Scheduled}",
+                "Payment work dispatch failed Operation={Operation} Phase={Phase} CorrelationId={CorrelationId} TenantId={TenantId} IncludeRecovery={IncludeRecovery} Scheduled={Scheduled}",
                 PaymentOperations.WorkDispatch,
                 PaymentPhases.Failed,
                 PaymentLogValue.Id(PaymentCorrelation.Current),
-                PaymentLogValue.Hash(tenantId),
+                PaymentLogValue.Id(tenantId),
                 includeRecovery,
                 scheduledAtUtc.HasValue);
 

@@ -169,9 +169,9 @@ public sealed class PaymentProviderCredentialRotationService :
                 StringComparison.Ordinal))
         {
             _logger.LogError(
-                "Payment provider credential rotation failed Provider={Provider} TenantHash={TenantHash} Reason=encryption_unavailable",
+                "Payment provider credential rotation failed Provider={Provider} TenantId={TenantId} Reason=encryption_unavailable",
                 PaymentLogValue.Label(current.ProviderName),
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
 
             return PaymentProviderMutationResult.Failure(
                 PaymentFailureKind.Unavailable,
@@ -224,9 +224,9 @@ public sealed class PaymentProviderCredentialRotationService :
             cancellationToken);
 
         _logger.LogInformation(
-            "Payment provider credentials rotated Provider={Provider} TenantHash={TenantHash} Version={Version} ApiKeyRotated={ApiKeyRotated} WebhookKeyRotated={WebhookKeyRotated} TokenKeyRotated={TokenKeyRotated}",
+            "Payment provider credentials rotated Provider={Provider} TenantId={TenantId} Version={Version} ApiKeyRotated={ApiKeyRotated} WebhookKeyRotated={WebhookKeyRotated} TokenKeyRotated={TokenKeyRotated}",
             PaymentLogValue.Label(updated.ProviderName),
-            PaymentLogValue.Hash(tenantId),
+            PaymentLogValue.Id(tenantId),
             updated.Version,
             request.ApiKey != null,
             request.WebhookHmacKey != null,
@@ -273,9 +273,9 @@ public sealed class PaymentProviderCredentialRotationService :
         {
             _logger.LogError(
                 exception,
-                "Payment provider cache refresh failed after credential rotation Provider={Provider} TenantHash={TenantHash}",
+                "Payment provider cache refresh failed after credential rotation Provider={Provider} TenantId={TenantId}",
                 PaymentLogValue.Label(providerName),
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
 
             return;
         }
@@ -283,9 +283,9 @@ public sealed class PaymentProviderCredentialRotationService :
         if (refreshed == null && expectAvailable)
         {
             _logger.LogError(
-                "Payment provider cache refresh failed after credential rotation Provider={Provider} TenantHash={TenantHash}",
+                "Payment provider cache refresh failed after credential rotation Provider={Provider} TenantId={TenantId}",
                 PaymentLogValue.Label(providerName),
-                PaymentLogValue.Hash(tenantId));
+                PaymentLogValue.Id(tenantId));
         }
     }
 
@@ -306,8 +306,8 @@ public sealed class PaymentProviderCredentialRotationService :
     {
         _logger.LogError(
             exception,
-            "Payment provider credential persistence failed TenantHash={TenantHash}",
-            PaymentLogValue.Hash(tenantId));
+            "Payment provider credential persistence failed TenantId={TenantId}",
+            PaymentLogValue.Id(tenantId));
 
         return PaymentProviderMutationResult.Failure(
             PaymentFailureKind.Unavailable,
