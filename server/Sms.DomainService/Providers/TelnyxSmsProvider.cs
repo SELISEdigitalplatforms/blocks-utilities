@@ -23,13 +23,13 @@ public class TelnyxSmsProvider : ISmsProvider
 
     public SmsProviderType ProviderType => SmsProviderType.Telnyx;
 
-    public async Task<SmsProviderResult> SendAsync(SmsProviderContext context, string to, string body, string idempotencyKey, CancellationToken cancellationToken = default)
+    public async Task<SmsProviderResult> SendAsync(SmsProviderContext context, string from, string to, string body, string idempotencyKey, CancellationToken cancellationToken = default)
     {
         try
         {
             var newMessage = new NewMessage
             {
-                From = context.Configuration.ResolveFrom(),
+                From = from,
                 To = to,
                 Text = body,
                 WebhookUrl = SmsCallbackUrls.Build(context.Configuration, context.TenantId)

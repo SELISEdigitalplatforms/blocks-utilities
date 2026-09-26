@@ -15,6 +15,9 @@ public class SaveSmsProviderConfigurationRequest
 
     /// <summary>Optional alphanumeric sender id; takes precedence over the number when set.</summary>
     public string? SenderName { get; set; }
+
+    /// <summary>Country codes where the number is used instead of the name. Null keeps the default (+1).</summary>
+    public List<string>? SenderNameExcludedPrefixes { get; set; }
     public string? AccountId { get; set; }
 
     /// <summary>

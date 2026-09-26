@@ -20,7 +20,7 @@ public class SmsProcessingServiceTests
     private readonly Mock<ISmsRepository> _repository = new();
     private readonly Mock<ISmsWorkQueue> _queue = new();
     private readonly Mock<ISmsProvider> _provider = new();
-    private readonly SmsProviderConfiguration _configuration = new() { TenantId = TenantId, ProviderType = SmsProviderType.Twilio, MaxRetryAttempts = 3, ApiKeySecretId = "s" };
+    private readonly SmsProviderConfiguration _configuration = new() { TenantId = TenantId, ProviderType = SmsProviderType.Twilio, MaxRetryAttempts = 3, ApiKeySecretId = "s", SenderNumber = "+15005550006" };
     private readonly List<string> _sentTo = [];
 
     public SmsProcessingServiceTests()
@@ -39,7 +39,7 @@ public class SmsProcessingServiceTests
 
         await CreateService().ProcessSendAsync(TenantId, "m1");
 
-        _provider.Verify(p => p.SendAsync(It.IsAny<SmsProviderContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _provider.Verify(p => p.SendAsync(It.IsAny<SmsProviderContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -109,6 +109,38 @@ public class SmsProcessingServiceTests
         order.Should().Equal("watchdog", "claim");
     }
 
+    [Fact]
+    public async Task EachRecipientGetsTheSenderItsCountryAccepts()
+    {
+        _configuration.SenderName = "ACME";
+        var message = Message(First, "+14155550100");
+        ClaimReturns(message);
+        var froms = new Dictionary<string, string>();
+        _provider.Setup(p => p.SendAsync(It.IsAny<SmsProviderContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback((SmsProviderContext _, string from, string to, string _, string _, CancellationToken _) => froms[to] = from)
+            .ReturnsAsync(SmsProviderResult.Submitted("SM"));
+
+        await CreateService().ProcessSendAsync(TenantId, message.ItemId);
+
+        froms[First].Should().Be("ACME");
+        froms["+14155550100"].Should().Be("+15005550006");
+    }
+
+    [Fact]
+    public async Task ARejectedNameWithNoNumberFailsThatRecipientWithoutCallingTheProvider()
+    {
+        _configuration.SenderName = "ACME";
+        _configuration.SenderNumber = string.Empty;
+        var message = Message("+14155550100");
+        ClaimReturns(message);
+
+        await CreateService().ProcessSendAsync(TenantId, message.ItemId);
+
+        message.Recipients[0].Status.Should().Be(SmsRecipientStatus.Failed);
+        message.Recipients[0].ErrorCode.Should().Be("sms_sender_unavailable");
+        _provider.Verify(p => p.SendAsync(It.IsAny<SmsProviderContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Theory]
     [InlineData(new[] { SmsRecipientStatus.Delivered, SmsRecipientStatus.Delivered }, SmsMessageStatus.Delivered)]
     [InlineData(new[] { SmsRecipientStatus.Delivered, SmsRecipientStatus.Undelivered }, SmsMessageStatus.PartiallyDelivered)]
@@ -151,7 +183,7 @@ public class SmsProcessingServiceTests
             .ReturnsAsync(message);
 
     private void Respond(string number, SmsProviderResult result) =>
-        _provider.Setup(p => p.SendAsync(It.IsAny<SmsProviderContext>(), number, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _provider.Setup(p => p.SendAsync(It.IsAny<SmsProviderContext>(), It.IsAny<string>(), number, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback(() => _sentTo.Add(number))
             .ReturnsAsync(result);
 }

@@ -8,11 +8,11 @@ public interface ISmsProvider
     SmsProviderType ProviderType { get; }
 
     /// <summary>
-    /// Sends to one recipient. Never throws for a provider failure; the result says why.
+    /// Sends to one recipient from <paramref name="from"/>, already chosen for that destination. Never throws for a provider failure; the result says why.
     /// <paramref name="idempotencyKey"/> is stable per message and recipient, so a provider that
     /// honours it (Telnyx) drops a resend after a worker crash.
     /// </summary>
-    Task<SmsProviderResult> SendAsync(SmsProviderContext context, string to, string body, string idempotencyKey, CancellationToken cancellationToken = default);
+    Task<SmsProviderResult> SendAsync(SmsProviderContext context, string from, string to, string body, string idempotencyKey, CancellationToken cancellationToken = default);
 
     Task<SmsProviderDeliveryStatus> GetDeliveryStatusAsync(SmsProviderContext context, string providerMessageId, CancellationToken cancellationToken = default);
 

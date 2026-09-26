@@ -30,6 +30,12 @@ public class SaveSmsProviderConfigurationRequestValidator : AbstractValidator<Sa
             .When(x => !string.IsNullOrWhiteSpace(x.SenderName))
             .WithMessage("Sender name must be 1 to 11 letters, digits or spaces, with at least one letter.");
 
+        RuleFor(x => x.SenderNameExcludedPrefixes).Must(p => p!.Count <= 50)
+            .When(x => x.SenderNameExcludedPrefixes != null)
+            .WithMessage("At most 50 excluded country codes.");
+        RuleForEach(x => x.SenderNameExcludedPrefixes).NotEmpty().Matches(@"^\s*\+[1-9][0-9]{0,3}\s*$")
+            .WithMessage("Excluded prefixes must be country codes such as +1 or +86.");
+
         RuleFor(x => x.ApiKey).NotEmpty()
             .When(x => string.IsNullOrWhiteSpace(x.ConfigurationId))
             .WithMessage("An API key is required when creating a provider configuration.");

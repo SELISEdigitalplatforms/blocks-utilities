@@ -79,7 +79,10 @@ public class SmsProcessingService : ISmsProcessingService
         foreach (var recipient in message.Recipients.Where(r => r.Status == SmsRecipientStatus.Pending))
         {
             recipient.Attempts++;
-            var result = await provider.SendAsync(context, recipient.Number, message.MessageText, $"{message.ItemId}:{recipient.Number}:{recipient.Attempts}", cancellationToken);
+            var from = configuration.ResolveFrom(recipient.Number);
+            var result = from == null
+                ? SmsProviderResult.Failed("sms_sender_unavailable", "The sender name is not accepted in the destination's country and no sender number is configured.", false)
+                : await provider.SendAsync(context, from, recipient.Number, message.MessageText, $"{message.ItemId}:{recipient.Number}:{recipient.Attempts}", cancellationToken);
 
             if (result.IsSuccess)
             {

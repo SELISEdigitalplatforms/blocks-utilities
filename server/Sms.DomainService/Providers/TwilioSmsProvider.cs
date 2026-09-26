@@ -27,14 +27,14 @@ public class TwilioSmsProvider : ISmsProvider
 
     public SmsProviderType ProviderType => SmsProviderType.Twilio;
 
-    public async Task<SmsProviderResult> SendAsync(SmsProviderContext context, string to, string body, string idempotencyKey, CancellationToken cancellationToken = default)
+    public async Task<SmsProviderResult> SendAsync(SmsProviderContext context, string from, string to, string body, string idempotencyKey, CancellationToken cancellationToken = default)
     {
         try
         {
             var callback = SmsCallbackUrls.Build(context.Configuration, context.TenantId);
             var options = new CreateMessageOptions(new PhoneNumber(to))
             {
-                From = new PhoneNumber(context.Configuration.ResolveFrom()),
+                From = new PhoneNumber(from),
                 Body = body,
                 StatusCallback = callback == null ? null : new Uri(callback)
             };

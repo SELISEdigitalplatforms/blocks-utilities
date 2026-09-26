@@ -133,6 +133,10 @@ public class SmsService : ISmsService
         configuration.IsEnabled = request.IsEnabled;
         configuration.SenderNumber = request.SenderNumber?.Trim() ?? string.Empty;
         configuration.SenderName = string.IsNullOrWhiteSpace(request.SenderName) ? null : request.SenderName.Trim();
+        configuration.SenderNameExcludedPrefixes = request.SenderNameExcludedPrefixes?
+            .Select(p => p.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList() ?? [.. SmsProviderConfiguration.DefaultSenderNameExcludedPrefixes];
         configuration.AccountId = request.AccountId ?? string.Empty;
         configuration.MessagingProfileId = request.MessagingProfileId;
         configuration.WebhookPublicKey = request.WebhookPublicKey;

@@ -20,6 +20,7 @@ public class SmsProviderConfigurationView
     public bool IsEnabled { get; set; }
     public string SenderNumber { get; set; } = string.Empty;
     public string? SenderName { get; set; }
+    public List<string> SenderNameExcludedPrefixes { get; set; } = [];
     public string AccountId { get; set; } = string.Empty;
     public bool HasApiKey { get; set; }
     public string? MessagingProfileId { get; set; }
@@ -40,6 +41,7 @@ public class SmsProviderConfigurationView
         IsEnabled = configuration.IsEnabled,
         SenderNumber = configuration.SenderNumber,
         SenderName = configuration.SenderName,
+        SenderNameExcludedPrefixes = configuration.SenderNameExcludedPrefixes,
         AccountId = configuration.AccountId,
         HasApiKey = !string.IsNullOrWhiteSpace(configuration.ApiKeySecretId),
         MessagingProfileId = configuration.MessagingProfileId,

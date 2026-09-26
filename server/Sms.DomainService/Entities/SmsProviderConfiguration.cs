@@ -18,9 +18,18 @@ public class SmsProviderConfiguration
 
     /// <summary>
     /// Alphanumeric sender id shown instead of a number (up to 11 characters). Not every country
-    /// accepts one (the US and Canada do not); where it is rejected the provider fails the send.
+    /// accepts one; see <see cref="SenderNameExcludedPrefixes"/>.
     /// </summary>
     public string? SenderName { get; set; }
+
+    /// <summary>
+    /// Destination prefixes (E.164 country codes) where carriers reject an alphanumeric sender id,
+    /// so the number is used instead. Defaults to the North American Numbering Plan; carriers'
+    /// rules change, so tenants extend it rather than this code guessing.
+    /// </summary>
+    public List<string> SenderNameExcludedPrefixes { get; set; } = [.. DefaultSenderNameExcludedPrefixes];
+
+    public static readonly IReadOnlyList<string> DefaultSenderNameExcludedPrefixes = ["+1"];
 
     /// <summary>Twilio account SID. Not a secret; Telnyx leaves it empty.</summary>
     public string AccountId { get; set; } = string.Empty;
@@ -42,8 +51,22 @@ public class SmsProviderConfiguration
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedDate { get; set; } = DateTime.UtcNow;
 
-    /// <summary>What goes in the provider's From: the sender name when one is set, else the number.</summary>
-    public string ResolveFrom() => string.IsNullOrWhiteSpace(SenderName) ? SenderNumber : SenderName.Trim();
+    /// <summary>
+    /// What goes in the provider's From for one recipient: the sender name, unless none is set or the
+    /// destination's country rejects names, in which case the number. Null when a name would be
+    /// rejected and there is no number to fall back to.
+    /// </summary>
+    public string? ResolveFrom(string destination)
+    {
+        var number = string.IsNullOrWhiteSpace(SenderNumber) ? null : SenderNumber;
+        if (string.IsNullOrWhiteSpace(SenderName))
+        {
+            return number;
+        }
+
+        var nameRejected = SenderNameExcludedPrefixes.Any(prefix => destination.Trim().StartsWith(prefix, StringComparison.Ordinal));
+        return nameRejected ? number : SenderName.Trim();
+    }
 }
 
 public class SmsRateLimitSettings

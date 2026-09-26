@@ -68,7 +68,8 @@ most recently updated enabled one. Saving a configuration as default clears the 
 | `Name` | Required, up to 100 characters. |
 | `ProviderType` | `Twilio` (1) or `Telnyx` (2). |
 | `SenderNumber` | E.164 number to send from. Required unless `SenderName` is set. |
-| `SenderName` | Optional alphanumeric sender id (1–11 letters, digits or spaces, at least one letter) shown to recipients instead of the number. When set it is always used as the sender. |
+| `SenderName` | Optional alphanumeric sender id (1–11 letters, digits or spaces, at least one letter) shown to recipients instead of the number. |
+| `SenderNameExcludedPrefixes` | Country codes (`+1`, `+86`, ...) where the number is used instead of the name. Default `["+1"]`; omit to keep the default, send `[]` to use the name everywhere. |
 | `AccountId` | Twilio account SID (`AC` + 32 hex). Required for Twilio. |
 | `ApiKey` | Twilio auth token or Telnyx API key. Required on create; empty on update keeps the stored key, a value rotates it. |
 | `MessagingProfileId` | Telnyx messaging profile (GUID). Required for Telnyx. |
@@ -81,10 +82,17 @@ most recently updated enabled one. Saving a configuration as default clears the 
 
 ### Sender name
 
-The provider's From is `SenderName` when one is set, else `SenderNumber`. Alphanumeric sender ids
-are one-way (recipients cannot reply) and not accepted everywhere: the US and Canada, among others,
-reject them, and the provider fails the send for that recipient. Tenants sending to those countries
-should leave `SenderName` empty. On Telnyx the name must also be enabled on the messaging profile.
+The sender is chosen per recipient. It is `SenderName` when one is set and the recipient's number
+does not start with one of `SenderNameExcludedPrefixes`; otherwise it is `SenderNumber`. So one
+message can go out as `ACME` to Switzerland and as `+15005550006` to the US.
+
+Alphanumeric sender ids are one-way (recipients cannot reply), and carriers in some countries
+reject them. The default excludes only `+1` (US, Canada and the rest of the North American
+Numbering Plan), the one rule that is stable across providers; tenants add other countries as
+their provider reports rejections. When a name is excluded for a recipient and no `SenderNumber` is
+configured, that recipient fails at once with `sms_sender_unavailable`, without a provider call.
+
+On Telnyx the name must also be enabled on the messaging profile.
 
 ### Where the key goes
 

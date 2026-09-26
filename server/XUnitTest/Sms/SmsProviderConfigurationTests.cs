@@ -106,12 +106,37 @@ public class SmsProviderConfigurationTests
     }
 
     [Theory]
-    [InlineData("+15005550006", null, "+15005550006")]
-    [InlineData("+15005550006", "ACME", "ACME")]
-    [InlineData("+15005550006", "  ", "+15005550006")]
-    public void SenderNameTakesPrecedenceOverTheNumber(string number, string? name, string expectedFrom)
+    [InlineData("+41790000000", "+15005550006", null, "+15005550006")]
+    [InlineData("+41790000000", "+15005550006", "ACME", "ACME")]
+    [InlineData("+41790000000", "+15005550006", "  ", "+15005550006")]
+    [InlineData("+14155550100", "+15005550006", "ACME", "+15005550006")]
+    [InlineData("+14155550100", "", "ACME", null)]
+    [InlineData("+41790000000", "", "ACME", "ACME")]
+    public void SenderNameIsUsedUnlessTheDestinationRejectsIt(string to, string number, string? name, string? expectedFrom)
     {
-        new SmsProviderConfiguration { SenderNumber = number, SenderName = name }.ResolveFrom().Should().Be(expectedFrom);
+        new SmsProviderConfiguration { SenderNumber = number, SenderName = name }.ResolveFrom(to).Should().Be(expectedFrom);
+    }
+
+    [Fact]
+    public void ExcludedPrefixesAreConfigurable()
+    {
+        var configuration = new SmsProviderConfiguration { SenderNumber = "+15005550006", SenderName = "ACME", SenderNameExcludedPrefixes = ["+86"] };
+
+        configuration.ResolveFrom("+8613800000000").Should().Be("+15005550006");
+        configuration.ResolveFrom("+14155550100").Should().Be("ACME");
+    }
+
+    [Theory]
+    [InlineData("+1", true)]
+    [InlineData("+593", true)]
+    [InlineData("1", false)]
+    [InlineData("+12345", false)]
+    public void Validator_ExcludedPrefixesMustBeCountryCodes(string prefix, bool valid)
+    {
+        var request = ValidTwilio();
+        request.SenderNameExcludedPrefixes = [prefix];
+
+        _validator.Validate(request).IsValid.Should().Be(valid);
     }
 
     [Fact]
