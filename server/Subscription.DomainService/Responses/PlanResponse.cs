@@ -181,6 +181,12 @@ public sealed class PlanQuantityItemResponse
     public long? MaxQuantity { get; init; }
 
     public long DefaultQuantity { get; init; }
+
+    /// <summary>
+    /// Whether this is the quantity that counts people on a user-wise plan. Returned because an
+    /// edit rewrites the whole plan: a mark the console cannot read back, it would silently drop.
+    /// </summary>
+    public bool CountsMembers { get; init; }
 }
 
 public sealed class PlanMeterResponse
@@ -214,6 +220,14 @@ public sealed class PlanMeterResponse
     /// Returned so whoever authored the plan can see what it will actually notify on.
     /// </summary>
     public List<int> ThresholdPercents { get; init; } = [];
+
+    /// <summary>The short window this meter also caps within, as its name. Null when uncapped.</summary>
+    public string? SubLimitWindow { get; init; }
+
+    public decimal? SubLimitQuantity { get; init; }
+
+    /// <summary>"Refuse" or "Throttle". Reported on every meter, meaningful only with a window.</summary>
+    public string SubLimitBehaviour { get; init; } = string.Empty;
 
     /// <summary>
     /// What usage past the allowance costs, per currency. Empty means overage cannot be priced

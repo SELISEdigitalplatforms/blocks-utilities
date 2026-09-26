@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TENANT_WIDE_ORGANIZATION } from "../constants/subscription.constants";
 import type { SubscriptionPlan } from "../models/subscription-plan.model";
 import { createSubscriptionPlanSchema } from "../schemas/subscription-plan.schema";
-import { planToFormValues, toUpdatePlanRequest } from "./plan-form-mapping";
+import { planToFormValues, toCreatePlanRequest, toUpdatePlanRequest } from "./plan-form-mapping";
 
 const storedPlan = (overrides: Partial<SubscriptionPlan> = {}): SubscriptionPlan => ({
   planId: "plan-1",
@@ -448,5 +448,57 @@ describe("a meter's decimal places", () => {
     const request = toUpdatePlanRequest(planToFormValues(plan), "org-1");
 
     expect(request.meters[0].carryForwardCap).toBe(50);
+  });
+});
+
+describe("a plan sold to each person", () => {
+  /**
+   * An edit rewrites the whole plan from what the form holds, so anything the form fails to read
+   * back is deleted by the next unrelated edit — a dropped mark leaves a plan nobody can be
+   * assigned to, and a dropped pace leaves a meter uncapped.
+   */
+  it("reopens with its scope, its counting mark and its pace intact", () => {
+    const plan = storedPlan({ subscriberScope: 1 });
+    plan.quantityItems[0] = { ...plan.quantityItems[0], countsMembers: true };
+    plan.meters[0] = {
+      ...plan.meters[0],
+      subLimitWindow: "Hour",
+      subLimitQuantity: 1_000,
+      subLimitBehaviour: "Throttle",
+    };
+
+    const values = planToFormValues(plan);
+    const request = toUpdatePlanRequest(values, "org-1");
+
+    expect(values.subscriberScope).toBe("User");
+    expect(request.quantityItems[0].countsMembers).toBe(true);
+    expect(request.meters[0]).toMatchObject({
+      subLimitWindow: 0,
+      subLimitQuantity: 1_000,
+      subLimitBehaviour: 1,
+    });
+  });
+
+  it("reopens a plan stored before any of this as organization-wise and uncapped", () => {
+    const request = toUpdatePlanRequest(planToFormValues(storedPlan()), "org-1");
+
+    expect(planToFormValues(storedPlan()).subscriberScope).toBe("Organization");
+    expect(request.quantityItems[0].countsMembers).toBe(false);
+    expect(request.meters[0].subLimitWindow).toBeUndefined();
+    expect(request.meters[0].subLimitQuantity).toBeUndefined();
+    expect(request.meters[0].subLimitBehaviour).toBe(0);
+  });
+
+  it("sends the scope on create as the number the server binds", () => {
+    const values = { ...planToFormValues(storedPlan()), subscriberScope: "User" as const };
+
+    expect(toCreatePlanRequest(values).subscriberScope).toBe(1);
+  });
+
+  it("drops a counting mark left behind on a plan switched back to the organization", () => {
+    const values = planToFormValues(storedPlan());
+    values.quantityItems[0].countsMembers = true;
+
+    expect(toUpdatePlanRequest(values, "org-1").quantityItems[0].countsMembers).toBe(false);
   });
 });

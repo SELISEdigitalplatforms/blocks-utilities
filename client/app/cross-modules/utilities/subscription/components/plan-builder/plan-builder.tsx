@@ -27,6 +27,7 @@ import type { PlanPrice } from "../../models/subscription-plan.model";
 import {
   BILLING_INTERVAL_NAMES,
   ENTITLEMENT_LIMIT_KIND_NAMES,
+  USAGE_WINDOW_NAMES,
 } from "../../models/subscription-plan.model";
 import {
   buildSubscriptionPlanSchema,
@@ -153,11 +154,13 @@ const PlanBuilderWizard = ({
     trialDurationKind: draft.trialDurationKind ?? null,
     trialDurationCount: draft.trialDurationCount ?? null,
     trialRequiresPaymentMethod: draft.trialRequiresPaymentMethod ?? true,
+    subscriberScope: draft.subscriberScope ?? "Organization",
     quantityItems: (draft.quantityItems ?? []).map((item) => ({
       itemKey: item?.itemKey ?? "",
       unitLabel: item?.unitLabel ?? "",
       defaultQuantity: item?.defaultQuantity ?? 0,
       maxQuantity: item?.maxQuantity ?? null,
+      countsMembers: item?.countsMembers ?? false,
     })),
     meters: (draft.meters ?? []).map((meter) => ({
       meterKey: meter?.meterKey ?? "",
@@ -172,6 +175,11 @@ const PlanBuilderWizard = ({
         .map((table) => table?.currencyCode)
         .filter((currencyCode): currencyCode is string => Boolean(currencyCode))
         .map((currencyCode) => ({ currencyCode })),
+      // The form holds the window's number; the summary reads names, as a stored plan does.
+      subLimitWindow:
+        meter?.subLimitWindow === undefined ? null : USAGE_WINDOW_NAMES[meter.subLimitWindow],
+      subLimitQuantity: meter?.subLimitQuantity ?? null,
+      subLimitBehaviour: meter?.subLimitBehaviour === 1 ? "Throttle" : "Refuse",
     })),
     entitlements: (draft.entitlements ?? []).map((entitlement) => ({
       key: entitlement?.key ?? "",

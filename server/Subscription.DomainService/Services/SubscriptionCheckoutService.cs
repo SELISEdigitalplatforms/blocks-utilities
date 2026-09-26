@@ -376,6 +376,56 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             details);
     }
 
+    public async Task<SubscriptionOperationResult<IReadOnlyList<SubscriptionResponse>>> ListMemberBasedAsync(
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<IReadOnlyList<SubscriptionResponse>>(correlationId);
+        }
+
+        var context = resolution.Context!;
+
+        var subscriptions = await _subscriptions.ListLiveMemberBasedAsync(
+            context.TenantId,
+            context.OrganizationId,
+            _time.GetUtcNow().UtcDateTime,
+            cancellationToken);
+
+        var responses = new List<SubscriptionResponse>(subscriptions.Count);
+
+        foreach (var subscription in subscriptions)
+        {
+            // An unpaid checkout carries its link, exactly as current reports one: it is the only
+            // way on from there.
+            PendingCheckoutResponse? pendingSetup = null;
+            string? checkoutUrl = null;
+
+            if (subscription.Status == SubscriptionStatus.Incomplete)
+            {
+                pendingSetup = await GetPendingSetupAsync(
+                    context.TenantId, subscription.ItemId, cancellationToken);
+                checkoutUrl = pendingSetup is not null
+                    ? pendingSetup.CheckoutUrl
+                    : await GetPendingCheckoutUrlAsync(
+                        context.TenantId, subscription.ItemId, cancellationToken);
+            }
+
+            responses.Add(await _mapper.ToResponseAsync(
+                _billingAccounts, subscription, checkoutUrl, pendingSetup, cancellationToken));
+        }
+
+        return SubscriptionOperationResult<IReadOnlyList<SubscriptionResponse>>.Success(
+            responses, correlationId);
+    }
+
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> GetCurrentAsync(
         string? organizationId,
         string correlationId,

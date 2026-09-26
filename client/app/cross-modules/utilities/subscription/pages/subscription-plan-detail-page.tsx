@@ -18,6 +18,7 @@ import { Card, CardTitle } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { ORGANIZATION_PAGE_SIZE } from "../constants/subscription.constants";
+import { SUBSCRIBER_SCOPE } from "../models/subscription-plan.model";
 import { describeQuantityBand } from "../utilities/quantity-discount-format";
 import { PlanSummaryCard, type PlanSummaryData } from "../components/plan-summary-card";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
@@ -127,12 +128,14 @@ export const SubscriptionPlanDetailPage = () => {
     trialDurationKind: plan.trialDurationKind ?? null,
     trialDurationCount: plan.trialDurationCount ?? null,
     trialRequiresPaymentMethod: plan.trialRequiresPaymentMethod,
+    subscriberScope: plan.subscriberScope === SUBSCRIBER_SCOPE.User ? "User" : "Organization",
     quantityItems: plan.quantityItems.map((item) => ({
       quantityDiscountTiers: item.quantityDiscountTiers,
       itemKey: item.itemKey,
       unitLabel: item.unitLabel,
       defaultQuantity: item.defaultQuantity,
       maxQuantity: item.maxQuantity,
+      countsMembers: item.countsMembers,
     })),
     meters: plan.meters,
     entitlements: plan.entitlements,

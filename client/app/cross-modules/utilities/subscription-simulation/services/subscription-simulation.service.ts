@@ -4,14 +4,17 @@ import {
   AUDIT_TRAIL_DEFAULT_LIMIT,
   ENTITLEMENTS_ENDPOINT,
   SUBSCRIPTION_USAGE_CURRENT_ENDPOINT,
+  SUBSCRIPTION_USAGE_MINE_ENDPOINT,
   SUBSCRIPTION_USAGE_ENDPOINT,
   SUBSCRIPTION_DISCOUNTS_PREVIEW_ENDPOINT,
   SUBSCRIPTION_USAGE_OVERAGE_PREVIEW_ENDPOINT,
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
+  SUBSCRIPTIONS_MEMBER_BASED_ENDPOINT,
   SUBSCRIPTIONS_ENDPOINT,
 } from "../constants/subscription-simulation.constants";
 import { subscriptionApiFailure } from "../../subscription/utilities/subscription-api-failure";
 import type {
+  AssignMemberRequest,
   CancelSubscriptionRequest,
   DiscountCodePreview,
   ChangeQuantityRequest,
@@ -26,6 +29,9 @@ import type {
   SimulatedSubscription,
   SubscribeToPlanRequest,
   SubscriptionAuditEvent,
+  SubscriptionMember,
+  SubscriptionMemberAssignment,
+  SubscriptionMembers,
   SubscriptionPlanChangePreview,
   SubscriptionPurchasePreview,
   UsageOveragePreviewResult,
@@ -561,6 +567,84 @@ class SubscriptionSimulationService {
     }
   }
 
+  /** The organization's user-wise subscriptions — live, or waiting on their first payment. */
+  async listMemberBasedSubscriptions(organizationId?: string): Promise<SimulatedSubscription[]> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    return this.memberCall(
+      () =>
+        serviceInstances.utitlitiesService.get<SimulationApiResponse<SimulatedSubscription[]>>(
+          `${SUBSCRIPTIONS_MEMBER_BASED_ENDPOINT}${query}`,
+        ),
+      "The subscriptions people are placed on could not be loaded.",
+    );
+  }
+
+  async listMembers(subscriptionId: string): Promise<SubscriptionMembers> {
+    return this.memberCall(
+      () =>
+        serviceInstances.utitlitiesService.get<SimulationApiResponse<SubscriptionMembers>>(
+          this.membersPath(subscriptionId),
+        ),
+      "The members could not be loaded.",
+    );
+  }
+
+  /**
+   * Resolves with every per-person outcome, refusals included — a refusal is data here, not a
+   * failure. Only a refusal of the whole call (a subscription that is not live, or not user-wise)
+   * throws.
+   */
+  async assignMembers(
+    subscriptionId: string,
+    request: AssignMemberRequest,
+  ): Promise<SubscriptionMemberAssignment> {
+    return this.memberCall(
+      () =>
+        serviceInstances.utitlitiesService.post<
+          SimulationApiResponse<SubscriptionMemberAssignment>
+        >(this.membersPath(subscriptionId), request),
+      "Nobody could be assigned.",
+    );
+  }
+
+  async releaseMember(subscriptionId: string, userId: string): Promise<SubscriptionMember> {
+    return this.memberCall(
+      () =>
+        serviceInstances.utitlitiesService.delete<SimulationApiResponse<SubscriptionMember>>(
+          `${this.membersPath(subscriptionId)}/${encodeURIComponent(userId)}`,
+        ),
+      "The place could not be released.",
+    );
+  }
+
+  private membersPath(subscriptionId: string): string {
+    return `${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/members`;
+  }
+
+  /** Unwraps the envelope and keeps the server's code on any failure, as the quantity paths do. */
+  private async memberCall<T>(
+    call: () => Promise<SimulationApiResponse<T>>,
+    fallback: string,
+  ): Promise<T> {
+    try {
+      const response = await call();
+
+      if (!response.success || !response.data) {
+        throw new SubscriptionOperationError(
+          response.error?.message || fallback,
+          response.error?.code ?? "unknown",
+        );
+      }
+
+      return response.data;
+    } catch (error) {
+      throw operationError(error, fallback);
+    }
+  }
+
   /**
    * Where every meter's allowance actually stands, straight from the counters.
    *
@@ -579,6 +663,27 @@ class SubscriptionSimulationService {
 
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || "Current usage could not be loaded.");
+    }
+
+    return response.data;
+  }
+
+  /**
+   * The caller's own balances — the ones their next recording actually draws down. Beside
+   * {@link getCurrentUsage} rather than a flag on it, because the server answers two different
+   * questions at two routes.
+   */
+  async getMyUsage(organizationId?: string): Promise<MeterUsage[]> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    const response = await serviceInstances.utitlitiesService.get<
+      SimulationApiResponse<MeterUsage[]>
+    >(`${SUBSCRIPTION_USAGE_MINE_ENDPOINT}${query}`);
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || "Your usage could not be loaded.");
     }
 
     return response.data;

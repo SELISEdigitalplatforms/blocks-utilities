@@ -49,6 +49,23 @@ public interface ISubscriptionRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// The organization's subscriptions to user-wise plans that are live or awaiting their first
+    /// payment, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// The other half of <see cref="GetLiveAsync"/>, which answers for the organization's own
+    /// subscription only. Several, not one: an organization may seat people on two user-wise plans
+    /// at once. An unpaid checkout is included because it is the one state a caller must still act
+    /// on — nothing else would ever show it them again. Matched with <c>$eq</c>, which is safe here
+    /// where it is not there: a user-wise subscription has always carried its scope.
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionDetail>> ListLiveMemberBasedAsync(
+        string tenantId,
+        string organizationId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Those of these subscriptions that currently grant something.
     /// </summary>
     /// <remarks>

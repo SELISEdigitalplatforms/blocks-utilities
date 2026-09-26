@@ -533,6 +533,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
     {
         SubscriptionId = assignment.SubscriptionId,
         UserId = assignment.UserId,
+        SeatNumber = assignment.SeatNumber,
         AssignedAtUtc = assignment.AssignedAtUtc,
         ReleasedAtUtc = assignment.ReleasedAtUtc
     };

@@ -7,6 +7,11 @@ public sealed class SubscriptionMemberResponse
 
     public string UserId { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Which place, 1-based. Null on a release, which answers who left rather than where from.
+    /// </summary>
+    public int? SeatNumber { get; init; }
+
     public DateTime AssignedAtUtc { get; init; }
 
     public DateTime? ReleasedAtUtc { get; init; }

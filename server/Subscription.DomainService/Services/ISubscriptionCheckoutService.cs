@@ -24,6 +24,16 @@ public interface ISubscriptionCheckoutService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// The organization's live subscriptions to user-wise plans — the ones people are given places
+    /// on. <see cref="GetCurrentAsync"/> never returns these; without this a caller could reach one
+    /// only by keeping the identifier the subscribe call handed back.
+    /// </summary>
+    Task<SubscriptionOperationResult<IReadOnlyList<SubscriptionResponse>>> ListMemberBasedAsync(
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Opens a session that stores a card against a subscription that is already running.
     /// </summary>
     /// <remarks>

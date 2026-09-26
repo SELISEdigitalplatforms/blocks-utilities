@@ -256,6 +256,29 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveMemberBasedAsync(
+        string tenantId,
+        string organizationId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken) =>
+        await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                Builders<SubscriptionDetail>.Filter.Or(
+                    BuildLiveFilter(tenantId, organizationId, nowUtc),
+                    Builders<SubscriptionDetail>.Filter.And(
+                        TenantFilter(tenantId),
+                        Builders<SubscriptionDetail>.Filter.Eq(
+                            subscription => subscription.OrganizationId,
+                            organizationId),
+                        Builders<SubscriptionDetail>.Filter.Eq(
+                            subscription => subscription.Status,
+                            SubscriptionStatus.Incomplete))),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Plan.SubscriberScope,
+                    SubscriberScope.User)))
+            .SortBy(subscription => subscription.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveByIdsAsync(
         string tenantId,
         IReadOnlyCollection<string> subscriptionIds,

@@ -109,6 +109,10 @@ const meterRateTableSchema = z
     });
   });
 
+/** A cleared number input reports "", which coerces to 0 — a value nobody typed. */
+const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (value === "" || value === null ? undefined : value), schema);
+
 const meterSchema = z.object({
   meterKey: key("meter key"),
   displayName: z.string().trim().min(1, "Enter a display name.").max(200),
@@ -130,6 +134,17 @@ const meterSchema = z.object({
   overageAllowed: z.boolean(),
   thresholdPercents: z.array(z.number().int().min(1).max(100)),
   rateTables: z.array(meterRateTableSchema),
+  /**
+   * A pace cap inside the period: Hour 0, Day 1, Week 2. Absent on every meter nobody opted in,
+   * which is what keeps an existing meter capped by its period alone. Set together with
+   * {@link subLimitQuantity} or not at all — checked at plan level, beside the meter's scale.
+   */
+  subLimitWindow: blankAsUndefined(z.coerce.number().int().min(0).max(2).optional()),
+  subLimitQuantity: blankAsUndefined(
+    z.coerce.number().positive("A pace of zero refuses everything — leave it unset instead.").optional(),
+  ),
+  /** Refuse 0, Report only 1. Meaningless without a window, and harmless there. */
+  subLimitBehaviour: z.coerce.number().int().min(0).max(1).default(0),
 });
 
 /**
@@ -156,6 +171,8 @@ const quantityItemSchema = z
     maxQuantity: z.coerce.number().int().positive().optional(),
     defaultQuantity: z.coerce.number().int().min(0),
     quantityDiscountTiers: z.array(quantityDiscountTierSchema).default([]),
+    /** Which quantity is how many people a user-wise plan seats. Ignored on any other plan. */
+    countsMembers: z.boolean().default(false),
   })
   .superRefine((item, context) => {
     if (item.maxQuantity !== undefined && item.maxQuantity < item.minQuantity) {
@@ -313,6 +330,8 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         .optional()
         .or(z.literal("")),
       organizationId: z.string().min(1, "Choose an organization."),
+      // Who holds the subscription. Organization is what every plan before this meant.
+      subscriberScope: z.enum(["Organization", "User"]).default("Organization"),
       // The console always authors through these two rather than the legacy trialDays — see the
       // cross-field checks below for what each duration kind requires.
       trialDurationKind: z.enum(["Days", "EndOfCalendarMonth", "AnniversaryMonths"]).optional(),
@@ -459,6 +478,24 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           });
         });
 
+        // Both halves or neither, as the server insists: a window with no quantity caps nothing,
+        // and a quantity with no window has nowhere to apply.
+        if ((meter.subLimitWindow === undefined) !== (meter.subLimitQuantity === undefined)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, meter.subLimitWindow === undefined ? "subLimitWindow" : "subLimitQuantity"],
+            message: "Set both the window and how much fits in it, or neither.",
+          });
+        }
+
+        if (meter.subLimitQuantity !== undefined && !holds(meter.subLimitQuantity)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "subLimitQuantity"],
+            message: tooFine,
+          });
+        }
+
         if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
@@ -528,6 +565,10 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         }
       });
 
+      if (plan.subscriberScope === "User") {
+        checkMemberQuantity(plan, context);
+      }
+
       if (requirePrice && plan.prices.length === 0) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -565,6 +606,49 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       });
     });
 
+/**
+ * The two ways a user-wise plan can be authored so that nobody can ever be given a place on it.
+ * The first mirrors the server's own refusal; the second the server discovers only when somebody
+ * is being assigned, weeks later, by an administrator who cannot fix the plan.
+ */
+const checkMemberQuantity = (
+  plan: {
+    quantityItems: { itemKey: string; maxQuantity?: number; countsMembers: boolean }[];
+    prices: { quantityItemKey: string }[];
+  },
+  context: z.RefinementCtx,
+) => {
+  const items = plan.quantityItems;
+
+  if (items.length > 1 && items.filter((item) => item.countsMembers).length !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["quantityItems"],
+      message: "Mark exactly one quantity as the one that counts people.",
+    });
+
+    return;
+  }
+
+  // One item needs no mark; none at all is one person's plan and has nothing to derive.
+  const countingIndex = items.length === 1 ? 0 : items.findIndex((item) => item.countsMembers);
+  const counting = items[countingIndex];
+
+  if (!counting || counting.maxQuantity !== undefined) {
+    return;
+  }
+
+  // Priced per person, the quantity bought is the number of places. Priced flat, only the
+  // maximum can be — and without one there is no number at all.
+  if (plan.prices.some((price) => price.quantityItemKey !== counting.itemKey)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["quantityItems", countingIndex, "maxQuantity"],
+      message: "A flat-priced plan needs a maximum, or there is no ceiling to derive.",
+    });
+  }
+};
+
 export const createSubscriptionPlanSchema = buildSubscriptionPlanSchema({ requirePrice: true });
 
 export type CreateSubscriptionPlanFormValues = z.infer<typeof createSubscriptionPlanSchema>;
@@ -575,6 +659,7 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   description: "",
   featuresJson: "",
   organizationId: TENANT_WIDE_ORGANIZATION,
+  subscriberScope: "Organization",
   trialDurationKind: undefined,
   trialDurationCount: undefined,
   trialRequiresPaymentMethod: true,
