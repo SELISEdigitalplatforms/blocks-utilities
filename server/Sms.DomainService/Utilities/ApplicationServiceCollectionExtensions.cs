@@ -19,6 +19,7 @@ public static class ApplicationServiceCollectionExtensions
     /// </remarks>
     public static void RegisterAllSmsApplicationServices(this IServiceCollection services)
     {
+        services.AddMemoryCache();
         services.AddHttpClient(TwilioSmsProvider.HttpClientName);
 
         services.AddSingleton<ISmsRepository, SmsRepository>();
