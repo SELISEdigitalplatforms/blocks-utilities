@@ -16,6 +16,7 @@ import {
   FormMessage,
 } from "@/components/ui-kits/form/form";
 import { Input } from "@/components/ui-kits/input/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui-kits/radio-group/radio-group";
 import {
   Select,
   SelectContent,
@@ -38,6 +39,19 @@ import { StepHeading } from "./step-heading";
  * it. The server ignores both on an edit; showing them read-only says so rather than letting
  * someone type a change that silently does nothing.
  */
+const ScopeOption = ({ value, label, detail }: { value: string; label: string; detail: string }) => (
+  <label
+    htmlFor={`subscriber-scope-${value}`}
+    className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[:disabled]:cursor-not-allowed has-[[data-state=checked]]:border-blocks-primary-400"
+  >
+    <RadioGroupItem value={value} id={`subscriber-scope-${value}`} className="mt-0.5" />
+    <span className="space-y-0.5">
+      <span className="block text-sm font-medium">{label}</span>
+      <span className="block text-xs text-muted-foreground">{detail}</span>
+    </span>
+  </label>
+);
+
 export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => {
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
@@ -130,6 +144,41 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
                   : organizationsFailed
                     ? "Organizations could not be loaded; you can still create a tenant-wide plan."
                     : "Which organization this plan belongs to. Scope it to one organization only when it shouldn't be offered to everyone."}
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={control}
+          name="subscriberScope"
+          render={({ field }) => (
+            <FormItem className="sm:col-span-2">
+              <FormLabel>Who is this plan for?</FormLabel>
+              <FormControl>
+                <RadioGroup
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={isEditing}
+                  className="gap-3 sm:grid-cols-2"
+                >
+                  <ScopeOption
+                    value="Organization"
+                    label="The organization"
+                    detail="One subscription everybody in the organization shares."
+                  />
+                  <ScopeOption
+                    value="User"
+                    label="Each person"
+                    detail="The organization buys places and gives one to each person; every place gets its own allowance."
+                  />
+                </RadioGroup>
+              </FormControl>
+              <FormDescription>
+                {isEditing
+                  ? "Fixed once the plan exists — the server keeps the scope it was created with."
+                  : "An organization can hold both kinds at once, e.g. shared capacity plus per-person AI usage."}
               </FormDescription>
               <FormMessage />
             </FormItem>

@@ -21,7 +21,10 @@ import {
 } from "../../subscription/constants/subscription.constants";
 import { SubscriptionPlanPageHeader } from "../../subscription/components/subscription-plan-page-header";
 import { useSubscriptionPlans } from "../../subscription/hooks/use-subscription-plans";
-import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
+import {
+  SUBSCRIBER_SCOPE,
+  type SubscriptionPlan,
+} from "../../subscription/models/subscription-plan.model";
 import { AdvanceRenewalDialog } from "../components/advance-renewal-dialog";
 import { AuditTrailDialog } from "../components/audit-trail-dialog";
 import { CancelSubscriptionDialog } from "../components/cancel-subscription-dialog";
@@ -30,6 +33,7 @@ import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
 import { CloseUsagePeriodDialog } from "../components/close-usage-period-dialog";
 import { DataConsoleDialog } from "../components/data-console-dialog";
 import { DiscountCodeCard } from "../components/discount-code-card";
+import { MembersCard } from "../components/members-card";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
 import { useCancelPendingPlanChange } from "../hooks/use-change-subscription-plan";
 import { useWithdrawCancellation } from "../hooks/use-cancel-subscription";
@@ -43,6 +47,7 @@ import { SimulationHarnessCard } from "../components/simulation-harness-card";
 import { SubscribeDialog } from "../components/subscribe-dialog";
 import { UsageSection } from "../components/usage-section";
 import { useCurrentSimulatedSubscription } from "../hooks/use-current-simulated-subscription";
+import { useMemberBasedSubscriptions } from "../hooks/use-members";
 import type {
   SubscriptionSimulationActionResponse,
   SubscriptionSimulationJobRunResponse,
@@ -119,6 +124,15 @@ export const SubscriptionSimulationPage = () => {
     currentSubscription && ENTITLED_STATUSES.has(currentSubscription.status),
   );
   const currentPlan = plans?.find((plan) => plan.code === currentSubscription?.planCode);
+
+  // The plans people hold places on. Shared with the members card through the query cache.
+  const { data: memberBasedSubscriptions } = useMemberBasedSubscriptions(organizationScope);
+  const memberPlans = (plans ?? []).filter((plan) =>
+    memberBasedSubscriptions?.some(
+      (subscription) =>
+        subscription.planCode === plan.code && ENTITLED_STATUSES.has(subscription.status),
+    ),
+  );
 
   const refresh = () => {
     refetchPlans();
@@ -386,7 +400,11 @@ export const SubscriptionSimulationPage = () => {
                   organizationLabel={
                     plan.organizationId ? scopeLabel : "Tenant-wide"
                   }
-                  hasActiveSubscription={hasActiveSubscription}
+                  // The organization's one-subscription rule is for its own plans only. A plan
+                  // sold to each person sits beside it, as many of them as the organization wants.
+                  hasActiveSubscription={
+                    hasActiveSubscription && plan.subscriberScope !== SUBSCRIBER_SCOPE.User
+                  }
                   onSubscribe={() => setSubscribingTo(plan)}
                 />
               ))}
@@ -394,6 +412,8 @@ export const SubscriptionSimulationPage = () => {
           )}
         </div>
       </Card>
+
+      <MembersCard plans={plans} organizationId={organizationScope} />
 
       {plans?.length ? (
         <DiscountCodeCard plans={plans} organizationId={organizationScope} />
@@ -403,7 +423,13 @@ export const SubscriptionSimulationPage = () => {
         <OverageTermsSection subscription={currentSubscription} organizationId={organizationScope} />
       )}
 
-      {isEntitled && <UsageSection plan={currentPlan} organizationId={organizationScope} />}
+      {(isEntitled || memberPlans.length > 0) && (
+        <UsageSection
+          plan={isEntitled ? currentPlan : undefined}
+          memberPlans={memberPlans}
+          organizationId={organizationScope}
+        />
+      )}
 
       {currentSubscription && (
         <SimulationHarnessCard
@@ -430,7 +456,10 @@ export const SubscriptionSimulationPage = () => {
             if (checkoutUrl) {
               toast({
                 title: "Checkout ready",
-                description: "Open the checkout link from the current subscription card above.",
+                description:
+                  subscribingTo.subscriberScope === SUBSCRIBER_SCOPE.User
+                    ? "Open the checkout link from the members card below."
+                    : "Open the checkout link from the current subscription card above.",
               });
             }
           }}

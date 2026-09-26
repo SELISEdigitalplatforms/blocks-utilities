@@ -429,6 +429,13 @@ const explain = (code: string, error: unknown): string => {
       return "That is already the quantity in force.";
     case "subscription_quantity_invalid":
       return "That quantity is outside what this plan allows.";
+    // Named apart from the generic conflict because the fix is a different action entirely:
+    // release people from the members card, then come back. The server's own message carries
+    // how many are in the way, so it is kept rather than replaced.
+    case "subscription_member_seats_occupied":
+      return error instanceof Error && error.message
+        ? error.message
+        : "People are on places this change would remove. Take them off first.";
     case "local_validation":
       return error instanceof Error ? error.message : "Check the quantity and try again.";
     default:
