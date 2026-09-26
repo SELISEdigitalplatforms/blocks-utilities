@@ -259,7 +259,7 @@ public class SmsService : ISmsService
         }
 
         await _repository.MarkQueuedAsync(message.TenantId, message.ItemId, cancellationToken);
-        _logger.LogInformation("SmsService: accepted MessageId={MessageId}, TenantId={TenantId}, CorrelationId={CorrelationId}", message.ItemId, message.TenantId, message.CorrelationId);
+        _logger.LogInformation("SmsService: accepted MessageId={MessageId}, TenantId={TenantId}, CorrelationId={CorrelationId}", message.ItemId, SmsLogSanitizer.Id(message.TenantId), SmsLogSanitizer.Id(message.CorrelationId));
         return SmsMutationResponse.Success(message.ItemId);
     }
 

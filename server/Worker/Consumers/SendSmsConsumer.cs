@@ -34,7 +34,7 @@ public class SendSmsConsumer : IConsumer<SendSmsCommand>
         {
             // Rethrown so the broker redelivers (and dead-letters after its max delivery count).
             // A redelivery is safe: the send lease turns a duplicate into a no-op.
-            _logger.LogError(ex, "SendSmsConsumer: SMS send failed MessageId={MessageId}, CorrelationId={CorrelationId}", command.MessageId, command.CorrelationId);
+            _logger.LogError(ex, "SendSmsConsumer: SMS send failed MessageId={MessageId}, CorrelationId={CorrelationId}", SmsLogSanitizer.Id(command.MessageId), SmsLogSanitizer.Id(command.CorrelationId));
             throw;
         }
     }

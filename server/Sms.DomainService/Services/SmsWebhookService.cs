@@ -79,7 +79,7 @@ public sealed partial class SmsWebhookService : ISmsWebhookService
         var parsed = _providerFactory.GetProvider(configuration).VerifyAndParseCallback(context, request);
         if (parsed.Verdict != SmsWebhookVerdict.Verified)
         {
-            _logger.LogWarning("SmsWebhookService: callback rejected Provider={Provider}, TenantId={TenantId}, Verdict={Verdict}", providerType, tenantId, parsed.Verdict);
+            _logger.LogWarning("SmsWebhookService: callback rejected Provider={Provider}, TenantId={TenantId}, Verdict={Verdict}", providerType, SmsLogSanitizer.Id(tenantId), parsed.Verdict);
             return parsed.Verdict == SmsWebhookVerdict.Unauthorized ? SmsWebhookOutcome.Unauthorized : SmsWebhookOutcome.Malformed;
         }
 

@@ -5,6 +5,7 @@ using Sms.DomainService.Enums;
 using Sms.DomainService.Providers;
 using Sms.DomainService.Repositories;
 using Sms.DomainService.Scheduling;
+using Sms.DomainService.Utilities;
 
 namespace Sms.DomainService.Services;
 
@@ -58,7 +59,7 @@ public class SmsProcessingService : ISmsProcessingService
         var message = await _repository.TryClaimForSendAsync(tenantId, messageId, leaseId, now, SendLease, cancellationToken);
         if (message == null)
         {
-            _logger.LogInformation("SmsProcessingService: nothing to send MessageId={MessageId} (in flight elsewhere, already sent, or missing)", messageId);
+            _logger.LogInformation("SmsProcessingService: nothing to send MessageId={MessageId} (in flight elsewhere, already sent, or missing)", SmsLogSanitizer.Id(messageId));
             return;
         }
 
@@ -241,7 +242,7 @@ public class SmsProcessingService : ISmsProcessingService
         await _repository.CompleteSendRoundAsync(message.TenantId, message.ItemId, leaseId, status, errorCode, errorMessage, cancellationToken);
         await _workQueue.CancelAsync(message.TenantId, message.ItemId, SmsWorkKind.Retry, cancellationToken);
         await PublishAsync(message, status, errorCode, cancellationToken);
-        _logger.LogError("SmsProcessingService: failed MessageId={MessageId}, ErrorCode={ErrorCode}", message.ItemId, errorCode);
+        _logger.LogError("SmsProcessingService: failed MessageId={MessageId}, ErrorCode={ErrorCode}", message.ItemId, SmsLogSanitizer.Id(errorCode));
     }
 
     private Task PublishAsync(SmsMessage message, SmsMessageStatus status, string? errorCode, CancellationToken cancellationToken) =>

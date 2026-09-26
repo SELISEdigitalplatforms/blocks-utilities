@@ -3,6 +3,7 @@ using System.Text;
 using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Sms.DomainService.Entities;
+using Sms.DomainService.Utilities;
 using StackExchange.Redis;
 
 namespace Sms.DomainService.Services;
@@ -40,7 +41,7 @@ public class SmsRateLimiter : ISmsRateLimiter
                 if (await ConsumeAsync(cache, key, 1, settings.RecipientWindowSeconds) > settings.RecipientMaxPerWindow)
                 {
                     _logger.LogWarning("SMS recipient rate limit exceeded TenantId={TenantId}, RecipientHash={RecipientHash}, Max={Max}, WindowSeconds={WindowSeconds}",
-                        tenantId, Hash(recipient), settings.RecipientMaxPerWindow, settings.RecipientWindowSeconds);
+                        SmsLogSanitizer.Id(tenantId), Hash(recipient), settings.RecipientMaxPerWindow, settings.RecipientWindowSeconds);
                     return SmsRateLimitResult.Blocked("Recipient SMS rate limit exceeded.");
                 }
             }
@@ -50,7 +51,7 @@ public class SmsRateLimiter : ISmsRateLimiter
             if (await ConsumeAsync(cache, tenantKey, recipients.Length, settings.TenantWindowSeconds) > settings.TenantMaxPerWindow)
             {
                 _logger.LogWarning("SMS tenant rate limit exceeded TenantId={TenantId}, Max={Max}, WindowSeconds={WindowSeconds}",
-                    tenantId, settings.TenantMaxPerWindow, settings.TenantWindowSeconds);
+                    SmsLogSanitizer.Id(tenantId), settings.TenantMaxPerWindow, settings.TenantWindowSeconds);
                 return SmsRateLimitResult.Blocked("Tenant SMS rate limit exceeded.");
             }
 
@@ -58,7 +59,7 @@ public class SmsRateLimiter : ISmsRateLimiter
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SMS rate limiter failed closed TenantId={TenantId}", tenantId);
+            _logger.LogError(ex, "SMS rate limiter failed closed TenantId={TenantId}", SmsLogSanitizer.Id(tenantId));
             return SmsRateLimitResult.Blocked("SMS rate limiter is unavailable.");
         }
     }

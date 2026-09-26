@@ -81,7 +81,7 @@ public class SmsWorkQueueBackgroundService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "SmsWorkQueue: {Kind} failed MessageId={MessageId}, TenantId={TenantId}, Failures={Failures}",
-                work.Kind, work.MessageId, work.TenantId, work.FailureCount + 1);
+                work.Kind, SmsLogSanitizer.Id(work.MessageId), SmsLogSanitizer.Id(work.TenantId), work.FailureCount + 1);
             await _queue.FailAsync(work, ex.Message, CancellationToken.None);
         }
     }

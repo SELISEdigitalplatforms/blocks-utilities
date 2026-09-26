@@ -20,5 +20,12 @@ public class SendSmsRequestValidator : AbstractValidator<SendSmsRequest>
         RuleFor(x => x.MessageText)
             .NotEmpty()
             .MaximumLength(1600);
+
+        // Echoed into logs, stored, and published on status events: identifier characters only.
+        RuleFor(x => x.CorrelationId)
+            .MaximumLength(100)
+            .Matches("^[A-Za-z0-9_.-]+$")
+            .When(x => !string.IsNullOrEmpty(x.CorrelationId))
+            .WithMessage("Correlation id may contain letters, digits, '_', '.' and '-' only, up to 100 characters.");
     }
 }
