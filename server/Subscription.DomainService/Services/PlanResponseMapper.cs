@@ -66,6 +66,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     MinQuantity = item.MinQuantity,
                     MaxQuantity = item.MaxQuantity,
                     DefaultQuantity = item.DefaultQuantity,
+                    CountsMembers = item.CountsMembers,
                     QuantityDiscountTiers = item.QuantityDiscountTiers
                         .Select(tier => new QuantityDiscountTierResponse
                         {
@@ -91,6 +92,9 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     IncludedQuantity = meter.IncludedQuantity,
                     OverageAllowed = meter.OverageAllowed,
                     ThresholdPercents = [.. meter.ThresholdPercents],
+                    SubLimitWindow = meter.SubLimitWindow?.ToString(),
+                    SubLimitQuantity = meter.SubLimitQuantity,
+                    SubLimitBehaviour = meter.SubLimitBehaviour.ToString(),
                     RateTables = meter.RateTables
                         .Select(table => new PlanMeterRateTableResponse
                         {

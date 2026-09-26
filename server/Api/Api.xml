@@ -975,6 +975,14 @@
             </para>
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetMemberBased(System.String,System.Threading.CancellationToken)">
+            <summary>The organization's subscriptions that people are given places on, live or awaiting payment.</summary>
+            <remarks>
+            <c>current</c> answers for the organization's own subscription and never returns one of
+            these, so this is how a caller finds the identifier to manage members against. Several, not
+            one: an organization may seat people on more than one user-wise plan. Empty is an answer.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Cancels a subscription.

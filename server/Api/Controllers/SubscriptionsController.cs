@@ -172,6 +172,30 @@ public sealed class SubscriptionsController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>The organization's subscriptions that people are given places on, live or awaiting payment.</summary>
+    /// <remarks>
+    /// <c>current</c> answers for the organization's own subscription and never returns one of
+    /// these, so this is how a caller finds the identifier to manage members against. Several, not
+    /// one: an organization may seat people on more than one user-wise plan. Empty is an answer.
+    /// </remarks>
+    [HttpGet("member-based")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::read")]
+    public async Task<IActionResult> GetMemberBased(
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _checkout.ListMemberBasedAsync(
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     /// <summary>
     /// Cancels a subscription.
     /// </summary>

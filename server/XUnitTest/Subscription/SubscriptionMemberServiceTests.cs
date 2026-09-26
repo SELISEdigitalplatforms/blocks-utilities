@@ -390,6 +390,19 @@ public sealed class SubscriptionMemberServiceTests
     }
 
     [Fact]
+    public async Task The_member_list_says_which_place_each_person_holds()
+    {
+        _subscription = UserWise(seats: 3);
+        _held = 2;
+
+        var result = await Service().ListAsync(SubscriptionId, "corr-1", CancellationToken.None);
+
+        result.Value!.Seats.Select(seat => seat.SeatNumber).Should().Equal([1, 2],
+            because: "a list of names without places cannot show which place is empty, and the " +
+                     "allowance belongs to the place rather than the person");
+    }
+
+    [Fact]
     public async Task A_newcomer_takes_a_seat_nobody_is_on()
     {
         SubscriptionAssignment? written = null;
