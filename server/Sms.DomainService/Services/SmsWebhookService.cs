@@ -58,6 +58,7 @@ public sealed partial class SmsWebhookService : ISmsWebhookService
         }
 
         using var tenant = SmsTenantContext.Enter(tenantId);
+        using var scope = SmsLogScope.Begin(_logger, tenantId, correlationId: null);
 
         var configuration = await _repository.GetActiveProviderConfigurationAsync(tenantId, providerType, cancellationToken);
         if (configuration == null)

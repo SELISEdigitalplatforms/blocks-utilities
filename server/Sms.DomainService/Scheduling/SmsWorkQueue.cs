@@ -47,12 +47,20 @@ public sealed class SmsWorkQueue : ISmsWorkQueue
         var work = await WorkAsync(cancellationToken);
         var now = _time.GetUtcNow().UtcDateTime;
 
+        var update = Builders<SmsBackgroundWork>.Update;
+
+        // A caller without the correlation id (a watchdog scheduled before the message is read) must
+        // not blank the one an earlier schedule recorded.
+        var correlation = string.IsNullOrWhiteSpace(correlationId)
+            ? update.SetOnInsert(x => x.CorrelationId, string.Empty)
+            : update.Set(x => x.CorrelationId, correlationId);
+
         await work.UpdateOneAsync(
             x => x.TenantId == tenantId && x.MessageId == messageId && x.Kind == kind,
-            Builders<SmsBackgroundWork>.Update
-                .SetOnInsert(x => x.ItemId, Guid.NewGuid().ToString("N"))
-                .SetOnInsert(x => x.CreatedAtUtc, now)
-                .Set(x => x.CorrelationId, correlationId)
+            update.Combine(
+                correlation,
+                update.SetOnInsert(x => x.ItemId, Guid.NewGuid().ToString("N")),
+                update.SetOnInsert(x => x.CreatedAtUtc, now))
                 .Set(x => x.Status, SmsWorkStatus.Pending)
                 .Set(x => x.DueAtUtc, dueAtUtc)
                 .Set(x => x.LeaseId, null)

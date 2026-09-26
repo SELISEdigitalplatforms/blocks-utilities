@@ -57,6 +57,8 @@ public class SmsWorkQueueBackgroundService : BackgroundService
 
     private async Task RunAsync(SmsBackgroundWork work, CancellationToken stoppingToken)
     {
+        using var logScope = SmsLogScope.Begin(_logger, work.TenantId, work.CorrelationId, work.MessageId);
+
         try
         {
             using (SmsTenantContext.Enter(work.TenantId))
@@ -65,7 +67,7 @@ public class SmsWorkQueueBackgroundService : BackgroundService
                 var processing = scope.ServiceProvider.GetRequiredService<ISmsProcessingService>();
                 var task = work.Kind switch
                 {
-                    SmsWorkKind.Retry => processing.ProcessSendAsync(work.TenantId, work.MessageId, stoppingToken),
+                    SmsWorkKind.Retry => processing.ProcessSendAsync(work.TenantId, work.MessageId, work.CorrelationId, stoppingToken),
                     SmsWorkKind.DeliveryCheck => processing.CheckDeliveryAsync(work.TenantId, work.MessageId, stoppingToken),
                     _ => throw new InvalidOperationException($"Unknown SMS work kind '{work.Kind}'.")
                 };
@@ -80,8 +82,7 @@ public class SmsWorkQueueBackgroundService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SmsWorkQueue: {Kind} failed MessageId={MessageId}, TenantId={TenantId}, Failures={Failures}",
-                work.Kind, SmsLogSanitizer.Id(work.MessageId), SmsLogSanitizer.Id(work.TenantId), work.FailureCount + 1);
+            _logger.LogError(ex, "SmsWorkQueue: {Kind} failed Failures={Failures}", work.Kind, work.FailureCount + 1);
             await _queue.FailAsync(work, ex.Message, CancellationToken.None);
         }
     }

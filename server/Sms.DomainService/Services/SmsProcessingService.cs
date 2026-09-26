@@ -45,7 +45,7 @@ public class SmsProcessingService : ISmsProcessingService
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task ProcessSendAsync(string tenantId, string messageId, CancellationToken cancellationToken = default)
+    public async Task ProcessSendAsync(string tenantId, string messageId, string? correlationId = null, CancellationToken cancellationToken = default)
     {
         var now = _time.GetUtcNow().UtcDateTime;
 
@@ -53,13 +53,13 @@ public class SmsProcessingService : ISmsProcessingService
         // the lease, this item reclaims the message once the lease lapses. Without it a redelivered
         // command would find the lease still live, do nothing, and the message would sit in
         // Processing for good.
-        await _workQueue.ScheduleAsync(tenantId, messageId, string.Empty, SmsWorkKind.Retry, now.Add(SendLease).AddMinutes(1), cancellationToken);
+        await _workQueue.ScheduleAsync(tenantId, messageId, correlationId ?? string.Empty, SmsWorkKind.Retry, now.Add(SendLease).AddMinutes(1), cancellationToken);
 
         var leaseId = Guid.NewGuid().ToString("N");
         var message = await _repository.TryClaimForSendAsync(tenantId, messageId, leaseId, now, SendLease, cancellationToken);
         if (message == null)
         {
-            _logger.LogInformation("SmsProcessingService: nothing to send MessageId={MessageId} (in flight elsewhere, already sent, or missing)", SmsLogSanitizer.Id(messageId));
+            _logger.LogInformation("SmsProcessingService: nothing to send (in flight elsewhere, already sent, or missing)");
             return;
         }
 
@@ -131,8 +131,8 @@ public class SmsProcessingService : ISmsProcessingService
             var retryAt = _retryPolicy.GetNextRetryAt(message.AttemptCount, _time.GetUtcNow().UtcDateTime);
             await _workQueue.ScheduleAsync(tenantId, message.ItemId, message.CorrelationId, SmsWorkKind.Retry, retryAt, cancellationToken);
             await _repository.CompleteSendRoundAsync(tenantId, message.ItemId, leaseId, SmsMessageStatus.RetryScheduled, lastError?.ErrorCode, lastError?.ErrorMessage, cancellationToken);
-            _logger.LogWarning("SmsProcessingService: retry scheduled MessageId={MessageId}, Attempt={Attempt}, PendingRecipients={Pending}, RetryAt={RetryAt}",
-                message.ItemId, message.AttemptCount, pending.Count, retryAt);
+            _logger.LogWarning("SmsProcessingService: retry scheduled Attempt={Attempt}, PendingRecipients={Pending}, RetryAt={RetryAt}",
+                message.AttemptCount, pending.Count, retryAt);
             return;
         }
 
@@ -190,8 +190,12 @@ public class SmsProcessingService : ISmsProcessingService
         var message = await _repository.GetMessageByProviderMessageIdAsync(tenantId, callback.ProviderMessageId, cancellationToken);
         if (message == null)
         {
+            _logger.LogWarning("SmsProcessingService: callback for an unknown provider message ProviderMessageId={ProviderMessageId}", SmsLogSanitizer.Id(callback.ProviderMessageId));
             return false;
         }
+
+        // The webhook knew only the tenant; from here on its lines carry the message's own ids.
+        using var scope = SmsLogScope.Begin(_logger, tenantId, message.CorrelationId, message.ItemId);
 
         // Intermediate states (queued, sent, ...) need no write; a repeated final one is a no-op.
         if (callback.FinalStatus is { } final &&
@@ -242,7 +246,7 @@ public class SmsProcessingService : ISmsProcessingService
         await _repository.CompleteSendRoundAsync(message.TenantId, message.ItemId, leaseId, status, errorCode, errorMessage, cancellationToken);
         await _workQueue.CancelAsync(message.TenantId, message.ItemId, SmsWorkKind.Retry, cancellationToken);
         await PublishAsync(message, status, errorCode, cancellationToken);
-        _logger.LogError("SmsProcessingService: failed MessageId={MessageId}, ErrorCode={ErrorCode}", message.ItemId, SmsLogSanitizer.Id(errorCode));
+        _logger.LogError("SmsProcessingService: failed ErrorCode={ErrorCode}", SmsLogSanitizer.Id(errorCode));
     }
 
     private Task PublishAsync(SmsMessage message, SmsMessageStatus status, string? errorCode, CancellationToken cancellationToken) =>

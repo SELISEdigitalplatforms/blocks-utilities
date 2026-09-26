@@ -141,6 +141,17 @@ public class SmsProcessingServiceTests
         _provider.Verify(p => p.SendAsync(It.IsAny<SmsProviderContext>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task TheWatchdogCarriesTheCorrelationIdItWasGiven()
+    {
+        _repository.Setup(r => r.TryClaimForSendAsync(TenantId, "m1", It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SmsMessage?)null);
+
+        await CreateService().ProcessSendAsync(TenantId, "m1", "order-42");
+
+        _queue.Verify(q => q.ScheduleAsync(TenantId, "m1", "order-42", SmsWorkKind.Retry, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()));
+    }
+
     [Theory]
     [InlineData(new[] { SmsRecipientStatus.Delivered, SmsRecipientStatus.Delivered }, SmsMessageStatus.Delivered)]
     [InlineData(new[] { SmsRecipientStatus.Delivered, SmsRecipientStatus.Undelivered }, SmsMessageStatus.PartiallyDelivered)]

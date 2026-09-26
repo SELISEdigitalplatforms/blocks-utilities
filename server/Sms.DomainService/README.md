@@ -230,6 +230,25 @@ Nothing is read from the body before then.
 | `400` | Unreadable body, or a verified body without a message id. |
 | `404` | Unknown provider, malformed tenant id, no enabled configuration for that provider, unknown tenant, or no message with that provider id. |
 
+## Logging
+
+Every unit of SMS work runs in a log scope (`SmsLogScope`) carrying `TenantId`, `CorrelationId` and
+`SmsMessageId`, opened where the work starts:
+
+| Entry point | Scope |
+| --- | --- |
+| `SmsService` accept and queue (Api) | tenant, request's correlation id, new message id |
+| `SmsWebhookService` (Api) | tenant from the route; widened to the message's ids once the callback is matched |
+| `SendSmsConsumer` (Worker) | the command's tenant, correlation id and message id |
+| `SmsWorkQueueBackgroundService` (Worker) | the work item's tenant, correlation id and message id |
+
+The log store keeps only the rendered message, `TenantId`, `TraceId` and `SpanId`, so
+`SearchableIdLogSink` appends `SmsMessageId` and `CorrelationId` to the text of every line inside
+such a scope (skipping an absent one), and a message's whole history — the request, the send,
+retries, delivery checks and callbacks — is found by searching either id. The correlation id is the
+caller's when given, generated otherwise, and follows the message onto the broker command and the
+work-queue items. Scope values pass through `SmsLogSanitizer.Id`, as they partly come from outside.
+
 ## Messaging
 
 The broker is chosen from `MessageConnectionString`: an `amqp` or `amqps` URI means RabbitMQ,

@@ -10,7 +10,7 @@ namespace Sms.DomainService.Services;
 public interface ISmsProcessingService
 {
     /// <summary>One send round: every recipient still pending. Safe to call twice; the second is a no-op.</summary>
-    Task ProcessSendAsync(string tenantId, string messageId, CancellationToken cancellationToken = default);
+    Task ProcessSendAsync(string tenantId, string messageId, string? correlationId = null, CancellationToken cancellationToken = default);
 
     Task CheckDeliveryAsync(string tenantId, string messageId, CancellationToken cancellationToken = default);
 

@@ -24,17 +24,18 @@ public class SendSmsConsumer : IConsumer<SendSmsCommand>
         }
 
         using var tenant = SmsTenantContext.Enter(command.TenantId);
+        using var logScope = SmsLogScope.Begin(_logger, command.TenantId, command.CorrelationId, command.MessageId);
         using var scope = _scopeFactory.CreateScope();
 
         try
         {
-            await scope.ServiceProvider.GetRequiredService<ISmsProcessingService>().ProcessSendAsync(command.TenantId, command.MessageId);
+            await scope.ServiceProvider.GetRequiredService<ISmsProcessingService>().ProcessSendAsync(command.TenantId, command.MessageId, command.CorrelationId);
         }
         catch (Exception ex)
         {
             // Rethrown so the broker redelivers (and dead-letters after its max delivery count).
             // A redelivery is safe: the send lease turns a duplicate into a no-op.
-            _logger.LogError(ex, "SendSmsConsumer: SMS send failed MessageId={MessageId}, CorrelationId={CorrelationId}", SmsLogSanitizer.Id(command.MessageId), SmsLogSanitizer.Id(command.CorrelationId));
+            _logger.LogError(ex, "SendSmsConsumer: SMS send failed");
             throw;
         }
     }

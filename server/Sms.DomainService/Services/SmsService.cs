@@ -198,6 +198,8 @@ public class SmsService : ISmsService
 
     private async Task<SmsMutationResponse> AcceptAndQueueAsync(SmsMessage message, CancellationToken cancellationToken)
     {
+        using var scope = SmsLogScope.Begin(_logger, message.TenantId, message.CorrelationId, message.ItemId);
+
         var configuration = await _repository.GetActiveProviderConfigurationAsync(message.TenantId, cancellationToken: cancellationToken);
         if (configuration == null)
         {
@@ -245,21 +247,21 @@ public class SmsService : ISmsService
         {
             // The broker is the fast path, not the only one: the root-database queue picks the
             // message up instead, so an accepted SMS is not lost to a broker blip.
-            _logger.LogWarning(ex, "SmsService: broker publish failed, falling back to the work queue MessageId={MessageId}", message.ItemId);
+            _logger.LogWarning(ex, "SmsService: broker publish failed, falling back to the work queue");
             try
             {
                 await _workQueue.ScheduleAsync(message.TenantId, message.ItemId, message.CorrelationId, SmsWorkKind.Retry, DateTime.UtcNow, cancellationToken);
             }
             catch (Exception fallbackEx)
             {
-                _logger.LogError(fallbackEx, "SmsService: failed to queue MessageId={MessageId}", message.ItemId);
+                _logger.LogError(fallbackEx, "SmsService: failed to queue");
                 await _repository.SetStatusAsync(message.TenantId, message.ItemId, SmsMessageStatus.Failed, "sms_queue_publish_failed", ex.Message, cancellationToken);
                 return SmsMutationResponse.Failure("Queue", "SMS request could not be queued. Please retry.");
             }
         }
 
         await _repository.MarkQueuedAsync(message.TenantId, message.ItemId, cancellationToken);
-        _logger.LogInformation("SmsService: accepted MessageId={MessageId}, TenantId={TenantId}, CorrelationId={CorrelationId}", message.ItemId, SmsLogSanitizer.Id(message.TenantId), SmsLogSanitizer.Id(message.CorrelationId));
+        _logger.LogInformation("SmsService: accepted Recipients={Recipients}", message.Recipients.Count);
         return SmsMutationResponse.Success(message.ItemId);
     }
 
