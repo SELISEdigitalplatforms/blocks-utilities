@@ -76,7 +76,7 @@ public class TelnyxSmsProvider : ISmsProvider
 
     public SmsWebhookParseResult VerifyAndParseCallback(SmsProviderContext context, SmsWebhookRequest request)
     {
-        if (string.IsNullOrWhiteSpace(context.Configuration.WebhookPublicKey) ||
+        if (!TelnyxWebhookKey.IsUsable(context.Configuration.WebhookPublicKey) ||
             !request.Headers.TryGetValue(SignatureHeader, out var signature) ||
             !request.Headers.TryGetValue(TimestampHeader, out var timestamp))
         {

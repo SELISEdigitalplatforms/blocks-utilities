@@ -57,6 +57,14 @@ describe("createSmsProviderSchema", () => {
     expect(paths).not.toContain("accountId");
   });
 
+  it("wants the Telnyx key as base64 of 32 bytes", () => {
+    const telnyx = { providerType: SmsProviderType.Telnyx, accountId: "", messagingProfileId: "00000000-0000-0000-0000-000000000001" };
+    const good = btoa(String.fromCharCode(...Array.from({ length: 32 }, (_, i) => i + 1)));
+
+    expect(createSmsProviderSchema(true).safeParse(twilio({ ...telnyx, webhookPublicKey: good })).success).toBe(true);
+    expect(errorPaths(createSmsProviderSchema(true).safeParse(twilio({ ...telnyx, webhookPublicKey: "abc" })))).toContain("webhookPublicKey");
+  });
+
   it("rejects country codes that are not +digits", () => {
     expect(
       errorPaths(createSmsProviderSchema(true).safeParse(twilio({ senderNameExcludedPrefixes: ["1"] }))),

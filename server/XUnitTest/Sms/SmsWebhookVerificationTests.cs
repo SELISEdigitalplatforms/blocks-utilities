@@ -82,7 +82,7 @@ public class SmsWebhookVerificationTests
         var context = new SmsProviderContext(TenantId, new SmsProviderConfiguration
         {
             ProviderType = SmsProviderType.Telnyx,
-            WebhookPublicKey = Convert.ToBase64String(new byte[32])
+            WebhookPublicKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
         }, "key");
         const string body = """{"data":{"payload":{"id":"m1","to":[{"status":"delivered"}]}}}""";
 
@@ -96,6 +96,54 @@ public class SmsWebhookVerificationTests
         };
         telnyx.VerifyAndParseCallback(context, new SmsWebhookRequest(body, headers))
             .Verdict.Should().Be(SmsWebhookVerdict.Unauthorized);
+    }
+
+    [Fact]
+    public void Telnyx_RefusesASmallOrderKeyThatWouldAcceptForgeries()
+    {
+        // The SDK's verifier accepts a zero signature under this key for about one message in eight;
+        // across 64 messages, at least one would get through without the guard.
+        var telnyx = new TelnyxSmsProvider(NullLogger<TelnyxSmsProvider>.Instance);
+        var context = new SmsProviderContext(TenantId, new SmsProviderConfiguration
+        {
+            ProviderType = SmsProviderType.Telnyx,
+            WebhookPublicKey = Convert.ToBase64String(new byte[32])
+        }, "key");
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [TelnyxSmsProvider.SignatureHeader] = Convert.ToBase64String(new byte[64]),
+            [TelnyxSmsProvider.TimestampHeader] = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
+
+        for (var i = 0; i < 64; i++)
+        {
+            var body = "{\"data\":{\"payload\":{\"id\":\"m" + i + "\",\"to\":[{\"status\":\"delivered\"}]}}}";
+            telnyx.VerifyAndParseCallback(context, new SmsWebhookRequest(body, headers))
+                .Verdict.Should().Be(SmsWebhookVerdict.Unauthorized);
+        }
+    }
+
+    [Theory]
+    [InlineData("0000000000000000000000000000000000000000000000000000000000000000")]
+    [InlineData("0100000000000000000000000000000000000000000000000000000000000000")]
+    [InlineData("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05")]
+    [InlineData("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a")]
+    [InlineData("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")]
+    [InlineData("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")]
+    [InlineData("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")]
+    [InlineData("0000000000000000000000000000000000000000000000000000000000000080")]
+    public void TelnyxKey_SmallOrderPointsAreNotUsable(string hex)
+    {
+        TelnyxWebhookKey.IsUsable(Convert.ToBase64String(Convert.FromHexString(hex))).Should().BeFalse();
+    }
+
+    [Fact]
+    public void TelnyxKey_ARealKeyIsUsable_AndMalformedInputIsNot()
+    {
+        TelnyxWebhookKey.IsUsable(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))).Should().BeTrue();
+        TelnyxWebhookKey.IsUsable(Convert.ToBase64String(RandomNumberGenerator.GetBytes(31))).Should().BeFalse();
+        TelnyxWebhookKey.IsUsable("not base64!").Should().BeFalse();
+        TelnyxWebhookKey.IsUsable(null).Should().BeFalse();
     }
 
     [Theory]

@@ -1,6 +1,7 @@
 using FluentValidation;
 using Sms.DomainService.Enums;
 using Sms.DomainService.Requests;
+using Sms.DomainService.Utilities;
 
 namespace Sms.DomainService.Validators;
 
@@ -53,6 +54,9 @@ public class SaveSmsProviderConfigurationRequestValidator : AbstractValidator<Sa
                 .WithMessage("Telnyx messaging profile id must be a GUID.");
             RuleFor(x => x.WebhookPublicKey).NotEmpty()
                 .WithMessage("Telnyx webhook public key is required to verify delivery callbacks.");
+            RuleFor(x => x.WebhookPublicKey).Must(TelnyxWebhookKey.IsUsable)
+                .When(x => !string.IsNullOrWhiteSpace(x.WebhookPublicKey))
+                .WithMessage("Not a usable Telnyx public key: paste the base64 key from the Telnyx portal.");
         });
 
         RuleFor(x => x.StatusCallbackBaseUrl)

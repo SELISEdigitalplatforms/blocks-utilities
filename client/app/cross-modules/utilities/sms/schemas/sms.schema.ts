@@ -22,6 +22,14 @@ const whole = (min: number, max: number, label: string) =>
 const isGuid = (value: string) =>
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value);
 
+const isBase64Of32Bytes = (value: string) => {
+  try {
+    return atob(value.trim()).length === 32;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * The same rules as SaveSmsProviderConfigurationRequestValidator. `isCreate` is true when the
  * tenant has no stored key yet, which is the only time the key is required.
@@ -122,6 +130,13 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
             path: ["webhookPublicKey"],
             message: "Required to verify Telnyx delivery callbacks.",
           });
+        } else if (!isBase64Of32Bytes(values.webhookPublicKey)) {
+          // Shape only; the Api also refuses the weak (small-order) keys that would verify forgeries.
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["webhookPublicKey"],
+            message: "Paste the base64 public key from the Telnyx portal (32 bytes).",
+          });
         }
       }
     });
@@ -151,7 +166,11 @@ export const sendSmsSchema = z
     templateName: z.string().trim(),
     language: z.string().trim(),
     dataContext: z.record(z.string()),
-    correlationId: z.string().trim().max(100),
+    correlationId: z
+      .string()
+      .trim()
+      .max(100)
+      .refine((value) => !value || /^[A-Za-z0-9_.-]+$/.test(value), "Letters, digits, '_', '.' and '-' only."),
   })
   .superRefine((values, context) => {
     if (values.mode === "text" && !values.messageText.trim()) {
