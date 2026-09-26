@@ -40,6 +40,20 @@ Api  POST /api/Sms/Send
 Provider ── POST /sms/{provider}/webhooks/{tenantId} ──► verify signature ──► recipient status
 ```
 
+## Portal
+
+The client module `client/app/cross-modules/utilities/sms` adds an **SMS** group to the project
+sidebar:
+
+| Page | Route | What it does |
+| --- | --- | --- |
+| Send SMS | `/app/:itemId/sms/send` | Send text or a template to a list of numbers; shows the queued message id. |
+| Templates | `/app/:itemId/sms/templates` | List, search, create, edit and delete templates, with live placeholder and segment counts. |
+| Provider settings | `/app/:itemId/sms/provider` | The tenant's configuration: provider and key, sender number and name, delivery, rate limits, spam filter, and the callback URL to expect. |
+
+The forms apply the same rules as the Api validators, and put any error the Api returns under the
+field it names.
+
 ## Api endpoints
 
 All under `/api/Sms`, authenticated.
