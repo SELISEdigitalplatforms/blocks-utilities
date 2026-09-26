@@ -9,9 +9,10 @@ public class SmsDeliveryAttempt
     [BsonId]
     public string ItemId { get; set; } = Guid.NewGuid().ToString();
     public string MessageId { get; set; } = string.Empty;
-    public string ProjectKey { get; set; } = string.Empty;
+    public string TenantId { get; set; } = string.Empty;
     public SmsProviderType ProviderType { get; set; }
     public string? ProviderMessageId { get; set; }
+    public string RecipientNumber { get; set; } = string.Empty;
     public int AttemptNumber { get; set; }
     public SmsMessageStatus Status { get; set; } = SmsMessageStatus.Processing;
     public string? ErrorCode { get; set; }

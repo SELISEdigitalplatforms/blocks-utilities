@@ -88,8 +88,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                 IConsumer<PaymentLifecycleEvent>,
                 PaymentLifecycleEventConsumer>();
             services.AddSingleton<IConsumer<SendSmsCommand>, SendSmsConsumer>();
-            services.AddSingleton<IConsumer<SmsDeliveryCheckEvent>, SmsDeliveryReconciliationConsumer>();
-            services.AddHostedService<SmsBackgroundProcessingService>();
+            services.AddHostedService<SmsWorkQueueBackgroundService>();
             // Register the test consumer
             services.RegisterAllSmsApplicationServices();
             services.RegisterUtilityServices();

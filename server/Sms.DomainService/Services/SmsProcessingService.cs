@@ -1,236 +1,254 @@
-using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Sms.DomainService.Dtos;
 using Sms.DomainService.Entities;
 using Sms.DomainService.Enums;
 using Sms.DomainService.Providers;
 using Sms.DomainService.Repositories;
-using Sms.DomainService.Utilities;
+using Sms.DomainService.Scheduling;
 
 namespace Sms.DomainService.Services;
 
 public class SmsProcessingService : ISmsProcessingService
 {
+    private static readonly TimeSpan SendLease = TimeSpan.FromMinutes(5);
+
+    // ponytail: fixed; after this many polls a still-Submitted recipient is left to the provider callback.
+    private const int MaxDeliveryChecks = 6;
+
     private readonly ISmsRepository _repository;
+    private readonly ISmsWorkQueue _workQueue;
     private readonly ISmsProviderFactory _providerFactory;
+    private readonly ISmsProviderContextResolver _contextResolver;
     private readonly ISmsRetryPolicy _retryPolicy;
     private readonly ISmsEventPublisher _eventPublisher;
-    private readonly IMessageClient _messageClient;
+    private readonly TimeProvider _time;
     private readonly ILogger<SmsProcessingService> _logger;
 
     public SmsProcessingService(
         ISmsRepository repository,
+        ISmsWorkQueue workQueue,
         ISmsProviderFactory providerFactory,
+        ISmsProviderContextResolver contextResolver,
         ISmsRetryPolicy retryPolicy,
         ISmsEventPublisher eventPublisher,
-        IMessageClient messageClient,
-        ILogger<SmsProcessingService> logger)
+        ILogger<SmsProcessingService> logger,
+        TimeProvider? time = null)
     {
         _repository = repository;
+        _workQueue = workQueue;
         _providerFactory = providerFactory;
+        _contextResolver = contextResolver;
         _retryPolicy = retryPolicy;
         _eventPublisher = eventPublisher;
-        _messageClient = messageClient;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
-    public async Task ProcessCommandAsync(SendSmsCommand command, CancellationToken cancellationToken = default)
+    public async Task ProcessSendAsync(string tenantId, string messageId, CancellationToken cancellationToken = default)
     {
-        var message = await _repository.GetMessageAsync(command.ProjectKey, command.MessageId, cancellationToken);
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        // Watchdog first, before anything can go wrong: if this worker dies or throws after taking
+        // the lease, this item reclaims the message once the lease lapses. Without it a redelivered
+        // command would find the lease still live, do nothing, and the message would sit in
+        // Processing for good.
+        await _workQueue.ScheduleAsync(tenantId, messageId, string.Empty, SmsWorkKind.Retry, now.Add(SendLease).AddMinutes(1), cancellationToken);
+
+        var leaseId = Guid.NewGuid().ToString("N");
+        var message = await _repository.TryClaimForSendAsync(tenantId, messageId, leaseId, now, SendLease, cancellationToken);
         if (message == null)
         {
-            _logger.LogError("SmsProcessingService: missing queued SMS MessageId={MessageId}", command.MessageId);
+            _logger.LogInformation("SmsProcessingService: nothing to send MessageId={MessageId} (in flight elsewhere, already sent, or missing)", messageId);
             return;
         }
 
-        if (message.Status is SmsMessageStatus.Submitted or SmsMessageStatus.Delivered)
-        {
-            _logger.LogInformation("SmsProcessingService: duplicate send command ignored for MessageId={MessageId}, Status={Status}", message.ItemId, message.Status);
-            return;
-        }
-
-        await SendWithProviderAsync(message, cancellationToken);
-    }
-
-    public async Task ProcessDueRetriesAsync(CancellationToken cancellationToken = default)
-    {
-        var dueOutboxMessages = await _repository.GetDueOutboxMessagesAsync(DateTime.UtcNow, 25, cancellationToken);
-        foreach (var outbox in dueOutboxMessages)
-        {
-            await ProcessRetryAsync(outbox, cancellationToken);
-        }
-    }
-
-    private async Task ProcessRetryAsync(SmsOutboxMessage outbox, CancellationToken cancellationToken)
-    {
-        if (outbox.Status != SmsOutboxStatus.RetryScheduled || outbox.NextVisibleAt > DateTime.UtcNow)
-        {
-            return;
-        }
-
-        var message = await _repository.GetMessageAsync(outbox.ProjectKey, outbox.MessageId, cancellationToken);
-        if (message == null)
-        {
-            await _repository.UpdateOutboxStatusAsync(outbox.ProjectKey, outbox.ItemId, SmsOutboxStatus.Failed, lastError: "Message missing for retry.", cancellationToken: cancellationToken);
-            return;
-        }
-
-        await SendWithProviderAsync(message, cancellationToken);
-    }
-
-    public async Task ReconcileDeliveryAsync(SmsDeliveryCheckEvent deliveryCheckEvent, CancellationToken cancellationToken = default)
-    {
-        var message = await _repository.GetMessageAsync(deliveryCheckEvent.ProjectKey, deliveryCheckEvent.MessageId, cancellationToken);
-        if (message == null || string.IsNullOrWhiteSpace(message.ProviderMessageId))
-        {
-            return;
-        }
-
-        if (message.Status is SmsMessageStatus.Delivered or SmsMessageStatus.Undelivered or SmsMessageStatus.DeliveryFailed)
-        {
-            return;
-        }
-
-        var configuration = await _repository.GetActiveProviderConfigurationAsync(message.ProjectKey, cancellationToken);
+        var configuration = await _repository.GetActiveProviderConfigurationAsync(tenantId, message.ProviderType, cancellationToken);
         if (configuration == null)
         {
+            await FailAllPendingAsync(message, leaseId, "sms_provider_configuration_missing", "No active SMS provider configuration was found.", cancellationToken);
             return;
         }
 
+        var context = await _contextResolver.ResolveAsync(tenantId, configuration, cancellationToken);
         var provider = _providerFactory.GetProvider(configuration);
-        var delivery = await provider.GetDeliveryStatusAsync(message, configuration, cancellationToken);
-        if (!delivery.IsFinal)
-        {
-            return;
-        }
+        var submittedThisRound = false;
 
-        await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, delivery.Status, errorCode: delivery.ErrorCode, errorMessage: delivery.ErrorMessage, cancellationToken: cancellationToken);
-        await PublishTerminalEventAsync(message, delivery.Status, delivery.ErrorCode, cancellationToken);
-    }
-
-    public async Task ReconcileSubmittedMessagesAsync(CancellationToken cancellationToken = default)
-    {
-        var oldSubmittedMessages = await _repository.GetSubmittedMessagesOlderThanAsync(DateTime.UtcNow.AddMinutes(-10), 50, cancellationToken);
-        foreach (var message in oldSubmittedMessages)
+        // Only recipients still pending: a retry never goes back to a number that already has an
+        // answer, and each outcome is written as soon as it is known so a crash mid-loop cannot
+        // lose it.
+        foreach (var recipient in message.Recipients.Where(r => r.Status == SmsRecipientStatus.Pending))
         {
-            await ReconcileDeliveryAsync(new SmsDeliveryCheckEvent
+            recipient.Attempts++;
+            var result = await provider.SendAsync(context, recipient.Number, message.MessageText, $"{message.ItemId}:{recipient.Number}:{recipient.Attempts}", cancellationToken);
+
+            if (result.IsSuccess)
             {
-                MessageId = message.ItemId,
-                TenantId = message.TenantId,
-                ProjectKey = message.ProjectKey,
-                CorrelationId = message.CorrelationId,
-                ProviderMessageId = message.ProviderMessageId ?? string.Empty
-            }, cancellationToken);
-        }
-    }
-
-    private async Task SendWithProviderAsync(SmsMessage message, CancellationToken cancellationToken)
-    {
-        var outbox = await _repository.GetOutboxByMessageIdAsync(message.ProjectKey, message.ItemId, cancellationToken);
-        var configuration = await _repository.GetActiveProviderConfigurationAsync(message.ProjectKey, cancellationToken);
-        if (configuration == null)
-        {
-            await FailMessageAsync(message, outbox, "sms_provider_configuration_missing", "No active SMS provider configuration was found.", cancellationToken);
-            return;
-        }
-
-        var provider = _providerFactory.GetProvider(configuration);
-        await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Processing, cancellationToken: cancellationToken);
-        await _repository.IncrementMessageAttemptAsync(message.ProjectKey, message.ItemId, cancellationToken);
-
-        var attempt = new SmsDeliveryAttempt
-        {
-            MessageId = message.ItemId,
-            ProjectKey = message.ProjectKey,
-            ProviderType = configuration.ProviderType,
-            AttemptNumber = message.AttemptCount + 1,
-            Status = SmsMessageStatus.Processing
-        };
-
-        var result = await provider.SendAsync(message, configuration, cancellationToken);
-        attempt.CompletedAt = DateTime.UtcNow;
-        attempt.ProviderMessageId = result.ProviderMessageId;
-
-        if (result.IsSuccess)
-        {
-            attempt.Status = SmsMessageStatus.Submitted;
-            await _repository.SaveAttemptAsync(attempt, cancellationToken);
-            await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Submitted, result.ProviderMessageId, cancellationToken: cancellationToken);
-            if (outbox != null)
+                recipient.Status = SmsRecipientStatus.Submitted;
+                recipient.ProviderMessageId = result.ProviderMessageId;
+                recipient.ErrorCode = null;
+                recipient.ErrorMessage = null;
+                submittedThisRound = true;
+            }
+            else
             {
-                await _repository.UpdateOutboxStatusAsync(message.ProjectKey, outbox.ItemId, SmsOutboxStatus.Completed, cancellationToken: cancellationToken);
+                recipient.Status = result.IsTransientFailure ? SmsRecipientStatus.Pending : SmsRecipientStatus.Failed;
+                recipient.ErrorCode = result.ErrorCode;
+                recipient.ErrorMessage = result.ErrorMessage;
             }
 
-            await PublishStatusAsync(message, SmsMessageStatus.Submitted, configuration.ProviderType, result.ProviderMessageId, null, cancellationToken);
-
-            await _messageClient.SendToConsumerAsync(new ConsumerMessage<SmsDeliveryCheckEvent>
+            recipient.LastUpdatedDate = _time.GetUtcNow().UtcDateTime;
+            await _repository.UpdateRecipientAsync(tenantId, message.ItemId, leaseId, recipient, cancellationToken);
+            await _repository.SaveAttemptAsync(new SmsDeliveryAttempt
             {
-                ConsumerName = SmsConstants.SmsDeliveryCheckQueue,
-                Payload = new SmsDeliveryCheckEvent
-                {
-                    MessageId = message.ItemId,
-                    TenantId = message.TenantId,
-                    ProjectKey = message.ProjectKey,
-                    CorrelationId = message.CorrelationId,
-                    ProviderMessageId = result.ProviderMessageId ?? string.Empty
-                }
-            });
+                MessageId = message.ItemId,
+                TenantId = tenantId,
+                ProviderType = configuration.ProviderType,
+                RecipientNumber = recipient.Number,
+                ProviderMessageId = result.ProviderMessageId,
+                AttemptNumber = recipient.Attempts,
+                Status = result.IsSuccess ? SmsMessageStatus.Submitted : result.IsTransientFailure ? SmsMessageStatus.RetryScheduled : SmsMessageStatus.Failed,
+                ErrorCode = result.ErrorCode,
+                ErrorMessage = result.ErrorMessage,
+                CompletedAt = recipient.LastUpdatedDate
+            }, cancellationToken);
+        }
 
-            _logger.LogInformation("SmsProcessingService: submitted MessageId={MessageId}, Provider={Provider}, CorrelationId={CorrelationId}", message.ItemId, configuration.ProviderType, message.CorrelationId);
+        if (submittedThisRound)
+        {
+            await _workQueue.ScheduleAsync(tenantId, message.ItemId, message.CorrelationId, SmsWorkKind.DeliveryCheck,
+                _time.GetUtcNow().UtcDateTime.AddMinutes(configuration.DeliveryCheckDelayMinutes), cancellationToken);
+        }
+
+        var pending = message.Recipients.Where(r => r.Status == SmsRecipientStatus.Pending).ToList();
+        var lastError = pending.Concat(message.Recipients).FirstOrDefault(r => r.ErrorCode != null);
+
+        if (pending.Count > 0 && message.AttemptCount < configuration.MaxRetryAttempts)
+        {
+            var retryAt = _retryPolicy.GetNextRetryAt(message.AttemptCount, _time.GetUtcNow().UtcDateTime);
+            await _workQueue.ScheduleAsync(tenantId, message.ItemId, message.CorrelationId, SmsWorkKind.Retry, retryAt, cancellationToken);
+            await _repository.CompleteSendRoundAsync(tenantId, message.ItemId, leaseId, SmsMessageStatus.RetryScheduled, lastError?.ErrorCode, lastError?.ErrorMessage, cancellationToken);
+            _logger.LogWarning("SmsProcessingService: retry scheduled MessageId={MessageId}, Attempt={Attempt}, PendingRecipients={Pending}, RetryAt={RetryAt}",
+                message.ItemId, message.AttemptCount, pending.Count, retryAt);
             return;
         }
 
-        attempt.Status = result.IsTransientFailure ? SmsMessageStatus.Queued : SmsMessageStatus.Failed;
-        attempt.ErrorCode = result.ErrorCode;
-        attempt.ErrorMessage = result.ErrorMessage;
-        await _repository.SaveAttemptAsync(attempt, cancellationToken);
-
-        if (result.IsTransientFailure && outbox != null && outbox.RetryCount < outbox.MaxRetryCount)
+        foreach (var recipient in pending)
         {
-            var retryCount = outbox.RetryCount + 1;
-            var nextRetryAt = _retryPolicy.GetNextRetryAt(retryCount, DateTime.UtcNow);
-            await _repository.UpdateOutboxStatusAsync(message.ProjectKey, outbox.ItemId, SmsOutboxStatus.RetryScheduled, retryCount, nextRetryAt, result.ErrorMessage, cancellationToken);
-            await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Queued, errorCode: result.ErrorCode, errorMessage: result.ErrorMessage, cancellationToken: cancellationToken);
-            _logger.LogWarning("SmsProcessingService: retry scheduled MessageId={MessageId}, RetryCount={RetryCount}, NextRetryAt={NextRetryAt}", message.ItemId, retryCount, nextRetryAt);
+            recipient.Status = SmsRecipientStatus.Failed;
+            await _repository.UpdateRecipientAsync(tenantId, message.ItemId, leaseId, recipient, cancellationToken);
+        }
+
+        var status = SmsStatusRollup.AfterSend(message.Recipients);
+        await _repository.CompleteSendRoundAsync(tenantId, message.ItemId, leaseId, status, lastError?.ErrorCode, lastError?.ErrorMessage, cancellationToken);
+        await _workQueue.CancelAsync(tenantId, message.ItemId, SmsWorkKind.Retry, cancellationToken);
+        await PublishAsync(message, status, lastError?.ErrorCode, cancellationToken);
+    }
+
+    public async Task CheckDeliveryAsync(string tenantId, string messageId, CancellationToken cancellationToken = default)
+    {
+        var message = await _repository.GetMessageAsync(tenantId, messageId, cancellationToken);
+        var outstanding = message?.Recipients
+            .Where(r => r.Status == SmsRecipientStatus.Submitted && !string.IsNullOrWhiteSpace(r.ProviderMessageId))
+            .ToList();
+        if (message == null || outstanding is not { Count: > 0 })
+        {
             return;
         }
 
-        await FailMessageAsync(message, outbox, result.ErrorCode ?? "sms_send_failed", result.ErrorMessage ?? "SMS provider send failed.", cancellationToken);
-    }
-
-    private async Task FailMessageAsync(SmsMessage message, SmsOutboxMessage? outbox, string errorCode, string errorMessage, CancellationToken cancellationToken)
-    {
-        await _repository.UpdateMessageStatusAsync(message.ProjectKey, message.ItemId, SmsMessageStatus.Failed, errorCode: errorCode, errorMessage: errorMessage, cancellationToken: cancellationToken);
-        if (outbox != null)
+        var configuration = await _repository.GetActiveProviderConfigurationAsync(tenantId, message.ProviderType, cancellationToken);
+        if (configuration == null)
         {
-            await _repository.UpdateOutboxStatusAsync(message.ProjectKey, outbox.ItemId, SmsOutboxStatus.Failed, lastError: errorMessage, cancellationToken: cancellationToken);
+            return;
         }
 
-        await PublishStatusAsync(message, SmsMessageStatus.Failed, message.ProviderType, message.ProviderMessageId, errorCode, cancellationToken);
+        var context = await _contextResolver.ResolveAsync(tenantId, configuration, cancellationToken);
+        var provider = _providerFactory.GetProvider(configuration);
 
-        _logger.LogError("SmsProcessingService: failed MessageId={MessageId}, ErrorCode={ErrorCode}, CorrelationId={CorrelationId}", message.ItemId, errorCode, message.CorrelationId);
+        foreach (var recipient in outstanding)
+        {
+            var delivery = await provider.GetDeliveryStatusAsync(context, recipient.ProviderMessageId!, cancellationToken);
+            if (delivery.FinalStatus is { } final)
+            {
+                await _repository.ApplyRecipientDeliveryAsync(tenantId, message.ItemId, recipient.ProviderMessageId!, final, delivery.ErrorCode, delivery.ErrorMessage, cancellationToken);
+            }
+        }
+
+        if (!await RollUpDeliveryAsync(tenantId, message.ItemId, cancellationToken) && message.DeliveryCheckCount + 1 < MaxDeliveryChecks)
+        {
+            await _repository.IncrementDeliveryCheckAsync(tenantId, message.ItemId, cancellationToken);
+            await _workQueue.ScheduleAsync(tenantId, message.ItemId, message.CorrelationId, SmsWorkKind.DeliveryCheck,
+                _time.GetUtcNow().UtcDateTime.AddMinutes(configuration.DeliveryCheckDelayMinutes), cancellationToken);
+        }
     }
 
-    private Task PublishTerminalEventAsync(SmsMessage message, SmsMessageStatus status, string? errorCode, CancellationToken cancellationToken)
+    public async Task<bool> ApplyCallbackAsync(string tenantId, SmsDeliveryCallback callback, CancellationToken cancellationToken = default)
     {
-        return PublishStatusAsync(message, status, message.ProviderType, message.ProviderMessageId, errorCode, cancellationToken);
+        var message = await _repository.GetMessageByProviderMessageIdAsync(tenantId, callback.ProviderMessageId, cancellationToken);
+        if (message == null)
+        {
+            return false;
+        }
+
+        // Intermediate states (queued, sent, ...) need no write; a repeated final one is a no-op.
+        if (callback.FinalStatus is { } final &&
+            await _repository.ApplyRecipientDeliveryAsync(tenantId, message.ItemId, callback.ProviderMessageId, final, callback.ErrorCode, callback.ErrorMessage, cancellationToken))
+        {
+            await RollUpDeliveryAsync(tenantId, message.ItemId, cancellationToken);
+        }
+
+        return true;
     }
 
-    private Task PublishStatusAsync(SmsMessage message, SmsMessageStatus status, SmsProviderType? provider, string? providerMessageId, string? errorCode, CancellationToken cancellationToken)
+    /// <summary>True once every recipient has a final outcome (and the message says so).</summary>
+    private async Task<bool> RollUpDeliveryAsync(string tenantId, string messageId, CancellationToken cancellationToken)
     {
-        return _eventPublisher.PublishStatusAsync(new SmsStatusEvent
+        var message = await _repository.GetMessageAsync(tenantId, messageId, cancellationToken);
+        if (message == null)
+        {
+            return true;
+        }
+
+        var status = SmsStatusRollup.AfterDelivery(message.Recipients);
+        if (status == null)
+        {
+            return false;
+        }
+
+        if (status != message.Status)
+        {
+            await _repository.SetStatusAsync(tenantId, messageId, status.Value, cancellationToken: cancellationToken);
+            await _workQueue.CancelAsync(tenantId, messageId, SmsWorkKind.DeliveryCheck, cancellationToken);
+            await PublishAsync(message, status.Value, null, cancellationToken);
+        }
+
+        return true;
+    }
+
+    private async Task FailAllPendingAsync(SmsMessage message, string leaseId, string errorCode, string errorMessage, CancellationToken cancellationToken)
+    {
+        foreach (var recipient in message.Recipients.Where(r => r.Status == SmsRecipientStatus.Pending))
+        {
+            recipient.Status = SmsRecipientStatus.Failed;
+            recipient.ErrorCode = errorCode;
+            recipient.ErrorMessage = errorMessage;
+            await _repository.UpdateRecipientAsync(message.TenantId, message.ItemId, leaseId, recipient, cancellationToken);
+        }
+
+        var status = SmsStatusRollup.AfterSend(message.Recipients);
+        await _repository.CompleteSendRoundAsync(message.TenantId, message.ItemId, leaseId, status, errorCode, errorMessage, cancellationToken);
+        await _workQueue.CancelAsync(message.TenantId, message.ItemId, SmsWorkKind.Retry, cancellationToken);
+        await PublishAsync(message, status, errorCode, cancellationToken);
+        _logger.LogError("SmsProcessingService: failed MessageId={MessageId}, ErrorCode={ErrorCode}", message.ItemId, errorCode);
+    }
+
+    private Task PublishAsync(SmsMessage message, SmsMessageStatus status, string? errorCode, CancellationToken cancellationToken) =>
+        _eventPublisher.PublishStatusAsync(new SmsStatusEvent
         {
             MessageId = message.ItemId,
             TenantId = message.TenantId,
-            ProjectKey = message.ProjectKey,
             CorrelationId = message.CorrelationId,
-            Provider = provider,
-            ProviderMessageId = providerMessageId,
+            Provider = message.ProviderType,
             Status = status,
             ErrorCode = errorCode
         }, cancellationToken);
-    }
 }
-
-
-

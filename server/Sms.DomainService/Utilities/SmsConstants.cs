@@ -5,27 +5,28 @@ namespace Sms.DomainService.Utilities;
 public static class SmsConstants
 {
     public const string SmsSendQueue = "blocks_sms_send_listener";
-    public const string SmsDeliveryCheckQueue = "blocks_sms_delivery_check_listener";
     public const string SmsStatusTopic = "blocks_sms_status_topic";
 
-    private const string RabbitMqProvider = "rabbitmq";
-
+    /// <summary>
+    /// The broker carries only the first send; retries and delivery checks run from the root
+    /// database queue. Same scheme test as <c>MagicLinkConstants.GetProvider</c>, so both halves of
+    /// the combined configuration always pick the same broker.
+    /// </summary>
     public static MessageConfiguration GetMessageConfiguration(string messageConnectionString)
     {
-        var queues = new[] { SmsSendQueue, SmsDeliveryCheckQueue };
         return IsRabbitMq(messageConnectionString)
             ? new MessageConfiguration
             {
                 RabbitMqConfiguration = new RabbitMqConfiguration
                 {
-                    ConsumerSubscriptions = queues.Select(queue => ConsumerSubscription.BindToQueue(queue)).ToList()
+                    ConsumerSubscriptions = [ConsumerSubscription.BindToQueue(SmsSendQueue)]
                 }
             }
             : new MessageConfiguration
             {
                 AzureServiceBusConfiguration = new AzureServiceBusConfiguration
                 {
-                    Queues = [..queues],
+                    Queues = [SmsSendQueue],
                     Topics = [SmsStatusTopic],
                     QueueMaxDeliveryCount = 10
                 }
@@ -39,5 +40,3 @@ public static class SmsConstants
                 uri.Scheme.Equals("amqps", StringComparison.OrdinalIgnoreCase));
     }
 }
-
-

@@ -1,0 +1,101 @@
+using FluentAssertions;
+using Sms.DomainService.Entities;
+using Sms.DomainService.Enums;
+using Sms.DomainService.Requests;
+using Sms.DomainService.Responses;
+using Sms.DomainService.Validators;
+
+namespace XUnitTest.Sms;
+
+public class SmsProviderConfigurationTests
+{
+    private readonly SaveSmsProviderConfigurationRequestValidator _validator = new();
+
+    private static SaveSmsProviderConfigurationRequest ValidTwilio() => new()
+    {
+        Name = "Primary",
+        ProviderType = SmsProviderType.Twilio,
+        Sender = "+15005550006",
+        AccountId = "AC" + new string('a', 32),
+        ApiKey = "token",
+        StatusCallbackBaseUrl = "https://utilities.example.com"
+    };
+
+    [Fact]
+    public void Validator_AcceptsAValidTwilioConfiguration()
+    {
+        _validator.Validate(ValidTwilio()).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validator_RequiresApiKeyOnCreateButNotOnUpdate()
+    {
+        var create = ValidTwilio();
+        create.ApiKey = null;
+        var update = ValidTwilio();
+        update.ApiKey = null;
+        update.ConfigurationId = "existing";
+
+        _validator.Validate(create).IsValid.Should().BeFalse();
+        _validator.Validate(update).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("AC123")]
+    [InlineData("")]
+    public void Validator_RejectsMalformedTwilioAccountSid(string accountSid)
+    {
+        var request = ValidTwilio();
+        request.AccountId = accountSid;
+
+        _validator.Validate(request).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Validator_RequiresTelnyxProfileAndWebhookKey()
+    {
+        var request = ValidTwilio();
+        request.ProviderType = SmsProviderType.Telnyx;
+        request.AccountId = null;
+
+        var result = _validator.Validate(request);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Select(e => e.PropertyName).Should().Contain(["MessagingProfileId", "WebhookPublicKey"]);
+    }
+
+    [Theory]
+    [InlineData("http://utilities.example.com")]
+    [InlineData("not-a-url")]
+    public void Validator_RequiresHttpsCallbackBase(string url)
+    {
+        var request = ValidTwilio();
+        request.StatusCallbackBaseUrl = url;
+
+        _validator.Validate(request).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Validator_RejectsOutOfRangeLimits()
+    {
+        var request = ValidTwilio();
+        request.MaxRetryAttempts = 0;
+        request.RateLimit = new SmsRateLimitSettings { TenantMaxPerWindow = 0 };
+        request.SpamFilter = new SmsSpamFilterSettings { MaxRecipients = 0 };
+
+        var properties = _validator.Validate(request).Errors.Select(e => e.PropertyName).ToList();
+
+        properties.Should().Contain(["MaxRetryAttempts", "RateLimit.TenantMaxPerWindow", "SpamFilter.MaxRecipients"]);
+    }
+
+    [Fact]
+    public void View_NeverCarriesTheSecret()
+    {
+        var view = SmsProviderConfigurationView.From(new SmsProviderConfiguration { ApiKeySecretId = "secret-id" });
+
+        view.HasApiKey.Should().BeTrue();
+        typeof(SmsProviderConfigurationView).GetProperties()
+            .Select(p => p.Name)
+            .Should().NotContain(name => name.Contains("Secret") || name == "ApiKey" || name.Contains("Token"));
+    }
+}

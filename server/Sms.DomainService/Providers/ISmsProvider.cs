@@ -1,5 +1,4 @@
 using Sms.DomainService.Dtos;
-using Sms.DomainService.Entities;
 using Sms.DomainService.Enums;
 
 namespace Sms.DomainService.Providers;
@@ -7,6 +6,16 @@ namespace Sms.DomainService.Providers;
 public interface ISmsProvider
 {
     SmsProviderType ProviderType { get; }
-    Task<SmsProviderResult> SendAsync(SmsMessage message, SmsProviderConfiguration configuration, CancellationToken cancellationToken = default);
-    Task<SmsProviderDeliveryStatus> GetDeliveryStatusAsync(SmsMessage message, SmsProviderConfiguration configuration, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends to one recipient. Never throws for a provider failure; the result says why.
+    /// <paramref name="idempotencyKey"/> is stable per message and recipient, so a provider that
+    /// honours it (Telnyx) drops a resend after a worker crash.
+    /// </summary>
+    Task<SmsProviderResult> SendAsync(SmsProviderContext context, string to, string body, string idempotencyKey, CancellationToken cancellationToken = default);
+
+    Task<SmsProviderDeliveryStatus> GetDeliveryStatusAsync(SmsProviderContext context, string providerMessageId, CancellationToken cancellationToken = default);
+
+    /// <summary>Checks the provider's signature before reading anything from the callback.</summary>
+    SmsWebhookParseResult VerifyAndParseCallback(SmsProviderContext context, SmsWebhookRequest request);
 }

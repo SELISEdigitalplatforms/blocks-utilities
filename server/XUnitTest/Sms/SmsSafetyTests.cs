@@ -11,94 +11,104 @@ namespace XUnitTest.Sms;
 
 public class SmsSafetyTests
 {
+    private static readonly string[] OneRecipient = ["+41790000000"];
+
     [Fact]
-    public void SuspiciousMessageService_ShouldBlockSensitiveUrlMessages()
+    public void SpamFilter_BlocksBlockedTermWithUrl()
     {
-        var service = new SuspiciousMessageService();
+        var result = new SuspiciousMessageService().Analyze("reset your password at https://example.com", OneRecipient, new SmsSpamFilterSettings());
 
-        var result = service.Analyze("reset your password at https://example.com", ["+41790000000"]);
-
-        result.RiskLevel.Should().Be(SmsRiskLevel.Blocked);
         result.ShouldBlock.Should().BeTrue();
     }
 
-    [Fact]
-    public void SmsRetryPolicy_ShouldReturnFutureRetry()
+    [Theory]
+    [InlineData(SmsUrlPolicy.Allow, SmsRiskLevel.Low)]
+    [InlineData(SmsUrlPolicy.Flag, SmsRiskLevel.High)]
+    [InlineData(SmsUrlPolicy.Block, SmsRiskLevel.Blocked)]
+    public void SpamFilter_UrlPolicyComesFromConfiguration(SmsUrlPolicy policy, SmsRiskLevel expected)
     {
-        var policy = new SmsRetryPolicy();
+        var settings = new SmsSpamFilterSettings { UrlPolicy = policy, BlockedTerms = [] };
+
+        var result = new SuspiciousMessageService().Analyze("see https://example.com", OneRecipient, settings);
+
+        result.RiskLevel.Should().Be(expected);
+    }
+
+    [Fact]
+    public void SpamFilter_UsesConfiguredRecipientCeiling_AndCanBeDisabled()
+    {
+        var numbers = new[] { "+41790000001", "+41790000002", "+41790000003" };
+        var service = new SuspiciousMessageService();
+
+        service.Analyze("hi", numbers, new SmsSpamFilterSettings { MaxRecipients = 2 }).ShouldBlock.Should().BeTrue();
+        service.Analyze("hi", numbers, new SmsSpamFilterSettings { MaxRecipients = 2, Enabled = false }).ShouldBlock.Should().BeFalse();
+    }
+
+    [Fact]
+    public void RetryPolicy_ReturnsFutureRetry()
+    {
         var now = DateTime.UtcNow;
 
-        var retryAt = policy.GetNextRetryAt(2, now);
-
-        retryAt.Should().BeAfter(now);
+        new SmsRetryPolicy().GetNextRetryAt(2, now).Should().BeAfter(now);
     }
 
     [Fact]
-    public async Task SmsRateLimiter_ShouldAllow_WhenRedisCountersAreWithinLimit()
+    public async Task RateLimiter_CountsOneSmsPerRecipientAgainstTheTenant()
     {
-        var cache = new Mock<ICacheClient>();
-        var database = new Mock<IDatabase>();
-        cache.Setup(client => client.CacheDatabase()).Returns(database.Object);
-        database.Setup(db => db.StringIncrementAsync(It.IsAny<RedisKey>(), 1, It.IsAny<CommandFlags>())).ReturnsAsync(1);
-        database.Setup(db => db.KeyExpireAsync(It.IsAny<RedisKey>(), It.IsAny<TimeSpan?>(), It.IsAny<ExpireWhen>(), It.IsAny<CommandFlags>())).ReturnsAsync(true);
+        var (limiter, database) = CreateLimiter(_ => 1);
+        var settings = new SmsRateLimitSettings { TenantMaxPerWindow = 10, RecipientMaxPerWindow = 5 };
 
-        var limiter = new SmsRateLimiter(cache.Object, NullLogger<SmsRateLimiter>.Instance);
-
-        var result = await limiter.CheckAsync(CreateMessage(), CreateConfiguration(maxPerWindow: 2));
+        var result = await limiter.CheckAsync("tenant-a", ["+41790000001", "+41790000002"], settings);
 
         result.IsAllowed.Should().BeTrue();
-        database.Verify(db => db.StringIncrementAsync(It.IsAny<RedisKey>(), 1, It.IsAny<CommandFlags>()), Times.Exactly(2));
-        database.Verify(db => db.KeyExpireAsync(It.IsAny<RedisKey>(), TimeSpan.FromSeconds(60), ExpireWhen.Always, It.IsAny<CommandFlags>()), Times.Exactly(2));
+        database.Verify(db => db.StringIncrementAsync(It.Is<RedisKey>(k => k.ToString().Contains(":tenant:")), 2, It.IsAny<CommandFlags>()), Times.Once);
     }
 
     [Fact]
-    public async Task SmsRateLimiter_ShouldBlock_WhenTenantCounterExceedsLimit()
+    public async Task RateLimiter_RecipientLimitRefusesWithoutSpendingTenantAllowance()
+    {
+        var (limiter, database) = CreateLimiter(key => key.Contains(":recipient:") ? 6 : 1);
+        var settings = new SmsRateLimitSettings { TenantMaxPerWindow = 100, RecipientMaxPerWindow = 5 };
+
+        var result = await limiter.CheckAsync("tenant-a", OneRecipient, settings);
+
+        result.IsAllowed.Should().BeFalse();
+        result.Reason.Should().Contain("Recipient");
+        database.Verify(db => db.StringIncrementAsync(It.Is<RedisKey>(k => k.ToString().Contains(":tenant:")), It.IsAny<long>(), It.IsAny<CommandFlags>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RateLimiter_TenantLimitIsIndependentOfRecipientLimit()
+    {
+        var (limiter, _) = CreateLimiter(key => key.Contains(":tenant:") ? 11 : 1);
+        var settings = new SmsRateLimitSettings { TenantMaxPerWindow = 10, RecipientMaxPerWindow = 50 };
+
+        var result = await limiter.CheckAsync("tenant-a", OneRecipient, settings);
+
+        result.IsAllowed.Should().BeFalse();
+        result.Reason.Should().Contain("Tenant");
+    }
+
+    [Fact]
+    public async Task RateLimiter_FailsClosedWhenRedisIsDown()
+    {
+        var cache = new Mock<ICacheClient>();
+        cache.Setup(c => c.CacheDatabase()).Throws(new RedisConnectionException(ConnectionFailureType.UnableToConnect, "down"));
+
+        var result = await new SmsRateLimiter(cache.Object, NullLogger<SmsRateLimiter>.Instance)
+            .CheckAsync("tenant-a", OneRecipient, new SmsRateLimitSettings());
+
+        result.IsAllowed.Should().BeFalse();
+    }
+
+    private static (SmsRateLimiter Limiter, Mock<IDatabase> Database) CreateLimiter(Func<string, long> countFor)
     {
         var cache = new Mock<ICacheClient>();
         var database = new Mock<IDatabase>();
-        cache.Setup(client => client.CacheDatabase()).Returns(database.Object);
-        database.Setup(db => db.StringIncrementAsync(It.IsAny<RedisKey>(), 1, It.IsAny<CommandFlags>())).ReturnsAsync(3);
-
-        var limiter = new SmsRateLimiter(cache.Object, NullLogger<SmsRateLimiter>.Instance);
-
-        var result = await limiter.CheckAsync(CreateMessage(), CreateConfiguration(maxPerWindow: 2));
-
-        result.IsAllowed.Should().BeFalse();
-        result.Reason.Should().Be("Tenant SMS rate limit exceeded.");
-        database.Verify(db => db.StringIncrementAsync(It.IsAny<RedisKey>(), 1, It.IsAny<CommandFlags>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task SmsRateLimiter_ShouldFailClosed_WhenRedisIsUnavailable()
-    {
-        var cache = new Mock<ICacheClient>();
-        cache.Setup(client => client.CacheDatabase()).Throws(new RedisConnectionException(ConnectionFailureType.UnableToConnect, "redis unavailable"));
-
-        var limiter = new SmsRateLimiter(cache.Object, NullLogger<SmsRateLimiter>.Instance);
-
-        var result = await limiter.CheckAsync(CreateMessage(), CreateConfiguration(maxPerWindow: 2));
-
-        result.IsAllowed.Should().BeFalse();
-        result.Reason.Should().Be("SMS rate limiter is unavailable.");
-    }
-
-    private static SmsMessage CreateMessage()
-    {
-        return new SmsMessage
-        {
-            ProjectKey = "project-a",
-            TenantId = "tenant-a",
-            DestinationNumbers = ["+41790000000"]
-        };
-    }
-
-    private static SmsProviderConfiguration CreateConfiguration(int maxPerWindow)
-    {
-        return new SmsProviderConfiguration
-        {
-            RateLimitMaxPerWindow = maxPerWindow,
-            RateLimitWindowSeconds = 60
-        };
+        cache.Setup(c => c.CacheDatabase()).Returns(database.Object);
+        database
+            .Setup(db => db.StringIncrementAsync(It.IsAny<RedisKey>(), It.IsAny<long>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync((RedisKey key, long _, CommandFlags _) => countFor(key.ToString()));
+        return (new SmsRateLimiter(cache.Object, NullLogger<SmsRateLimiter>.Instance), database);
     }
 }
-

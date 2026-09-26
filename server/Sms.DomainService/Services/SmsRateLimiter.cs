@@ -7,6 +7,10 @@ using StackExchange.Redis;
 
 namespace Sms.DomainService.Services;
 
+/// <summary>
+/// Fixed-window counters in Redis, with separate limits for the tenant and for each recipient,
+/// both from the provider configuration. Fails closed: no Redis, no SMS.
+/// </summary>
 public class SmsRateLimiter : ISmsRateLimiter
 {
     private const string KeyPrefix = "sms:rate-limit";
@@ -20,70 +24,56 @@ public class SmsRateLimiter : ISmsRateLimiter
         _logger = logger;
     }
 
-    public async Task<SmsRateLimitResult> CheckAsync(SmsMessage message, SmsProviderConfiguration configuration, CancellationToken cancellationToken = default)
+    public async Task<SmsRateLimitResult> CheckAsync(string tenantId, IReadOnlyCollection<string> destinationNumbers, SmsRateLimitSettings settings, CancellationToken cancellationToken = default)
     {
-        var windowSeconds = Math.Max(1, configuration.RateLimitWindowSeconds);
-        var max = Math.Max(1, configuration.RateLimitMaxPerWindow);
-
         try
         {
             var cache = _cacheClient.CacheDatabase();
-            var tenantKey = BuildTenantKey(message.ProjectKey, message.TenantId, windowSeconds);
-            if (!await TryConsumeAsync(cache, tenantKey, max, windowSeconds).ConfigureAwait(false))
-            {
-                _logger.LogWarning("SMS tenant rate limit exceeded TenantId={TenantId}, ProjectKey={ProjectKey}, WindowSeconds={WindowSeconds}, Max={Max}",
-                    message.TenantId, message.ProjectKey, windowSeconds, max);
-                return SmsRateLimitResult.Blocked("Tenant SMS rate limit exceeded.");
-            }
+            var recipients = destinationNumbers.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
-            foreach (var destination in message.DestinationNumbers.Distinct(StringComparer.OrdinalIgnoreCase))
+            // Recipients first, so a request refused for one flooded number does not also spend the
+            // tenant's allowance. ponytail: recipient counters for numbers checked before the refused
+            // one are still spent; a Lua script can make the whole check atomic if that matters.
+            foreach (var recipient in recipients)
             {
-                var recipientKey = BuildRecipientKey(message.ProjectKey, message.TenantId, destination, windowSeconds);
-                if (!await TryConsumeAsync(cache, recipientKey, max, windowSeconds).ConfigureAwait(false))
+                var key = $"{KeyPrefix}:recipient:{Hash(tenantId)}:{Hash(recipient)}:{settings.RecipientWindowSeconds}";
+                if (await ConsumeAsync(cache, key, 1, settings.RecipientWindowSeconds) > settings.RecipientMaxPerWindow)
                 {
-                    _logger.LogWarning("SMS recipient rate limit exceeded TenantId={TenantId}, ProjectKey={ProjectKey}, RecipientHash={RecipientHash}, WindowSeconds={WindowSeconds}, Max={Max}",
-                        message.TenantId, message.ProjectKey, Hash(destination), windowSeconds, max);
+                    _logger.LogWarning("SMS recipient rate limit exceeded TenantId={TenantId}, RecipientHash={RecipientHash}, Max={Max}, WindowSeconds={WindowSeconds}",
+                        tenantId, Hash(recipient), settings.RecipientMaxPerWindow, settings.RecipientWindowSeconds);
                     return SmsRateLimitResult.Blocked("Recipient SMS rate limit exceeded.");
                 }
+            }
+
+            // The tenant limit counts SMS, one per recipient, not API calls.
+            var tenantKey = $"{KeyPrefix}:tenant:{Hash(tenantId)}:{settings.TenantWindowSeconds}";
+            if (await ConsumeAsync(cache, tenantKey, recipients.Length, settings.TenantWindowSeconds) > settings.TenantMaxPerWindow)
+            {
+                _logger.LogWarning("SMS tenant rate limit exceeded TenantId={TenantId}, Max={Max}, WindowSeconds={WindowSeconds}",
+                    tenantId, settings.TenantMaxPerWindow, settings.TenantWindowSeconds);
+                return SmsRateLimitResult.Blocked("Tenant SMS rate limit exceeded.");
             }
 
             return SmsRateLimitResult.Allowed();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SMS rate limiter failed closed TenantId={TenantId}, ProjectKey={ProjectKey}", message.TenantId, message.ProjectKey);
+            _logger.LogError(ex, "SMS rate limiter failed closed TenantId={TenantId}", tenantId);
             return SmsRateLimitResult.Blocked("SMS rate limiter is unavailable.");
         }
     }
 
-    private static async Task<bool> TryConsumeAsync(IDatabase cache, string key, int max, int windowSeconds)
+    private static async Task<long> ConsumeAsync(IDatabase cache, string key, int amount, int windowSeconds)
     {
-        var count = await cache.StringIncrementAsync(key).ConfigureAwait(false);
-        if (count == 1)
+        var count = await cache.StringIncrementAsync(key, amount).ConfigureAwait(false);
+        if (count == amount)
         {
             await cache.KeyExpireAsync(key, TimeSpan.FromSeconds(windowSeconds)).ConfigureAwait(false);
         }
 
-        return count <= max;
+        return count;
     }
 
-    private static string BuildTenantKey(string projectKey, string tenantId, int windowSeconds)
-    {
-        return $"{KeyPrefix}:tenant:{Normalize(projectKey)}:{Normalize(tenantId)}:{windowSeconds}";
-    }
-
-    private static string BuildRecipientKey(string projectKey, string tenantId, string recipient, int windowSeconds)
-    {
-        return $"{KeyPrefix}:recipient:{Normalize(projectKey)}:{Normalize(tenantId)}:{Hash(recipient)}:{windowSeconds}";
-    }
-
-    private static string Normalize(string value)
-    {
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.Trim().ToLowerInvariant())));
-    }
-
-    private static string Hash(string value)
-    {
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.Trim())));
-    }
+    private static string Hash(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.Trim().ToLowerInvariant())));
 }

@@ -6,6 +6,7 @@ using Sms.DomainService.Services;
 namespace Api.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("[controller]/[action]")]
 public class SmsController : ControllerBase
 {
@@ -17,7 +18,6 @@ public class SmsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize]
     public async Task<IActionResult> Send([FromBody] SendSmsRequest request, CancellationToken cancellationToken)
     {
         var result = await _smsService.SendAsync(request, cancellationToken);
@@ -25,7 +25,6 @@ public class SmsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize]
     public async Task<IActionResult> SendByTemplate([FromBody] SendSmsByTemplateRequest request, CancellationToken cancellationToken)
     {
         var result = await _smsService.SendByTemplateAsync(request, cancellationToken);
@@ -33,7 +32,6 @@ public class SmsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize]
     public async Task<IActionResult> SaveProviderConfiguration([FromBody] SaveSmsProviderConfigurationRequest request, CancellationToken cancellationToken)
     {
         var result = await _smsService.SaveProviderConfigurationAsync(request, cancellationToken);
@@ -41,24 +39,9 @@ public class SmsController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize]
-    public async Task<IActionResult> GetProviderConfiguration([FromQuery] string? projectKey, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetProviderConfiguration(CancellationToken cancellationToken)
     {
-        var result = await _smsService.GetProviderConfigurationAsync(projectKey, cancellationToken);
+        var result = await _smsService.GetProviderConfigurationAsync(cancellationToken);
         return result.IsSuccess ? Ok(result) : NotFound(result);
-    }
-
-    [HttpPost]
-    public async Task<IActionResult> Twilio([FromForm] TwilioSmsStatusCallbackRequest request, CancellationToken cancellationToken)
-    {
-        var result = await _smsService.ProcessTwilioStatusAsync(request, cancellationToken);
-        return result.IsSuccess ? Ok(result) : BadRequest(result);
-    }
-
-    [HttpPost]
-    public async Task<IActionResult> Telnyx([FromBody] TelnyxSmsStatusCallbackRequest request, CancellationToken cancellationToken)
-    {
-        var result = await _smsService.ProcessTelnyxStatusAsync(request, cancellationToken);
-        return result.IsSuccess ? Ok(result) : BadRequest(result);
     }
 }

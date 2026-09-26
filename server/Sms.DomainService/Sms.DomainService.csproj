@@ -3,6 +3,7 @@
   <ItemGroup>
     <PackageReference Include="FluentValidation" />
     <PackageReference Include="SeliseBlocks.Genesis.OS" />
+    <PackageReference Include="SeliseBlocks.Secrets.OS" />
     <PackageReference Include="Telnyx.net" />
     <PackageReference Include="Twilio" />
   </ItemGroup>

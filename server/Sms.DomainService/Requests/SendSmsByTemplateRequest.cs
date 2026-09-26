@@ -1,10 +1,7 @@
-using Blocks.Genesis;
-
 namespace Sms.DomainService.Requests;
 
-public class SendSmsByTemplateRequest : IProjectKey
+public class SendSmsByTemplateRequest
 {
-    public string? ProjectKey { get; set; }
     public string[] DestinationNumbers { get; set; } = [];
     public string TemplateName { get; set; } = string.Empty;
     public string Language { get; set; } = "en-US";

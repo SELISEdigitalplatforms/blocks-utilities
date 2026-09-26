@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Sms.DomainService.Entities;
 using Sms.DomainService.Enums;
 
 namespace Sms.DomainService.Services;
@@ -6,42 +7,53 @@ namespace Sms.DomainService.Services;
 public class SuspiciousMessageService : ISuspiciousMessageService
 {
     private static readonly Regex UrlRegex = new(@"https?://|www\.", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly string[] BlockedTerms = ["password", "otp", "bank", "wallet", "crypto"];
 
-    public SmsRiskAssessment Analyze(string messageText, IReadOnlyCollection<string> destinationNumbers)
+    public SmsRiskAssessment Analyze(string messageText, IReadOnlyCollection<string> destinationNumbers, SmsSpamFilterSettings settings)
     {
         var result = new SmsRiskAssessment();
-
-        if (destinationNumbers.Count > 100)
+        if (!settings.Enabled)
         {
-            result.RiskLevel = SmsRiskLevel.Blocked;
-            result.Reasons.Add("Recipient fanout exceeds the allowed safety threshold.");
+            return result;
         }
 
-        if (messageText.Length > 1000)
+        if (destinationNumbers.Count > settings.MaxRecipients)
         {
-            result.RiskLevel = Max(result.RiskLevel, SmsRiskLevel.Medium);
-            result.Reasons.Add("Message body is unusually long.");
+            Raise(result, SmsRiskLevel.Blocked, $"Recipient count exceeds the configured maximum of {settings.MaxRecipients}.");
         }
 
-        var hasUrl = UrlRegex.IsMatch(messageText);
-        var hasSensitiveTerm = BlockedTerms.Any(term => messageText.Contains(term, StringComparison.OrdinalIgnoreCase));
-        if (hasUrl && hasSensitiveTerm)
+        if (messageText.Length > settings.MaxMessageLength)
         {
-            result.RiskLevel = SmsRiskLevel.Blocked;
-            result.Reasons.Add("Message combines sensitive terms with a URL.");
+            Raise(result, SmsRiskLevel.Medium, "Message body is longer than the configured maximum.");
         }
-        else if (hasUrl)
+
+        if (!UrlRegex.IsMatch(messageText))
         {
-            result.RiskLevel = Max(result.RiskLevel, SmsRiskLevel.High);
-            result.Reasons.Add("Message contains a URL.");
+            return result;
+        }
+
+        if (settings.BlockedTerms.Any(term => messageText.Contains(term, StringComparison.OrdinalIgnoreCase)))
+        {
+            Raise(result, SmsRiskLevel.Blocked, "Message combines a blocked term with a URL.");
+        }
+        else if (settings.UrlPolicy == SmsUrlPolicy.Block)
+        {
+            Raise(result, SmsRiskLevel.Blocked, "Messages containing URLs are not allowed.");
+        }
+        else if (settings.UrlPolicy == SmsUrlPolicy.Flag)
+        {
+            Raise(result, SmsRiskLevel.High, "Message contains a URL.");
         }
 
         return result;
     }
 
-    private static SmsRiskLevel Max(SmsRiskLevel current, SmsRiskLevel candidate)
+    private static void Raise(SmsRiskAssessment result, SmsRiskLevel level, string reason)
     {
-        return candidate > current ? candidate : current;
+        if (level > result.RiskLevel)
+        {
+            result.RiskLevel = level;
+        }
+
+        result.Reasons.Add(reason);
     }
 }
