@@ -50,6 +50,10 @@ All under `/api/Sms`, authenticated.
 | `POST` | `SendByTemplate` | Render the tenant's `SmsTemplate` (`TemplateName`, `Language`) with `DataContext` (`{{key}}` placeholders) and send it. |
 | `POST` | `SaveProviderConfiguration` | Create (no `ConfigurationId`) or update a provider configuration. |
 | `GET` | `GetProviderConfiguration` | The active configuration, without the key (`HasApiKey` says whether one is set). |
+| `POST` | `SaveTemplate` | Create a template, or update one when `TemplateId` is set. |
+| `GET` | `GetTemplate?templateId=` | One template, with its `Placeholders`. |
+| `GET` | `GetTemplates?search=&language=&page=&pageSize=` | Templates ordered by name, `pageSize` up to 100. |
+| `DELETE` | `DeleteTemplate?templateId=` | Delete a template. |
 
 `Send` and `SendByTemplate` accept an optional `CorrelationId`, carried through logs and events.
 Destination numbers must be 7 to 15 digits with an optional `+`; duplicates are dropped.
@@ -63,7 +67,8 @@ most recently updated enabled one. Saving a configuration as default clears the 
 | --- | --- |
 | `Name` | Required, up to 100 characters. |
 | `ProviderType` | `Twilio` (1) or `Telnyx` (2). |
-| `Sender` | E.164 number, or an alphanumeric sender id of up to 11 characters. |
+| `SenderNumber` | E.164 number to send from. Required unless `SenderName` is set. |
+| `SenderName` | Optional alphanumeric sender id (1–11 letters, digits or spaces, at least one letter) shown to recipients instead of the number. When set it is always used as the sender. |
 | `AccountId` | Twilio account SID (`AC` + 32 hex). Required for Twilio. |
 | `ApiKey` | Twilio auth token or Telnyx API key. Required on create; empty on update keeps the stored key, a value rotates it. |
 | `MessagingProfileId` | Telnyx messaging profile (GUID). Required for Telnyx. |
@@ -73,6 +78,13 @@ most recently updated enabled one. Saving a configuration as default clears the 
 | `DeliveryCheckDelayMinutes` | Wait before polling the provider for delivery. 1–1440, default 10. |
 | `RateLimit` | See [Rate limits](#rate-limits). |
 | `SpamFilter` | See [Spam filter](#spam-filter). |
+
+### Sender name
+
+The provider's From is `SenderName` when one is set, else `SenderNumber`. Alphanumeric sender ids
+are one-way (recipients cannot reply) and not accepted everywhere: the US and Canada, among others,
+reject them, and the provider fails the send for that recipient. Tenants sending to those countries
+should leave `SenderName` empty. On Telnyx the name must also be enabled on the messaging profile.
 
 ### Where the key goes
 
@@ -231,7 +243,16 @@ Recipients move `Pending` → `Submitted` → `Delivered` / `Undelivered` / `Del
 In the tenant's database: `SmsMessages`, `SmsDeliveryAttempts` (one per provider call),
 `SmsProviderConfigurations` and `SmsTemplates`. In the root database: `SmsBackgroundWork`.
 
-Templates have no endpoint yet; insert them into `SmsTemplates` with `Name`, `Language` and `Body`.
+## Templates
+
+A template is a `Body` with `{{key}}` placeholders, identified by `Name` and `Language` (`en` or
+`en-US`); that pair is unique per tenant and is what `SendByTemplate` looks up. Names may use letters,
+digits, `_`, `.` and `-`; the body is up to 1600 characters.
+
+Placeholders allow spaces inside the braces and match `DataContext` keys case-insensitively.
+`SendByTemplate` refuses to send when any placeholder has no value, and names the missing keys,
+rather than texting a raw `{{key}}`. The template view lists `Placeholders` so the portal can show
+which values a send needs.
 
 ## Wiring
 

@@ -11,7 +11,10 @@ public class SaveSmsProviderConfigurationRequest
     public SmsProviderType ProviderType { get; set; }
     public bool IsDefault { get; set; } = true;
     public bool IsEnabled { get; set; } = true;
-    public string Sender { get; set; } = string.Empty;
+    public string? SenderNumber { get; set; }
+
+    /// <summary>Optional alphanumeric sender id; takes precedence over the number when set.</summary>
+    public string? SenderName { get; set; }
     public string? AccountId { get; set; }
 
     /// <summary>

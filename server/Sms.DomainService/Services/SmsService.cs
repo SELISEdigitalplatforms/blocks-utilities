@@ -58,7 +58,7 @@ public class SmsService : ISmsService
             return FromValidation(validation.Errors);
         }
 
-        if (CurrentTenantId() is not { } tenantId)
+        if (SmsTenantContext.CurrentTenantId() is not { } tenantId)
         {
             return NoTenant();
         }
@@ -74,7 +74,7 @@ public class SmsService : ISmsService
             return FromValidation(validation.Errors);
         }
 
-        if (CurrentTenantId() is not { } tenantId)
+        if (SmsTenantContext.CurrentTenantId() is not { } tenantId)
         {
             return NoTenant();
         }
@@ -85,7 +85,13 @@ public class SmsService : ISmsService
             return SmsMutationResponse.Failure("TemplateName", "SMS template was not found for the requested name and language.");
         }
 
-        var message = CreateMessage(tenantId, request.DestinationNumbers, RenderTemplate(template.Body, request.DataContext), request.CorrelationId);
+        var body = SmsTemplateRenderer.Render(template.Body, request.DataContext, out var missing);
+        if (missing.Count > 0)
+        {
+            return SmsMutationResponse.Failure("DataContext", $"Missing values for template placeholders: {string.Join(", ", missing)}.");
+        }
+
+        var message = CreateMessage(tenantId, request.DestinationNumbers, body, request.CorrelationId);
         message.TemplateName = request.TemplateName;
         message.Language = request.Language;
         message.DataContext = request.DataContext;
@@ -100,7 +106,7 @@ public class SmsService : ISmsService
             return FromValidation(validation.Errors);
         }
 
-        if (CurrentTenantId() is not { } tenantId)
+        if (SmsTenantContext.CurrentTenantId() is not { } tenantId)
         {
             return NoTenant();
         }
@@ -125,7 +131,8 @@ public class SmsService : ISmsService
         configuration.ProviderType = request.ProviderType;
         configuration.IsDefault = request.IsDefault;
         configuration.IsEnabled = request.IsEnabled;
-        configuration.Sender = request.Sender;
+        configuration.SenderNumber = request.SenderNumber?.Trim() ?? string.Empty;
+        configuration.SenderName = string.IsNullOrWhiteSpace(request.SenderName) ? null : request.SenderName.Trim();
         configuration.AccountId = request.AccountId ?? string.Empty;
         configuration.MessagingProfileId = request.MessagingProfileId;
         configuration.WebhookPublicKey = request.WebhookPublicKey;
@@ -151,7 +158,7 @@ public class SmsService : ISmsService
 
     public async Task<SmsProviderConfigurationResponse> GetProviderConfigurationAsync(CancellationToken cancellationToken = default)
     {
-        var configuration = CurrentTenantId() is { } tenantId
+        var configuration = SmsTenantContext.CurrentTenantId() is { } tenantId
             ? await _repository.GetActiveProviderConfigurationAsync(tenantId, cancellationToken: cancellationToken)
             : null;
 
@@ -264,25 +271,8 @@ public class SmsService : ISmsService
         CorrelationId = string.IsNullOrWhiteSpace(correlationId) ? Guid.NewGuid().ToString("N") : correlationId
     };
 
-    private static string? CurrentTenantId()
-    {
-        var tenantId = BlocksContext.GetContext()?.TenantId;
-        return string.IsNullOrWhiteSpace(tenantId) ? null : tenantId;
-    }
-
     private static SmsMutationResponse NoTenant() =>
         SmsMutationResponse.Failure("Tenant", "The request has no tenant context.");
-
-    private static string RenderTemplate(string templateBody, Dictionary<string, string> dataContext)
-    {
-        var body = templateBody;
-        foreach (var item in dataContext)
-        {
-            body = body.Replace("{{" + item.Key + "}}", item.Value, StringComparison.OrdinalIgnoreCase);
-        }
-
-        return body;
-    }
 
     private static SmsMutationResponse FromValidation(IEnumerable<FluentValidation.Results.ValidationFailure> failures) => new()
     {

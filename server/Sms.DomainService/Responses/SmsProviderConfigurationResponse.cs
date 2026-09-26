@@ -18,7 +18,8 @@ public class SmsProviderConfigurationView
     public SmsProviderType ProviderType { get; set; }
     public bool IsDefault { get; set; }
     public bool IsEnabled { get; set; }
-    public string Sender { get; set; } = string.Empty;
+    public string SenderNumber { get; set; } = string.Empty;
+    public string? SenderName { get; set; }
     public string AccountId { get; set; } = string.Empty;
     public bool HasApiKey { get; set; }
     public string? MessagingProfileId { get; set; }
@@ -37,7 +38,8 @@ public class SmsProviderConfigurationView
         ProviderType = configuration.ProviderType,
         IsDefault = configuration.IsDefault,
         IsEnabled = configuration.IsEnabled,
-        Sender = configuration.Sender,
+        SenderNumber = configuration.SenderNumber,
+        SenderName = configuration.SenderName,
         AccountId = configuration.AccountId,
         HasApiKey = !string.IsNullOrWhiteSpace(configuration.ApiKeySecretId),
         MessagingProfileId = configuration.MessagingProfileId,

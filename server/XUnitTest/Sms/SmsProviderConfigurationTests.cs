@@ -15,7 +15,7 @@ public class SmsProviderConfigurationTests
     {
         Name = "Primary",
         ProviderType = SmsProviderType.Twilio,
-        Sender = "+15005550006",
+        SenderNumber = "+15005550006",
         AccountId = "AC" + new string('a', 32),
         ApiKey = "token",
         StatusCallbackBaseUrl = "https://utilities.example.com"
@@ -86,6 +86,32 @@ public class SmsProviderConfigurationTests
         var properties = _validator.Validate(request).Errors.Select(e => e.PropertyName).ToList();
 
         properties.Should().Contain(["MaxRetryAttempts", "RateLimit.TenantMaxPerWindow", "SpamFilter.MaxRecipients"]);
+    }
+
+    [Theory]
+    [InlineData(null, "ACME", true)]
+    [InlineData("+15005550006", "ACME Bank", true)]
+    [InlineData(null, null, false)]
+    [InlineData("0791234567", null, false)]
+    [InlineData(null, "123456", false)]
+    [InlineData(null, "TwelveChars1", false)]
+    [InlineData(null, "ACME-Bank", false)]
+    public void Validator_SenderNeedsAValidNumberOrName(string? number, string? name, bool valid)
+    {
+        var request = ValidTwilio();
+        request.SenderNumber = number;
+        request.SenderName = name;
+
+        _validator.Validate(request).IsValid.Should().Be(valid);
+    }
+
+    [Theory]
+    [InlineData("+15005550006", null, "+15005550006")]
+    [InlineData("+15005550006", "ACME", "ACME")]
+    [InlineData("+15005550006", "  ", "+15005550006")]
+    public void SenderNameTakesPrecedenceOverTheNumber(string number, string? name, string expectedFrom)
+    {
+        new SmsProviderConfiguration { SenderNumber = number, SenderName = name }.ResolveFrom().Should().Be(expectedFrom);
     }
 
     [Fact]

@@ -187,6 +187,50 @@ public class SmsRepository : ISmsRepository
             .FirstOrDefaultAsync(cancellationToken)!;
     }
 
+    public Task<SmsTemplate?> GetTemplateByIdAsync(string tenantId, string templateId, CancellationToken cancellationToken = default)
+    {
+        return Collection<SmsTemplate>(tenantId).Find(x => x.ItemId == templateId).FirstOrDefaultAsync(cancellationToken)!;
+    }
+
+    public async Task<(List<SmsTemplate> Items, long TotalCount)> ListTemplatesAsync(string tenantId, string? search, string? language, int skip, int take, CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<SmsTemplate>.Filter.Empty;
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            filter &= Builders<SmsTemplate>.Filter.Regex(x => x.Name, new MongoDB.Bson.BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(search.Trim()), "i"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            filter &= Builders<SmsTemplate>.Filter.Eq(x => x.Language, language);
+        }
+
+        var templates = Collection<SmsTemplate>(tenantId);
+        var total = await templates.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var items = await templates.Find(filter)
+            .SortBy(x => x.Name).ThenBy(x => x.Language)
+            .Skip(skip).Limit(take)
+            .ToListAsync(cancellationToken);
+
+        return (items, total);
+    }
+
+    public Task SaveTemplateAsync(SmsTemplate template, CancellationToken cancellationToken = default)
+    {
+        template.LastUpdatedDate = DateTime.UtcNow;
+        return Collection<SmsTemplate>(template.TenantId).ReplaceOneAsync(
+            x => x.ItemId == template.ItemId,
+            template,
+            new ReplaceOptions { IsUpsert = true },
+            cancellationToken);
+    }
+
+    public async Task<bool> DeleteTemplateAsync(string tenantId, string templateId, CancellationToken cancellationToken = default)
+    {
+        var result = await Collection<SmsTemplate>(tenantId).DeleteOneAsync(x => x.ItemId == templateId, cancellationToken);
+        return result.DeletedCount > 0;
+    }
+
     private IMongoCollection<SmsMessage> Messages(string tenantId) => Collection<SmsMessage>(tenantId);
 
     private IMongoCollection<SmsProviderConfiguration> Configurations(string tenantId) => Collection<SmsProviderConfiguration>(tenantId);

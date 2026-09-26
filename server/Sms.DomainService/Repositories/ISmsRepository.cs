@@ -42,4 +42,8 @@ public interface ISmsRepository
     Task ClearOtherDefaultsAsync(string tenantId, string keepConfigurationId, CancellationToken cancellationToken = default);
 
     Task<SmsTemplate?> GetTemplateAsync(string tenantId, string templateName, string language, CancellationToken cancellationToken = default);
+    Task<SmsTemplate?> GetTemplateByIdAsync(string tenantId, string templateId, CancellationToken cancellationToken = default);
+    Task<(List<SmsTemplate> Items, long TotalCount)> ListTemplatesAsync(string tenantId, string? search, string? language, int skip, int take, CancellationToken cancellationToken = default);
+    Task SaveTemplateAsync(SmsTemplate template, CancellationToken cancellationToken = default);
+    Task<bool> DeleteTemplateAsync(string tenantId, string templateId, CancellationToken cancellationToken = default);
 }

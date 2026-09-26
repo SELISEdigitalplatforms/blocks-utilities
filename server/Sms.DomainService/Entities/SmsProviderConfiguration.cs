@@ -13,7 +13,14 @@ public class SmsProviderConfiguration
     public SmsProviderType ProviderType { get; set; }
     public bool IsDefault { get; set; } = true;
     public bool IsEnabled { get; set; } = true;
-    public string Sender { get; set; } = string.Empty;
+    /// <summary>E.164 number to send from. Used when no <see cref="SenderName"/> is set.</summary>
+    public string SenderNumber { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Alphanumeric sender id shown instead of a number (up to 11 characters). Not every country
+    /// accepts one (the US and Canada do not); where it is rejected the provider fails the send.
+    /// </summary>
+    public string? SenderName { get; set; }
 
     /// <summary>Twilio account SID. Not a secret; Telnyx leaves it empty.</summary>
     public string AccountId { get; set; } = string.Empty;
@@ -34,6 +41,9 @@ public class SmsProviderConfiguration
     public SmsSpamFilterSettings SpamFilter { get; set; } = new();
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedDate { get; set; } = DateTime.UtcNow;
+
+    /// <summary>What goes in the provider's From: the sender name when one is set, else the number.</summary>
+    public string ResolveFrom() => string.IsNullOrWhiteSpace(SenderName) ? SenderNumber : SenderName.Trim();
 }
 
 public class SmsRateLimitSettings

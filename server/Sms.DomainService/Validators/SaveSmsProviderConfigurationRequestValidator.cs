@@ -6,16 +6,29 @@ namespace Sms.DomainService.Validators;
 
 public class SaveSmsProviderConfigurationRequestValidator : AbstractValidator<SaveSmsProviderConfigurationRequest>
 {
-    // E.164, or an alphanumeric sender id (1-11 chars, at least one letter).
-    private const string SenderPattern = @"^(\+[1-9][0-9]{6,14}|(?=.*[A-Za-z])[A-Za-z0-9 ]{1,11})$";
+    private const string SenderNumberPattern = @"^\+[1-9][0-9]{6,14}$";
+
+    // Carriers' rule for alphanumeric sender ids: 1-11 characters, letters, digits and spaces, and
+    // at least one letter so it cannot be mistaken for a short code.
+    private const string SenderNamePattern = "^(?=.*[A-Za-z])[A-Za-z0-9 ]{1,11}$";
     private const string TwilioAccountSidPattern = "^AC[0-9a-fA-F]{32}$";
 
     public SaveSmsProviderConfigurationRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
         RuleFor(x => x.ProviderType).IsInEnum();
-        RuleFor(x => x.Sender).NotEmpty().Matches(SenderPattern)
-            .WithMessage("Sender must be an E.164 number or an alphanumeric sender id of up to 11 characters.");
+        RuleFor(x => x.SenderNumber)
+            .NotEmpty()
+            .When(x => string.IsNullOrWhiteSpace(x.SenderName))
+            .WithMessage("A sender number or a sender name is required.");
+        RuleFor(x => x.SenderNumber)
+            .Matches(SenderNumberPattern)
+            .When(x => !string.IsNullOrWhiteSpace(x.SenderNumber))
+            .WithMessage("Sender number must be in E.164 format, e.g. +41791234567.");
+        RuleFor(x => x.SenderName)
+            .Must(name => System.Text.RegularExpressions.Regex.IsMatch(name!.Trim(), SenderNamePattern))
+            .When(x => !string.IsNullOrWhiteSpace(x.SenderName))
+            .WithMessage("Sender name must be 1 to 11 letters, digits or spaces, with at least one letter.");
 
         RuleFor(x => x.ApiKey).NotEmpty()
             .When(x => string.IsNullOrWhiteSpace(x.ConfigurationId))

@@ -34,7 +34,7 @@ public class TwilioSmsProvider : ISmsProvider
             var callback = SmsCallbackUrls.Build(context.Configuration, context.TenantId);
             var options = new CreateMessageOptions(new PhoneNumber(to))
             {
-                From = new PhoneNumber(context.Configuration.Sender),
+                From = new PhoneNumber(context.Configuration.ResolveFrom()),
                 Body = body,
                 StatusCallback = callback == null ? null : new Uri(callback)
             };

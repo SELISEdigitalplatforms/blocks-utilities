@@ -36,9 +36,11 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISmsService, SmsService>();
         services.AddScoped<ISmsProcessingService, SmsProcessingService>();
         services.AddScoped<ISmsWebhookService, SmsWebhookService>();
+        services.AddScoped<ISmsTemplateService, SmsTemplateService>();
 
         services.AddTransient<IValidator<SendSmsRequest>, SendSmsRequestValidator>();
         services.AddTransient<IValidator<SendSmsByTemplateRequest>, SendSmsByTemplateRequestValidator>();
         services.AddTransient<IValidator<SaveSmsProviderConfigurationRequest>, SaveSmsProviderConfigurationRequestValidator>();
+        services.AddTransient<IValidator<SaveSmsTemplateRequest>, SaveSmsTemplateRequestValidator>();
     }
 }

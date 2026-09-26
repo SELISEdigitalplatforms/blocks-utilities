@@ -17,6 +17,13 @@ public static class SmsTenantContext
 {
     public const string SystemUserId = "sms-system";
 
+    /// <summary>The caller's tenant in the Api, or null when the request carries none.</summary>
+    public static string? CurrentTenantId()
+    {
+        var tenantId = BlocksContext.GetContext()?.TenantId;
+        return string.IsNullOrWhiteSpace(tenantId) ? null : tenantId;
+    }
+
     public static IDisposable Enter(string tenantId)
     {
         if (string.IsNullOrWhiteSpace(tenantId))

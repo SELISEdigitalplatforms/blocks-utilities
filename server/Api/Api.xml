@@ -616,6 +616,9 @@
             
             <returns></returns>
         </member>
+        <member name="M:Api.Controllers.SmsController.SaveTemplate(Sms.DomainService.Requests.SaveSmsTemplateRequest,System.Threading.CancellationToken)">
+            <summary>Creates a template, or updates one when TemplateId is set. Name + language is unique per tenant.</summary>
+        </member>
         <member name="T:Api.Controllers.SmsWebhooksController">
             <summary>
             Provider delivery callbacks, laid out like <see cref="T:Api.Controllers.PaymentWebhooksController"/>: anonymous,

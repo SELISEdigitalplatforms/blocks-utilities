@@ -29,7 +29,7 @@ public class TelnyxSmsProvider : ISmsProvider
         {
             var newMessage = new NewMessage
             {
-                From = context.Configuration.Sender,
+                From = context.Configuration.ResolveFrom(),
                 To = to,
                 Text = body,
                 WebhookUrl = SmsCallbackUrls.Build(context.Configuration, context.TenantId)
