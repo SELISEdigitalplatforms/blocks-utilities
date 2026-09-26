@@ -7,7 +7,8 @@ using Serilog.Parsing;
 namespace Subscription.DomainService.Utilities;
 
 /// <summary>
-/// Puts the subscription and payment ids into the text of every log line that knows them.
+/// Puts the subscription, payment and SMS message ids, and the correlation id, into the text of every
+/// log line that knows them.
 /// </summary>
 /// <remarks>
 /// The platform's log store keeps only the rendered message plus TenantId, TraceId and SpanId, and
@@ -21,8 +22,17 @@ public sealed class SearchableIdLogSink : ILogEventSink, IDisposable
     public const string SubscriptionId = "SubscriptionId";
     public const string PaymentId = "PaymentId";
 
+    /// <summary>Set by <c>SmsLogScope</c>; spelled here because Sms does not reference this module.</summary>
+    public const string SmsMessageId = "SmsMessageId";
+
+    /// <summary>
+    /// Carried by the payment, subscription and SMS work scopes. Without it in the text, a request's
+    /// lines and the background work it scheduled could only be joined by trace id.
+    /// </summary>
+    public const string CorrelationId = "CorrelationId";
+
     /// <summary>The ids appended, in the order they appear at the end of a line.</summary>
-    private static readonly string[] PropertyNames = [SubscriptionId, PaymentId];
+    private static readonly string[] PropertyNames = [SubscriptionId, PaymentId, SmsMessageId, CorrelationId];
 
     private static readonly MessageTemplateParser Parser = new();
     private static readonly ConcurrentDictionary<string, MessageTemplate> Extended = new();

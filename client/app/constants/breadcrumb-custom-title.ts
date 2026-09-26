@@ -42,6 +42,14 @@ export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
   "/app/:itemId/payment/result": {
     title: "Payment Result",
   },
+  "/sms": { title: "SMS" },
+  "/app/:itemId/sms": { title: "SMS" },
+  "/sms/send": { title: "Send SMS" },
+  "/app/:itemId/sms/send": { title: "Send SMS" },
+  "/sms/templates": { title: "Templates" },
+  "/app/:itemId/sms/templates": { title: "Templates" },
+  "/sms/provider": { title: "Provider settings" },
+  "/app/:itemId/sms/provider": { title: "Provider settings" },
   "/magic-url": {
     title: "Magic URL",
   },

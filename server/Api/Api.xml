@@ -616,6 +616,16 @@
             
             <returns></returns>
         </member>
+        <member name="M:Api.Controllers.SmsController.SaveTemplate(Sms.DomainService.Requests.SaveSmsTemplateRequest,System.Threading.CancellationToken)">
+            <summary>Creates a template, or updates one when TemplateId is set. Name + language is unique per tenant.</summary>
+        </member>
+        <member name="T:Api.Controllers.SmsWebhooksController">
+            <summary>
+            Provider delivery callbacks, laid out like <see cref="T:Api.Controllers.PaymentWebhooksController"/>: anonymous,
+            outside the global <c>api</c> prefix, raw body read once so the signature is checked over the
+            exact bytes the provider signed. The URL is built by <c>SmsCallbackUrls</c>.
+            </summary>
+        </member>
         <member name="T:Api.Controllers.SubscriptionBackgroundWorkController">
             <summary>
             Background work the scheduler gave up on, and what an operator can do about it.

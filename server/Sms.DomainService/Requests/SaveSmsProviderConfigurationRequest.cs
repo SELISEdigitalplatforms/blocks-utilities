@@ -1,0 +1,35 @@
+using Sms.DomainService.Entities;
+using Sms.DomainService.Enums;
+
+namespace Sms.DomainService.Requests;
+
+public class SaveSmsProviderConfigurationRequest
+{
+    /// <summary>Empty to create; an existing id to update.</summary>
+    public string? ConfigurationId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public SmsProviderType ProviderType { get; set; }
+    public bool IsDefault { get; set; } = true;
+    public bool IsEnabled { get; set; } = true;
+    public string? SenderNumber { get; set; }
+
+    /// <summary>Optional alphanumeric sender id; takes precedence over the number when set.</summary>
+    public string? SenderName { get; set; }
+
+    /// <summary>Country codes where the number is used instead of the name. Null keeps the default (+1).</summary>
+    public List<string>? SenderNameExcludedPrefixes { get; set; }
+    public string? AccountId { get; set; }
+
+    /// <summary>
+    /// Twilio auth token or Telnyx API key. Required on create; on update, empty keeps the stored
+    /// secret and a value rotates it. Written to Blocks Secrets, never to the configuration.
+    /// </summary>
+    public string? ApiKey { get; set; }
+    public string? MessagingProfileId { get; set; }
+    public string? WebhookPublicKey { get; set; }
+    public string? StatusCallbackBaseUrl { get; set; }
+    public int MaxRetryAttempts { get; set; } = 5;
+    public int DeliveryCheckDelayMinutes { get; set; } = 10;
+    public SmsRateLimitSettings RateLimit { get; set; } = new();
+    public SmsSpamFilterSettings SpamFilter { get; set; } = new();
+}
