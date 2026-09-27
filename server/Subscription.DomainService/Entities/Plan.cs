@@ -23,6 +23,20 @@ public sealed class Plan
 
     public string? OrganizationId { get; set; }
 
+    /// <summary>
+    /// Who this plan is sold to. Defaults to <see cref="SubscriberScope.Organization"/>, which is
+    /// what every plan authored before this existed already meant.
+    /// </summary>
+    /// <remarks>
+    /// This is also what decides, per organization, whether user-wise subscriptions are available
+    /// at all: an organization whose resolved catalogue holds no <see cref="SubscriberScope.User"/>
+    /// plan cannot have one sold to its users, and archiving that plan withdraws the offer without
+    /// disturbing the subscribers already on it. A separate switch would be a second answer to the
+    /// same question and could disagree with the catalogue — offering a plan that cannot be bought,
+    /// or refusing one that exists.
+    /// </remarks>
+    public SubscriberScope SubscriberScope { get; set; } = SubscriberScope.Organization;
+
     /// <summary>A stable key configuration points at. The display name may change; this may not.</summary>
     public string Code { get; set; } = string.Empty;
 

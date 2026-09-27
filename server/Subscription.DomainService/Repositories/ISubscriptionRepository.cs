@@ -48,6 +48,34 @@ public interface ISubscriptionRepository
         DateTime nowUtc,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Everything that currently grants something to one subscriber: their own user-wise
+    /// subscription, if they have one, and their organization's.
+    /// </summary>
+    /// <remarks>
+    /// Both, not the better of the two, because they are not alternatives. An organization-wise
+    /// plan covers what the organization shares and a user-wise plan covers one person's own
+    /// allowance, so a caller holding a user-wise plan still draws on the organization's for
+    /// everything that plan says nothing about. Returning only one would revoke the other.
+    /// <para>
+    /// Ordered with the subscriber's own first, which is the precedence a reader should apply when
+    /// both declare the same entitlement — the same rule the catalogue already uses in resolving an
+    /// organization's own plan ahead of the tenant's.
+    /// </para>
+    /// <para>
+    /// An empty <paramref name="subscriberUserId"/> asks only for the organization's, which is what
+    /// a caller with no user in context — background work, a machine token — should see. Liveness is
+    /// the same as <see cref="GetLiveAsync"/>: a scheduled cancellation stops matching the instant
+    /// <paramref name="nowUtc"/> passes its promised period end.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionDetail>> ListLiveForSubscriberAsync(
+        string tenantId,
+        string organizationId,
+        string subscriberUserId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken);
+
     /// <summary>The organization's checkout that has not activated yet, if any.</summary>
     Task<SubscriptionDetail?> GetIncompleteAsync(
         string tenantId,
