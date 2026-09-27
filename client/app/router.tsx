@@ -1,5 +1,8 @@
 import { createBrowserRouter, Navigate, Outlet } from "react-router";
 import MagicUrlPage from "./routes/dashboard/magic-url";
+import SmsSendRoute from "./routes/dashboard/sms-send";
+import SmsTemplatesRoute from "./routes/dashboard/sms-templates";
+import SmsProviderRoute from "./routes/dashboard/sms-provider";
 import MagicUrlDetailsPage from "./routes/dashboard/magic-url-details";
 import PaymentPage from "./routes/dashboard/payment";
 import PaymentCreatePage from "./routes/dashboard/payment-create";
@@ -167,6 +170,10 @@ export const router = createBrowserRouter([
                     path: "subscription/simulation",
                     element: <SubscriptionSimulationRoute />,
                   },
+                  { path: "sms", element: <Navigate to="send" replace /> },
+                  { path: "sms/send", element: <SmsSendRoute /> },
+                  { path: "sms/templates", element: <SmsTemplatesRoute /> },
+                  { path: "sms/provider", element: <SmsProviderRoute /> },
                   { path: "magic-url", element: <MagicUrlPage /> },
                   {
                     path: "magic-url/details/:id",
