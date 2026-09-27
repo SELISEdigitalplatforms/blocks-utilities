@@ -44,6 +44,22 @@ public sealed class SubscriptionUsageCounter
     public decimal Balance { get; set; }
 
     /// <summary>
+    /// What a rolling sub-limit has spent, split into the minutes it was spent in.
+    /// </summary>
+    /// <remarks>
+    /// Only ever populated on a rolling pace counter. A rolling window ends now and begins a span
+    /// before now, so a single balance cannot express it — what falls out of the span has to stop
+    /// counting, and only a per-minute split knows when that is.
+    /// <para>
+    /// Incremented one field at a time, so a recording is still the single atomic write the
+    /// period's own balance is, and the document that comes back already includes the caller's own
+    /// use. That is what keeps a rolling limit an enforcement point rather than a check two callers
+    /// can both pass.
+    /// </para>
+    /// </remarks>
+    public Dictionary<string, decimal>? Buckets { get; set; }
+
+    /// <summary>
     /// How many ledger entries are reflected in the balance. Disagreement with the ledger's own
     /// count is what tells the repair sweep this counter needs recomputing.
     /// </summary>

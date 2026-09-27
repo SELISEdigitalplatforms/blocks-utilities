@@ -1,4 +1,4 @@
-using Subscription.DomainService.Enums;
+﻿using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Requests;
 
@@ -62,6 +62,12 @@ public sealed class PlanMeterRequest
 
     /// <summary>Whether reaching the sub-limit refuses the usage or merely reports it.</summary>
     public MeterSubLimitBehaviour SubLimitBehaviour { get; set; } = MeterSubLimitBehaviour.Refuse;
+
+    /// <summary>How many of <see cref="SubLimitWindow"/> the limit spans. One unless stated.</summary>
+    public int SubLimitWindowCount { get; set; } = 1;
+
+    /// <summary>Whether the limit looks back from now rather than counting within a window on the clock.</summary>
+    public bool SubLimitRolling { get; set; }
 
     /// <summary>
     /// How many decimal places this meter's quantities may carry. Zero — whole units only — unless

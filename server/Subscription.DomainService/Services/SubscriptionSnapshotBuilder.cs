@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Services;
 
@@ -57,6 +57,8 @@ internal static class SubscriptionSnapshotBuilder
                     SubLimitWindow = meter.SubLimitWindow,
                     SubLimitQuantity = meter.SubLimitQuantity,
                     SubLimitBehaviour = meter.SubLimitBehaviour,
+                    SubLimitWindowCount = meter.SubLimitWindowCount,
+                    SubLimitRolling = meter.SubLimitRolling,
                     ThresholdPercents = [.. meter.ThresholdPercents],
                     RateTables = meter.RateTables
                         .Select(table => new MeterRateTable

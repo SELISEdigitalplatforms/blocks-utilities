@@ -163,16 +163,13 @@ describe("what decides how many places a plan has", () => {
   });
 });
 
+
 /**
- * The pace fields on a meter.
- *
- * Guards a ceiling nobody can read. The quantity's own label is the only thing naming the window
- * it applies to, and "Most token per window" both reads as a typo and leaves the author to
- * remember which window they picked in the control beside it.
+ * The pace fields: window, count, rolling, and how they talk to each other.
  */
 describe("capping how fast a meter is spent", () => {
   const metered = (
-    subLimitWindow?: number,
+    overrides: Record<string, unknown> = {},
   ): Partial<CreateSubscriptionPlanFormValues> => ({
     meters: [
       {
@@ -184,33 +181,125 @@ describe("capping how fast a meter is spent", () => {
         resetPolicy: 0,
         rates: [],
         thresholdPercents: [],
-        subLimitWindow,
-        subLimitQuantity: subLimitWindow === undefined ? undefined : 10,
         subLimitBehaviour: 0,
+        subLimitWindowCount: 1,
+        subLimitRolling: false,
+        ...overrides,
       },
     ],
   });
 
-  it("names the window the ceiling applies to, not just 'window'", async () => {
-    render(<Harness values={metered(0)} />);
+  it("shows no count or rolling control until a window is chosen", async () => {
+    const user = userEvent.setup();
+
+    render(<Harness values={metered()} />);
+    await user.click(screen.getByText("Pace (optional)"));
+
+    expect(screen.getByLabelText(/How many windows/i)).toBeDisabled();
+    expect(screen.queryByText(/Rolling —/i)).not.toBeInTheDocument();
+  });
+
+  it("names the unit in the plural against the window that was chosen", async () => {
+    render(<Harness values={metered({ subLimitWindow: 0, subLimitQuantity: 10 })} />);
 
     expect(await screen.findByLabelText(/Most tokens per hour/i)).toBeInTheDocument();
   });
 
-  it("says where the window begins, so it is not read as starting at signup", async () => {
-    render(<Harness values={metered(2)} />);
+  it("names the count in the ceiling once more than one window is set", async () => {
+    render(
+      <Harness
+        values={metered({ subLimitWindow: 0, subLimitQuantity: 10, subLimitWindowCount: 5 })}
+      />,
+    );
 
-    expect(await screen.findByText(/Each week runs Monday to Monday/i)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Most tokens per 5 hours/i)).toBeInTheDocument();
   });
 
-  /**
-   * A unit label is authored in the singular — "token", "seat" — and a ceiling is always of more
-   * than one.
-   */
-  it("pluralises the unit the plan was authored with", async () => {
-    render(<Harness values={metered(1)} />);
+  it("offers the rolling checkbox once a window is set, and names the span in it", async () => {
+    render(
+      <Harness
+        values={metered({ subLimitWindow: 0, subLimitQuantity: 10, subLimitWindowCount: 5 })}
+      />,
+    );
 
-    expect(screen.queryByLabelText(/Most token per/i)).not.toBeInTheDocument();
-    expect(await screen.findByLabelText(/Most tokens per day/i)).toBeInTheDocument();
+    expect(await screen.findByText(/measure the last 5 hours from right now/i)).toBeInTheDocument();
+  });
+
+  it("warns on a fixed hourly count that does not divide a day", async () => {
+    render(
+      <Harness
+        values={metered({ subLimitWindow: 0, subLimitQuantity: 10, subLimitWindowCount: 5 })}
+      />,
+    );
+
+    expect(await screen.findByText(/has to divide a day evenly/i)).toBeInTheDocument();
+  });
+
+  it("says nothing when the fixed hourly count divides a day evenly", () => {
+    render(
+      <Harness
+        values={metered({ subLimitWindow: 0, subLimitQuantity: 10, subLimitWindowCount: 6 })}
+      />,
+    );
+
+    expect(screen.queryByText(/has to divide a day evenly/i)).not.toBeInTheDocument();
+  });
+
+  it("does not warn about dividing a day once the window is marked rolling", () => {
+    render(
+      <Harness
+        values={metered({
+          subLimitWindow: 0,
+          subLimitQuantity: 10,
+          subLimitWindowCount: 5,
+          subLimitRolling: true,
+        })}
+      />,
+    );
+
+    expect(screen.queryByText(/has to divide a day evenly/i)).not.toBeInTheDocument();
+  });
+
+  it("says where a fixed window begins, and nothing about the other two", async () => {
+    render(<Harness values={metered({ subLimitWindow: 2, subLimitQuantity: 10 })} />);
+
+    expect(await screen.findByText(/Each week runs Monday to Monday/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Each hour runs on the clock/i)).not.toBeInTheDocument();
+  });
+
+  it("explains a rolling window differently from a fixed one", async () => {
+    render(
+      <Harness
+        values={metered({
+          subLimitWindow: 0,
+          subLimitQuantity: 10,
+          subLimitRolling: true,
+        })}
+      />,
+    );
+
+    expect(await screen.findByText(/ends now and looks back/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Each hour runs on the clock/i)).not.toBeInTheDocument();
+  });
+
+  it("clearing the window also clears the count and rolling, not only the cap", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Harness
+        values={metered({
+          subLimitWindow: 0,
+          subLimitQuantity: 10,
+          subLimitWindowCount: 5,
+          subLimitRolling: true,
+        })}
+      />,
+    );
+
+    await user.click(screen.getByLabelText(/^Window$/i));
+    await user.click(await screen.findByText(/No pace limit/i));
+
+    expect(screen.queryByLabelText(/How many windows/i)).toBeDisabled();
+    expect(screen.queryByText(/Rolling —/i)).not.toBeInTheDocument();
   });
 });

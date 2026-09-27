@@ -242,6 +242,8 @@ export const StepPricingModel = ({
               thresholdPercents: [],
               rateTables: [],
               subLimitBehaviour: 0,
+              subLimitWindowCount: 1,
+              subLimitRolling: false,
             })
           }
         >
@@ -642,7 +644,7 @@ const placesModeOf = (
 };
 
 /**
- * Where each window actually begins, in the terms somebody would read off a clock.
+ * Where a fixed window actually begins, in the terms somebody would read off a clock.
  *
  * Worth saying because the alternative is what most people assume: that the window runs from
  * whenever the subscriber signed up. It does not, deliberately — a pace measured from each
@@ -654,12 +656,22 @@ const PACE_WINDOW_BOUNDARIES = [
   "Each week runs Monday to Monday — not from when the subscriber signed up.",
 ] as const;
 
+const ROLLING_EXPLANATION =
+  "A rolling window ends now and looks back — spend right up to the cap, wait, and the oldest " +
+  "use ages out and makes room again.";
+
 /** Reads as a ceiling, which is always of more than one. "token" alone reads as a typo. */
 const pluralUnits = (unitLabel?: string) => {
   const label = unitLabel?.trim() || "units";
 
   return label.endsWith("s") ? label : `${label}s`;
 };
+
+/**
+ * Hour counts a fixed window can be measured in without leaving a short block somewhere in the
+ * day. Every divisor of 24; nothing else tiles evenly from midnight.
+ */
+const TILING_HOUR_COUNTS = new Set([1, 2, 3, 4, 6, 8, 12, 24]);
 
 /**
  * A second cap measured in a short window, on top of the period's allowance. Collapsed unless the
@@ -676,22 +688,27 @@ const MeterPaceFields = ({
 }) => {
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
   const paceWindow = useWatch({ control, name: `meters.${meterIndex}.subLimitWindow` });
+  const paceCount = useWatch({ control, name: `meters.${meterIndex}.subLimitWindowCount` });
+  const rolling = useWatch({ control, name: `meters.${meterIndex}.subLimitRolling` });
   const hasPace = paceWindow !== undefined;
+  const count = paceCount ?? 1;
 
   return (
     <Collapsible defaultOpen={hasPace}>
       <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
         <ChevronDown className="h-3.5 w-3.5" />
         Pace (optional)
-        {hasPace ? ` — per ${USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}` : ""}
+        {hasPace
+          ? ` — ${count === 1 ? "per" : `every ${count}`} ${USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}${count === 1 ? "" : "s"}${rolling ? ", rolling" : ""}`
+          : ""}
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-2 pt-2">
         <p className="text-xs text-muted-foreground">
           Caps how fast the allowance is spent, not how much of it. An allowance with nothing
           shorter than the billing period can be spent in an afternoon.
-          {hasPace ? ` ${PACE_WINDOW_BOUNDARIES[paceWindow]}` : ""}
+          {hasPace ? ` ${rolling ? ROLLING_EXPLANATION : PACE_WINDOW_BOUNDARIES[paceWindow]}` : ""}
         </p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <FormField
             control={control}
             name={`meters.${meterIndex}.subLimitWindow`}
@@ -705,6 +722,8 @@ const MeterPaceFields = ({
                     // Taking the window away takes the cap with it: half a pace is refused.
                     if (value === "none") {
                       setValue(`meters.${meterIndex}.subLimitQuantity`, undefined);
+                      setValue(`meters.${meterIndex}.subLimitWindowCount`, 1);
+                      setValue(`meters.${meterIndex}.subLimitRolling`, false);
                     }
                   }}
                 >
@@ -717,7 +736,7 @@ const MeterPaceFields = ({
                     <SelectItem value="none">No pace limit</SelectItem>
                     {USAGE_WINDOW_NAMES.map((name, value) => (
                       <SelectItem key={name} value={String(value)}>
-                        Per {name.toLowerCase()}
+                        {name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -728,12 +747,44 @@ const MeterPaceFields = ({
           />
           <FormField
             control={control}
+            name={`meters.${meterIndex}.subLimitWindowCount`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-xs">
+                  How many {hasPace ? USAGE_WINDOW_NAMES[paceWindow].toLowerCase() : "windows"}
+                  {count === 1 ? "" : "s"}
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    value={field.value ?? 1}
+                    type="number"
+                    min={1}
+                    step={1}
+                    disabled={!hasPace}
+                    onChange={(event) => field.onChange(Number(event.target.value) || 1)}
+                  />
+                </FormControl>
+                {!rolling && paceWindow === 0 && !TILING_HOUR_COUNTS.has(count) ? (
+                  <p className="text-xs text-destructive">
+                    A fixed hourly window has to divide a day evenly — 1, 2, 3, 4, 6, 8, 12 or 24
+                    — or mark it rolling below.
+                  </p>
+                ) : null}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
             name={`meters.${meterIndex}.subLimitQuantity`}
             render={({ field }) => (
               <FormItem>
                 <FormLabel className="text-xs">
-                  Most {pluralUnits(unitLabel)}{" "}
-                  {hasPace ? `per ${USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}` : "per window"}
+                  Most {pluralUnits(unitLabel)}
+                  {hasPace
+                    ? ` per ${count === 1 ? "" : `${count} `}${USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}${count === 1 ? "" : "s"}`
+                    : " per window"}
                 </FormLabel>
                 <FormControl>
                   <Input
@@ -750,6 +801,29 @@ const MeterPaceFields = ({
             )}
           />
         </div>
+        {hasPace ? (
+          <FormField
+            control={control}
+            name={`meters.${meterIndex}.subLimitRolling`}
+            render={({ field }) => (
+              <FormItem>
+                <div className="flex items-center gap-2">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(checked) => field.onChange(checked === true)}
+                    />
+                  </FormControl>
+                  <FormLabel className="!m-0 text-xs">
+                    Rolling — measure the last {count === 1 ? "" : `${count} `}
+                    {USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}
+                    {count === 1 ? "" : "s"} from right now, not a window on the clock
+                  </FormLabel>
+                </div>
+              </FormItem>
+            )}
+          />
+        ) : null}
         {hasPace ? (
           <FormField
             control={control}

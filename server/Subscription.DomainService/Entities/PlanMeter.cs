@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Entities;
@@ -72,6 +72,30 @@ public sealed class PlanMeter
     /// </para>
     /// </remarks>
     public UsageWindow? SubLimitWindow { get; set; }
+
+    /// <summary>
+    /// How many of <see cref="SubLimitWindow"/> the limit spans. One unless the plan says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Anything above one is measured rolling, and has to be: a fixed window only tiles a day
+    /// evenly when its length divides one, so "every five hours" from midnight would leave a short
+    /// block straddling into the next day and no two days alike. See <see cref="SubLimitRolling"/>.
+    /// </remarks>
+    public int SubLimitWindowCount { get; set; } = 1;
+
+    /// <summary>
+    /// Whether the limit looks back from now rather than counting within a window on the clock.
+    /// </summary>
+    /// <remarks>
+    /// False on every meter authored before this existed, which is what keeps them counting exactly
+    /// as they did: the hour on the clock, the day, the week from Monday.
+    /// <para>
+    /// Rolling is the stricter reading and usually the intended one. A clock-aligned hourly cap
+    /// lets a whole hour's worth be spent at 09:59 and the next at 10:01; a rolling one does not,
+    /// because the first is still inside the span the second is measured against.
+    /// </para>
+    /// </remarks>
+    public bool SubLimitRolling { get; set; }
 
     /// <summary>How much may be used within one <see cref="SubLimitWindow"/>.</summary>
     public decimal? SubLimitQuantity { get; set; }

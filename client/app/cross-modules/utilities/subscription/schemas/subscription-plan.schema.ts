@@ -145,6 +145,14 @@ const meterSchema = z.object({
   ),
   /** Refuse 0, Report only 1. Meaningless without a window, and harmless there. */
   subLimitBehaviour: z.coerce.number().int().min(0).max(1).default(0),
+  /** How many of {@link subLimitWindow} the limit spans. One unless the plan says otherwise. */
+  subLimitWindowCount: z.coerce.number().int().positive().default(1),
+  /**
+   * Whether the limit looks back from now rather than counting within a window on the clock.
+   * False on every meter authored before this existed, which is what keeps it counting exactly
+   * as it did.
+   */
+  subLimitRolling: z.boolean().default(false),
 });
 
 /**
@@ -493,6 +501,32 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
             code: z.ZodIssueCode.custom,
             path: ["meters", index, "subLimitQuantity"],
             message: tooFine,
+          });
+        }
+
+        // Rolling has no meaning without a window and a quantity to roll: it says how the cap is
+        // measured, not what the cap is.
+        if (meter.subLimitRolling && meter.subLimitWindow === undefined) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "subLimitRolling"],
+            message: "A rolling sub-limit needs a window and a quantity, same as a fixed one.",
+          });
+        }
+
+        // A fixed window only tiles a day evenly when its length divides one. Five does not: a
+        // fixed five-hour window would leave one short block a day with nowhere consistent to
+        // start it. Rolling has no such requirement — it has no start on the clock to tile from.
+        if (
+          !meter.subLimitRolling &&
+          meter.subLimitWindow === 0 &&
+          ![1, 2, 3, 4, 6, 8, 12, 24].includes(meter.subLimitWindowCount)
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "subLimitWindowCount"],
+            message:
+              "A fixed hourly window has to divide a day evenly \u2014 1, 2, 3, 4, 6, 8, 12 or 24 \u2014 or mark it rolling instead.",
           });
         }
 
