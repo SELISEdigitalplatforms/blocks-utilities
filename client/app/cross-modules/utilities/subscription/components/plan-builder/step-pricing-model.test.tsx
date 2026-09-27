@@ -3,15 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FormProvider, useForm } from "react-hook-form";
 
+import { defaultSubscriptionPriceFormValues } from "../../schemas/subscription-price.schema";
 import {
   defaultSubscriptionPlanFormValues,
   type CreateSubscriptionPlanFormValues,
 } from "../../schemas/subscription-plan.schema";
 import { StepPricingModel } from "./step-pricing-model";
 
-const Harness = () => {
+const Harness = ({ values }: { values?: Partial<CreateSubscriptionPlanFormValues> }) => {
   const form = useForm<CreateSubscriptionPlanFormValues>({
-    defaultValues: defaultSubscriptionPlanFormValues,
+    defaultValues: { ...defaultSubscriptionPlanFormValues, ...values },
   });
 
   return (
@@ -69,5 +70,95 @@ describe("requiring a card before activation", () => {
     expect(
       screen.queryByLabelText(/Require a card to start the trial/i),
     ).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Which field a place count is read from.
+ *
+ * Guards telling an author both rules when the price they have already chosen decides it. Both at
+ * once reads as a choice they have to make, when it is not one — and the half that does not apply
+ * is something they have to recognise as irrelevant before they can act on the half that does.
+ * On a flat price the consequence of getting it wrong is silent: the plan saves, and nobody can be
+ * given a place on it weeks later.
+ */
+describe("what decides how many places a plan has", () => {
+  const perUnitRule = () => screen.queryByText(/the quantity bought is the answer/i);
+  const flatRule = () => screen.queryByText(/is the only number that can/i);
+
+  const userWise = (
+    prices: CreateSubscriptionPlanFormValues["prices"],
+  ): Partial<CreateSubscriptionPlanFormValues> => ({
+    subscriberScope: "User",
+    quantityItems: [
+      {
+        itemKey: "seat",
+        unitLabel: "seat",
+        minQuantity: 1,
+        defaultQuantity: 1,
+        quantityDiscountTiers: [],
+        countsMembers: true,
+      },
+    ],
+    prices,
+  });
+
+  it("says nothing at all on a plan sold to the organization", () => {
+    render(<Harness />);
+
+    expect(perUnitRule()).not.toBeInTheDocument();
+    expect(flatRule()).not.toBeInTheDocument();
+  });
+
+  it("names only the maximum when the plan is priced flat", () => {
+    render(<Harness values={userWise([{ ...defaultSubscriptionPriceFormValues }])} />);
+
+    expect(flatRule()).toBeInTheDocument();
+    expect(perUnitRule()).not.toBeInTheDocument();
+  });
+
+  it("names only the quantity bought when the plan is priced on it", () => {
+    render(
+      <Harness
+        values={userWise([{ ...defaultSubscriptionPriceFormValues, quantityItemKey: "seat" }])}
+      />,
+    );
+
+    expect(perUnitRule()).toBeInTheDocument();
+    expect(flatRule()).not.toBeInTheDocument();
+  });
+
+  /**
+   * A plan sold two ways, one of them flat.
+   */
+  /**
+   * The maximum is needed if <em>any</em> price could be the one a buyer picks, because whoever
+   * picks the flat one pays the same however many people they have — so their quantity cannot be
+   * the place count. Reading only the per-seat price here would tell the author a maximum was
+   * optional, and the plan would save with nobody able to be given a place on the flat price.
+   */
+  it("still names the maximum when only one of two prices is flat", () => {
+    render(
+      <Harness
+        values={userWise([
+          { ...defaultSubscriptionPriceFormValues, quantityItemKey: "seat" },
+          { ...defaultSubscriptionPriceFormValues, interval: 3 },
+        ])}
+      />,
+    );
+
+    expect(flatRule()).toBeInTheDocument();
+    expect(perUnitRule()).not.toBeInTheDocument();
+  });
+
+  /**
+   * Before a price exists there is nothing to go on, and a guess that turned out wrong would have
+   * taught the author the opposite of the rule.
+   */
+  it("gives both rules while no price has been authored", () => {
+    render(<Harness values={userWise([])} />);
+
+    expect(perUnitRule()).toBeInTheDocument();
+    expect(flatRule()).toBeInTheDocument();
   });
 });
