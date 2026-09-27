@@ -20,10 +20,29 @@ public static class UsageWindowKey
 {
     private const string InstantFormat = "yyyyMMdd'T'HHmmss";
 
+    /// <summary>
+    /// A fixed instant every multi-window block is tiled from, so two subscriptions authored
+    /// years apart still land on the same block boundaries. Its own value carries no meaning
+    /// beyond being fixed and being a Monday — the Monday is what keeps a multi-week block
+    /// aligned with <see cref="StartOfWeek"/>, which every single-week plan already assumes.
+    /// </summary>
+    private static readonly DateTime BlockEpoch = new(1969, 12, 29, 0, 0, 0, DateTimeKind.Utc);
+
     public static string Create(UsageWindow window, DateTime instantUtc) =>
+        Create(window, instantUtc, count: 1);
+
+    /// <summary>
+    /// The counter one fixed pace spends against, for a window that may span more than one unit.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="count"/> of 1 is byte-identical to <see cref="Create(UsageWindow, DateTime)"/>
+    /// — every meter authored before counted windows existed keeps the counter it has always had,
+    /// with nothing to migrate.
+    /// </remarks>
+    public static string Create(UsageWindow window, DateTime instantUtc, int count) =>
         string.Concat(
             Code(window),
-            StartOf(window, instantUtc).ToString(InstantFormat, CultureInfo.InvariantCulture),
+            StartOf(window, instantUtc, count).ToString(InstantFormat, CultureInfo.InvariantCulture),
             "Z");
 
     /// <summary>
@@ -46,6 +65,35 @@ public static class UsageWindowKey
         _ => instantUtc
     };
 
+    /// <summary>
+    /// When the block of <paramref name="count"/> windows containing this instant began.
+    /// </summary>
+    /// <remarks>
+    /// An hour block resets at midnight, because that is the reading validated at authoring time
+    /// — <c>count</c> is refused unless it divides 24, precisely so this never leaves one short
+    /// block a day. A day or week block has no such enclosing unit to divide, so it tiles instead
+    /// from <see cref="BlockEpoch"/>: fixed, so every subscription's blocks land on the same
+    /// boundaries, and forever consistent because nothing about it ever needs to be evenly
+    /// divided.
+    /// </remarks>
+    public static DateTime StartOf(UsageWindow window, DateTime instantUtc, int count)
+    {
+        if (count <= 1)
+        {
+            return StartOf(window, instantUtc);
+        }
+
+        return window switch
+        {
+            UsageWindow.Hour => StartOfHourBlock(instantUtc, count),
+            UsageWindow.Day => StartOfUnitBlock(
+                instantUtc.Date, BlockEpoch.Date, TimeSpan.FromDays(1), count),
+            UsageWindow.Week => StartOfUnitBlock(
+                StartOfWeek(instantUtc), BlockEpoch, TimeSpan.FromDays(7), count),
+            _ => instantUtc
+        };
+    }
+
     public static DateTime EndOf(UsageWindow window, DateTime instantUtc) => window switch
     {
         UsageWindow.Hour => StartOf(window, instantUtc).AddHours(1),
@@ -53,6 +101,44 @@ public static class UsageWindowKey
         UsageWindow.Week => StartOf(window, instantUtc).AddDays(7),
         _ => instantUtc
     };
+
+    public static DateTime EndOf(UsageWindow window, DateTime instantUtc, int count)
+    {
+        if (count <= 1)
+        {
+            return EndOf(window, instantUtc);
+        }
+
+        return window switch
+        {
+            UsageWindow.Hour => StartOf(window, instantUtc, count).AddHours(count),
+            UsageWindow.Day => StartOf(window, instantUtc, count).AddDays(count),
+            UsageWindow.Week => StartOf(window, instantUtc, count).AddDays(7L * count),
+            _ => instantUtc
+        };
+    }
+
+    private static DateTime StartOfHourBlock(DateTime instantUtc, int count)
+    {
+        var blockStartHour = instantUtc.Hour / count * count;
+
+        return new DateTime(
+            instantUtc.Year, instantUtc.Month, instantUtc.Day, blockStartHour, 0, 0,
+            DateTimeKind.Utc);
+    }
+
+    /// <summary>
+    /// Floors <paramref name="unitStart"/> onto the nearest multiple of <paramref name="count"/>
+    /// units counted from <paramref name="epoch"/>.
+    /// </summary>
+    private static DateTime StartOfUnitBlock(
+        DateTime unitStart, DateTime epoch, TimeSpan unit, int count)
+    {
+        var unitsSinceEpoch = (long)((unitStart - epoch) / unit);
+        var blockIndex = unitsSinceEpoch / count;
+
+        return epoch + (unit * (blockIndex * count));
+    }
 
     private static DateTime StartOfWeek(DateTime instantUtc)
     {

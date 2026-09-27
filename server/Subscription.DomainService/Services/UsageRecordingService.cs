@@ -1344,6 +1344,15 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// produces a counter per hour or per day and they are of no interest once the period they sit
     /// inside has been rated.
     /// </remarks>
+    /// <remarks>
+    /// Addressed by the count as well as the window: a plan authored with one window per block
+    /// uses the identity every counter already stored has, because <see
+    /// cref="UsageWindowKey.Create(UsageWindow, DateTime, int)"/> reduces to the same three
+    /// overload for a count of one. A plan spanning several windows in one block gets a
+    /// correspondingly wider counter — that width is the whole reason this overload exists rather
+    /// than one that only ever sees a single window, which is what let a plan authored for six
+    /// hours enforce one silently instead.
+    /// </remarks>
     private SubscriptionUsageCounter PaceSeedFor(
         SubscriptionContext context,
         SubscriptionDetail subscription,
@@ -1351,25 +1360,28 @@ public sealed class UsageRecordingService : IUsageRecordingService
         PlanMeter meter,
         UsageWindow window,
         decimal cap,
-        DateTime occurredAt) => new()
+        DateTime occurredAt)
     {
-        ItemId = SubscriptionUsageCounter.CreateId(
-            subscription.ItemId,
-            meter.MeterKey,
-            UsageWindowKey.Create(window, occurredAt),
-            seat),
-        SeatNumber = seat,
-        TenantId = context.TenantId,
-        OrganizationId = context.OrganizationId,
-        SubscriptionId = subscription.ItemId,
-        MeterKey = meter.MeterKey,
-        PeriodKey = UsageWindowKey.Create(window, occurredAt),
-        LimitSnapshot = cap,
-        PeriodStartUtc = UsageWindowKey.StartOf(window, occurredAt),
-        PeriodEndUtc = UsageWindowKey.EndOf(window, occurredAt),
-        ExpiresAtUtc = UsageWindowKey.EndOf(window, occurredAt)
-            .AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
-    };
+        var count = CountOf(meter);
+        var key = UsageWindowKey.Create(window, occurredAt, count);
+
+        return new SubscriptionUsageCounter
+        {
+            ItemId = SubscriptionUsageCounter.CreateId(
+                subscription.ItemId, meter.MeterKey, key, seat),
+            SeatNumber = seat,
+            TenantId = context.TenantId,
+            OrganizationId = context.OrganizationId,
+            SubscriptionId = subscription.ItemId,
+            MeterKey = meter.MeterKey,
+            PeriodKey = key,
+            LimitSnapshot = cap,
+            PeriodStartUtc = UsageWindowKey.StartOf(window, occurredAt, count),
+            PeriodEndUtc = UsageWindowKey.EndOf(window, occurredAt, count),
+            ExpiresAtUtc = UsageWindowKey.EndOf(window, occurredAt, count)
+                .AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
+        };
+    }
 
     /// <summary>
     /// The counter a rolling rule spends against, named for the rule rather than for any instant.

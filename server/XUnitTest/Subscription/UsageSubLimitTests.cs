@@ -222,6 +222,67 @@ public sealed class UsageSubLimitTests
                      "name, enforcing nothing");
     }
 
+    /// <summary>
+    /// A fixed pace spanning several windows caps across the whole block, not one window of it.
+    /// </summary>
+    /// <remarks>
+    /// The regression this guards: the count was authored, validated and shown in the console
+    /// while the counter it seeded stayed addressed by a single window regardless. A plan sold as
+    /// "10,000 every 6 hours" enforced 10,000 an hour, six times over, and nothing failed —
+    /// every existing test exercised either a single-window fixed pace or a rolling one, and the
+    /// gap was the combination neither covered.
+    /// </remarks>
+    [Fact]
+    public async Task A_fixed_pace_spanning_several_hours_caps_across_the_whole_block()
+    {
+        _subscription = Metered(UsageWindow.Hour, cap: 10, MeterSubLimitBehaviour.Refuse);
+        _subscription.Plan.Meters[0].SubLimitWindowCount = 6;
+
+        // Both inside the same six-hour block starting at midnight: 02:00 and 05:00.
+        await RecordAt(new DateTimeOffset(2026, 8, 14, 2, 0, 0, TimeSpan.Zero), 9, "first");
+
+        (await RecordAt(new DateTimeOffset(2026, 8, 14, 5, 0, 0, TimeSpan.Zero), 4, "second"))
+            .Value!.Allowed
+            .Should().BeFalse(
+                because: "the plan sells ten every six hours, and both uses fall in the block " +
+                         "that runs from midnight to 06:00 — a cap that only ever saw one hour " +
+                         "at a time would have refused neither");
+    }
+
+    [Fact]
+    public async Task A_fixed_multi_hour_block_resets_when_the_next_block_starts()
+    {
+        _subscription = Metered(UsageWindow.Hour, cap: 10, MeterSubLimitBehaviour.Refuse);
+        _subscription.Plan.Meters[0].SubLimitWindowCount = 6;
+
+        await RecordAt(new DateTimeOffset(2026, 8, 14, 2, 0, 0, TimeSpan.Zero), 9, "first");
+
+        // 06:00 opens the next six-hour block, so the nine spent in the first is behind it.
+        (await RecordAt(new DateTimeOffset(2026, 8, 14, 6, 0, 0, TimeSpan.Zero), 9, "second"))
+            .Value!.Allowed
+            .Should().BeTrue(
+                because: "a block that never reset would eventually refuse every use once, " +
+                         "however far apart, which is a fixed pace behaving like a lifetime cap");
+    }
+
+    /// <summary>
+    /// A count of one is not merely equivalent to the plan every subscriber already has — it has
+    /// to be addressed exactly the way it always has been.
+    /// </summary>
+    [Fact]
+    public async Task A_window_count_of_one_addresses_the_same_counter_as_before_counts_existed()
+    {
+        _subscription = Metered(UsageWindow.Hour, cap: 10, MeterSubLimitBehaviour.Refuse);
+        _subscription.Plan.Meters[0].SubLimitWindowCount = 1;
+
+        await Record(quantity: 9, key: "first");
+
+        _balances.Keys.Should().Contain(
+            SubscriptionUsageCounter.CreateId("sub-1", MeterKey, "h20260814T120000Z"),
+            because: "every counter a production meter has already written was addressed by " +
+                     "this three-part identity, and a count of one has to keep reading it");
+    }
+
     [Fact]
     public async Task A_rolling_pace_refuses_a_burst_that_a_fixed_hour_would_have_allowed()
     {
