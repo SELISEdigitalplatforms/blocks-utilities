@@ -642,6 +642,26 @@ const placesModeOf = (
 };
 
 /**
+ * Where each window actually begins, in the terms somebody would read off a clock.
+ *
+ * Worth saying because the alternative is what most people assume: that the window runs from
+ * whenever the subscriber signed up. It does not, deliberately — a pace measured from each
+ * subscriber's own instant cannot be reasoned about by anybody comparing two of them.
+ */
+const PACE_WINDOW_BOUNDARIES = [
+  "Each hour runs on the clock, 09:00 to 10:00 and so on — not from when the subscriber signed up.",
+  "Each day runs midnight to midnight, UTC — not from when the subscriber signed up.",
+  "Each week runs Monday to Monday — not from when the subscriber signed up.",
+] as const;
+
+/** Reads as a ceiling, which is always of more than one. "token" alone reads as a typo. */
+const pluralUnits = (unitLabel?: string) => {
+  const label = unitLabel?.trim() || "units";
+
+  return label.endsWith("s") ? label : `${label}s`;
+};
+
+/**
  * A second cap measured in a short window, on top of the period's allowance. Collapsed unless the
  * meter already has one, so every meter that never opted in looks exactly as it did.
  */
@@ -667,8 +687,9 @@ const MeterPaceFields = ({
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-2 pt-2">
         <p className="text-xs text-muted-foreground">
-          Caps how fast the allowance can be spent, not how much. Windows follow the clock — the
-          hour, the day, or the ISO week starting Monday.
+          Caps how fast the allowance is spent, not how much of it. An allowance with nothing
+          shorter than the billing period can be spent in an afternoon.
+          {hasPace ? ` ${PACE_WINDOW_BOUNDARIES[paceWindow]}` : ""}
         </p>
         <div className="grid grid-cols-2 gap-2">
           <FormField
@@ -710,7 +731,10 @@ const MeterPaceFields = ({
             name={`meters.${meterIndex}.subLimitQuantity`}
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-xs">Most {unitLabel || "units"} per window</FormLabel>
+                <FormLabel className="text-xs">
+                  Most {pluralUnits(unitLabel)}{" "}
+                  {hasPace ? `per ${USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}` : "per window"}
+                </FormLabel>
                 <FormControl>
                   <Input
                     {...field}

@@ -162,3 +162,55 @@ describe("what decides how many places a plan has", () => {
     expect(flatRule()).toBeInTheDocument();
   });
 });
+
+/**
+ * The pace fields on a meter.
+ *
+ * Guards a ceiling nobody can read. The quantity's own label is the only thing naming the window
+ * it applies to, and "Most token per window" both reads as a typo and leaves the author to
+ * remember which window they picked in the control beside it.
+ */
+describe("capping how fast a meter is spent", () => {
+  const metered = (
+    subLimitWindow?: number,
+  ): Partial<CreateSubscriptionPlanFormValues> => ({
+    meters: [
+      {
+        meterKey: "token",
+        unitLabel: "token",
+        includedQuantity: 1000,
+        overageAllowed: false,
+        quantityScale: 0,
+        resetPolicy: 0,
+        rates: [],
+        thresholdPercents: [],
+        subLimitWindow,
+        subLimitQuantity: subLimitWindow === undefined ? undefined : 10,
+        subLimitBehaviour: 0,
+      },
+    ],
+  });
+
+  it("names the window the ceiling applies to, not just 'window'", async () => {
+    render(<Harness values={metered(0)} />);
+
+    expect(await screen.findByLabelText(/Most tokens per hour/i)).toBeInTheDocument();
+  });
+
+  it("says where the window begins, so it is not read as starting at signup", async () => {
+    render(<Harness values={metered(2)} />);
+
+    expect(await screen.findByText(/Each week runs Monday to Monday/i)).toBeInTheDocument();
+  });
+
+  /**
+   * A unit label is authored in the singular — "token", "seat" — and a ceiling is always of more
+   * than one.
+   */
+  it("pluralises the unit the plan was authored with", async () => {
+    render(<Harness values={metered(1)} />);
+
+    expect(screen.queryByLabelText(/Most token per/i)).not.toBeInTheDocument();
+    expect(await screen.findByLabelText(/Most tokens per day/i)).toBeInTheDocument();
+  });
+});
