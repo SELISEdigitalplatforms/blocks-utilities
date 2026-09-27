@@ -19,6 +19,7 @@ namespace Subscription.DomainService.Services;
 public sealed class EntitlementService : IEntitlementService
 {
     private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriberSubscriptionResolver _resolver;
     private readonly ISubscriptionUsageRepository _usage;
     private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
@@ -27,6 +28,7 @@ public sealed class EntitlementService : IEntitlementService
 
     public EntitlementService(
         ISubscriptionRepository subscriptions,
+        ISubscriberSubscriptionResolver resolver,
         ISubscriptionUsageRepository usage,
         IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
@@ -34,6 +36,7 @@ public sealed class EntitlementService : IEntitlementService
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
+        _resolver = resolver;
         _usage = usage;
         _allowances = allowances;
         _contextResolver = contextResolver;
@@ -59,23 +62,91 @@ public sealed class EntitlementService : IEntitlementService
 
         var context = resolution.Context!;
         var now = _time.GetUtcNow().UtcDateTime;
-        var subscription = await LoadAsync(context, fresh, now, cancellationToken);
+        var subscriptions = await LoadAsync(context, fresh, now, cancellationToken);
 
         // Re-evaluated against nowUtc every call, cache hit or miss: a subscription cached a few
         // seconds before its scheduled cancellation's CurrentPeriodEndUtc must stop granting the
         // instant that boundary passes, not merely once the cache entry itself expires.
-        if (subscription is null || !SubscriptionLiveness.IsEffectivelyLive(subscription, now))
+        var live = subscriptions
+            .Where(subscription => SubscriptionLiveness.IsEffectivelyLive(subscription, now))
+            .ToList();
+
+        if (live.Count == 0)
         {
             return SubscriptionOperationResult<EntitlementSnapshotResponse>.Success(
-                NothingGranted(subscription),
+                NothingGranted(subscriptions.Count > 0 ? subscriptions[0] : null),
                 correlationId);
         }
 
-        var balances = await BalancesAsync(subscription, cancellationToken);
+        var described = new List<EntitlementSnapshotResponse>(live.Count);
+
+        foreach (var subscription in live)
+        {
+            // Per subscription, never pooled: a meter's balance belongs to the subscription that
+            // recorded it, and rating one plan's usage against another's counter would bill the
+            // wrong allowance.
+            var balances = await BalancesAsync(subscription, cancellationToken);
+
+            described.Add(Describe(subscription, balances, now));
+        }
 
         return SubscriptionOperationResult<EntitlementSnapshotResponse>.Success(
-            Describe(subscription, balances, now),
+            Merge(described),
             correlationId);
+    }
+
+    /// <summary>
+    /// One answer from a subscriber's own plan and their organization's, theirs winning per key.
+    /// </summary>
+    /// <remarks>
+    /// A fallback, not a choice between the two. The plans cover different things -- an
+    /// organization-wise plan what the organization shares, a user-wise plan one person's own
+    /// allowance -- so a key the subscriber's plan says nothing about still resolves against the
+    /// organization's. Returning only the subscriber's would revoke everything shared the moment
+    /// they were given a plan of their own.
+    /// <para>
+    /// Where both declare the same key the subscriber's wins, which is the order
+    /// <see cref="ISubscriptionRepository.ListLiveForSubscriberAsync"/> returns them in and the
+    /// same precedence the catalogue already applies to an organization's plan over the tenant's.
+    /// </para>
+    /// <para>
+    /// The scalars describe that same first subscription rather than being merged, because a
+    /// status, a plan code and a period end belong to one subscription and averaging them would
+    /// describe neither. A subscriber holding only their organization's plan therefore sees exactly
+    /// what they see today.
+    /// </para>
+    /// </remarks>
+    private static EntitlementSnapshotResponse Merge(
+        IReadOnlyList<EntitlementSnapshotResponse> described)
+    {
+        if (described.Count == 1)
+        {
+            return described[0];
+        }
+
+        var primary = described[0];
+
+        return new EntitlementSnapshotResponse
+        {
+            HasSubscription = true,
+            Status = primary.Status,
+            PlanCode = primary.PlanCode,
+            CurrentPeriodEndUtc = primary.CurrentPeriodEndUtc,
+            TrialEndsAtUtc = primary.TrialEndsAtUtc,
+            FeaturesJson = primary.FeaturesJson,
+            Quantities =
+            [
+                .. described
+                    .SelectMany(snapshot => snapshot.Quantities)
+                    .DistinctBy(quantity => quantity.ItemKey, StringComparer.Ordinal)
+            ],
+            Entitlements =
+            [
+                .. described
+                    .SelectMany(snapshot => snapshot.Entitlements)
+                    .DistinctBy(entitlement => entitlement.Key, StringComparer.Ordinal)
+            ]
+        };
     }
 
     public async Task<SubscriptionOperationResult<EntitlementResponse>> GetAsync(
@@ -110,7 +181,24 @@ public sealed class EntitlementService : IEntitlementService
             correlationId);
     }
 
-    private async Task<SubscriptionDetail?> LoadAsync(
+    /// <summary>
+    /// Everything granting something to this caller: the seats they hold, then their
+    /// organization's own subscription.
+    /// </summary>
+    /// <remarks>
+    /// Both, never one or the other. An organization-wise plan covers what the organization shares
+    /// and a seat covers one person's own allowance, so resolving only the seats would revoke
+    /// everything shared the moment somebody was given one.
+    /// <para>
+    /// Seats first, because that is the precedence a reader applies where both plans declare the
+    /// same key — the more specific purchase answers.
+    /// </para>
+    /// <para>
+    /// A caller with no user — background work, a machine token — holds no seats and resolves the
+    /// organization's subscription alone, which is exactly what every caller gets today.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<SubscriptionDetail>> LoadAsync(
         SubscriptionContext context,
         bool fresh,
         DateTime nowUtc,
@@ -121,15 +209,25 @@ public sealed class EntitlementService : IEntitlementService
             _cache.Invalidate(context.TenantId, context.OrganizationId);
         }
 
+        var subscriberUserId = context.UserId ?? string.Empty;
+
         return await _cache.GetAsync(
             context.TenantId,
             context.OrganizationId,
-            () => _subscriptions.GetLiveAsync(
-                context.TenantId,
-                context.OrganizationId,
-                nowUtc,
-                cancellationToken));
+            subscriberUserId,
+            async () =>
+            {
+                var resolved = await _resolver.ResolveAsync(
+                    context, nowUtc, cancellationToken);
+
+                // Entitlement asks what a plan grants, which does not depend on which
+                // seat of it somebody holds — that only decides whose allowance a
+                // recorded use spends.
+                return [.. resolved.Select(candidate => candidate.Subscription)];
+            });
     }
+
+
 
     /// <summary>
     /// What a meter's window currently holds: how much is used, and — for a meter that carries

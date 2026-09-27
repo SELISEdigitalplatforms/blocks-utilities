@@ -1,3 +1,5 @@
+using Subscription.DomainService.Enums;
+
 namespace Subscription.DomainService.Responses;
 
 /// <summary>
@@ -13,6 +15,18 @@ public sealed class PlanResponse
     public string PlanId { get; init; } = string.Empty;
 
     public string Code { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Who this plan is sold to — the organization, or one of its users.
+    /// </summary>
+    /// <remarks>
+    /// Carried so a caller can tell the two apart in one catalogue listing rather than asking per
+    /// plan, and so a product surface can offer "for your organization" and "for you" from the same
+    /// response. There is no server-side filter for it: a tenant's catalogue is small enough to
+    /// read whole, and a parameter threaded through the repository would buy nothing a client
+    /// cannot already do with this field.
+    /// </remarks>
+    public SubscriberScope SubscriberScope { get; init; }
 
     public string DisplayName { get; init; } = string.Empty;
 
@@ -167,6 +181,12 @@ public sealed class PlanQuantityItemResponse
     public long? MaxQuantity { get; init; }
 
     public long DefaultQuantity { get; init; }
+
+    /// <summary>
+    /// Whether this is the quantity that counts people on a user-wise plan. Returned because an
+    /// edit rewrites the whole plan: a mark the console cannot read back, it would silently drop.
+    /// </summary>
+    public bool CountsMembers { get; init; }
 }
 
 public sealed class PlanMeterResponse
@@ -200,6 +220,14 @@ public sealed class PlanMeterResponse
     /// Returned so whoever authored the plan can see what it will actually notify on.
     /// </summary>
     public List<int> ThresholdPercents { get; init; } = [];
+
+    /// <summary>The short window this meter also caps within, as its name. Null when uncapped.</summary>
+    public string? SubLimitWindow { get; init; }
+
+    public decimal? SubLimitQuantity { get; init; }
+
+    /// <summary>"Refuse" or "Throttle". Reported on every meter, meaningful only with a window.</summary>
+    public string SubLimitBehaviour { get; init; } = string.Empty;
 
     /// <summary>
     /// What usage past the allowance costs, per currency. Empty means overage cannot be priced

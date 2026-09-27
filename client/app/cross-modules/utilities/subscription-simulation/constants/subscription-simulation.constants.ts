@@ -1,6 +1,12 @@
 export const SUBSCRIPTIONS_ENDPOINT = "/api/subscriptions";
 export const SUBSCRIPTIONS_CURRENT_ENDPOINT = "/api/subscriptions/current";
 /**
+ * The organization's subscriptions to user-wise plans. `current` never returns one of these, so
+ * this is how a caller finds the subscription to put people on. Members are then read and written
+ * at `${SUBSCRIPTIONS_ENDPOINT}/{id}/members`, composed at the call site.
+ */
+export const SUBSCRIPTIONS_MEMBER_BASED_ENDPOINT = "/api/subscriptions/member-based";
+/**
  * Buyer-facing, read-only validation of a discount code: it prices the code against a plan and
  * price without reserving a redemption or writing anything. A rejected code is data here, not an
  * error — the standard, undiscounted quote comes back alongside the reason.
@@ -9,6 +15,11 @@ export const SUBSCRIPTION_DISCOUNTS_PREVIEW_ENDPOINT = "/api/subscription-discou
 export const ENTITLEMENTS_ENDPOINT = "/api/entitlements";
 export const SUBSCRIPTION_USAGE_ENDPOINT = "/api/subscription-usage";
 export const SUBSCRIPTION_USAGE_CURRENT_ENDPOINT = "/api/subscription-usage/current";
+/**
+ * What the caller themselves may spend: their place's allowance where they hold one, the
+ * organization's for every other meter. Same body as `current`, one item per meter.
+ */
+export const SUBSCRIPTION_USAGE_MINE_ENDPOINT = "/api/subscription-usage/mine";
 export const SUBSCRIPTION_USAGE_OVERAGE_PREVIEW_ENDPOINT =
   "/api/subscription-usage/overage/preview";
 

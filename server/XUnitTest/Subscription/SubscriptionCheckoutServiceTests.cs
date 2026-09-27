@@ -749,6 +749,41 @@ public sealed class SubscriptionCheckoutServiceTests
         result.Value.CheckoutUrl.Should().Be("https://checkout.stripe.com/existing");
     }
 
+    /// <summary>
+    /// <c>current</c> never answers with a user-wise subscription, so without this list the only
+    /// way to reach one was to have kept the identifier its subscribe call returned.
+    /// </summary>
+    [Fact]
+    public async Task The_subscriptions_people_are_placed_on_can_be_listed()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        _subscription.Plan.SubscriberScope = SubscriberScope.User;
+        _subscriptions
+            .Setup(repository => repository.ListLiveMemberBasedAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([_subscription]);
+
+        var result = await Service().ListMemberBasedAsync(null, "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().ContainSingle()
+            .Which.SubscriptionId.Should().Be(_subscription.ItemId);
+    }
+
+    [Fact]
+    public async Task An_organization_with_no_member_based_subscription_lists_none_rather_than_failing()
+    {
+        _subscriptions
+            .Setup(repository => repository.ListLiveMemberBasedAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var result = await Service().ListMemberBasedAsync(null, "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("none is an ordinary answer, as it is for current");
+        result.Value.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Current_prefers_a_live_subscription_over_any_pending_lookup()
     {

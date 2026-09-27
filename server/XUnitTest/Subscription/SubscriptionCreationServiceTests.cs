@@ -1874,6 +1874,29 @@ public sealed class SubscriptionCreationServiceTests
             "paper over with the subscriber's own organization");
     }
 
+    /// <remarks>
+    /// What a user-wise plan grants is decided by the seats on it, not by who bought it, so there
+    /// is nothing for creation to stamp and no caller it has to refuse. An administrator buying
+    /// seats for other people is the ordinary case rather than an error.
+    /// </remarks>
+    [Fact]
+    public async Task Buying_a_user_wise_plan_creates_a_subscription_that_grants_nobody_anything()
+    {
+        _plan.SubscriberScope = SubscriberScope.User;
+
+        var result = await Service().CreateAsync(
+            NewRequest(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", null),
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "an administrator with no seat of their own still buys the plan the seats come from");
+        _created!.Plan.SubscriberScope.Should().Be(SubscriberScope.User,
+            "the snapshot is what later tells the reservation index this is not the " +
+            "organization's own subscription");
+    }
+
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");
 

@@ -440,6 +440,28 @@ describe("ChangeQuantityDialog", () => {
     );
   });
 
+  /**
+   * A generic conflict here would send somebody to retry, when the fix is a different action:
+   * taking people off the places the decrease would remove.
+   */
+  it("says who is in the way when a decrease would strand people", async () => {
+    previewQuantityChange.mockRejectedValue(
+      new SubscriptionOperationError(
+        "3 people are on seats this change would remove. Take them off first.",
+        "subscription_member_seats_occupied",
+        409,
+      ),
+    );
+
+    renderDialog();
+    setQuantity("1");
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByText(/3 people are on seats this change would remove/)).toBeInTheDocument();
+    });
+  });
+
   it("tells a subscriber not to retry a charge nobody can answer for", async () => {
     previewQuantityChange.mockResolvedValue(increaseQuote);
     changeQuantity.mockRejectedValue(

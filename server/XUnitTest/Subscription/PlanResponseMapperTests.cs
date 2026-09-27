@@ -153,6 +153,44 @@ public sealed class PlanResponseMapperTests
     }
 
     /// <summary>
+    /// An edit rewrites the whole plan from what the console read back. A sub-limit the response
+    /// dropped would be silently removed by the next edit of anything else on the plan.
+    /// </summary>
+    [Fact]
+    public void A_meter_reports_its_sub_limit_so_an_edit_can_preserve_it()
+    {
+        var plan = Plan("organization-1");
+        plan.Meters[0].SubLimitWindow = UsageWindow.Hour;
+        plan.Meters[0].SubLimitQuantity = 1_000;
+        plan.Meters[0].SubLimitBehaviour = MeterSubLimitBehaviour.Throttle;
+
+        var meter = _mapper.ToResponse(plan, []).Meters[0];
+
+        meter.SubLimitWindow.Should().Be(nameof(UsageWindow.Hour));
+        meter.SubLimitQuantity.Should().Be(1_000);
+        meter.SubLimitBehaviour.Should().Be(nameof(MeterSubLimitBehaviour.Throttle));
+    }
+
+    [Fact]
+    public void A_meter_with_no_sub_limit_reports_no_window()
+    {
+        var meter = _mapper.ToResponse(Plan("organization-1"), []).Meters[0];
+
+        meter.SubLimitWindow.Should().BeNull("an uncapped meter must read back as uncapped");
+        meter.SubLimitQuantity.Should().BeNull();
+    }
+
+    /// <summary>Dropped on read, the mark is dropped on the next edit, and assignment is then refused.</summary>
+    [Fact]
+    public void A_quantity_item_reports_whether_it_counts_people()
+    {
+        var plan = Plan("organization-1");
+        plan.QuantityItems = [new PlanQuantityItem { ItemKey = "seat", UnitLabel = "seat", CountsMembers = true }];
+
+        _mapper.ToResponse(plan, []).QuantityItems[0].CountsMembers.Should().BeTrue();
+    }
+
+    /// <summary>
     /// Copied rather than shared, so a caller mutating the list it was handed cannot reach back
     /// into the stored plan.
     /// </summary>

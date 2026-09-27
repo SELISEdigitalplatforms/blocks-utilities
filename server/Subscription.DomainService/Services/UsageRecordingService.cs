@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
@@ -24,6 +24,7 @@ namespace Subscription.DomainService.Services;
 public sealed class UsageRecordingService : IUsageRecordingService
 {
     private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriberSubscriptionResolver? _resolver;
     private readonly ISubscriptionUsageRepository _usage;
     private readonly IUsagePeriodClosureRepository _closures;
     private readonly IMeterAllowanceResolver _allowances;
@@ -54,9 +55,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
         TimeProvider? time = null,
         // Optional so an existing caller or test that builds this service by hand keeps compiling.
         // Falls back to the shared instrument set, which is what the running process uses anyway.
-        UsageProjectionMetrics? metrics = null)
+        UsageProjectionMetrics? metrics = null,
+        // Optional for the same reason, and the fallback is what every caller had
+        // before seats existed: the organization's own subscription.
+        ISubscriberSubscriptionResolver? resolver = null)
     {
         _subscriptions = subscriptions;
+        _resolver = resolver;
         _usage = usage;
         _closures = closures;
         _allowances = allowances;
@@ -105,11 +110,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
         var context = resolution.Context!;
         var readAt = _time.GetUtcNow().UtcDateTime;
 
-        var subscription = await _subscriptions.GetLiveAsync(
-            context.TenantId,
-            context.OrganizationId,
-            readAt,
-            cancellationToken);
+        // Chosen by the meter being recorded rather than by taking whatever the organization
+        // holds. Somebody on an allowance plan of their own spends theirs; a meter their plan says
+        // nothing about still records against the organization's, which is what it pays for.
+        var drawnOn = await ResolveForMeterAsync(
+            context, request.MeterKey, readAt, cancellationToken);
+
+        var subscription = drawnOn?.Subscription;
+        var seat = drawnOn?.SeatNumber;
 
         if (subscription is null)
         {
@@ -186,6 +194,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             request,
             context,
             subscription,
+            seat,
             meter,
             period,
             occurredAt,
@@ -215,6 +224,97 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId);
     }
 
+    public async Task<SubscriptionOperationResult<IReadOnlyList<UsageResponse>>> ReadMineAsync(
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<IReadOnlyList<UsageResponse>>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var resolved = await ResolveAllAsync(context, now, cancellationToken);
+
+        if (resolved.Count == 0)
+        {
+            return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "This caller has no active subscription.",
+                correlationId);
+        }
+
+        var items = new List<UsageResponse>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        // In resolution order, which is seats before the organization: the first plan to meter a
+        // key is the one a recording would spend, so it is the one whose balance to report. A later
+        // plan metering the same key is passed over rather than added, because two rows for one
+        // meter leave a reader no way to tell which of them they are about to draw down.
+        foreach (var candidate in resolved)
+        {
+            var read = await ReadAuthoritativeAsync(
+                context,
+                candidate.Subscription,
+                now,
+                correlationId,
+                cancellationToken,
+                candidate.SeatNumber);
+
+            if (!read.IsSuccess)
+            {
+                return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Failure(
+                    read.FailureKind,
+                    read.ErrorCode!,
+                    read.ErrorMessage!,
+                    correlationId);
+            }
+
+            foreach (var item in read.Value!)
+            {
+                if (seen.Add(item.MeterKey))
+                {
+                    items.Add(item);
+                }
+            }
+        }
+
+        return SubscriptionOperationResult<IReadOnlyList<UsageResponse>>.Success(
+            items,
+            correlationId);
+    }
+
+    /// <summary>
+    /// Everything this caller may draw on, seats first, or the organization's own alone when seats
+    /// are not wired up.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedSubscription>> ResolveAllAsync(
+        SubscriptionContext context,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_resolver is not null)
+        {
+            return await _resolver.ResolveAsync(context, nowUtc, cancellationToken);
+        }
+
+        var organization = await _subscriptions.GetLiveAsync(
+            context.TenantId, context.OrganizationId, nowUtc, cancellationToken);
+
+        return organization is null
+            ? []
+            : [new ResolvedSubscription(organization, SeatNumber: null)];
+    }
+
     public async Task<SubscriptionOperationResult<UsageCurrentRead>> ReadCurrentAsync(
         string? organizationId,
         UsageReadMode readMode,
@@ -236,6 +336,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         var context = resolution.Context!;
         var now = _time.GetUtcNow().UtcDateTime;
 
+        // Deliberately the organization's own subscription, unchanged. This read answers for every
+        // meter at once and is built around one subscription throughout — it counts how many
+        // meter-windows the plan should have and refuses a projection that holds fewer, which is a
+        // judgement that has no meaning spread across two plans. Reading a caller's own seat
+        // allowance belongs with the per-seat counters, where the projection learns about seats.
         var subscription = await _subscriptions.GetLiveAsync(
             context.TenantId,
             context.OrganizationId,
@@ -369,6 +474,32 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// whole request for such a meter — counting it here would make every projection read of an
     /// unresolvable subscription report a partial fallback on the way to that refusal.
     /// </remarks>
+    /// <summary>
+    /// The subscription this caller's usage of one meter belongs to.
+    /// </summary>
+    /// <remarks>
+    /// Falls back to the organization's own subscription when no resolver is supplied, which is
+    /// what every caller had before seats existed and what every test constructing this service
+    /// without one still gets.
+    /// <para>
+    /// When a resolver is there but nothing it returned meters this key, the first resolved
+    /// subscription is handed back anyway so the caller is told "that plan has no such meter"
+    /// rather than "you have no subscription" — two different problems that send a support
+    /// engineer to two different places.
+    /// </para>
+    /// </remarks>
+    private async Task<ResolvedSubscription?> ResolveForMeterAsync(
+        SubscriptionContext context,
+        string meterKey,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var resolved = await ResolveAllAsync(context, nowUtc, cancellationToken);
+
+        return SubscriberSubscriptionSelection.ForMeter(resolved, meterKey)
+            ?? resolved.FirstOrDefault();
+    }
+
     private static int CountCurrentWindows(SubscriptionDetail subscription, DateTime asOfUtc)
     {
         var windows = 0;
@@ -399,7 +530,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         DateTime now,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? seat = null)
     {
         var windows = new List<(PlanMeter Meter, BillingPeriod Period)>();
 
@@ -423,7 +555,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 .Select(window => SubscriptionUsageCounter.CreateId(
                     subscription.ItemId,
                     window.Meter.MeterKey,
-                    window.Period.Key))
+                    window.Period.Key,
+                    seat))
                 .ToList(),
             cancellationToken);
 
@@ -432,7 +565,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         foreach (var (meter, period) in windows)
         {
             counters.TryGetValue(
-                SubscriptionUsageCounter.CreateId(subscription.ItemId, meter.MeterKey, period.Key),
+                SubscriptionUsageCounter.CreateId(
+                    subscription.ItemId, meter.MeterKey, period.Key, seat),
                 out var counter);
 
             responses.Add(Describe(
@@ -440,7 +574,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 period,
                 counter?.Balance ?? 0,
                 await _allowances.EffectiveAsync(
-                    subscription, meter, period, counter, cancellationToken),
+                    subscription, meter, period, counter, cancellationToken, seat),
                 allowed: true,
                 replayed: false));
         }
@@ -693,6 +827,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
         RecordUsageRequest request,
         SubscriptionContext context,
         SubscriptionDetail subscription,
+        int? seat,
         PlanMeter meter,
         BillingPeriod period,
         DateTime occurredAt,
@@ -727,11 +862,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         try
         {
+            // The seat's own opening figure. On a carry-forward meter this is what its previous
+            // window left behind — one person's leftovers, not everybody's.
             var opening = await _allowances.OpeningAllowanceAsync(
                 subscription,
                 meter,
                 period,
-                cancellationToken);
+                cancellationToken,
+                seat);
 
             var record = new SubscriptionUsageRecord
             {
@@ -761,7 +899,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             }
 
             var counter = await _usage.ApplyDeltaAsync(
-                SeedFor(context, subscription, meter, period, opening),
+                SeedFor(context, subscription, seat, meter, period, opening),
                 request.Quantity,
                 cancellationToken);
 
@@ -779,6 +917,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     record,
                     context,
                     subscription,
+                    seat,
                     meter,
                     period,
                     allowance,
@@ -792,6 +931,35 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     record,
                     context,
                     subscription,
+                    seat,
+                    meter,
+                    period,
+                    allowance,
+                    correlationId,
+                    cancellationToken);
+            }
+
+            // The pace, checked after the amount. A use the period already refused never reaches
+            // here, so a refused call consumes none of the short window either.
+            var pace = await ApplyPaceAsync(
+                context, subscription, seat, meter, occurredAt, request.Quantity,
+                cancellationToken);
+
+            if (request.Enforce && pace.Exceeded &&
+                meter.SubLimitBehaviour == MeterSubLimitBehaviour.Refuse)
+            {
+                // Both windows are put back, in the order they were taken. Reversing only the
+                // period would leave the short window holding a use nobody was allowed to make,
+                // and the next hour would open already spent.
+                await ReversePaceAsync(
+                    context, subscription, seat, meter, occurredAt, request.Quantity,
+                    cancellationToken);
+
+                return await RefuseAsync(
+                    record,
+                    context,
+                    subscription,
+                    seat,
                     meter,
                     period,
                     allowance,
@@ -851,7 +1019,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     allowance,
                     allowed: withinAllowance || meter.OverageAllowed,
                     replayed: false,
-                    projection),
+                    projection,
+                    // The only way the pace reaches the caller. A cap that reports instead of
+                    // refusing and then says nothing has capped nothing at all — the consumer is
+                    // the one that can slow down, and it can only do so on being told.
+                    subLimitExceeded: pace.Exceeded),
                 correlationId);
         }
         finally
@@ -882,10 +1054,16 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// and what caused it both stay visible. The counter is decremented by the same amount, so
     /// a refused call leaves the balance exactly where it was.
     /// </remarks>
+    /// <remarks>
+    /// <paramref name="seat"/> is the seat the use was applied to, and it has to be the same one:
+    /// the reversal decrements whatever counter the original increment landed on, and reversing
+    /// against a different one would leave the refused use still spent.
+    /// </remarks>
     private async Task<SubscriptionOperationResult<UsageResponse>> RefuseAsync(
         SubscriptionUsageRecord record,
         SubscriptionContext context,
         SubscriptionDetail subscription,
+        int? seat,
         PlanMeter meter,
         BillingPeriod period,
         decimal allowance,
@@ -910,7 +1088,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             cancellationToken);
 
         var counter = await _usage.ApplyDeltaAsync(
-            SeedFor(context, subscription, meter, period, allowance),
+            SeedFor(context, subscription, seat, meter, period, allowance),
             -record.Delta,
             cancellationToken);
 
@@ -1011,9 +1189,113 @@ public sealed class UsageRecordingService : IUsageRecordingService
             correlationId);
     }
 
+    /// <summary>
+    /// The counter a use is applied to, seeded with what its window opened holding.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="seat"/> is what separates one person's allowance from another's on the same
+    /// subscription. Null for an organization's own plan, which composes exactly the identity every
+    /// counter already stored uses, so no balance moves and nothing needs migrating.
+    /// <para>
+    /// The allowance is the plan's included quantity either way, and that is the whole of the
+    /// per-seat model: five seats on a plan including ten million is ten million each, because each
+    /// counts separately against the same figure.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// Counts a use against the meter's short window, and says whether it went past its cap.
+    /// </summary>
+    /// <remarks>
+    /// Its own counter on its own window, addressed exactly as a period's is — the short window's
+    /// key comes from a separate keyspace, so a meter billed daily with a daily cap still counts
+    /// two different things rather than one.
+    /// <para>
+    /// A meter with no cap does nothing here and costs nothing: no counter is written, and none is
+    /// read.
+    /// </para>
+    /// </remarks>
+    private async Task<(bool Exceeded, decimal Balance)> ApplyPaceAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        int? seat,
+        PlanMeter meter,
+        DateTime occurredAt,
+        decimal quantity,
+        CancellationToken cancellationToken)
+    {
+        if (meter.SubLimitWindow is not { } window || meter.SubLimitQuantity is not { } cap)
+        {
+            return (false, 0);
+        }
+
+        var counter = await _usage.ApplyDeltaAsync(
+            PaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
+            quantity,
+            cancellationToken);
+
+        return (counter.Balance > cap, counter.Balance);
+    }
+
+    /// <summary>Puts back what <see cref="ApplyPaceAsync"/> counted, for a use that was refused.</summary>
+    private async Task ReversePaceAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        int? seat,
+        PlanMeter meter,
+        DateTime occurredAt,
+        decimal quantity,
+        CancellationToken cancellationToken)
+    {
+        if (meter.SubLimitWindow is not { } window || meter.SubLimitQuantity is not { } cap)
+        {
+            return;
+        }
+
+        await _usage.ApplyDeltaAsync(
+            PaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
+            -quantity,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The counter one short window uses, seeded with the cap it is measured against.
+    /// </summary>
+    /// <remarks>
+    /// Kept only as long as the window it counts plus the usual retention, because a short window
+    /// produces a counter per hour or per day and they are of no interest once the period they sit
+    /// inside has been rated.
+    /// </remarks>
+    private SubscriptionUsageCounter PaceSeedFor(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        int? seat,
+        PlanMeter meter,
+        UsageWindow window,
+        decimal cap,
+        DateTime occurredAt) => new()
+    {
+        ItemId = SubscriptionUsageCounter.CreateId(
+            subscription.ItemId,
+            meter.MeterKey,
+            UsageWindowKey.Create(window, occurredAt),
+            seat),
+        SeatNumber = seat,
+        TenantId = context.TenantId,
+        OrganizationId = context.OrganizationId,
+        SubscriptionId = subscription.ItemId,
+        MeterKey = meter.MeterKey,
+        PeriodKey = UsageWindowKey.Create(window, occurredAt),
+        LimitSnapshot = cap,
+        PeriodStartUtc = UsageWindowKey.StartOf(window, occurredAt),
+        PeriodEndUtc = UsageWindowKey.EndOf(window, occurredAt),
+        ExpiresAtUtc = UsageWindowKey.EndOf(window, occurredAt)
+            .AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
+    };
+
     private SubscriptionUsageCounter SeedFor(
         SubscriptionContext context,
         SubscriptionDetail subscription,
+        int? seat,
         PlanMeter meter,
         BillingPeriod period,
         decimal allowance) => new()
@@ -1021,7 +1303,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
         ItemId = SubscriptionUsageCounter.CreateId(
             subscription.ItemId,
             meter.MeterKey,
-            period.Key),
+            period.Key,
+            seat),
+        SeatNumber = seat,
         TenantId = context.TenantId,
         OrganizationId = context.OrganizationId,
         SubscriptionId = subscription.ItemId,
@@ -1048,8 +1332,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         decimal allowance,
         bool allowed,
         bool replayed,
-        UsageProjectionOutcome projection) =>
-        Describe(meter, period, balance, allowance, allowed, replayed, ToState(projection));
+        UsageProjectionOutcome projection,
+        bool subLimitExceeded = false) =>
+        Describe(
+            meter, period, balance, allowance, allowed, replayed, ToState(projection),
+            subLimitExceeded);
 
     private static UsageResponse Describe(
         PlanMeter meter,
@@ -1058,9 +1345,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         decimal allowance,
         bool allowed,
         bool replayed,
-        UsageProjectionState projection = UsageProjectionState.Published) => new()
+        UsageProjectionState projection = UsageProjectionState.Published,
+        bool subLimitExceeded = false) => new()
     {
         Allowed = allowed,
+        SubLimitExceeded = subLimitExceeded,
         MeterKey = meter.MeterKey,
         UnitLabel = meter.UnitLabel,
         QuantityScale = meter.QuantityScale,

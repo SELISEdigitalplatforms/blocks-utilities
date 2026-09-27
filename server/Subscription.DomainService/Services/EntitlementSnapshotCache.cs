@@ -32,22 +32,23 @@ public sealed class EntitlementSnapshotCache : IEntitlementSnapshotCache
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<SubscriptionDetail?> GetAsync(
+    public async Task<IReadOnlyList<SubscriptionDetail>> GetAsync(
         string tenantId,
         string organizationId,
-        Func<Task<SubscriptionDetail?>> loader)
+        string subscriberUserId,
+        Func<Task<IReadOnlyList<SubscriptionDetail>>> loader)
     {
         ArgumentNullException.ThrowIfNull(loader);
 
-        var key = CreateKey(tenantId, organizationId);
+        var key = CreateKey(tenantId, organizationId, subscriberUserId);
         var now = _time.GetUtcNow().UtcDateTime;
 
         if (_entries.TryGetValue(key, out var cached) && cached.ExpiresAtUtc > now)
         {
-            return cached.Subscription;
+            return cached.Subscriptions;
         }
 
-        var subscription = await loader();
+        var subscriptions = await loader();
 
         if (_entries.Count >= MaximumEntries)
         {
@@ -55,14 +56,28 @@ public sealed class EntitlementSnapshotCache : IEntitlementSnapshotCache
         }
 
         _entries[key] = new Entry(
-            subscription,
+            subscriptions,
             now.AddSeconds(Math.Max(0, _options.CurrentValue.EntitlementCacheSeconds)));
 
-        return subscription;
+        return subscriptions;
     }
 
-    public void Invalidate(string tenantId, string organizationId) =>
-        _entries.TryRemove(CreateKey(tenantId, organizationId), out _);
+    public void Invalidate(string tenantId, string organizationId)
+    {
+        var prefix = OrganizationPrefix(tenantId, organizationId);
+
+        // A scan rather than a single removal, because one organization now holds an entry per
+        // subscriber and each of them carries the organization's own subscription. The dictionary
+        // is capped at MaximumEntries, so this is bounded and runs only when a subscription
+        // actually changes — not on the read path.
+        foreach (var pair in _entries)
+        {
+            if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                _entries.TryRemove(pair.Key, out _);
+            }
+        }
+    }
 
     private void RemoveExpired(DateTime now)
     {
@@ -75,8 +90,24 @@ public sealed class EntitlementSnapshotCache : IEntitlementSnapshotCache
         }
     }
 
-    private static string CreateKey(string tenantId, string organizationId) =>
-        $"{tenantId}:{organizationId}";
+    private static string OrganizationPrefix(string tenantId, string organizationId) =>
+        $"{tenantId}:{organizationId}:";
 
-    private sealed record Entry(SubscriptionDetail? Subscription, DateTime ExpiresAtUtc);
+    /// <summary>
+    /// The subscriber's own slot, under a prefix <see cref="Invalidate"/> can sweep.
+    /// </summary>
+    /// <remarks>
+    /// The organization-wide subscriber is the empty string, so its key ends in the separator and
+    /// cannot be confused with any user's — and no identifier here contains one, which is what
+    /// makes the prefix unambiguous.
+    /// </remarks>
+    private static string CreateKey(
+        string tenantId,
+        string organizationId,
+        string subscriberUserId) =>
+        OrganizationPrefix(tenantId, organizationId) + subscriberUserId;
+
+    private sealed record Entry(
+        IReadOnlyList<SubscriptionDetail> Subscriptions,
+        DateTime ExpiresAtUtc);
 }

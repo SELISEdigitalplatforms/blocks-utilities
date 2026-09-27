@@ -655,6 +655,7 @@ public sealed class SubscriptionQuantityChangeServiceTests
         ISubscriptionWorkScheduler? scheduler = null) => new(
         _contextResolver.Object,
         _subscriptions.Object,
+        assignments: null,
         _billingAccounts.Object,
         _gateway.Object,
         new SubscriptionOutboxEventFactory(),

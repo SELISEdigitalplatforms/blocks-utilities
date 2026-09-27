@@ -40,6 +40,8 @@ vi.mock("../services/subscription-simulation.service", async () => {
     ...actual,
     subscriptionSimulationService: {
       getEntitlements: vi.fn().mockResolvedValue({ entitlements: [] }),
+      // No user-wise subscription, so the members card stays out of these tests' way.
+      listMemberBasedSubscriptions: vi.fn().mockResolvedValue([]),
     },
   };
 });
