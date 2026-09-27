@@ -67,17 +67,29 @@ public sealed class RollingPaceCounterIntegrationTests
                      "behind depending on which half landed first");
     }
 
-    private static SubscriptionUsageCounter Seed(string tenantId) => new()
+    /// <remarks>
+    /// The tenant is folded into the subscription id, not just carried in <see
+    /// cref="SubscriptionUsageCounter.TenantId"/>: the fixture maps every tenant onto one
+    /// physical database, so the tenant field alone does not keep two tests' documents apart —
+    /// only the counter's own <c>ItemId</c>, which is derived from the subscription id, does.
+    /// Without this, two tests in this file collided on the identical counter document.
+    /// </remarks>
+    private static SubscriptionUsageCounter Seed(string tenantId)
     {
-        ItemId = SubscriptionUsageCounter.CreateId("sub-1", "ai_tokens", "r5h"),
-        TenantId = tenantId,
-        OrganizationId = "org-1",
-        SubscriptionId = "sub-1",
-        MeterKey = "ai_tokens",
-        PeriodKey = "r5h",
-        LimitSnapshot = 10,
-        PeriodStartUtc = new DateTime(2026, 8, 14, 5, 0, 0, DateTimeKind.Utc),
-        PeriodEndUtc = new DateTime(2026, 8, 14, 10, 0, 0, DateTimeKind.Utc),
-        ExpiresAtUtc = new DateTime(2027, 12, 31, 0, 0, 0, DateTimeKind.Utc)
-    };
+        var subscriptionId = $"sub-{tenantId}";
+
+        return new SubscriptionUsageCounter
+        {
+            ItemId = SubscriptionUsageCounter.CreateId(subscriptionId, "ai_tokens", "r5h"),
+            TenantId = tenantId,
+            OrganizationId = "org-1",
+            SubscriptionId = subscriptionId,
+            MeterKey = "ai_tokens",
+            PeriodKey = "r5h",
+            LimitSnapshot = 10,
+            PeriodStartUtc = new DateTime(2026, 8, 14, 5, 0, 0, DateTimeKind.Utc),
+            PeriodEndUtc = new DateTime(2026, 8, 14, 10, 0, 0, DateTimeKind.Utc),
+            ExpiresAtUtc = new DateTime(2027, 12, 31, 0, 0, 0, DateTimeKind.Utc)
+        };
+    }
 }
