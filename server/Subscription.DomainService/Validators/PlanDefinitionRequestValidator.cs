@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FluentValidation;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
@@ -139,6 +139,34 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                     .WithMessage(
                         "A sub-limit of zero refuses everything. Leave it unset to cap by " +
                         "period alone.")
+                    .WithErrorCode("subscription_meter_sub_limit_invalid");
+
+                // Rolling has no meaning without a window to roll: nothing above says what a
+                // rolling flag alone would even be rolling.
+                meter.RuleFor(definition => definition.SubLimitRolling)
+                    .Equal(false)
+                    .When(definition => definition.SubLimitWindow is null)
+                    .WithMessage(
+                        "A rolling sub-limit needs a window and a quantity, same as a fixed one.")
+                    .WithErrorCode("subscription_meter_sub_limit_incomplete");
+
+                meter.RuleFor(definition => definition.SubLimitWindowCount)
+                    .GreaterThan(0)
+                    .WithMessage("A sub-limit spans at least one window.")
+                    .WithErrorCode("subscription_meter_sub_limit_invalid");
+
+                // A fixed window only tiles a day evenly when its length divides one — two, three,
+                // four, six, eight or twelve hours all do, five does not, and a fixed five-hour
+                // window would leave one short block a day with nowhere consistent to start it.
+                // Rolling has no such requirement: it has no start on the clock to tile from.
+                meter.RuleFor(definition => definition.SubLimitWindowCount)
+                    .Must((definition, count) =>
+                        definition.SubLimitWindow != UsageWindow.Hour || TilesADay(count))
+                    .When(definition =>
+                        !definition.SubLimitRolling && definition.SubLimitWindow is not null)
+                    .WithMessage(
+                        "A fixed hourly window has to divide a day evenly — 1, 2, 3, 4, 6, 8, 12 " +
+                        "or 24 — or mark it rolling instead.")
                     .WithErrorCode("subscription_meter_sub_limit_invalid");
 
                 meter.RuleFor(definition => definition.QuantityScale)
@@ -359,6 +387,17 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
     /// nothing to say about a quantity of 3, which cannot be bought.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Whether this many hours fit a day with none left over.
+    /// </summary>
+    /// <remarks>
+    /// The set is 1, 2, 3, 4, 6, 8, 12 and 24 — every divisor of 24 — because a fixed window that
+    /// does not divide a day leaves one short block a day, and no two days start their windows at
+    /// the same clock time. Five is the case this exists to catch: it looks like a reasonable
+    /// number and is not one that tiles.
+    /// </remarks>
+    private static bool TilesADay(int hours) => hours is 1 or 2 or 3 or 4 or 6 or 8 or 12 or 24;
+
     private static bool BeContiguousBands(PlanQuantityItemRequest item)
     {
         var bands = item.QuantityDiscountTiers;

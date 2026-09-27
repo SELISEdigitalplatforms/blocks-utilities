@@ -927,4 +927,59 @@ describe("a plan sold to each person", () => {
 
     expect(result.success).toBe(true);
   });
+
+  it("refuses rolling marked with no window to roll", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      prices: [price],
+      meters: [meter({ subLimitRolling: true })],
+    });
+
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimitRolling"]);
+  });
+
+  /**
+   * Five hours does not divide a day, so a fixed window authored with it would leave one short
+   * block a day with nowhere consistent to start it.
+   */
+  it("refuses a fixed hourly window with a count that does not divide a day", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      prices: [price],
+      meters: [
+        meter({ subLimitWindow: 0, subLimitQuantity: 1000, subLimitWindowCount: 5 }),
+      ],
+    });
+
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimitWindowCount"]);
+  });
+
+  it("accepts a fixed hourly window with a count that divides a day", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      prices: [price],
+      meters: [
+        meter({ subLimitWindow: 0, subLimitQuantity: 1000, subLimitWindowCount: 6 }),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a five-hour window once it is marked rolling", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      prices: [price],
+      meters: [
+        meter({
+          subLimitWindow: 0,
+          subLimitQuantity: 1000,
+          subLimitWindowCount: 5,
+          subLimitRolling: true,
+        }),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
 });
