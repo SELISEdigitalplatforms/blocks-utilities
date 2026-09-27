@@ -15,6 +15,12 @@ public sealed class PlanQuantityItemRequest
 
     public long DefaultQuantity { get; set; } = 1;
 
+    /// <summary>
+    /// Whether this quantity is how many people may hold a seat. Required on a user-wise plan
+    /// selling more than one quantity, and exactly one item may carry it.
+    /// </summary>
+    public bool CountsMembers { get; set; }
+
     /// <summary>Volume bands, ascending, gap-free from <see cref="MinQuantity"/>. Empty for one flat price.</summary>
     public List<QuantityDiscountTierRequest> QuantityDiscountTiers { get; set; } = [];
 }
@@ -41,6 +47,21 @@ public sealed class PlanMeterRequest
     public MeterAggregation Aggregation { get; set; } = MeterAggregation.Sum;
 
     public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
+
+    /// <summary>
+    /// A shorter window this meter also caps within, or null for the period's allowance alone.
+    /// </summary>
+    /// <remarks>
+    /// The pace the plan is sold at, as distinct from the amount. Requires
+    /// <see cref="SubLimitQuantity"/>, and the two are refused separately so a half-written cap
+    /// cannot be saved as one that enforces nothing.
+    /// </remarks>
+    public UsageWindow? SubLimitWindow { get; set; }
+
+    public decimal? SubLimitQuantity { get; set; }
+
+    /// <summary>Whether reaching the sub-limit refuses the usage or merely reports it.</summary>
+    public MeterSubLimitBehaviour SubLimitBehaviour { get; set; } = MeterSubLimitBehaviour.Refuse;
 
     /// <summary>
     /// How many decimal places this meter's quantities may carry. Zero — whole units only — unless

@@ -23,6 +23,7 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
+    private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
     private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
@@ -232,6 +233,75 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
                 It.IsAny<CancellationToken>()));
     }
 
+
+    /// <remarks>
+    /// Guards a roster that lies. Entitlement resolves only live subscriptions, so an unreleased
+    /// seat on an ended one already grants nothing — what this corrects is what an administrator
+    /// is shown, which is supposed to mean somebody is holding a seat right now.
+    /// </remarks>
+    [Fact]
+    public async Task Ending_a_user_wise_subscription_takes_everyone_off_it()
+    {
+        _due = [UserWise("sub-members")];
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _assignments.Verify(
+            repository => repository.ReleaseAllAsync(
+                TenantId, "sub-members", _time.GetUtcNow().UtcDateTime,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task An_organizations_own_subscription_has_nobody_to_take_off()
+    {
+        _due = [NewSubscription("sub-org")];
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _assignments.Verify(
+            repository => repository.ReleaseAllAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "it has no seats, and asking is a round trip per cancelled subscription for an " +
+            "answer that is always zero");
+    }
+
+    /// <remarks>
+    /// The cancellation has already landed by this point. Throwing would leave the outbox retrying
+    /// an event whose own compare-and-set now refuses it, so the subscription would be correctly
+    /// cancelled while the event looked permanently broken.
+    /// </remarks>
+    [Fact]
+    public async Task A_release_that_fails_does_not_undo_the_cancellation()
+    {
+        _due = [UserWise("sub-fails")];
+
+        _assignments
+            .Setup(repository => repository.ReleaseAllAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("mongo is away"));
+
+        var ended = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        ended.Should().Be(1,
+            because: "the status transition already landed, and a roster left stale is the " +
+                     "cheaper wrong of the two");
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Canceled);
+    }
+
+    private static SubscriptionDetail UserWise(string id)
+    {
+        var subscription = NewSubscription(id);
+
+        subscription.Plan.SubscriberScope = SubscriberScope.User;
+
+        return subscription;
+    }
+
     private SubscriptionCancellationEffectiveProcessor Processor(int batchSize = 50) => new(
         _subscriptions.Object,
         new SubscriptionOutboxEventFactory(),
@@ -239,7 +309,8 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
         new OptionsStub(batchSize),
         NullLogger<SubscriptionCancellationEffectiveProcessor>.Instance,
         _time,
-        _closures.Object);
+        _closures.Object,
+        assignments: _assignments.Object);
 
     private static SubscriptionDetail NewSubscription(string id) => new()
     {

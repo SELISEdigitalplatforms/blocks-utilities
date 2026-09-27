@@ -24,6 +24,7 @@ export const PLAN_BUILDER_STEP_OF_FIELD: Record<
   displayName: 1,
   description: 1,
   organizationId: 1,
+  subscriberScope: 1,
   familyCode: 1,
   familyRank: 1,
   featuresJson: 1,

@@ -21,6 +21,7 @@ public sealed class EntitlementServiceCampaignTests
     private const string OrganizationId = "org-1";
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriberSubscriptionResolver> _resolver = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private ControlledTimeProvider _time =
@@ -36,14 +37,22 @@ public sealed class EntitlementServiceCampaignTests
             .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
-        _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId,
-                OrganizationId,
-                It.IsAny<string>(),
-                It.IsAny<DateTime>(),
+
+        // No seats unless a test says otherwise. Moq's unconfigured default for a task returning a
+        // collection is a null list rather than an empty one, which would fail inside the service
+        // instead of at the assertion that meant to describe the caller.
+        // The organization's own subscription and no seats, which is every subscriber today.
+        _resolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<SubscriptionContext>(), It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => _subscription is null ? [] : new[] { _subscription });
+            .ReturnsAsync(() => _subscription is null
+                ? []
+                : [new ResolvedSubscription(_subscription, SeatNumber: null)]);
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => _subscription);
     }
 
     [Fact]
@@ -111,6 +120,7 @@ public sealed class EntitlementServiceCampaignTests
 
     private EntitlementService Service() => new(
         _subscriptions.Object,
+        _resolver.Object,
         _usage.Object,
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,

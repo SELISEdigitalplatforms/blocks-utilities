@@ -58,6 +58,13 @@ internal static class SubscriptionCollections
     public const string CampaignRedemptions = "SubscriptionCampaignRedemptions";
 
     /// <summary>
+    /// Who holds which seat on a subscription. Its own collection rather than a field, because a
+    /// subscription can carry many seats and they are assigned and released independently of
+    /// anything the subscription itself records.
+    /// </summary>
+    public const string Assignments = "SubscriptionAssignments";
+
+    /// <summary>
     /// Append-only record of every mail handed to the listener, payload included. Separate from the
     /// documents it reports on, because it also covers mail that has no document behind it.
     /// </summary>

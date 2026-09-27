@@ -620,6 +620,11 @@ export interface RecordUsageResult {
   remaining: number;
   overage: number;
   replayed: boolean;
+  /**
+   * The use went past the meter's pace cap on a plan that reports rather than refuses. Set only
+   * on a recording's answer — a read never carries it. Absent from servers that predate paces.
+   */
+  subLimitExceeded?: boolean;
 }
 
 /**
@@ -705,4 +710,44 @@ export interface UsageOveragePreviewResult {
   writesUsage: boolean;
   chargesPayment: boolean;
   finalChargeDependsOnActualPeriodEndUsage: boolean;
+}
+
+/** One place on a user-wise subscription, and who holds it. */
+export interface SubscriptionMember {
+  subscriptionId: string;
+  userId: string;
+  /** 1-based. Null only on a release, which says who left rather than from where. */
+  seatNumber: number | null;
+  assignedAtUtc: string;
+  releasedAtUtc: string | null;
+}
+
+export interface SubscriptionMembers {
+  subscriptionId: string;
+  /** How many places the subscription has — bought, or the ceiling on a flat price. */
+  purchased: number;
+  held: number;
+  available: number;
+  seats: SubscriptionMember[];
+}
+
+export interface AssignMemberRequest {
+  userIds: string[];
+}
+
+export interface SubscriptionMemberRefusal {
+  userId: string;
+  /** e.g. `subscription_member_limit_reached` — the same code a single assignment would fail with. */
+  reasonCode: string;
+  reason: string;
+}
+
+/**
+ * What became of each name in one assignment call. A 200 whether or not anybody was refused: a
+ * ten-name batch that seats two and refuses eight succeeded, and says so per person.
+ */
+export interface SubscriptionMemberAssignment {
+  subscriptionId: string;
+  assigned: SubscriptionMember[];
+  refused: SubscriptionMemberRefusal[];
 }

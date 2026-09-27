@@ -1,5 +1,6 @@
 import { CheckCircle2, Loader2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
+import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Input } from "@/components/ui-kits/input/input";
 import { toast } from "@/hooks/use-toast";
@@ -38,9 +39,15 @@ export const UsageMeterRow = ({
   // A record answers with the balance including that call, so it is newer than any read. It is
   // dropped as soon as a fresh read arrives for the same period.
   const [recorded, setRecorded] = useState<MeterUsage | null>(null);
+  // Three outcomes of a recording, not two. "Over pace" is allowed-but-past-the-short-window-cap:
+  // neither fine nor blocked, and folded into either one the whole pace behaviour is invisible —
+  // a tester would conclude the cap does nothing.
   const [lastResult, setLastResult] = useState<
-    { message: string; tone: "success" | "blocked" | "error" } | null
+    { message: string; tone: "success" | "over-pace" | "blocked" | "error" } | null
   >(null);
+  const pace = meter.subLimitWindow
+    ? `${meter.subLimitQuantity?.toLocaleString()} per ${meter.subLimitWindow.toLowerCase()}`
+    : null;
 
   // The record result wins while it is for the period the read describes; once the read catches
   // up (or the period turns over) the server's own row takes back over.
@@ -105,18 +112,34 @@ export const UsageMeterRow = ({
 
       setRecorded(result);
 
-      setLastResult({
-        message: result.allowed
-          ? `Recorded. ${result.used}/${result.included} ${result.unitLabel} used this period, ${result.remaining} remaining${result.overage ? `, ${result.overage} over` : ""}.`
-          : "Refused by the usage call — the allowance was exhausted between the check and this call.",
-        tone: result.allowed ? "success" : "blocked",
-      });
+      // A pace refusal arrives as a refusal with allowance still left — the period could have
+      // taken it, the short window could not.
+      const refusedByPace = !result.allowed && pace !== null && result.remaining >= parsedQuantity;
+      const recordedLine = `Recorded. ${result.used}/${result.included} ${result.unitLabel} used this period, ${result.remaining} remaining${result.overage ? `, ${result.overage} over` : ""}.`;
+
+      setLastResult(
+        result.allowed && result.subLimitExceeded
+          ? {
+              message: `${recordedLine} Past the pace of ${pace ?? "this meter"} — allowed, and reported so the caller can slow down.`,
+              tone: "over-pace",
+            }
+          : result.allowed
+            ? { message: recordedLine, tone: "success" }
+            : {
+                message: refusedByPace
+                  ? `Refused by the pace limit of ${pace} — allowance remains, try again in the next window.`
+                  : "Refused by the usage call — the allowance was exhausted between the check and this call.",
+                tone: "blocked",
+              },
+      );
 
       if (!result.allowed) {
         toast({
           variant: "destructive",
           title: "Usage refused",
-          description: `${meter.displayName} has no remaining allowance.`,
+          description: refusedByPace
+            ? `${meter.displayName} is over its pace of ${pace}.`
+            : `${meter.displayName} has no remaining allowance.`,
         });
       }
     } catch (error) {
@@ -132,7 +155,15 @@ export const UsageMeterRow = ({
   return (
     <div className="flex flex-col gap-2 border-b py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="text-sm font-medium">{meter.displayName}</p>
+        <p className="flex items-center gap-2 text-sm font-medium">
+          {meter.displayName}
+          {lastResult?.tone === "over-pace" ? (
+            <Badge variant="outline" className="border-amber-300 bg-amber-50 font-normal text-amber-800">
+              Over pace
+            </Badge>
+          ) : null}
+          {pace ? <span className="text-xs font-normal text-muted-foreground">pace {pace}</span> : null}
+        </p>
         <p className="text-xs text-muted-foreground">
           {current
             ? `${current.used}/${current.included} ${current.unitLabel || meter.unitLabel}${current.included === 1 ? "" : "s"} used this period${current.overage ? `, ${current.overage} over` : ""}`
@@ -146,7 +177,9 @@ export const UsageMeterRow = ({
               "mt-1 flex items-center gap-1 text-xs " +
               (lastResult.tone === "success"
                 ? "text-green-700"
-                : lastResult.tone === "blocked"
+                : lastResult.tone === "over-pace"
+                  ? "text-amber-700"
+                  : lastResult.tone === "blocked"
                   ? "text-warning-800"
                   : "text-destructive")
             }

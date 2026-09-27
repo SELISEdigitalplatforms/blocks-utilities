@@ -19,6 +19,7 @@ namespace Subscription.DomainService.Services;
 public sealed class EntitlementService : IEntitlementService
 {
     private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriberSubscriptionResolver _resolver;
     private readonly ISubscriptionUsageRepository _usage;
     private readonly IMeterAllowanceResolver _allowances;
     private readonly ISubscriptionContextResolver _contextResolver;
@@ -27,6 +28,7 @@ public sealed class EntitlementService : IEntitlementService
 
     public EntitlementService(
         ISubscriptionRepository subscriptions,
+        ISubscriberSubscriptionResolver resolver,
         ISubscriptionUsageRepository usage,
         IMeterAllowanceResolver allowances,
         ISubscriptionContextResolver contextResolver,
@@ -34,6 +36,7 @@ public sealed class EntitlementService : IEntitlementService
         TimeProvider? time = null)
     {
         _subscriptions = subscriptions;
+        _resolver = resolver;
         _usage = usage;
         _allowances = allowances;
         _contextResolver = contextResolver;
@@ -179,12 +182,21 @@ public sealed class EntitlementService : IEntitlementService
     }
 
     /// <summary>
-    /// Everything granting something to this caller, their own user-wise plan first.
+    /// Everything granting something to this caller: the seats they hold, then their
+    /// organization's own subscription.
     /// </summary>
     /// <remarks>
-    /// The acting user is the subscriber here: "what may I do" is asked about whoever holds the
-    /// token. A caller with no user in context — background work, a machine token — resolves the
-    /// organization's alone, which is exactly what it used to get.
+    /// Both, never one or the other. An organization-wise plan covers what the organization shares
+    /// and a seat covers one person's own allowance, so resolving only the seats would revoke
+    /// everything shared the moment somebody was given one.
+    /// <para>
+    /// Seats first, because that is the precedence a reader applies where both plans declare the
+    /// same key — the more specific purchase answers.
+    /// </para>
+    /// <para>
+    /// A caller with no user — background work, a machine token — holds no seats and resolves the
+    /// organization's subscription alone, which is exactly what every caller gets today.
+    /// </para>
     /// </remarks>
     private async Task<IReadOnlyList<SubscriptionDetail>> LoadAsync(
         SubscriptionContext context,
@@ -203,13 +215,19 @@ public sealed class EntitlementService : IEntitlementService
             context.TenantId,
             context.OrganizationId,
             subscriberUserId,
-            () => _subscriptions.ListLiveForSubscriberAsync(
-                context.TenantId,
-                context.OrganizationId,
-                subscriberUserId,
-                nowUtc,
-                cancellationToken));
+            async () =>
+            {
+                var resolved = await _resolver.ResolveAsync(
+                    context, nowUtc, cancellationToken);
+
+                // Entitlement asks what a plan grants, which does not depend on which
+                // seat of it somebody holds — that only decides whose allowance a
+                // recorded use spends.
+                return [.. resolved.Select(candidate => candidate.Subscription)];
+            });
     }
+
+
 
     /// <summary>
     /// What a meter's window currently holds: how much is used, and — for a meter that carries

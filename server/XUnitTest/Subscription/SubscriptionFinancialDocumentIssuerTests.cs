@@ -1116,7 +1116,7 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
-    public async Task An_invoice_issued_after_a_seat_change_describes_the_seats_that_were_charged()
+    public async Task An_invoice_issued_after_a_seat_change_describes_the_members_that_were_charged()
     {
         var subscription = Subscribed(item => item.QuantityItems =
         [

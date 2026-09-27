@@ -813,3 +813,118 @@ describe("quantity discount bands", () => {
     expect(issuePaths(tooFine)).toContainEqual(["entitlements", 0, "limit"]);
   });
 });
+
+describe("a plan sold to each person", () => {
+  const item = (itemKey: string, overrides: Record<string, unknown> = {}) => ({
+    itemKey,
+    unitLabel: itemKey,
+    minQuantity: 1,
+    defaultQuantity: 1,
+    quantityDiscountTiers: [],
+    countsMembers: false,
+    ...overrides,
+  });
+
+  const meter = (overrides: Record<string, unknown> = {}) => ({
+    meterKey: "tokens",
+    displayName: "Tokens",
+    unitLabel: "token",
+    aggregation: 0,
+    resetPolicy: 0,
+    quantityScale: 0,
+    includedQuantity: 10_000_000,
+    overageAllowed: false,
+    thresholdPercents: [],
+    rateTables: [],
+    ...overrides,
+  });
+
+  const userWise = (overrides: Record<string, unknown> = {}) => ({
+    ...validPlan,
+    subscriberScope: "User",
+    prices: [{ ...price, quantityItemKey: "place" }],
+    ...overrides,
+  });
+
+  it("leaves an organization-wise plan exactly as it validated before", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      prices: [price],
+      quantityItems: [item("seat"), item("workspace")],
+      meters: [meter()],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.subscriberScope).toBe("Organization");
+  });
+
+  it("refuses two quantities with none marked as counting people", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      userWise({ quantityItems: [item("place"), item("workspace")] }),
+    );
+
+    expect(issuePaths(result)).toContainEqual(["quantityItems"]);
+  });
+
+  it("refuses two quantities both marked as counting people", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      userWise({
+        quantityItems: [
+          item("place", { countsMembers: true }),
+          item("workspace", { countsMembers: true }),
+        ],
+      }),
+    );
+
+    expect(issuePaths(result)).toContainEqual(["quantityItems"]);
+  });
+
+  it("needs no mark on a plan selling one quantity", () => {
+    const result = createSubscriptionPlanSchema.safeParse(userWise({ quantityItems: [item("place")] }));
+
+    expect(result.success).toBe(true);
+  });
+
+  /** Priced flat, only the maximum can say how many places there are. */
+  it("refuses a flat price over a counting quantity with no maximum", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      userWise({ quantityItems: [item("place")], prices: [price] }),
+    );
+
+    expect(issuePaths(result)).toContainEqual(["quantityItems", 0, "maxQuantity"]);
+  });
+
+  it("accepts a flat price once the counting quantity has a maximum", () => {
+    const result = createSubscriptionPlanSchema.safeParse(
+      userWise({ quantityItems: [item("place", { maxQuantity: 10 })], prices: [price] }),
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it("refuses a pace window with no quantity, and a quantity with no window", () => {
+    const windowOnly = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      prices: [price],
+      meters: [meter({ subLimitWindow: 0 })],
+    });
+    const quantityOnly = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      prices: [price],
+      meters: [meter({ subLimitQuantity: 1000 })],
+    });
+
+    expect(issuePaths(windowOnly)).toContainEqual(["meters", 0, "subLimitQuantity"]);
+    expect(issuePaths(quantityOnly)).toContainEqual(["meters", 0, "subLimitWindow"]);
+  });
+
+  it("reads a cleared pace quantity as unset rather than as zero", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      prices: [price],
+      meters: [meter({ subLimitQuantity: "" })],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});

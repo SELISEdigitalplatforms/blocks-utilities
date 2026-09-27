@@ -29,6 +29,7 @@ public sealed class EntitlementSubscriberScopeTests
     private const string UserKey = "ai_credits";
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriberSubscriptionResolver> _resolver = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly ControlledTimeProvider _time =
@@ -57,7 +58,7 @@ public sealed class EntitlementSubscriberScopeTests
     [Fact]
     public async Task A_subscriber_with_their_own_plan_still_reaches_what_the_organization_shares()
     {
-        GivenLive(UserSubscription(), OrganizationSubscription());
+        GivenLive(OrganizationSubscription(), UserSubscription());
 
         var snapshot = await Service().GetAsync(
             fresh: false, null, "corr-1", CancellationToken.None);
@@ -71,7 +72,7 @@ public sealed class EntitlementSubscriberScopeTests
     [Fact]
     public async Task A_subscriber_reaches_their_own_allowance_as_well()
     {
-        GivenLive(UserSubscription(), OrganizationSubscription());
+        GivenLive(OrganizationSubscription(), UserSubscription());
 
         var snapshot = await Service().GetAsync(
             fresh: false, null, "corr-1", CancellationToken.None);
@@ -92,7 +93,7 @@ public sealed class EntitlementSubscriberScopeTests
             Limit = 999
         });
 
-        GivenLive(user, OrganizationSubscription());
+        GivenLive(OrganizationSubscription(), user);
 
         var snapshot = await Service().GetAsync(
             fresh: false, null, "corr-1", CancellationToken.None);
@@ -120,17 +121,8 @@ public sealed class EntitlementSubscriberScopeTests
     [Fact]
     public async Task One_subscribers_allowance_is_never_served_to_another()
     {
-        _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId, OrganizationId, "user-a",
-                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([UserSubscription(), OrganizationSubscription()]);
-
-        _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId, OrganizationId, "user-b",
-                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([OrganizationSubscription()]);
+        GivenSeatsFor("user-a", OrganizationSubscription(), UserSubscription());
+        GivenSeatsFor("user-b", OrganizationSubscription());
 
         var service = Service();
 
@@ -174,15 +166,36 @@ public sealed class EntitlementSubscriberScopeTests
                      "holds one subscription and cannot enumerate who cached it");
     }
 
-    private void GivenLive(params SubscriptionDetail[] subscriptions) =>
-        _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId, OrganizationId, It.IsAny<string>(),
-                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(subscriptions);
+    /// <summary>
+    /// Puts the organization's own subscription in place, and gives the acting user these seats.
+    /// </summary>
+    private void GivenLive(SubscriptionDetail organization, params SubscriptionDetail[] seats) =>
+        GivenSeatsFor(_actingUserId, organization, seats);
+
+    private void GivenSeatsFor(
+        string userId,
+        SubscriptionDetail? organization,
+        params SubscriptionDetail[] seats)
+    {
+        var resolved = new List<ResolvedSubscription>(
+            seats.Select((seat, index) => new ResolvedSubscription(seat, index + 1)));
+
+        if (organization is not null)
+        {
+            resolved.Add(new ResolvedSubscription(organization, SeatNumber: null));
+        }
+
+        _resolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.Is<SubscriptionContext>(context => context.UserId == userId),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(resolved);
+    }
 
     private EntitlementService Service() => new(
         _subscriptions.Object,
+        _resolver.Object,
         _usage.Object,
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,
@@ -204,7 +217,6 @@ public sealed class EntitlementSubscriberScopeTests
             ItemId = itemId,
             TenantId = TenantId,
             OrganizationId = OrganizationId,
-            SubscriberUserId = subscriberUserId,
             Status = SubscriptionStatus.Active,
             CurrencyCode = "CHF",
             CurrentPeriodEndUtc = new DateTime(2026, 8, 31, 21, 59, 59, DateTimeKind.Utc),

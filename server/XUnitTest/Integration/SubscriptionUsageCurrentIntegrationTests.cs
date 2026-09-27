@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
@@ -702,6 +702,44 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
             CancellationToken.None);
 
         found.Should().ContainSingle().Which.OrganizationId.Should().Be("org-1");
+    }
+
+    /// <summary>
+    /// One member's row is never handed back as the organization's own.
+    /// </summary>
+    /// <remarks>
+    /// A seat's row is stored beside the subscription's and carries no user, so nothing but the
+    /// seat number itself tells them apart. Without that in the filter, an organization asking what
+    /// it had used was shown whichever member's row the query happened to return — and the count of
+    /// rows it came back with is what decides whether the projection may answer the read at all.
+    /// <para>
+    /// The null comparison is what also keeps every row written before seats existed: those have no
+    /// such field in their BSON, and Mongo matches a missing field against null.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_members_own_row_is_not_returned_as_the_organizations()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var seat = Document(tenantId, used: 42, counterVersion: 1);
+        seat.SeatNumber = 2;
+        seat.ItemId = SubscriptionUsageCurrent.CreateId(
+            Sub(tenantId), "screening", "M2026-09", 2);
+
+        await _current.TryPublishAsync(Document(tenantId, 5, 1), CancellationToken.None);
+        await _current.TryPublishAsync(seat, CancellationToken.None);
+
+        var found = await _current.ListCurrentAsync(
+            tenantId,
+            "org-1",
+            Sub(tenantId),
+            new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc),
+            CancellationToken.None);
+
+        found.Should().ContainSingle(because:
+                "two rows for one meter would report a member's spending as the organization's")
+            .Which.SeatNumber.Should().BeNull();
     }
 
     /// <summary>

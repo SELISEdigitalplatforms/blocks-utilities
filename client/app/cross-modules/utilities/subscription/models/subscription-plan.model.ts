@@ -30,6 +30,36 @@ export const ENTITLEMENT_LIMIT_KIND = {
   Unlimited: 2,
 } as const;
 
+/**
+ * Who a plan is sold to. The one plan-level enum the response does *not* stringify — it arrives as
+ * this number, because the server returns the enum itself rather than a name mapped by hand.
+ */
+export const SUBSCRIBER_SCOPE = {
+  Organization: 0,
+  User: 1,
+} as const;
+
+export type SubscriberScopeName = keyof typeof SUBSCRIBER_SCOPE;
+
+/** A meter's pace window. Requests send the number; responses the name. */
+export const USAGE_WINDOW = {
+  Hour: 0,
+  Day: 1,
+  Week: 2,
+} as const;
+
+export const USAGE_WINDOW_NAMES = ["Hour", "Day", "Week"] as const;
+
+export type UsageWindowName = keyof typeof USAGE_WINDOW;
+
+/** "Throttle" is the server's word; it refuses nothing and reports the pace as exceeded. */
+export const METER_SUB_LIMIT_BEHAVIOUR = {
+  Refuse: 0,
+  Throttle: 1,
+} as const;
+
+export type MeterSubLimitBehaviourName = keyof typeof METER_SUB_LIMIT_BEHAVIOUR;
+
 /** Indexed by the numeric value a form holds, so a draft can be read the way a response reads. */
 export const ENTITLEMENT_LIMIT_KIND_NAMES = ["Boolean", "Count", "Unlimited"] as const;
 
@@ -92,6 +122,8 @@ export interface PlanQuantityItem {
   defaultQuantity: number;
   /** Optional for the same reason trial grants are: plans stored before this lack it. */
   quantityDiscountTiers?: QuantityDiscountTier[];
+  /** Whether this quantity is how many people a user-wise plan seats. Absent on older responses. */
+  countsMembers?: boolean;
 }
 
 export interface MeterTier {
@@ -133,6 +165,10 @@ export interface PlanMeter {
    * took the whole detail page down.
    */
   rateTables?: MeterRateTable[];
+  /** A pace cap inside the period. Null or absent on a meter capped by its period alone. */
+  subLimitWindow?: UsageWindowName | null;
+  subLimitQuantity?: number | null;
+  subLimitBehaviour?: MeterSubLimitBehaviourName;
 }
 
 export interface PlanEntitlement {
@@ -201,6 +237,8 @@ export type PlanCatalogueFilterName = "Active" | "Archived" | "All";
 export interface SubscriptionPlan {
   planId: string;
   code: string;
+  /** 0 organization, 1 user — see {@link SUBSCRIBER_SCOPE}. Absent on older responses. */
+  subscriberScope?: number;
   displayName: string;
   description: string | null;
   familyCode?: string | null;
@@ -286,6 +324,7 @@ export interface CreatePlanQuantityItemRequest {
   minQuantity: number;
   maxQuantity?: number;
   defaultQuantity: number;
+  countsMembers: boolean;
   /** Omitted rather than sent empty, so a plan with no bands stays a plan with no bands. */
   quantityDiscountTiers?: CreateQuantityDiscountTierRequest[];
 }
@@ -311,6 +350,9 @@ export interface CreatePlanMeterRequest {
     currencyCode: string;
     tiers: { upToQuantity?: number; unitAmountMinor: number }[];
   }[];
+  subLimitWindow?: number;
+  subLimitQuantity?: number;
+  subLimitBehaviour: number;
 }
 
 export interface CreatePlanEntitlementRequest {
@@ -333,6 +375,8 @@ export interface CreateSubscriptionPlanRequest {
   featuresJson?: string;
   /** Omitted entirely for a tenant-wide plan. */
   organizationId?: string;
+  /** Create only: an edit keeps the stored scope, whatever it is sent. */
+  subscriberScope: number;
   /**
    * How a trial's length is measured. The console always sends this instead of the legacy
    * {@link trialDays} — mutually exclusive on the wire, and the server rejects a request naming

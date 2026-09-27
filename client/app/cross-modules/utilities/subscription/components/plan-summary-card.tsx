@@ -1,7 +1,13 @@
 import { CircleDollarSign, Gauge, Hourglass, Layers, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
-import type { TrialDurationKindName } from "../models/subscription-plan.model";
+import type {
+  MeterSubLimitBehaviourName,
+  SubscriberScopeName,
+  TrialDurationKindName,
+  UsageWindowName,
+} from "../models/subscription-plan.model";
+import { describePace, describePlaces } from "../utilities/member-plan-format";
 import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
 import {
   formatEntitlementLimit,
@@ -19,11 +25,14 @@ export interface PlanSummaryData {
   trialDurationKind: TrialDurationKindName | null;
   trialDurationCount: number | null;
   trialRequiresPaymentMethod: boolean;
+  /** Absent reads as organization-wise, which is what every plan before this was. */
+  subscriberScope?: SubscriberScopeName;
   quantityItems: {
     itemKey: string;
     unitLabel: string;
     defaultQuantity: number;
     maxQuantity: number | null;
+    countsMembers?: boolean;
     /** Volume bands, when the item has any. Percentages are what an author authored. */
     quantityDiscountTiers?: {
       minimumQuantity: number;
@@ -41,6 +50,10 @@ export interface PlanSummaryData {
     overageAllowed: boolean;
     /** Drives whether overage is described as billed or given away. */
     rateTables?: { currencyCode: string }[];
+    /** A pace cap, by name ("Hour"). Null or absent when the meter is capped by its period alone. */
+    subLimitWindow?: UsageWindowName | null;
+    subLimitQuantity?: number | null;
+    subLimitBehaviour?: MeterSubLimitBehaviourName;
   }[];
   entitlements: {
     key: string;
@@ -109,6 +122,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
   const hasEntitlements = plan.entitlements.length > 0;
   const trialLabel = describeTrialDuration(plan);
   const trialSentence = describeTrialSentence(plan);
+  const placesSentence = plan.subscriberScope === "User" ? describePlaces(plan) : null;
 
   return (
     <Card className="rounded-xl">
@@ -116,6 +130,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle>{plan.displayName || "Untitled plan"}</CardTitle>
           {trialLabel ? <Badge variant="info">{trialLabel}</Badge> : null}
+          {plan.subscriberScope === "User" ? <Badge variant="secondary">Per person</Badge> : null}
         </div>
         <p className="text-xs text-muted-foreground">
           {plan.code || "no-code-yet"} · {plan.organizationLabel}
@@ -132,6 +147,9 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
             ))}
           </div>
         )}
+
+        {/* The whole per-person shape in one line — where an author catches a wrong toggle. */}
+        {placesSentence ? <p className="text-sm font-medium">{placesSentence}</p> : null}
 
         {trialSentence ? (
           <p className="text-sm text-muted-foreground">{trialSentence}</p>
@@ -198,6 +216,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
                   <span className="font-medium">{meter.displayName}:</span>{" "}
                   {formatMeterAllowance(meter)} ·{" "}
                   {describeMeterReset(meter)}
+                  {describePace(meter) ? ` · ${describePace(meter)}` : ""}
                 </p>
               ))}
             </div>

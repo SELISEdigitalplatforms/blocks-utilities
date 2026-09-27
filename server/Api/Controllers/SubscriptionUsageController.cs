@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Api.Utilities;
 using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
@@ -115,6 +115,36 @@ public sealed class SubscriptionUsageController : ControllerBase
                 result.Value!.Items,
                 correlationId)
             .ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Current usage for every meter the caller themselves may spend.
+    /// </summary>
+    /// <remarks>
+    /// Beside <c>GET current</c> rather than a flag on it, which goes on answering for the
+    /// organization's subscription as a whole and is unchanged. This one answers "what may I
+    /// spend": a seat's own allowance where the caller holds one, the organization's for every
+    /// meter no seat of theirs covers.
+    /// <para>
+    /// One item per meter, chosen exactly as a recording chooses — a seat first, the organization
+    /// otherwise — so the balance shown is the balance the next call actually draws down. Served
+    /// from the counters, with no <c>readMode</c>: a seat has no projection to read instead.
+    /// </para>
+    /// </remarks>
+    [HttpGet("mine")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UsageResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<UsageResponse>>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-usage::read")]
+    public async Task<IActionResult> GetMine(
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _usage.ReadMineAsync(organizationId, correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
     }
 
     /// <summary>

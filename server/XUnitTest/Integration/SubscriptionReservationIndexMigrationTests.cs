@@ -114,6 +114,51 @@ public sealed class SubscriptionReservationIndexMigrationTests
     }
 
     /// <summary>
+    /// The subscriber-keyed index is dropped, not merely superseded.
+    /// </summary>
+    /// <remarks>
+    /// Left in place it would refuse exactly what it was added to allow. Who holds a seat now lives
+    /// in its own collection, so no subscription carries the field this was keyed on, every one of
+    /// them indexes it as null, and two user-wise subscriptions in one organization collide on
+    /// <c>{tenant, org, null}</c>.
+    /// <para>
+    /// It is dropped by name rather than by the shape sweep beside it, which matches two-field keys
+    /// only -- this one has three.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_subscriber_keyed_reservation_index_does_not_survive_the_migration()
+    {
+        var collection = _fixture.Collection<SubscriptionDetail>("Subscriptions");
+
+        await collection.Indexes.CreateOneAsync(
+            new CreateIndexModel<SubscriptionDetail>(
+                new BsonDocument
+                {
+                    { nameof(SubscriptionDetail.TenantId), 1 },
+                    { nameof(SubscriptionDetail.OrganizationId), 1 },
+                    { "SubscriberUserId", 1 }
+                },
+                new CreateIndexOptions
+                {
+                    Unique = true,
+                    Name = SubscriptionIndexDefinitions
+                        .SubscriptionSubscriberReservationLegacyIndexName
+                }),
+            cancellationToken: CancellationToken.None);
+
+        await new SubscriptionRepository(_fixture.DbContextProvider)
+            .EnsureIndexesAsync(MongoIntegrationFixture.NewTenantId(), CancellationToken.None);
+
+        (await IndexNamesAsync(collection))
+            .Should().NotContain(
+                SubscriptionIndexDefinitions.SubscriptionSubscriberReservationLegacyIndexName,
+                because: "every subscription now indexes the removed field as null, so this would " +
+                         "cap an organization at one user-wise subscription — the opposite of " +
+                         "what it was created for");
+    }
+
+    /// <summary>
     /// Recreates a tenant database that predates the rename, then hands back the raw collection.
     /// </summary>
     /// <remarks>

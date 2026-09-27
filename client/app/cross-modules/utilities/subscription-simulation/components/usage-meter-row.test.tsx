@@ -98,4 +98,46 @@ describe("UsageMeterRow", () => {
     await waitFor(() => expect(recordUsage).toHaveBeenCalledTimes(1));
     expect(screen.queryByText(/Blocked before recording/)).not.toBeInTheDocument();
   });
+
+  /**
+   * Three outcomes, not two. A use past a reporting pace is allowed, so shown as plain success the
+   * whole throttle behaviour would be invisible and the cap would appear to do nothing.
+   */
+  describe("against a meter with a pace", () => {
+    const paced = { ...meter, subLimitWindow: "Hour", subLimitQuantity: 10 } as PlanMeter;
+
+    const consume = (quantity: string) => {
+      render(
+        <UsageMeterRow meter={paced} entitlementKey={undefined} usage={usage} organizationId={undefined} />,
+      );
+      fireEvent.change(screen.getByLabelText("Quantity to consume for Screenings"), {
+        target: { value: quantity },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Consume" }));
+    };
+
+    it("reads as fine within the pace", async () => {
+      recordUsage.mockResolvedValue({ ...usage, used: 43, remaining: 107, subLimitExceeded: false });
+      consume("1");
+
+      expect(await screen.findByText(/^Recorded\./)).toBeInTheDocument();
+      expect(screen.queryByText("Over pace")).not.toBeInTheDocument();
+    });
+
+    it("reads as over pace when the use was allowed but past it", async () => {
+      recordUsage.mockResolvedValue({ ...usage, used: 54, remaining: 96, subLimitExceeded: true });
+      consume("12");
+
+      expect(await screen.findByText("Over pace")).toBeInTheDocument();
+      expect(screen.getByText(/Past the pace of 10 per hour/)).toBeInTheDocument();
+    });
+
+    it("reads as refused by the pace, not the allowance, when allowance remains", async () => {
+      recordUsage.mockResolvedValue({ ...usage, allowed: false });
+      consume("12");
+
+      expect(await screen.findByText(/Refused by the pace limit of 10 per hour/)).toBeInTheDocument();
+      expect(screen.queryByText("Over pace")).not.toBeInTheDocument();
+    });
+  });
 });

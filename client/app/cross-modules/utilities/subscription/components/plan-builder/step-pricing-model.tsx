@@ -26,7 +26,7 @@ import {
   METER_AGGREGATION_OPTIONS,
   METER_RESET_POLICY_OPTIONS,
 } from "../../constants/subscription.constants";
-import type { PlanPrice } from "../../models/subscription-plan.model";
+import { USAGE_WINDOW_NAMES, type PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { METER_QUANTITY_MAX_SCALE, stepFor } from "../../utilities/meter-quantity";
 import { CardListItem, CardListShell } from "./card-list-shell";
@@ -66,6 +66,9 @@ export const StepPricingModel = ({
   const hasBands = (quantityItemValues ?? []).some(
     (item) => (item?.quantityDiscountTiers?.length ?? 0) > 0,
   );
+  const isUserWise = useWatch({ control, name: "subscriberScope" }) === "User";
+  // One item needs no mark — it is the one that counts people by elimination.
+  const needsCountingMark = isUserWise && quantityItems.fields.length > 1;
 
   return (
     <div className="space-y-6">
@@ -91,9 +94,11 @@ export const StepPricingModel = ({
               // No bands until asked for: a plan that sells at one price per unit is the common
               // case, and an empty list is what tells the API to store none.
               quantityDiscountTiers: [],
+              countsMembers: false,
             })
           }
         >
+          {isUserWise ? <PlacesExplanation /> : null}
           {quantityItems.fields.map((field, index) => (
             <CardListItem key={field.id} onRemove={() => quantityItems.remove(index)}>
               <FormField
@@ -150,10 +155,31 @@ export const StepPricingModel = ({
                   )}
                 />
               </div>
+              {needsCountingMark ? (
+                <FormField
+                  control={control}
+                  name={`quantityItems.${index}.countsMembers`}
+                  render={({ field: inputField }) => (
+                    <FormItem>
+                      <div className="flex items-center gap-2">
+                        <FormControl>
+                          <Checkbox
+                            checked={inputField.value}
+                            onCheckedChange={(checked) => inputField.onChange(checked === true)}
+                          />
+                        </FormControl>
+                        <FormLabel className="!m-0 text-xs">This quantity counts people</FormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              ) : null}
               <QuantityDiscountTiers itemIndex={index} />
             </CardListItem>
           ))}
         </CardListShell>
+        {/* The "exactly one" rule is about the list, so its message sits under the list. */}
+        <FormField control={control} name="quantityItems" render={() => <FormMessage />} />
 
         {/* A plan-level decision, shown once the bands it governs exist. Hidden while no item has
             bands, because with none there is nothing for a promotion to combine with — but the
@@ -213,6 +239,7 @@ export const StepPricingModel = ({
               overageAllowed: true,
               thresholdPercents: [],
               rateTables: [],
+              subLimitBehaviour: 0,
             })
           }
         >
@@ -454,6 +481,11 @@ export const StepPricingModel = ({
                   <MeterRateTableFields meterIndex={index} />
                 </FormItem>
               ) : null}
+              <MeterPaceFields
+                meterIndex={index}
+                unitLabel={meterValues?.[index]?.unitLabel}
+                quantityScale={meterValues?.[index]?.quantityScale ?? 0}
+              />
             </CardListItem>
           ))}
         </CardListShell>
@@ -548,6 +580,138 @@ export const StepPricingModel = ({
         />
       </div>
     </div>
+  );
+};
+
+/**
+ * Which number a place count comes from depends on how the plan is priced, and that is the part
+ * authors get wrong: the same quantity item means "how many were bought" on one price and "how many
+ * may be bought" on another.
+ */
+const PlacesExplanation = () => (
+  <p className="rounded-md bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
+    On a plan for each person, the quantity that counts people decides how many places there are.{" "}
+    <strong>Priced per unit</strong>, the quantity bought is how many places — 5 bought, 5 people.{" "}
+    <strong>Priced flat</strong>, the maximum is — so a flat price needs a maximum set here.
+  </p>
+);
+
+/**
+ * A second cap measured in a short window, on top of the period's allowance. Collapsed unless the
+ * meter already has one, so every meter that never opted in looks exactly as it did.
+ */
+const MeterPaceFields = ({
+  meterIndex,
+  unitLabel,
+  quantityScale,
+}: {
+  meterIndex: number;
+  unitLabel?: string;
+  quantityScale: number;
+}) => {
+  const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const paceWindow = useWatch({ control, name: `meters.${meterIndex}.subLimitWindow` });
+  const hasPace = paceWindow !== undefined;
+
+  return (
+    <Collapsible defaultOpen={hasPace}>
+      <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <ChevronDown className="h-3.5 w-3.5" />
+        Pace (optional)
+        {hasPace ? ` — per ${USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}` : ""}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-2 pt-2">
+        <p className="text-xs text-muted-foreground">
+          Caps how fast the allowance can be spent, not how much. Windows follow the clock — the
+          hour, the day, or the ISO week starting Monday.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <FormField
+            control={control}
+            name={`meters.${meterIndex}.subLimitWindow`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Window</FormLabel>
+                <Select
+                  value={field.value === undefined ? "none" : String(field.value)}
+                  onValueChange={(value) => {
+                    field.onChange(value === "none" ? undefined : Number(value));
+                    // Taking the window away takes the cap with it: half a pace is refused.
+                    if (value === "none") {
+                      setValue(`meters.${meterIndex}.subLimitQuantity`, undefined);
+                    }
+                  }}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="none">No pace limit</SelectItem>
+                    {USAGE_WINDOW_NAMES.map((name, value) => (
+                      <SelectItem key={name} value={String(value)}>
+                        Per {name.toLowerCase()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name={`meters.${meterIndex}.subLimitQuantity`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Most {unitLabel || "units"} per window</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    value={field.value ?? ""}
+                    type="number"
+                    min={stepFor(quantityScale)}
+                    step={stepFor(quantityScale)}
+                    disabled={!hasPace}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+        {hasPace ? (
+          <FormField
+            control={control}
+            name={`meters.${meterIndex}.subLimitBehaviour`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-xs">When the pace is exceeded</FormLabel>
+                <Select
+                  value={String(field.value ?? 0)}
+                  onValueChange={(value) => field.onChange(Number(value))}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="0">Refuse the usage</SelectItem>
+                    <SelectItem value="1">Allow it, and report it as over pace</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Reporting slows nobody down by itself — the caller is told it is over pace and
+                  decides what to do, e.g. fall back to a cheaper model.
+                </p>
+              </FormItem>
+            )}
+          />
+        ) : null}
+      </CollapsibleContent>
+    </Collapsible>
   );
 };
 

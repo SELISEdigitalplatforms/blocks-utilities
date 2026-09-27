@@ -462,20 +462,6 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     correlationId);
         }
 
-        // A user-wise plan is bought for a person, so there has to be one. A machine token or any
-        // other caller carrying no user would otherwise be stamped with the empty subscriber and
-        // land on the organization's own reservation slot — selling a per-person allowance to
-        // nobody, and blocking the organization from subscribing for itself.
-        if (plan.SubscriberScope == SubscriberScope.User &&
-            string.IsNullOrWhiteSpace(context.UserId))
-        {
-            return SubscriptionOperationResult<(Plan, Price)>.Failure(
-                PaymentFailureKind.Validation,
-                "subscription_subscriber_required",
-                "This plan is sold per user, so it cannot be bought by a caller that carries no user.",
-                correlationId);
-        }
-
         var price = await _catalogue.GetPriceAsync(
             context.TenantId,
             request.PriceId,
@@ -1052,14 +1038,6 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             ItemId = subscriptionId,
             TenantId = context.TenantId,
             OrganizationId = context.OrganizationId,
-            // Derived from what is being bought rather than taken from the request, so the two can
-            // never disagree: a user-wise plan is always stamped with a subscriber and an
-            // organization-wise one never is. There is nothing here for a validator to check
-            // because there is no way to express the mismatch. Whoever may buy on another's behalf
-            // is a separate question, and until it is answered the buyer is the subscriber.
-            SubscriberUserId = plan.SubscriberScope == SubscriberScope.User
-                ? context.UserId ?? string.Empty
-                : string.Empty,
             BillingAccountId = account.ItemId,
             Status = SubscriptionStatus.Incomplete,
             CurrencyCode = price.CurrencyCode,

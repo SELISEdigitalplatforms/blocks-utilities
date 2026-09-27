@@ -21,6 +21,7 @@ public sealed class EntitlementServiceTests
     private const string OrganizationId = "org-1";
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriberSubscriptionResolver> _resolver = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly ControlledTimeProvider _time =
@@ -40,18 +41,21 @@ public sealed class EntitlementServiceTests
             .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
-        _subscriptions
-            .Setup(repository => repository.ListLiveForSubscriberAsync(
-                TenantId,
-                OrganizationId,
-                It.IsAny<string>(),
-                It.IsAny<DateTime>(),
+
+        // The organization's own subscription and no seats, which is every subscriber today.
+        // Counted here rather than on the repository, because this is what the service now calls
+        // and what the cache is therefore saving.
+        _resolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<SubscriptionContext>(), It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(() =>
             {
                 _reads++;
 
-                return _subscription is null ? [] : new[] { _subscription };
+                return _subscription is null
+                    ? []
+                    : [new ResolvedSubscription(_subscription, SeatNumber: null)];
             });
 
         _usage
@@ -471,6 +475,7 @@ public sealed class EntitlementServiceTests
 
     private EntitlementService Service() => new(
         _subscriptions.Object,
+        _resolver.Object,
         _usage.Object,
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,
