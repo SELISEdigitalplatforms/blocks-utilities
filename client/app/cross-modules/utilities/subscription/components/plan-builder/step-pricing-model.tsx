@@ -66,7 +66,9 @@ export const StepPricingModel = ({
   const hasBands = (quantityItemValues ?? []).some(
     (item) => (item?.quantityDiscountTiers?.length ?? 0) > 0,
   );
+  const priceValues = useWatch({ control, name: "prices" });
   const isUserWise = useWatch({ control, name: "subscriberScope" }) === "User";
+  const placesMode = placesModeOf(quantityItemValues, priceValues);
   // One item needs no mark — it is the one that counts people by elimination.
   const needsCountingMark = isUserWise && quantityItems.fields.length > 1;
 
@@ -98,7 +100,7 @@ export const StepPricingModel = ({
             })
           }
         >
-          {isUserWise ? <PlacesExplanation /> : null}
+          {isUserWise ? <PlacesExplanation mode={placesMode} /> : null}
           {quantityItems.fields.map((field, index) => (
             <CardListItem key={field.id} onRemove={() => quantityItems.remove(index)}>
               <FormField
@@ -587,14 +589,57 @@ export const StepPricingModel = ({
  * Which number a place count comes from depends on how the plan is priced, and that is the part
  * authors get wrong: the same quantity item means "how many were bought" on one price and "how many
  * may be bought" on another.
+ *
+ * Only the rule that applies is shown. Both at once reads as a choice the author has to make, when
+ * it is not one — the price they have already chosen decides it, and the other half is noise they
+ * have to work out is irrelevant before they can act on the half that is not.
  */
-const PlacesExplanation = () => (
-  <p className="rounded-md bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
-    On a plan for each person, the quantity that counts people decides how many places there are.{" "}
-    <strong>Priced per unit</strong>, the quantity bought is how many places — 5 bought, 5 people.{" "}
-    <strong>Priced flat</strong>, the maximum is — so a flat price needs a maximum set here.
-  </p>
+const PlacesExplanation = ({ mode }: { mode: PlacesMode }) => (
+  <div className="space-y-2 rounded-md bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
+    <p>This plan is for each person, so one of these quantities has to say how many people.</p>
+
+    {mode !== "flat" ? (
+      <p>
+        <strong>Priced per unit</strong> — the quantity bought is the answer. Five bought, five
+        people. A maximum is optional.
+      </p>
+    ) : null}
+
+    {mode !== "perPlace" ? (
+      <p>
+        <strong>Priced flat</strong> — everybody pays the same, so the quantity says nothing about
+        how many people there are. <strong>Max</strong> is the only number that can, and without one
+        nobody can be given a place at all.
+      </p>
+    ) : null}
+  </div>
 );
+
+type PlacesMode = "unknown" | "perPlace" | "flat";
+
+/**
+ * How this plan's places will be counted, as far as the prices authored so far reveal.
+ *
+ * Any price not sitting on the counting quantity makes a maximum necessary, because a buyer who
+ * chooses that price is charged the same however many people they have — so the quantity they
+ * bought cannot be the number of places. Before any price exists there is nothing to go on, and
+ * both rules are shown rather than a guess.
+ */
+const placesModeOf = (
+  quantityItems: { itemKey?: string; countsMembers?: boolean }[] | undefined,
+  prices: { quantityItemKey?: string }[] | undefined,
+): PlacesMode => {
+  const items = quantityItems ?? [];
+  const counting = items.length === 1 ? items[0] : items.find((item) => item?.countsMembers);
+
+  if (!counting?.itemKey || (prices ?? []).length === 0) {
+    return "unknown";
+  }
+
+  return (prices ?? []).every((price) => price?.quantityItemKey === counting.itemKey)
+    ? "perPlace"
+    : "flat";
+};
 
 /**
  * A second cap measured in a short window, on top of the period's allowance. Collapsed unless the
