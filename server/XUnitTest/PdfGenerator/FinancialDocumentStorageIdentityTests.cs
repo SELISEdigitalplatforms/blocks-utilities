@@ -3,6 +3,7 @@ using DomainService.Storage;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Storage.DomainService.Shared.Enums;
 using StorageDriver;
 using Subscription.DomainService.Services;
 using Utility.DomainService.PdfGenerator.service;
@@ -11,8 +12,8 @@ using Utility.DomainService.Storage;
 namespace XUnitTest.PdfGenerator
 {
     /// <summary>
-    /// Document PDFs are created under one service principal with organization-level access, so any
-    /// user in the document's organization can read them back through the storage API.
+    /// Document PDFs are created under one service principal, filed under the platform's
+    /// Default_Construct module.
     /// </summary>
     public class FinancialDocumentStorageIdentityTests : IDisposable
     {
@@ -29,7 +30,7 @@ namespace XUnitTest.PdfGenerator
             Mock.Of<ILogger<PdfStorageHelper>>(), _driver.Object, Mock.Of<IHttpClientFactory>(), null));
 
         [Fact]
-        public async Task A_document_is_uploaded_with_organization_access_as_the_service_principal()
+        public async Task A_document_is_uploaded_under_the_default_construct_module_as_the_service_principal()
         {
             string? callerAtUpload = null;
             GetPreSignedUrlForUploadRequest? sent = null;
@@ -46,7 +47,8 @@ namespace XUnitTest.PdfGenerator
 
             callerAtUpload.Should().Be(StorageDriverFinancialDocumentFileStore.StoragePrincipal,
                 "the file is uploaded as the service principal regardless of who requested it");
-            sent!.ObjectAccessLevel.Should().Be("Organization");
+            sent!.ModuleName.Should().Be(ModuleName.Default_Construct);
+            sent.ObjectAccessLevel.Should().BeNull("no access level is enforced from this caller");
             BlocksContext.GetContext()!.UserId.Should().Be("subscriber-7", "the caller's identity is restored afterwards");
         }
 

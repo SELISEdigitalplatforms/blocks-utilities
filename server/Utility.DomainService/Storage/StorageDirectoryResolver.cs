@@ -18,8 +18,9 @@ namespace Utility.DomainService.Storage
     /// the driver was upgraded.
     /// <para>
     /// The driver generates directory ids itself, so a directory is found again by its module name,
-    /// which is the configured name: <c>StorageDirectories:&lt;logical name&gt;</c>, falling back to the
-    /// logical name. That is what lets each environment keep its own (e.g. "..._dev").
+    /// which defaults to the configured name: <c>StorageDirectories:&lt;logical name&gt;</c>, falling
+    /// back to the logical name. That is what lets each environment keep its own (e.g. "..._dev"). A
+    /// caller may supply its own module name instead -- see <see cref="ResolveAsync"/>.
     /// </para>
     /// <para>
     /// Created at the root with no access level, so the background worker -- which acts without a
@@ -64,14 +65,23 @@ namespace Utility.DomainService.Storage
         /// The driver's object access level the directory should carry -- e.g. <c>"Creator"</c> for
         /// one only its creating principal may use, or <c>"Organization"</c> for one anyone in the
         /// tenant's organization may use. Applied on creation, and corrected on an existing directory
-        /// found with a different level.
+        /// found with a different level. Left null, a caller states no opinion: the directory is
+        /// created at the driver's default and an existing one is never touched.
+        /// </param>
+        /// <param name="moduleName">
+        /// The key the directory is found again by -- see <see cref="IFileDirectoryRepository.GetDefaultDirectoryByModuleNameAsync"/>.
+        /// Defaults to the configured <paramref name="logicalName"/> itself; a caller with its own
+        /// module identifier (a platform-assigned module id, for instance) can supply one instead, and
+        /// that same value is used both to create the directory and to find it again next time.
         /// </param>
         public virtual async Task<string?> ResolveAsync(
             string logicalName,
             string? objectAccessLevel = null,
+            string? moduleName = null,
             CancellationToken cancellationToken = default)
         {
             var name = NameFor(logicalName);
+            var module = string.IsNullOrEmpty(moduleName) ? name : moduleName;
 
             // Never cached under a shared key. A directory id means nothing outside the tenant whose
             // database holds it, so caching one against an unknown tenant would hand tenant A's
@@ -91,12 +101,14 @@ namespace Utility.DomainService.Storage
                     LogSanitizer.Scrub(logicalName));
             }
 
-            var existing = await _repository.GetDefaultDirectoryByModuleNameAsync(name, cancellationToken);
+            var existing = await _repository.GetDefaultDirectoryByModuleNameAsync(module, cancellationToken);
             var id = existing?.ItemId;
 
+            // A caller with no opinion on access level leaves an existing directory exactly as it
+            // is: only a caller that actually asks for a level gets one enforced or corrected.
             if (existing is not null &&
-                !string.Equals(existing.ObjectAccessLevel?.ToString(), objectAccessLevel, StringComparison.OrdinalIgnoreCase) &&
-                !(existing.ObjectAccessLevel is null && string.IsNullOrEmpty(objectAccessLevel)))
+                !string.IsNullOrEmpty(objectAccessLevel) &&
+                !string.Equals(existing.ObjectAccessLevel?.ToString(), objectAccessLevel, StringComparison.OrdinalIgnoreCase))
             {
                 var previousAccessLevel = existing.ObjectAccessLevel?.ToString() ?? "none";
 
@@ -114,7 +126,7 @@ namespace Utility.DomainService.Storage
                         "StorageDirectoryResolver: updated directory Name={Name} Id={Id} access level " +
                         "from {Previous} to {Expected}",
                         LogSanitizer.Scrub(name), LogSanitizer.Scrub(id), LogSanitizer.Scrub(previousAccessLevel),
-                        LogSanitizer.Scrub(objectAccessLevel ?? "none"));
+                        LogSanitizer.Scrub(objectAccessLevel));
                 }
                 else
                 {
@@ -122,7 +134,7 @@ namespace Utility.DomainService.Storage
                         "StorageDirectoryResolver: directory Name={Name} Id={Id} has access level {Actual}, " +
                         "expected {Expected}, and the update to correct it failed Status={Status}",
                         LogSanitizer.Scrub(name), LogSanitizer.Scrub(id), LogSanitizer.Scrub(previousAccessLevel),
-                        LogSanitizer.Scrub(objectAccessLevel ?? "none"), updated.Status);
+                        LogSanitizer.Scrub(objectAccessLevel), updated.Status);
                 }
             }
 
@@ -132,7 +144,7 @@ namespace Utility.DomainService.Storage
                     name,
                     parentDirectoryId: null,
                     description: name,
-                    moduleName: name,
+                    moduleName: module,
                     objectAccessLevel: objectAccessLevel,
                     cancellationToken: cancellationToken);
 
@@ -140,7 +152,7 @@ namespace Utility.DomainService.Storage
                 id = created.IsSuccess
                     ? created.DirectoryId
                     : created.Status == DirectoryOperationStatus.NameConflict
-                        ? (await _repository.GetDefaultDirectoryByModuleNameAsync(name, cancellationToken))?.ItemId
+                        ? (await _repository.GetDefaultDirectoryByModuleNameAsync(module, cancellationToken))?.ItemId
                         : null;
 
                 if (id is null)
