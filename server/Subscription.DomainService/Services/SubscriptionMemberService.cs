@@ -126,8 +126,22 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             _time.GetUtcNow().UtcDateTime,
             cancellationToken));
 
+        var seated = held
+            .Select(assignment => assignment.UserId)
+            .ToHashSet(StringComparer.Ordinal);
+
         foreach (var userId in named)
         {
+            // Checked before the capacity, not after. Somebody already on a full subscription is
+            // not a subscription out of room — reported as one, an administrator re-sending a list
+            // was told to buy more seats for people who already had them.
+            if (seated.Contains(userId))
+            {
+                refused.Add(Refusal(userId, "subscription_member_already_assigned",
+                    "This person is already on this subscription."));
+                continue;
+            }
+
             var seat = offered.Count == 0 ? (int?)null : offered.Peek();
 
             if (seat is null)
@@ -162,6 +176,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
 
             offered.Dequeue();
             taken.Add(seat.Value);
+            seated.Add(userId);
             assigned.Add(Describe(assignment));
         }
 

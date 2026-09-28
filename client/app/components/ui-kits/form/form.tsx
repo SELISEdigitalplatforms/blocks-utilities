@@ -138,7 +138,12 @@ const FormMessage = React.forwardRef<
   React.HTMLAttributes<HTMLParagraphElement>
 >(({ className, children, ...props }, ref) => {
   const { error, formMessageId } = useFormField();
-  const body = error ? String(error?.message) : children;
+  // A list whose errors all belong to its rows has an error object with no message of its own —
+  // String() of that printed the word "undefined" under the list. A list-level message, when there
+  // is one, is filed under `root`.
+  const message =
+    error?.message ?? (error as { root?: { message?: string } } | undefined)?.root?.message;
+  const body = message ? String(message) : children;
 
   if (!body) {
     return null;

@@ -146,6 +146,25 @@ describe("UsageMeterRow", () => {
       expect(screen.getByText(/Past the pace of 10 an hour/)).toBeInTheDocument();
     });
 
+    /**
+     * Found testing in the portal: a use past a reporting 5-hour pace and a refusing weekly one
+     * read "refused by 10 in any 5 hours and 30 in any week", as though both had stopped it.
+     */
+    it("names only the limit that refused, and the one it was merely over separately", async () => {
+      recordUsage.mockResolvedValue({
+        ...usage,
+        allowed: false,
+        exceededSubLimits: [{ ...hourly, behaviour: "Throttle" }, weekly],
+      });
+      consume("12");
+
+      expect(
+        await screen.findByText(
+          "Refused by the pace limit of 500 a week — allowance remains, try again in the next window. Also over the pace of 10 an hour.",
+        ),
+      ).toBeInTheDocument();
+    });
+
     it("reads as refused by the pace, not the allowance, when allowance remains", async () => {
       recordUsage.mockResolvedValue({ ...usage, allowed: false, exceededSubLimits: [weekly] });
       consume("12");

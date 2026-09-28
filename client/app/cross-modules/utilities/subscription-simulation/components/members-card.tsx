@@ -238,11 +238,16 @@ const SubscriptionPlaces = ({
 };
 
 /** One name per line; commas and spaces also separate, since ids are pasted from anywhere. */
-const parseUserIds = (text: string): string[] =>
-  text
-    .split(/[\s,]+/)
-    .map((userId) => userId.trim())
-    .filter(Boolean);
+const parseUserIds = (text: string): string[] => [
+  // Each name once: the server places a repeated name once too, and a button saying "Assign 5
+  // people" for four distinct names promised a place that was never going to be handed out.
+  ...new Set(
+    text
+      .split(/[\s,]+/)
+      .map((userId) => userId.trim())
+      .filter(Boolean),
+  ),
+];
 
 /**
  * Assigns a batch in one call and shows what became of every name. Kept open on success, because

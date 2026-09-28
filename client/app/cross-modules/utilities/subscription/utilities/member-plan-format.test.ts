@@ -40,12 +40,27 @@ const price = (quantityItemKey: string | null) => ({
 describe("describePlaces", () => {
   it("counts places from the quantity bought when priced per place", () => {
     expect(describePlaces(plan({ prices: [price("place")] }))).toBe(
-      "One place per place bought (5 by default), 10,000,000 tokens each, at most 1,000,000 an hour, then refused.",
+      "One place per place bought (5 by default); 10,000,000 tokens each, at most 1,000,000 an hour, then refused.",
+    );
+  });
+
+  /** Each part already uses commas, so the meters are told apart with semicolons. */
+  it("keeps two meters' allowances apart in the sentence", () => {
+    const twoMeters = plan({
+      prices: [price("place")],
+      meters: [
+        { meterKey: "tokens", displayName: "Tokens", unitLabel: "token", includedQuantity: 100, overageAllowed: false },
+        { meterKey: "calls", displayName: "Calls", unitLabel: "call", includedQuantity: 100, overageAllowed: false },
+      ],
+    });
+
+    expect(describePlaces(twoMeters)).toBe(
+      "One place per place bought (5 by default); 100 tokens each; 100 calls each.",
     );
   });
 
   it("counts places from the maximum when priced flat", () => {
-    expect(describePlaces(plan({ prices: [price(null)] }))).toMatch(/^10 places at the flat price, /);
+    expect(describePlaces(plan({ prices: [price(null)] }))).toMatch(/^10 places at the flat price; /);
   });
 
   it("says a flat price with no maximum gives no places", () => {

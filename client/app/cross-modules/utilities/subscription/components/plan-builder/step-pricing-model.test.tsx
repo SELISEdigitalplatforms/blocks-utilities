@@ -313,6 +313,23 @@ describe("capping how fast a meter is spent", () => {
     await waitFor(() => expect(count).toHaveAttribute("aria-invalid", "false"));
   });
 
+  /**
+   * Found testing in the portal: with each row carrying its own error, the list-level message
+   * slot printed the word "undefined" — the list's error had no message of its own.
+   */
+  it("prints nothing under the list while only its rows are in error", async () => {
+    const user = userEvent.setup();
+
+    render(<ValidatedHarness values={metered([limit({ count: 5 }), limit({ window: 1, quantity: 500 })])} />);
+
+    const [count] = screen.getAllByLabelText(/How many/i);
+    await user.click(count);
+    await user.tab();
+    await waitFor(() => expect(count).toHaveAttribute("aria-invalid", "true"));
+
+    expect(screen.queryByText("undefined")).not.toBeInTheDocument();
+  });
+
   /** The same-length error sits on one row and is fixed on the other. */
   it("clears one row's error when the other row is changed to fix it", async () => {
     const user = userEvent.setup();
