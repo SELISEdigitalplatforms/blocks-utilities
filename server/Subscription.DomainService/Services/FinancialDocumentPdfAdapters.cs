@@ -63,12 +63,16 @@ public sealed class StorageDriverFinancialDocumentFileStore : IFinancialDocument
     /// Where document PDFs live. Its own directory so retention and access can be set for financial
     /// records without touching everything else the PDF module generates.
     /// </summary>
-    private const string Directory = "Blocks-Subscription-Financial-Documents";
+    private const string Directory = "Blocks-Utilities-Subscription-Financial-Documents";
 
     /// <summary>
-    /// The storage principal that owns every document PDF. Files are created
-    /// <see cref="OrganizationAccess"/> under it, so any user in the document's organization can read
-    /// them back through the storage driver.
+    /// The platform module id document PDFs are filed under -- what <see cref="Directory"/> is found
+    /// again by, and what each individual file's upload is tagged with.
+    /// </summary>
+    private const string ModuleName = "8";
+
+    /// <summary>
+    /// The storage principal that owns every document PDF.
     /// </summary>
     /// <remarks>
     /// A fixed id rather than whoever is in context, because that differs between the write (the
@@ -77,8 +81,6 @@ public sealed class StorageDriverFinancialDocumentFileStore : IFinancialDocument
     /// document written under the old one: they stay readable only by that id.
     /// </remarks>
     public const string StoragePrincipal = "blocks-utilities-financial-documents";
-
-    private const string OrganizationAccess = "Organization";
 
     private readonly PdfStorageHelper _storage;
 
@@ -100,7 +102,7 @@ public sealed class StorageDriverFinancialDocumentFileStore : IFinancialDocument
             storageId,
             fileName,
             parentDirectoryId: Directory,
-            objectAccessLevel: OrganizationAccess);
+            moduleName: ModuleName);
     }
 
     public async Task<byte[]?> ReadAsync(string storageId, CancellationToken cancellationToken)
