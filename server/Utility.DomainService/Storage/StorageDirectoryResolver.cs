@@ -61,9 +61,10 @@ namespace Utility.DomainService.Storage
         /// found nor created.
         /// </summary>
         /// <param name="objectAccessLevel">
-        /// The driver's object access level to create the directory with -- e.g. <c>"Creator"</c> for
-        /// one only its creating principal may use. Applied on creation only: an existing directory is
-        /// never rewritten, only reported when it does not match.
+        /// The driver's object access level the directory should carry -- e.g. <c>"Creator"</c> for
+        /// one only its creating principal may use, or <c>"Organization"</c> for one anyone in the
+        /// tenant's organization may use. Applied on creation, and corrected on an existing directory
+        /// found with a different level.
         /// </param>
         public virtual async Task<string?> ResolveAsync(
             string logicalName,
@@ -97,11 +98,32 @@ namespace Utility.DomainService.Storage
                 !string.Equals(existing.ObjectAccessLevel?.ToString(), objectAccessLevel, StringComparison.OrdinalIgnoreCase) &&
                 !(existing.ObjectAccessLevel is null && string.IsNullOrEmpty(objectAccessLevel)))
             {
-                // Not corrected here: changing who may use a directory is an access decision, not
-                // something to do silently on the upload path. Loud, so it is noticed.
-                _logger.LogWarning(
-                    "StorageDirectoryResolver: directory Name={Name} Id={Id} has access level {Actual}, expected {Expected}",
-                    LogSanitizer.Scrub(name), LogSanitizer.Scrub(id), LogSanitizer.Scrub(existing.ObjectAccessLevel?.ToString() ?? "none"), LogSanitizer.Scrub(objectAccessLevel ?? "none"));
+                var previousAccessLevel = existing.ObjectAccessLevel?.ToString() ?? "none";
+
+                var updated = await _directories.UpdateDirectoryAsync(
+                    id!,
+                    name,
+                    name,
+                    objectAccessLevel: objectAccessLevel,
+                    updateObjectAccessLevel: true,
+                    cancellationToken: cancellationToken);
+
+                if (updated.IsSuccess)
+                {
+                    _logger.LogInformation(
+                        "StorageDirectoryResolver: updated directory Name={Name} Id={Id} access level " +
+                        "from {Previous} to {Expected}",
+                        LogSanitizer.Scrub(name), LogSanitizer.Scrub(id), LogSanitizer.Scrub(previousAccessLevel),
+                        LogSanitizer.Scrub(objectAccessLevel ?? "none"));
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "StorageDirectoryResolver: directory Name={Name} Id={Id} has access level {Actual}, " +
+                        "expected {Expected}, and the update to correct it failed Status={Status}",
+                        LogSanitizer.Scrub(name), LogSanitizer.Scrub(id), LogSanitizer.Scrub(previousAccessLevel),
+                        LogSanitizer.Scrub(objectAccessLevel ?? "none"), updated.Status);
+                }
             }
 
             if (id is null)

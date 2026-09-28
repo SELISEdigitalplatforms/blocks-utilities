@@ -67,9 +67,8 @@ public sealed class StorageDriverFinancialDocumentFileStore : IFinancialDocument
 
     /// <summary>
     /// The storage principal that owns every document PDF. Files are created
-    /// <see cref="CreatorOnly"/> under it, so only this service can read them back through the storage
-    /// driver: invoices are not browsable or downloadable by other tenant users through the storage
-    /// API, and a subscriber's download goes through this service's own authorization first.
+    /// <see cref="OrganizationAccess"/> under it, so any user in the document's organization can read
+    /// them back through the storage driver.
     /// </summary>
     /// <remarks>
     /// A fixed id rather than whoever is in context, because that differs between the write (the
@@ -79,7 +78,7 @@ public sealed class StorageDriverFinancialDocumentFileStore : IFinancialDocument
     /// </remarks>
     public const string StoragePrincipal = "blocks-utilities-financial-documents";
 
-    private const string CreatorOnly = "Creator";
+    private const string OrganizationAccess = "Organization";
 
     private readonly PdfStorageHelper _storage;
 
@@ -101,7 +100,7 @@ public sealed class StorageDriverFinancialDocumentFileStore : IFinancialDocument
             storageId,
             fileName,
             parentDirectoryId: Directory,
-            objectAccessLevel: CreatorOnly);
+            objectAccessLevel: OrganizationAccess);
     }
 
     public async Task<byte[]?> ReadAsync(string storageId, CancellationToken cancellationToken)
