@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using Storage.DomainService.Enums;
 using StorageDriver;
 using Utility.DomainService.Storage;
+using PlatformModuleName = Storage.DomainService.Shared.Enums.ModuleName;
 
 namespace Utility.DomainService.PdfGenerator.service
 {
@@ -30,7 +31,7 @@ namespace Utility.DomainService.PdfGenerator.service
         /// <summary>
         /// Saves a PDF file to storage
         /// </summary>
-        public virtual async Task<bool> SavePdfToStorage(Stream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-PDF-Generated-Files", string? projectKey = null, string accessModifier = "Private", string? objectAccessLevel = null)
+        public virtual async Task<bool> SavePdfToStorage(Stream inputStream, string fileId, string fileName, Dictionary<string, string>? metadata = null, string parentDirectoryId = "Blocks-PDF-Generated-Files", string? projectKey = null, string accessModifier = "Private", string? objectAccessLevel = null, string? moduleName = null)
         {
             _logger.LogInformation("SavePdfToStorage: Saving PDF to storage -- fileId={FileId}, fileName={FileName}", LogSanitizer.Scrub(fileId), LogSanitizer.Scrub(fileName));
 
@@ -48,7 +49,7 @@ namespace Utility.DomainService.PdfGenerator.service
                 }
             }
 
-            var parentDirectory = await ResolveParentDirectoryAsync(parentDirectoryId, objectAccessLevel);
+            var parentDirectory = await ResolveParentDirectoryAsync(parentDirectoryId, objectAccessLevel, moduleName);
             if (parentDirectory is null)
             {
                 _logger.LogError("SavePdfToStorage: No storage directory for {Directory}, fileId={FileId}", LogSanitizer.Scrub(parentDirectoryId), LogSanitizer.Scrub(fileId));
@@ -65,14 +66,19 @@ namespace Utility.DomainService.PdfGenerator.service
                 AccessModifier = string.IsNullOrWhiteSpace(accessModifier) ? "Private" : accessModifier,
                 // Who, besides the storage ACL's own rules, may use the file. "Creator" confines it to
                 // the principal that uploaded it -- see StorageServiceIdentity.
-                ObjectAccessLevel = objectAccessLevel
+                ObjectAccessLevel = objectAccessLevel,
+                // The platform module (a fixed, numbered catalog -- see Storage.DomainService.Shared.Enums.ModuleName)
+                // this file is filed under, not the free-form directory lookup key of the same name.
+                ModuleName = string.IsNullOrEmpty(moduleName)
+                    ? default
+                    : Enum.Parse<PlatformModuleName>(moduleName)
             };
 
             _logger.LogInformation(
                 "SavePdfToStorage: Requesting upload URL fileId={FileId}, name={Name}, parentDirectory={ParentDirectory}, " +
-                "accessModifier={AccessModifier}, objectAccessLevel={ObjectAccessLevel}, tags={Tags}, metadataKeys={MetadataKeys}",
+                "accessModifier={AccessModifier}, objectAccessLevel={ObjectAccessLevel}, moduleName={ModuleName}, tags={Tags}, metadataKeys={MetadataKeys}",
                 LogSanitizer.Scrub(fileId), LogSanitizer.Scrub(payload.Name), LogSanitizer.Scrub(payload.ParentDirectoryId), LogSanitizer.Scrub(payload.AccessModifier), LogSanitizer.Scrub(payload.ObjectAccessLevel ?? "none"),
-                LogSanitizer.Scrub(payload.Tags), formattedMetadata.Count);
+                LogSanitizer.Scrub(payload.ModuleName.ToString()), LogSanitizer.Scrub(payload.Tags), formattedMetadata.Count);
 
             var fileInfo = await _storageDriverService.GetPerSignedUrlForUploadAsync(payload);
             if (fileInfo == null || string.IsNullOrEmpty(fileInfo.UploadUrl))
