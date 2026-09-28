@@ -84,6 +84,8 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     subLimitWindow: meter.subLimitWindow,
     subLimitQuantity: meter.subLimitQuantity,
     subLimitBehaviour: meter.subLimitBehaviour,
+    subLimitWindowCount: meter.subLimitWindowCount,
+    subLimitRolling: meter.subLimitRolling,
   })),
   entitlements: values.entitlements.map((entitlement) => ({
     key: entitlement.key.trim(),
@@ -219,6 +221,10 @@ export const planToFormValues = (
     subLimitWindow: meter.subLimitWindow ? USAGE_WINDOW[meter.subLimitWindow] : undefined,
     subLimitQuantity: meter.subLimitQuantity ?? undefined,
     subLimitBehaviour: METER_SUB_LIMIT_BEHAVIOUR[meter.subLimitBehaviour ?? "Refuse"] ?? 0,
+    // A plan authored before counted windows existed has no such field, and reopens as one —
+    // the single window it has always been.
+    subLimitWindowCount: meter.subLimitWindowCount ?? 1,
+    subLimitRolling: meter.subLimitRolling ?? false,
   })),
   entitlements: plan.entitlements.map((entitlement) => ({
     key: entitlement.key,

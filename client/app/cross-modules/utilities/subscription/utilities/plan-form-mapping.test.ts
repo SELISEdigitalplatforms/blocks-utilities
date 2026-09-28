@@ -465,6 +465,8 @@ describe("a plan sold to each person", () => {
       subLimitWindow: "Hour",
       subLimitQuantity: 1_000,
       subLimitBehaviour: "Throttle",
+      subLimitWindowCount: 6,
+      subLimitRolling: true,
     };
 
     const values = planToFormValues(plan);
@@ -476,6 +478,8 @@ describe("a plan sold to each person", () => {
       subLimitWindow: 0,
       subLimitQuantity: 1_000,
       subLimitBehaviour: 1,
+      subLimitWindowCount: 6,
+      subLimitRolling: true,
     });
   });
 
@@ -487,6 +491,29 @@ describe("a plan sold to each person", () => {
     expect(request.meters[0].subLimitWindow).toBeUndefined();
     expect(request.meters[0].subLimitQuantity).toBeUndefined();
     expect(request.meters[0].subLimitBehaviour).toBe(0);
+  });
+
+  /**
+   * A plan stored before a pace count could span more than one window has no such field at all —
+   * this is the field this bug shipped without: the mapping compiled, and every edit of a
+   * six-hour plan would have silently rewritten it back as one hour, because nothing here read
+   * the count or the rolling flag back from what the server sent.
+   */
+  it("reopens a plan stored before window counts existed as a single, non-rolling window", () => {
+    const plan = storedPlan();
+    plan.meters[0] = {
+      ...plan.meters[0],
+      subLimitWindow: "Hour",
+      subLimitQuantity: 1_000,
+      subLimitBehaviour: "Refuse",
+    };
+
+    const request = toUpdatePlanRequest(planToFormValues(plan), "org-1");
+
+    expect(request.meters[0]).toMatchObject({
+      subLimitWindowCount: 1,
+      subLimitRolling: false,
+    });
   });
 
   it("sends the scope on create as the number the server binds", () => {

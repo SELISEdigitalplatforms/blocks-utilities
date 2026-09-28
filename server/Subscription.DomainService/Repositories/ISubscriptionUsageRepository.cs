@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Repositories;
 
@@ -26,6 +26,28 @@ public interface ISubscriptionUsageRepository
     /// two callers can both act on the same figure. Crossing a period boundary simply addresses
     /// a different document.
     /// </remarks>
+    /// <summary>
+    /// Adds to one minute's bucket on a rolling pace counter and returns the counter as it now
+    /// stands, every bucket included.
+    /// </summary>
+    /// <remarks>
+    /// The same single atomic write <see cref="ApplyDeltaAsync"/> is, and returns the document
+    /// after the increment for the same reason: the sum the caller goes on to compute already
+    /// includes their own use, so two callers at the boundary get different answers and only one
+    /// of them is over.
+    /// </remarks>
+    /// <param name="expiredBuckets">
+    /// Bucket names that can no longer affect any answer, dropped in the same write. Passing them
+    /// here rather than in a sweep of their own is what stops the map growing without bound, and
+    /// costs nothing: the write was happening anyway.
+    /// </param>
+    Task<SubscriptionUsageCounter> ApplyBucketDeltaAsync(
+        SubscriptionUsageCounter seed,
+        string bucketName,
+        decimal delta,
+        IReadOnlyCollection<string> expiredBuckets,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionUsageCounter> ApplyDeltaAsync(
         SubscriptionUsageCounter seed,
         decimal delta,

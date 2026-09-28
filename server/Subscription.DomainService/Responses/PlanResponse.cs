@@ -1,4 +1,4 @@
-using Subscription.DomainService.Enums;
+﻿using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Responses;
 
@@ -228,6 +228,12 @@ public sealed class PlanMeterResponse
 
     /// <summary>"Refuse" or "Throttle". Reported on every meter, meaningful only with a window.</summary>
     public string SubLimitBehaviour { get; init; } = string.Empty;
+
+    /// <summary>How many of <see cref="SubLimitWindow"/> the limit spans.</summary>
+    public int SubLimitWindowCount { get; init; } = 1;
+
+    /// <summary>Whether the window looks back from now rather than sitting on the clock.</summary>
+    public bool SubLimitRolling { get; init; }
 
     /// <summary>
     /// What usage past the allowance costs, per currency. Empty means overage cannot be priced

@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
@@ -1234,6 +1234,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 SubLimitWindow = meter.SubLimitWindow,
                 SubLimitQuantity = meter.SubLimitQuantity,
                 SubLimitBehaviour = meter.SubLimitBehaviour,
+                SubLimitWindowCount = meter.SubLimitWindowCount,
+                SubLimitRolling = meter.SubLimitRolling,
                 ThresholdPercents = meter.ThresholdPercents.Distinct().Order().ToList(),
                 RateTables = meter.RateTables
                     .Select(table => new MeterRateTable

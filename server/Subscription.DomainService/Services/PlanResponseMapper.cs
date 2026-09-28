@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
@@ -95,6 +95,8 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     SubLimitWindow = meter.SubLimitWindow?.ToString(),
                     SubLimitQuantity = meter.SubLimitQuantity,
                     SubLimitBehaviour = meter.SubLimitBehaviour.ToString(),
+                    SubLimitWindowCount = meter.SubLimitWindowCount,
+                    SubLimitRolling = meter.SubLimitRolling,
                     RateTables = meter.RateTables
                         .Select(table => new PlanMeterRateTableResponse
                         {

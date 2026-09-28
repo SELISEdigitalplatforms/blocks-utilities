@@ -1228,6 +1228,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
             return (false, 0);
         }
 
+        if (meter.SubLimitRolling)
+        {
+            return await ApplyRollingPaceAsync(
+                context, subscription, seat, meter, window, cap, occurredAt, quantity,
+                cancellationToken);
+        }
+
         var counter = await _usage.ApplyDeltaAsync(
             PaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
             quantity,
@@ -1235,6 +1242,66 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         return (counter.Balance > cap, counter.Balance);
     }
+
+    /// <summary>
+    /// The same question against a window that ends now rather than one on the clock.
+    /// </summary>
+    /// <remarks>
+    /// One write, as the fixed window is, and for the same reason: the minute's bucket is
+    /// incremented atomically and the document comes back already holding this caller's own use, so
+    /// the sum computed from it is the sum including them. A rolling limit read from the ledger
+    /// instead would be a check two callers could both pass on their way past the cap.
+    /// </remarks>
+    private async Task<(bool Exceeded, decimal Balance)> ApplyRollingPaceAsync(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        int? seat,
+        PlanMeter meter,
+        UsageWindow window,
+        decimal cap,
+        DateTime occurredAt,
+        decimal quantity,
+        CancellationToken cancellationToken)
+    {
+        var span = RollingWindowKey.SpanOf(window, CountOf(meter));
+        var seed = RollingPaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt);
+
+        // Read from a separate query rather than from the seed: what a previous write left behind
+        // is what this one prunes, so the map never carries more than two spans of history.
+        var stale = RollingWindowKey.Expired(
+            await CurrentBucketsAsync(context, seed, cancellationToken), span, occurredAt);
+
+        var counter = await _usage.ApplyBucketDeltaAsync(
+            seed,
+            RollingWindowKey.BucketFor(occurredAt),
+            quantity,
+            stale,
+            cancellationToken);
+
+        var spent = RollingWindowKey.SumWithin(counter.Buckets, span, occurredAt);
+
+        return (spent > cap, spent);
+    }
+
+    /// <summary>
+    /// The buckets a rolling counter already holds, or none when it has never been written.
+    /// </summary>
+    /// <remarks>
+    /// Only ever used to decide what to prune, never to decide whether the cap is exceeded — that
+    /// is answered from the document the increment itself returns. A stale read here costs a
+    /// pruning pass, not a wrong answer.
+    /// </remarks>
+    private async Task<IReadOnlyDictionary<string, decimal>?> CurrentBucketsAsync(
+        SubscriptionContext context,
+        SubscriptionUsageCounter seed,
+        CancellationToken cancellationToken) =>
+        (await _usage.GetCounterAsync(context.TenantId, seed.ItemId, cancellationToken))?.Buckets;
+
+    /// <summary>
+    /// One, unless the plan asked for a longer span. Guards a stored zero or a negative, which
+    /// would otherwise ask for a window of no length and refuse every use ever made.
+    /// </summary>
+    private static int CountOf(PlanMeter meter) => Math.Max(1, meter.SubLimitWindowCount);
 
     /// <summary>Puts back what <see cref="ApplyPaceAsync"/> counted, for a use that was refused.</summary>
     private async Task ReversePaceAsync(
@@ -1248,6 +1315,18 @@ public sealed class UsageRecordingService : IUsageRecordingService
     {
         if (meter.SubLimitWindow is not { } window || meter.SubLimitQuantity is not { } cap)
         {
+            return;
+        }
+
+        if (meter.SubLimitRolling)
+        {
+            await _usage.ApplyBucketDeltaAsync(
+                RollingPaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
+                RollingWindowKey.BucketFor(occurredAt),
+                -quantity,
+                [],
+                cancellationToken);
+
             return;
         }
 
@@ -1265,6 +1344,15 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// produces a counter per hour or per day and they are of no interest once the period they sit
     /// inside has been rated.
     /// </remarks>
+    /// <remarks>
+    /// Addressed by the count as well as the window: a plan authored with one window per block
+    /// uses the identity every counter already stored has, because <see
+    /// cref="UsageWindowKey.Create(UsageWindow, DateTime, int)"/> reduces to the same three
+    /// overload for a count of one. A plan spanning several windows in one block gets a
+    /// correspondingly wider counter — that width is the whole reason this overload exists rather
+    /// than one that only ever sees a single window, which is what let a plan authored for six
+    /// hours enforce one silently instead.
+    /// </remarks>
     private SubscriptionUsageCounter PaceSeedFor(
         SubscriptionContext context,
         SubscriptionDetail subscription,
@@ -1272,25 +1360,67 @@ public sealed class UsageRecordingService : IUsageRecordingService
         PlanMeter meter,
         UsageWindow window,
         decimal cap,
-        DateTime occurredAt) => new()
+        DateTime occurredAt)
     {
-        ItemId = SubscriptionUsageCounter.CreateId(
-            subscription.ItemId,
-            meter.MeterKey,
-            UsageWindowKey.Create(window, occurredAt),
-            seat),
-        SeatNumber = seat,
-        TenantId = context.TenantId,
-        OrganizationId = context.OrganizationId,
-        SubscriptionId = subscription.ItemId,
-        MeterKey = meter.MeterKey,
-        PeriodKey = UsageWindowKey.Create(window, occurredAt),
-        LimitSnapshot = cap,
-        PeriodStartUtc = UsageWindowKey.StartOf(window, occurredAt),
-        PeriodEndUtc = UsageWindowKey.EndOf(window, occurredAt),
-        ExpiresAtUtc = UsageWindowKey.EndOf(window, occurredAt)
-            .AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
-    };
+        var count = CountOf(meter);
+        var key = UsageWindowKey.Create(window, occurredAt, count);
+
+        return new SubscriptionUsageCounter
+        {
+            ItemId = SubscriptionUsageCounter.CreateId(
+                subscription.ItemId, meter.MeterKey, key, seat),
+            SeatNumber = seat,
+            TenantId = context.TenantId,
+            OrganizationId = context.OrganizationId,
+            SubscriptionId = subscription.ItemId,
+            MeterKey = meter.MeterKey,
+            PeriodKey = key,
+            LimitSnapshot = cap,
+            PeriodStartUtc = UsageWindowKey.StartOf(window, occurredAt, count),
+            PeriodEndUtc = UsageWindowKey.EndOf(window, occurredAt, count),
+            ExpiresAtUtc = UsageWindowKey.EndOf(window, occurredAt, count)
+                .AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
+        };
+    }
+
+    /// <summary>
+    /// The counter a rolling rule spends against, named for the rule rather than for any instant.
+    /// </summary>
+    /// <remarks>
+    /// One counter for the whole rule, not one per window: a rolling window has no start of its own
+    /// to be named after. Its life is measured from the last use it saw, because nothing else will
+    /// ever retire it.
+    /// </remarks>
+    private SubscriptionUsageCounter RollingPaceSeedFor(
+        SubscriptionContext context,
+        SubscriptionDetail subscription,
+        int? seat,
+        PlanMeter meter,
+        UsageWindow window,
+        decimal cap,
+        DateTime occurredAt)
+    {
+        var key = RollingWindowKey.Create(window, CountOf(meter));
+        var span = RollingWindowKey.SpanOf(window, CountOf(meter));
+
+        return new SubscriptionUsageCounter
+        {
+            ItemId = SubscriptionUsageCounter.CreateId(
+                subscription.ItemId, meter.MeterKey, key, seat),
+            SeatNumber = seat,
+            TenantId = context.TenantId,
+            OrganizationId = context.OrganizationId,
+            SubscriptionId = subscription.ItemId,
+            MeterKey = meter.MeterKey,
+            PeriodKey = key,
+            LimitSnapshot = cap,
+            PeriodStartUtc = occurredAt - span,
+            PeriodEndUtc = occurredAt,
+            ExpiresAtUtc = occurredAt
+                .Add(span)
+                .AddDays(Math.Max(1, _options.CurrentValue.CounterRetentionDays))
+        };
+    }
 
     private SubscriptionUsageCounter SeedFor(
         SubscriptionContext context,

@@ -28,6 +28,12 @@ namespace XUnitTest.Subscription;
 /// spent, so somebody who waited exactly as instructed is refused again. And counting both windows
 /// into one document would make the cap the period's own balance under another name.
 /// </para>
+/// <para>
+/// A rolling pace is the same guarantee measured a different way: the span ends now rather than on
+/// the clock, so what counts as "within the window" changes on every call rather than only at a
+/// boundary. Its own tests guard the case a fixed window cannot even express — a burst spread just
+/// wide of one clock-aligned hour that a rolling five-hour rule still has to catch.
+/// </para>
 /// </remarks>
 public sealed class UsageSubLimitTests
 {
@@ -50,6 +56,10 @@ public sealed class UsageSubLimitTests
     // different documents, and a harness sharing a number between them could not tell a working
     // sub-limit from a broken one.
     private readonly Dictionary<string, decimal> _balances = new(StringComparer.Ordinal);
+    // Rolling counters, keyed the same way the real repository would key a document: one per
+    // rule, holding every bucket the rule has ever written.
+    private readonly Dictionary<string, SubscriptionUsageCounter> _buckets =
+        new(StringComparer.Ordinal);
     private readonly List<SubscriptionUsageRecord> _ledger = [];
 
     private SubscriptionDetail _subscription = Metered(
@@ -103,6 +113,43 @@ public sealed class UsageSubLimitTests
 
                 return Task.FromResult(seed);
             });
+
+        _usage
+            .Setup(repository => repository.ApplyBucketDeltaAsync(
+                It.IsAny<SubscriptionUsageCounter>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .Returns<SubscriptionUsageCounter, string, decimal, IReadOnlyCollection<string>,
+                CancellationToken>((seed, bucket, delta, expired, _) =>
+            {
+                if (!_buckets.TryGetValue(seed.ItemId, out var counter))
+                {
+                    counter = new SubscriptionUsageCounter
+                    {
+                        ItemId = seed.ItemId,
+                        Buckets = new Dictionary<string, decimal>(StringComparer.Ordinal)
+                    };
+                    _buckets[seed.ItemId] = counter;
+                }
+
+                counter.Buckets ??= new Dictionary<string, decimal>(StringComparer.Ordinal);
+                counter.Buckets.TryGetValue(bucket, out var existing);
+                counter.Buckets[bucket] = existing + delta;
+
+                foreach (var stale in expired)
+                {
+                    counter.Buckets.Remove(stale);
+                }
+
+                counter.AppliedRecordCount++;
+
+                return Task.FromResult(counter);
+            });
+
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<string, string, CancellationToken>((_, itemId, _) =>
+                Task.FromResult(_buckets.TryGetValue(itemId, out var counter) ? counter : null));
     }
 
     [Fact]
@@ -175,6 +222,153 @@ public sealed class UsageSubLimitTests
                      "name, enforcing nothing");
     }
 
+    /// <summary>
+    /// A fixed pace spanning several windows caps across the whole block, not one window of it.
+    /// </summary>
+    /// <remarks>
+    /// The regression this guards: the count was authored, validated and shown in the console
+    /// while the counter it seeded stayed addressed by a single window regardless. A plan sold as
+    /// "10,000 every 6 hours" enforced 10,000 an hour, six times over, and nothing failed —
+    /// every existing test exercised either a single-window fixed pace or a rolling one, and the
+    /// gap was the combination neither covered.
+    /// </remarks>
+    [Fact]
+    public async Task A_fixed_pace_spanning_several_hours_caps_across_the_whole_block()
+    {
+        _subscription = Metered(UsageWindow.Hour, cap: 10, MeterSubLimitBehaviour.Refuse);
+        _subscription.Plan.Meters[0].SubLimitWindowCount = 6;
+
+        // Both inside the same six-hour block starting at midnight: 02:00 and 05:00.
+        await RecordAt(new DateTimeOffset(2026, 8, 14, 2, 0, 0, TimeSpan.Zero), 9, "first");
+
+        (await RecordAt(new DateTimeOffset(2026, 8, 14, 5, 0, 0, TimeSpan.Zero), 4, "second"))
+            .Value!.Allowed
+            .Should().BeFalse(
+                because: "the plan sells ten every six hours, and both uses fall in the block " +
+                         "that runs from midnight to 06:00 — a cap that only ever saw one hour " +
+                         "at a time would have refused neither");
+    }
+
+    [Fact]
+    public async Task A_fixed_multi_hour_block_resets_when_the_next_block_starts()
+    {
+        _subscription = Metered(UsageWindow.Hour, cap: 10, MeterSubLimitBehaviour.Refuse);
+        _subscription.Plan.Meters[0].SubLimitWindowCount = 6;
+
+        await RecordAt(new DateTimeOffset(2026, 8, 14, 2, 0, 0, TimeSpan.Zero), 9, "first");
+
+        // 06:00 opens the next six-hour block, so the nine spent in the first is behind it.
+        (await RecordAt(new DateTimeOffset(2026, 8, 14, 6, 0, 0, TimeSpan.Zero), 9, "second"))
+            .Value!.Allowed
+            .Should().BeTrue(
+                because: "a block that never reset would eventually refuse every use once, " +
+                         "however far apart, which is a fixed pace behaving like a lifetime cap");
+    }
+
+    /// <summary>
+    /// A count of one is not merely equivalent to the plan every subscriber already has — it has
+    /// to be addressed exactly the way it always has been.
+    /// </summary>
+    [Fact]
+    public async Task A_window_count_of_one_addresses_the_same_counter_as_before_counts_existed()
+    {
+        _subscription = Metered(UsageWindow.Hour, cap: 10, MeterSubLimitBehaviour.Refuse);
+        _subscription.Plan.Meters[0].SubLimitWindowCount = 1;
+
+        await Record(quantity: 9, key: "first");
+
+        _balances.Keys.Should().Contain(
+            SubscriptionUsageCounter.CreateId("sub-1", MeterKey, "h20260814T120000Z"),
+            because: "every counter a production meter has already written was addressed by " +
+                     "this three-part identity, and a count of one has to keep reading it");
+    }
+
+    [Fact]
+    public async Task A_rolling_pace_refuses_a_burst_that_a_fixed_hour_would_have_allowed()
+    {
+        // Nine at 09:59, four at 10:01 — two different clock-aligned hours, five hours apart
+        // is one rolling window and thirteen inside it.
+        _subscription = RollingMetered(UsageWindow.Hour, count: 5, cap: 10);
+
+        await RecordAt(new DateTimeOffset(2026, 8, 14, 9, 59, 0, TimeSpan.Zero), 9, "first");
+
+        (await RecordAt(new DateTimeOffset(2026, 8, 14, 10, 1, 0, TimeSpan.Zero), 4, "second"))
+            .Value!.Allowed
+            .Should().BeFalse(
+                because: "the two uses are four minutes apart and well inside a five-hour span, " +
+                         "which is exactly the burst a rolling rule exists to catch and a " +
+                         "clock-aligned hour would have let through as two separate windows");
+    }
+
+    [Fact]
+    public async Task Usage_that_falls_out_of_the_rolling_span_stops_counting_against_it()
+    {
+        _subscription = RollingMetered(UsageWindow.Hour, count: 5, cap: 10);
+
+        await RecordAt(new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero), 9, "first");
+
+        // Five hours and one minute later, the first use has aged out of the span.
+        (await RecordAt(new DateTimeOffset(2026, 8, 14, 14, 1, 0, TimeSpan.Zero), 9, "second"))
+            .Value!.Allowed
+            .Should().BeTrue(
+                because: "the rule looks back five hours from now, and usage older than that is " +
+                         "not within the window whatever it once counted toward");
+    }
+
+    [Fact]
+    public async Task A_refused_rolling_use_leaves_the_span_where_it_was()
+    {
+        _subscription = RollingMetered(UsageWindow.Hour, count: 5, cap: 10);
+
+        var now = new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero);
+
+        await RecordAt(now, 9, "first");
+        await RecordAt(now, 4, "second");
+
+        (await RecordAt(now, 1, "third")).Value!.Allowed
+            .Should().BeTrue(
+                because: "a refused use counted against the span would open the next attempt " +
+                         "already spent, refusing somebody for usage they were never allowed to " +
+                         "make");
+    }
+
+    [Fact]
+    public async Task The_plans_own_count_is_what_sets_the_span_not_a_single_window()
+    {
+        // Two hours apart. A one-hour span has let the first use age out by the second; a
+        // five-hour span has not — so the count on the plan is the only thing distinguishing
+        // "allowed" from "refused" here.
+        _subscription = RollingMetered(UsageWindow.Hour, count: 5, cap: 10);
+
+        var first = new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero);
+
+        await RecordAt(first, 9, "first");
+
+        (await RecordAt(first.AddHours(2), 4, "second")).Value!.Allowed
+            .Should().BeFalse(
+                because: "five hours is what the plan was authored with, and two hours apart is " +
+                         "well inside that span — a rule that quietly measured one hour instead " +
+                         "would allow this and enforce a limit the plan never sold");
+    }
+
+    [Fact]
+    public async Task A_rolling_pace_can_be_allowed_and_reported_like_a_fixed_one()
+    {
+        _subscription = RollingMetered(
+            UsageWindow.Hour, count: 5, cap: 10, MeterSubLimitBehaviour.Throttle);
+
+        var now = new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero);
+
+        await RecordAt(now, 9, "first");
+
+        var result = await RecordAt(now, 4, "second");
+
+        result.Value!.Allowed.Should().BeTrue();
+        result.Value.SubLimitExceeded.Should().BeTrue(
+            because: "a rolling rule reports over-pace the same way a fixed one does — nothing " +
+                     "here can slow a caller down by itself");
+    }
+
     private async Task<SubscriptionOperationResult<UsageResponse>> Record(
         decimal quantity,
         string key = "idem-1") =>
@@ -188,6 +382,33 @@ public sealed class UsageSubLimitTests
             },
             "corr-1",
             CancellationToken.None);
+
+    [Fact]
+    public async Task Buckets_well_outside_the_span_are_pruned_rather_than_kept_forever()
+    {
+        _subscription = RollingMetered(UsageWindow.Hour, count: 1, cap: 10);
+
+        var first = new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero);
+
+        await RecordAt(first, 1, "first");
+
+        // Three hours later — well past even the two-span grace an expiring bucket is kept for.
+        await RecordAt(first.AddHours(3), 1, "second");
+
+        _buckets.Should().ContainSingle().Which.Value.Buckets.Should().ContainSingle(
+            because: "a counter that keeps every bucket it has ever written grows without bound, " +
+                     "and a rule running for months would carry every minute of that history");
+    }
+
+    private async Task<SubscriptionOperationResult<UsageResponse>> RecordAt(
+        DateTimeOffset now,
+        decimal quantity,
+        string key)
+    {
+        _time.Advance(now - _time.GetUtcNow());
+
+        return await Record(quantity, key);
+    }
 
     private UsageRecordingService Service() => new(
         _subscriptions.Object,
@@ -243,6 +464,20 @@ public sealed class UsageSubLimitTests
                 ]
             }
         };
+
+    private static SubscriptionDetail RollingMetered(
+        UsageWindow window,
+        int count,
+        decimal cap,
+        MeterSubLimitBehaviour behaviour = MeterSubLimitBehaviour.Refuse)
+    {
+        var subscription = Metered(window, cap, behaviour);
+
+        subscription.Plan.Meters[0].SubLimitWindowCount = count;
+        subscription.Plan.Meters[0].SubLimitRolling = true;
+
+        return subscription;
+    }
 
     private sealed class OptionsStub : IOptionsMonitor<SubscriptionOptions>
     {

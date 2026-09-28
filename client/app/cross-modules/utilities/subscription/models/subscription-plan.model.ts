@@ -169,6 +169,13 @@ export interface PlanMeter {
   subLimitWindow?: UsageWindowName | null;
   subLimitQuantity?: number | null;
   subLimitBehaviour?: MeterSubLimitBehaviourName;
+  /**
+   * How many of {@link subLimitWindow} the pace spans. Absent on a plan authored before this
+   * existed, which reopens as one — the single window it has always been.
+   */
+  subLimitWindowCount?: number;
+  /** Whether the pace looks back from now rather than sitting on the clock. */
+  subLimitRolling?: boolean;
 }
 
 export interface PlanEntitlement {
@@ -353,6 +360,10 @@ export interface CreatePlanMeterRequest {
   subLimitWindow?: number;
   subLimitQuantity?: number;
   subLimitBehaviour: number;
+  /** How many of {@link subLimitWindow} the pace spans. Always sent — the schema defaults it. */
+  subLimitWindowCount: number;
+  /** Whether the pace looks back from now rather than sitting on the clock. */
+  subLimitRolling: boolean;
 }
 
 export interface CreatePlanEntitlementRequest {
