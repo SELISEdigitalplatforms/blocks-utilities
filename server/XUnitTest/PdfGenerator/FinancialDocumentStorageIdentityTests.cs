@@ -11,8 +11,8 @@ using Utility.DomainService.Storage;
 namespace XUnitTest.PdfGenerator
 {
     /// <summary>
-    /// Document PDFs are created Creator-only under one service principal, so the storage API refuses
-    /// them to every other tenant user while this service can still write and read them back.
+    /// Document PDFs are created under one service principal with organization-level access, so any
+    /// user in the document's organization can read them back through the storage API.
     /// </summary>
     public class FinancialDocumentStorageIdentityTests : IDisposable
     {
@@ -29,7 +29,7 @@ namespace XUnitTest.PdfGenerator
             Mock.Of<ILogger<PdfStorageHelper>>(), _driver.Object, Mock.Of<IHttpClientFactory>(), null));
 
         [Fact]
-        public async Task A_document_is_uploaded_creator_only_as_the_service_principal()
+        public async Task A_document_is_uploaded_with_organization_access_as_the_service_principal()
         {
             string? callerAtUpload = null;
             GetPreSignedUrlForUploadRequest? sent = null;
@@ -45,8 +45,8 @@ namespace XUnitTest.PdfGenerator
             await Store().SaveAsync("doc-1", "INV-1.pdf", [1], CancellationToken.None);
 
             callerAtUpload.Should().Be(StorageDriverFinancialDocumentFileStore.StoragePrincipal,
-                "the file's owner is whoever uploads it, and only the owner may read a Creator-only file");
-            sent!.ObjectAccessLevel.Should().Be("Creator");
+                "the file is uploaded as the service principal regardless of who requested it");
+            sent!.ObjectAccessLevel.Should().Be("Organization");
             BlocksContext.GetContext()!.UserId.Should().Be("subscriber-7", "the caller's identity is restored afterwards");
         }
 
