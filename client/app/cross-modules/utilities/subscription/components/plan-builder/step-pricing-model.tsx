@@ -686,12 +686,19 @@ const MeterPaceFields = ({
   unitLabel?: string;
   quantityScale: number;
 }) => {
-  const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
+  const { control, setValue, trigger } = useFormContext<CreateSubscriptionPlanFormValues>();
   const paceWindow = useWatch({ control, name: `meters.${meterIndex}.subLimitWindow` });
   const paceCount = useWatch({ control, name: `meters.${meterIndex}.subLimitWindowCount` });
   const rolling = useWatch({ control, name: `meters.${meterIndex}.subLimitRolling` });
   const hasPace = paceWindow !== undefined;
   const count = paceCount ?? 1;
+
+  // The divide-a-day rule reads the window and the rolling flag but files its error under
+  // subLimitWindowCount, not under the field the author changes to fix it. React Hook Form only
+  // revalidates the field that changed, so without this the error outlived the click that made
+  // it stop applying: the author checked Rolling and the count stayed red, naming a rule that no
+  // longer held.
+  const revalidateCount = () => void trigger(`meters.${meterIndex}.subLimitWindowCount`);
 
   return (
     <Collapsible defaultOpen={hasPace}>
@@ -725,6 +732,9 @@ const MeterPaceFields = ({
                       setValue(`meters.${meterIndex}.subLimitWindowCount`, 1);
                       setValue(`meters.${meterIndex}.subLimitRolling`, false);
                     }
+                    // The divide-a-day rule only ever applies to Hour, so switching away from
+                    // or onto it can turn the count's own error on or off.
+                    revalidateCount();
                   }}
                 >
                   <FormControl>
@@ -811,7 +821,10 @@ const MeterPaceFields = ({
                   <FormControl>
                     <Checkbox
                       checked={field.value}
-                      onCheckedChange={(checked) => field.onChange(checked === true)}
+                      onCheckedChange={(checked) => {
+                        field.onChange(checked === true);
+                        revalidateCount();
+                      }}
                     />
                   </FormControl>
                   <FormLabel className="!m-0 text-xs">

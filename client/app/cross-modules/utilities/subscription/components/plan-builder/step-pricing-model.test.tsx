@@ -1,10 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FormProvider, useForm } from "react-hook-form";
 
 import { defaultSubscriptionPriceFormValues } from "../../schemas/subscription-price.schema";
 import {
+  createSubscriptionPlanSchema,
   defaultSubscriptionPlanFormValues,
   type CreateSubscriptionPlanFormValues,
 } from "../../schemas/subscription-plan.schema";
@@ -12,6 +14,27 @@ import { StepPricingModel } from "./step-pricing-model";
 
 const Harness = ({ values }: { values?: Partial<CreateSubscriptionPlanFormValues> }) => {
   const form = useForm<CreateSubscriptionPlanFormValues>({
+    defaultValues: { ...defaultSubscriptionPlanFormValues, ...values },
+  });
+
+  return (
+    <FormProvider {...form}>
+      <StepPricingModel />
+    </FormProvider>
+  );
+};
+
+/**
+ * The plain {@link Harness} has no resolver, so nothing the schema refuses ever reaches
+ * `formState.errors` — every test above renders a field's own live-conditional text, never React
+ * Hook Form's own error state. This one wires the same resolver and mode the real plan builder
+ * does, because the bug it exists to guard is specific to that machinery: a cross-field error
+ * outliving the field that stopped causing it.
+ */
+const ValidatedHarness = ({ values }: { values?: Partial<CreateSubscriptionPlanFormValues> }) => {
+  const form = useForm<CreateSubscriptionPlanFormValues>({
+    resolver: zodResolver(createSubscriptionPlanSchema),
+    mode: "onBlur",
     defaultValues: { ...defaultSubscriptionPlanFormValues, ...values },
   });
 
@@ -257,6 +280,46 @@ describe("capping how fast a meter is spent", () => {
       />,
     );
 
+    expect(screen.queryByText(/has to divide a day evenly/i)).not.toBeInTheDocument();
+  });
+
+  /**
+   * The stale error this guards: the live-conditional paragraph above hides itself correctly the
+   * moment Rolling is checked — but React Hook Form's own error state does not revalidate a field
+   * nobody touched, so the field's own {@link FormMessage} and its label, coloured from that same
+   * error state, kept naming a rule that had just stopped applying. An author who checked Rolling
+   * specifically to satisfy it was told, in the form's own voice, that they had not.
+   */
+  it("clears the field's own error once rolling is checked, not only the hint text", async () => {
+    const user = userEvent.setup();
+
+    // A meter complete enough to parse. Zod skips a plan's cross-field rules when any field fails
+    // on type, so a meter missing its name or rate tables would never raise the error at all —
+    // and the test would pass on the hint text alone, with or without the fix.
+    render(
+      <ValidatedHarness
+        values={metered({
+          displayName: "Tokens",
+          aggregation: 0,
+          rateTables: [],
+          subLimitWindow: 0,
+          subLimitQuantity: 10,
+          subLimitWindowCount: 5,
+        })}
+      />,
+    );
+
+    const countField = screen.getByLabelText(/How many hours/i);
+
+    await user.click(countField);
+    await user.tab();
+
+    // The field's own error state, which the hint paragraph cannot fake.
+    await waitFor(() => expect(countField).toHaveAttribute("aria-invalid", "true"));
+
+    await user.click(screen.getByRole("checkbox", { name: /Rolling/i }));
+
+    await waitFor(() => expect(countField).toHaveAttribute("aria-invalid", "false"));
     expect(screen.queryByText(/has to divide a day evenly/i)).not.toBeInTheDocument();
   });
 
