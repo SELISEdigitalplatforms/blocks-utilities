@@ -9,6 +9,26 @@ const HOURS_PER_WINDOW = [1, 24, 24 * 7] as const;
 /** Allowance periods by BILLING_INTERVAL (Day 0, Week 1, Month 2, Year 3), at their longest. */
 const MOST_HOURS_PER_PERIOD = [24, 24 * 7, 24 * 31, 24 * 366] as const;
 
+/**
+ * The same periods at their shortest. Used where more periods is the generous reading: a span
+ * touches the most allowance periods when they are as short as they get — a week can reach
+ * across two months, and that holds for February too.
+ */
+const LEAST_HOURS_PER_PERIOD = [24, 24 * 7, 24 * 28, 24 * 365] as const;
+
+const UNIT_NAMES = ["hour", "day", "week"] as const;
+const ONE_OF = ["an hour", "a day", "a week"] as const;
+
+/** "a week", "5 hours" — the stretch a limit covers, for naming it in a sentence. */
+const stretch = (limit: Pick<PaceLimit, "window" | "count">): string =>
+  limit.count <= 1
+    ? (ONE_OF[limit.window] ?? "a window")
+    : `${limit.count} ${UNIT_NAMES[limit.window] ?? "window"}s`;
+
+/** "10,000 per 5 hours" — a limit as its author wrote it. */
+const named = (limit: PaceLimit): string =>
+  `${(limit.quantity ?? 0).toLocaleString()} per ${limit.count <= 1 ? "" : `${limit.count} `}${UNIT_NAMES[limit.window] ?? "window"}${limit.count <= 1 ? "" : "s"}`;
+
 export const MAX_PACE_LIMITS = 3;
 
 export interface PaceLimit {
@@ -54,6 +74,10 @@ export const paceWarnings = (
     usageIntervalCount: number;
     /** 1 is a lifetime allowance, which has no period to compare against. */
     resetPolicy: number;
+    /** With overage on, usage runs past the included amount, and a limit is what caps it. */
+    overageAllowed: boolean;
+    /** What a carry-forward meter may add to one period on top of its included amount. */
+    carryForwardCap?: number;
   },
 ): PaceWarning[] => {
   const warnings: PaceWarning[] = [];
@@ -72,10 +96,12 @@ export const paceWarnings = (
     if (binding && (longer.limit.quantity ?? 0) >= binding.most) {
       warnings.push({
         index: longer.index,
-        message: `The shorter limit already caps this stretch at about ${binding.most.toLocaleString()}, so this one never applies.`,
+        message: `The limit of ${named(binding.limit)} already caps ${stretch(longer.limit)} at about ${binding.most.toLocaleString()}, so this one never applies.`,
       });
     }
   }
+
+  warnings.push(...budgetWarnings(sized, meter));
 
   if (meter.resetPolicy === 1) {
     return warnings;
@@ -111,4 +137,53 @@ export const paceWarnings = (
   });
 
   return warnings;
+};
+
+/**
+ * A limit the included amount already holds usage under.
+ *
+ * With overage off, a meter stops at its budget: the included amount per allowance period (plus
+ * whatever a carry-forward meter may bring in). A limit's span can touch at most one period more
+ * than it fully covers — a rolling week straddling a month end sees the last of one month and the
+ * first of the next — so that many budgets is the most it could ever be asked to hold. A limit at
+ * or above that never refuses anything the budget has not refused first.
+ *
+ * With overage on nothing stops at the budget, and a limit is what caps how fast overage is run
+ * up — the job it is most often there for — so there is nothing to warn about.
+ */
+const budgetWarnings = (
+  sized: { limit: PaceLimit; index: number }[],
+  meter: Parameters<typeof paceWarnings>[1],
+): PaceWarning[] => {
+  if (meter.overageAllowed || meter.includedQuantity <= 0) {
+    return [];
+  }
+
+  // A lifetime allowance is one budget for ever; no span can see more of it than the whole.
+  if (meter.resetPolicy === 1) {
+    return sized
+      .filter(({ limit }) => (limit.quantity ?? 0) >= meter.includedQuantity)
+      .map(({ index }) => ({
+        index,
+        message: `The meter stops at ${meter.includedQuantity.toLocaleString()} for its whole lifetime, so this limit can never be reached.`,
+      }));
+  }
+
+  const budget =
+    meter.includedQuantity + (meter.resetPolicy === 2 ? (meter.carryForwardCap ?? 0) : 0);
+  const shortestPeriod =
+    (LEAST_HOURS_PER_PERIOD[meter.usageInterval] ?? LEAST_HOURS_PER_PERIOD[2]) *
+    Math.max(1, meter.usageIntervalCount);
+
+  return sized
+    .map(({ limit, index }) => ({
+      index,
+      limit,
+      most: budget * (Math.ceil(spanHours(limit) / shortestPeriod) + 1),
+    }))
+    .filter(({ limit, most }) => (limit.quantity ?? 0) >= most)
+    .map(({ index, most }) => ({
+      index,
+      message: `With overage off the meter stops at ${budget.toLocaleString()} per allowance period, so no stretch this long can hold more than ${most.toLocaleString()} and this limit can never be reached.`,
+    }));
 };

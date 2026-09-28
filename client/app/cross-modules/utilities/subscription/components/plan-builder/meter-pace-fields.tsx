@@ -89,6 +89,9 @@ export const MeterPaceFields = ({
       usageInterval: Number(usageInterval ?? 2),
       usageIntervalCount: Number(usageIntervalCount ?? 1),
       resetPolicy: Number(meter?.resetPolicy ?? 0),
+      overageAllowed: meter?.overageAllowed ?? false,
+      carryForwardCap:
+        meter?.carryForwardCap === undefined ? undefined : Number(meter.carryForwardCap),
     },
   );
 
@@ -167,9 +170,9 @@ export const MeterPaceFields = ({
                   name={`meters.${meterIndex}.subLimits.${index}.count`}
                   render={({ field: inputField }) => (
                     <FormItem>
+                      {/* Always plural: it asks a question, and "How many week" reads as a typo. */}
                       <FormLabel className="text-xs">
-                        How many {USAGE_WINDOW_NAMES[window]?.toLowerCase()}
-                        {count === 1 ? "" : "s"}
+                        How many {USAGE_WINDOW_NAMES[window]?.toLowerCase()}s
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -254,19 +257,22 @@ export const MeterPaceFields = ({
                   control={control}
                   name={`meters.${meterIndex}.subLimits.${index}.behaviour`}
                   render={({ field: inputField }) => (
-                    <FormItem>
+                    <FormItem className="flex items-center gap-2 space-y-0">
+                      <FormLabel className="shrink-0 text-xs">When exceeded</FormLabel>
                       <Select
                         value={String(inputField.value ?? 0)}
                         onValueChange={(value) => inputField.onChange(Number(value))}
                       >
                         <FormControl>
-                          <SelectTrigger aria-label="When this limit is exceeded">
+                          <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="0">Past it: refuse the usage</SelectItem>
-                          <SelectItem value="1">Past it: allow, and report it as over pace</SelectItem>
+                          {/* Short enough to read in full in a narrow row; the note under the
+                              list says what reporting means. */}
+                          <SelectItem value="0">Refuse</SelectItem>
+                          <SelectItem value="1">Allow and report</SelectItem>
                         </SelectContent>
                       </Select>
                     </FormItem>
