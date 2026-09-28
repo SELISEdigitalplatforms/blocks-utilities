@@ -129,14 +129,14 @@ describe("UsageMeterRow", () => {
       consume("12");
 
       expect(await screen.findByText("Over pace")).toBeInTheDocument();
-      expect(screen.getByText(/Past the pace of 10 per hour/)).toBeInTheDocument();
+      expect(screen.getByText(/Past the pace of 10 an hour/)).toBeInTheDocument();
     });
 
     it("reads as refused by the pace, not the allowance, when allowance remains", async () => {
       recordUsage.mockResolvedValue({ ...usage, allowed: false });
       consume("12");
 
-      expect(await screen.findByText(/Refused by the pace limit of 10 per hour/)).toBeInTheDocument();
+      expect(await screen.findByText(/Refused by the pace limit of 10 an hour/)).toBeInTheDocument();
       expect(screen.queryByText("Over pace")).not.toBeInTheDocument();
     });
   });

@@ -6,6 +6,24 @@ type SummaryItem = PlanSummaryData["quantityItems"][number];
 const PER_WINDOW: Record<string, string> = { Hour: "an hour", Day: "a day", Week: "a week" };
 
 /**
+ * The span a pace is counted over, in words: "an hour", "every 5 hours", "in any 5 hours".
+ *
+ * Shared by every place that names a pace, because leaving the count or the rolling flag out
+ * describes a different, far stricter cap — "1,000 an hour" is five times tighter than the
+ * "1,000 every 5 hours" actually sold.
+ */
+export const describePaceWindow = (window: string, count = 1, rolling = false): string => {
+  const unit = window.toLowerCase();
+  const span = count === 1 ? unit : `${count} ${unit}s`;
+
+  if (rolling) {
+    return `in any ${span}`;
+  }
+
+  return count === 1 ? PER_WINDOW[window] : `every ${span}`;
+};
+
+/**
  * A meter's pace cap in words, or null when it has none — "at most 1,000 an hour, then refused".
  *
  * Says what happens past it as well as where it is, because the two behaviours read identically
@@ -18,7 +36,13 @@ export const describePace = (meter: SummaryMeter): string | null => {
 
   const then = meter.subLimitBehaviour === "Throttle" ? "then reported as over pace" : "then refused";
 
-  return `at most ${meter.subLimitQuantity.toLocaleString()} ${PER_WINDOW[meter.subLimitWindow]}, ${then}`;
+  const span = describePaceWindow(
+    meter.subLimitWindow,
+    meter.subLimitWindowCount,
+    meter.subLimitRolling,
+  );
+
+  return `at most ${meter.subLimitQuantity.toLocaleString()} ${span}, ${then}`;
 };
 
 /**
