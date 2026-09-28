@@ -16,6 +16,7 @@ import {
   isWithinScale,
   METER_QUANTITY_MAX_SCALE,
 } from "../utilities/meter-quantity";
+import { MAX_PACE_LIMITS, spanHours } from "../utilities/pace-limits";
 import {
   isRepresentableInMinorUnits,
   minorUnitExponent,
@@ -113,6 +114,22 @@ const meterRateTableSchema = z
 const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((value) => (value === "" || value === null ? undefined : value), schema);
 
+/**
+ * One pace: so much per window. Hour 0, Day 1, Week 2; Refuse 0, Report only 1.
+ *
+ * The quantity is optional here only so a row being typed into is a draft rather than a crash;
+ * a row saved without one is refused at plan level.
+ */
+const subLimitSchema = z.object({
+  window: z.coerce.number().int().min(0).max(2),
+  count: z.coerce.number().int().positive("A limit spans at least one window.").default(1),
+  rolling: z.boolean().default(false),
+  quantity: blankAsUndefined(
+    z.coerce.number().positive("A limit of zero refuses everything — remove it instead.").optional(),
+  ),
+  behaviour: z.coerce.number().int().min(0).max(1).default(0),
+});
+
 const meterSchema = z.object({
   meterKey: key("meter key"),
   displayName: z.string().trim().min(1, "Enter a display name.").max(200),
@@ -135,24 +152,14 @@ const meterSchema = z.object({
   thresholdPercents: z.array(z.number().int().min(1).max(100)),
   rateTables: z.array(meterRateTableSchema),
   /**
-   * A pace cap inside the period: Hour 0, Day 1, Week 2. Absent on every meter nobody opted in,
-   * which is what keeps an existing meter capped by its period alone. Set together with
-   * {@link subLimitQuantity} or not at all — checked at plan level, beside the meter's scale.
+   * Every cap on how fast the allowance may be spent. Empty on every meter nobody opted in, which
+   * keeps it capped by its period alone. The rules that span rows are checked at plan level,
+   * beside the meter's scale.
    */
-  subLimitWindow: blankAsUndefined(z.coerce.number().int().min(0).max(2).optional()),
-  subLimitQuantity: blankAsUndefined(
-    z.coerce.number().positive("A pace of zero refuses everything — leave it unset instead.").optional(),
-  ),
-  /** Refuse 0, Report only 1. Meaningless without a window, and harmless there. */
-  subLimitBehaviour: z.coerce.number().int().min(0).max(1).default(0),
-  /** How many of {@link subLimitWindow} the limit spans. One unless the plan says otherwise. */
-  subLimitWindowCount: z.coerce.number().int().positive().default(1),
-  /**
-   * Whether the limit looks back from now rather than counting within a window on the clock.
-   * False on every meter authored before this existed, which is what keeps it counting exactly
-   * as it did.
-   */
-  subLimitRolling: z.boolean().default(false),
+  subLimits: z
+    .array(subLimitSchema)
+    .max(MAX_PACE_LIMITS, `A meter takes at most ${MAX_PACE_LIMITS} limits.`)
+    .default([]),
 });
 
 /**
@@ -486,49 +493,13 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           });
         });
 
-        // Both halves or neither, as the server insists: a window with no quantity caps nothing,
-        // and a quantity with no window has nowhere to apply.
-        if ((meter.subLimitWindow === undefined) !== (meter.subLimitQuantity === undefined)) {
+        checkPaceLimits(meter.subLimits, holds, tooFine, (path, message) =>
           context.addIssue({
             code: z.ZodIssueCode.custom,
-            path: ["meters", index, meter.subLimitWindow === undefined ? "subLimitWindow" : "subLimitQuantity"],
-            message: "Set both the window and how much fits in it, or neither.",
-          });
-        }
-
-        if (meter.subLimitQuantity !== undefined && !holds(meter.subLimitQuantity)) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["meters", index, "subLimitQuantity"],
-            message: tooFine,
-          });
-        }
-
-        // Rolling has no meaning without a window and a quantity to roll: it says how the cap is
-        // measured, not what the cap is.
-        if (meter.subLimitRolling && meter.subLimitWindow === undefined) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["meters", index, "subLimitRolling"],
-            message: "A rolling sub-limit needs a window and a quantity, same as a fixed one.",
-          });
-        }
-
-        // A fixed window only tiles a day evenly when its length divides one. Five does not: a
-        // fixed five-hour window would leave one short block a day with nowhere consistent to
-        // start it. Rolling has no such requirement — it has no start on the clock to tile from.
-        if (
-          !meter.subLimitRolling &&
-          meter.subLimitWindow === 0 &&
-          ![1, 2, 3, 4, 6, 8, 12, 24].includes(meter.subLimitWindowCount)
-        ) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["meters", index, "subLimitWindowCount"],
-            message:
-              "A fixed hourly window has to divide a day evenly \u2014 1, 2, 3, 4, 6, 8, 12 or 24 \u2014 or mark it rolling instead.",
-          });
-        }
+            path: ["meters", index, "subLimits", ...path],
+            message,
+          }),
+        );
 
         if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
           context.addIssue({
@@ -681,6 +652,64 @@ const checkMemberQuantity = (
       message: "A flat-priced plan needs a maximum, or there is no ceiling to derive.",
     });
   }
+};
+
+/**
+ * The pace rules, mirroring the server's so the form catches them first. Each row on its own
+ * terms, then the two that only make sense across rows. Reported against the row an author has to
+ * change: the later of two equal lengths, the longer of two that contradict.
+ */
+const checkPaceLimits = (
+  limits: z.infer<typeof subLimitSchema>[],
+  holds: (value: number) => boolean,
+  tooFine: string,
+  report: (path: (string | number)[], message: string) => void,
+) => {
+  limits.forEach((limit, index) => {
+    if (limit.quantity === undefined) {
+      report([index, "quantity"], "Enter how much fits in this window.");
+    } else if (!holds(limit.quantity)) {
+      report([index, "quantity"], tooFine);
+    }
+
+    // A fixed window only tiles a day evenly when its length divides one. Five does not: a fixed
+    // five-hour window would leave one short block a day with nowhere consistent to start it.
+    // Rolling has no such requirement — it has no start on the clock to tile from.
+    if (!limit.rolling && limit.window === 0 && ![1, 2, 3, 4, 6, 8, 12, 24].includes(limit.count)) {
+      report(
+        [index, "count"],
+        "A fixed hourly window has to divide a day evenly — 1, 2, 3, 4, 6, 8, 12 or 24 — or mark it rolling instead.",
+      );
+    }
+  });
+
+  limits.forEach((limit, index) => {
+    const earlier = limits.slice(0, index);
+
+    // Two limits of the same length always have one making the other pointless.
+    if (earlier.some((other) => spanHours(other) === spanHours(limit))) {
+      report([index, "count"], "Another limit already covers this same length of time.");
+
+      return;
+    }
+
+    // A longer limit allowing no more than a shorter one leaves the shorter one unable to bite:
+    // 1,000 an hour beside 500 a day is 500 a day.
+    const contradicts = limits.some(
+      (other) =>
+        spanHours(other) < spanHours(limit) &&
+        limit.quantity !== undefined &&
+        other.quantity !== undefined &&
+        limit.quantity <= other.quantity,
+    );
+
+    if (contradicts) {
+      report(
+        [index, "quantity"],
+        "A longer limit has to allow more than a shorter one, or the shorter one can never apply.",
+      );
+    }
+  });
 };
 
 export const createSubscriptionPlanSchema = buildSubscriptionPlanSchema({ requirePrice: true });

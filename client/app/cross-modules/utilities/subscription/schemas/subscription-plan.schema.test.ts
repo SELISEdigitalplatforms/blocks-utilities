@@ -902,40 +902,26 @@ describe("a plan sold to each person", () => {
     expect(result.success).toBe(true);
   });
 
-  it("refuses a pace window with no quantity, and a quantity with no window", () => {
-    const windowOnly = createSubscriptionPlanSchema.safeParse({
+  const paced = (...subLimits: Record<string, unknown>[]) =>
+    createSubscriptionPlanSchema.safeParse({
       ...validPlan,
       prices: [price],
-      meters: [meter({ subLimitWindow: 0 })],
-    });
-    const quantityOnly = createSubscriptionPlanSchema.safeParse({
-      ...validPlan,
-      prices: [price],
-      meters: [meter({ subLimitQuantity: 1000 })],
+      meters: [meter({ subLimits })],
     });
 
-    expect(issuePaths(windowOnly)).toContainEqual(["meters", 0, "subLimitQuantity"]);
-    expect(issuePaths(quantityOnly)).toContainEqual(["meters", 0, "subLimitWindow"]);
+  const limit = (overrides: Record<string, unknown> = {}) => ({
+    window: 0,
+    count: 1,
+    rolling: false,
+    quantity: 1000,
+    behaviour: 0,
+    ...overrides,
   });
 
-  it("reads a cleared pace quantity as unset rather than as zero", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
-      ...validPlan,
-      prices: [price],
-      meters: [meter({ subLimitQuantity: "" })],
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it("refuses rolling marked with no window to roll", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
-      ...validPlan,
-      prices: [price],
-      meters: [meter({ subLimitRolling: true })],
-    });
-
-    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimitRolling"]);
+  it("refuses a limit saved with no quantity", () => {
+    expect(issuePaths(paced(limit({ quantity: "" })))).toContainEqual([
+      "meters", 0, "subLimits", 0, "quantity",
+    ]);
   });
 
   /**
@@ -943,43 +929,47 @@ describe("a plan sold to each person", () => {
    * block a day with nowhere consistent to start it.
    */
   it("refuses a fixed hourly window with a count that does not divide a day", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
-      ...validPlan,
-      prices: [price],
-      meters: [
-        meter({ subLimitWindow: 0, subLimitQuantity: 1000, subLimitWindowCount: 5 }),
-      ],
-    });
-
-    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimitWindowCount"]);
+    expect(issuePaths(paced(limit({ count: 5 })))).toContainEqual([
+      "meters", 0, "subLimits", 0, "count",
+    ]);
   });
 
   it("accepts a fixed hourly window with a count that divides a day", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
-      ...validPlan,
-      prices: [price],
-      meters: [
-        meter({ subLimitWindow: 0, subLimitQuantity: 1000, subLimitWindowCount: 6 }),
-      ],
-    });
-
-    expect(result.success).toBe(true);
+    expect(paced(limit({ count: 6 })).success).toBe(true);
   });
 
   it("accepts a five-hour window once it is marked rolling", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
-      ...validPlan,
-      prices: [price],
-      meters: [
-        meter({
-          subLimitWindow: 0,
-          subLimitQuantity: 1000,
-          subLimitWindowCount: 5,
-          subLimitRolling: true,
-        }),
-      ],
-    });
+    expect(paced(limit({ count: 5, rolling: true })).success).toBe(true);
+  });
 
-    expect(result.success).toBe(true);
+  it("accepts a short pace beside a longer cap", () => {
+    expect(
+      paced(limit({ count: 5, rolling: true }), limit({ window: 2, quantity: 20_000 })).success,
+    ).toBe(true);
+  });
+
+  it("refuses more than three limits on one meter", () => {
+    const result = paced(
+      limit(),
+      limit({ window: 1, quantity: 10_000 }),
+      limit({ window: 2, quantity: 50_000 }),
+      limit({ window: 2, count: 2, quantity: 90_000 }),
+    );
+
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimits"]);
+  });
+
+  /** A day and twenty-four hours are one limit however they were written. */
+  it("refuses two limits of the same length, against the later one", () => {
+    const result = paced(limit({ count: 24 }), limit({ window: 1, quantity: 2000 }));
+
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimits", 1, "count"]);
+  });
+
+  /** 1,000 an hour beside 500 a day is 500 a day: the hourly figure never bites. */
+  it("refuses a longer limit allowing no more than a shorter one, against the longer", () => {
+    const result = paced(limit(), limit({ window: 1, quantity: 500 }));
+
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimits", 1, "quantity"]);
   });
 });

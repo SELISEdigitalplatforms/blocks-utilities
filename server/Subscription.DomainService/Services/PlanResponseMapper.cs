@@ -92,11 +92,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     IncludedQuantity = meter.IncludedQuantity,
                     OverageAllowed = meter.OverageAllowed,
                     ThresholdPercents = [.. meter.ThresholdPercents],
-                    SubLimitWindow = meter.SubLimitWindow?.ToString(),
-                    SubLimitQuantity = meter.SubLimitQuantity,
-                    SubLimitBehaviour = meter.SubLimitBehaviour.ToString(),
-                    SubLimitWindowCount = meter.SubLimitWindowCount,
-                    SubLimitRolling = meter.SubLimitRolling,
+                    SubLimits = [.. meter.EffectiveSubLimits().Select(DescribeSubLimit)],
                     RateTables = meter.RateTables
                         .Select(table => new PlanMeterRateTableResponse
                         {
@@ -168,4 +164,14 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                 .ToList()
         };
     }
+
+    /// <summary>One pace as a caller reads it. Also what a usage response names when one is passed.</summary>
+    public static PlanMeterSubLimitResponse DescribeSubLimit(PlanMeterSubLimit limit) => new()
+    {
+        Window = limit.Window.ToString(),
+        WindowCount = Math.Max(1, limit.WindowCount),
+        Rolling = limit.Rolling,
+        Quantity = limit.Quantity,
+        Behaviour = limit.Behaviour.ToString()
+    };
 }

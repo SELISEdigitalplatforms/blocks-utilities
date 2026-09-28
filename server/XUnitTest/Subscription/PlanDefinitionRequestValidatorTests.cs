@@ -455,6 +455,77 @@ public sealed class PlanDefinitionRequestValidatorTests
             error.ErrorCode == "subscription_entitlement_limit_quantity_scale_exceeded");
     }
 
+    [Fact]
+    public async Task A_short_pace_beside_a_longer_cap_is_valid()
+    {
+        var result = await ValidateLimits(
+            Pace(UsageWindow.Hour, 1_000, count: 5, rolling: true),
+            Pace(UsageWindow.Week, 20_000));
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_meter_takes_at_most_three_limits()
+    {
+        var result = await ValidateLimits(
+            Pace(UsageWindow.Hour, 10),
+            Pace(UsageWindow.Day, 100),
+            Pace(UsageWindow.Week, 500),
+            Pace(UsageWindow.Week, 1_000, count: 2));
+
+        result.Errors.Should().Contain(error => error.ErrorMessage.Contains("at most 3"));
+    }
+
+    /// <summary>A day and twenty-four hours are one limit however they were written.</summary>
+    [Fact]
+    public async Task Two_limits_of_the_same_length_are_refused_whatever_unit_they_use()
+    {
+        var result = await ValidateLimits(
+            Pace(UsageWindow.Hour, 1_000, count: 24),
+            Pace(UsageWindow.Day, 2_000));
+
+        result.Errors.Should().Contain(error => error.ErrorMessage.Contains("same length"));
+    }
+
+    /// <summary>1,000 an hour beside 500 a day is 500 a day: the hourly figure never bites.</summary>
+    [Fact]
+    public async Task A_longer_limit_allowing_no_more_than_a_shorter_one_is_refused()
+    {
+        var result = await ValidateLimits(
+            Pace(UsageWindow.Hour, 1_000),
+            Pace(UsageWindow.Day, 500));
+
+        result.Errors.Should().Contain(error => error.ErrorMessage.Contains("allow more"));
+    }
+
+    [Fact]
+    public async Task Each_limit_is_held_to_the_single_pace_rules()
+    {
+        var result = await ValidateLimits(
+            Pace(UsageWindow.Hour, 1_000, count: 5),
+            Pace(UsageWindow.Week, 0));
+
+        result.Errors.Should().Contain(error => error.ErrorMessage.Contains("divide a day evenly"));
+        result.Errors.Should().Contain(error => error.ErrorMessage.Contains("refuses everything"));
+    }
+
+    private static PlanMeterSubLimitRequest Pace(
+        UsageWindow window,
+        decimal quantity,
+        int count = 1,
+        bool rolling = false) =>
+        new() { Window = window, Quantity = quantity, WindowCount = count, Rolling = rolling };
+
+    private static Task<FluentValidation.Results.ValidationResult> ValidateLimits(
+        params PlanMeterSubLimitRequest[] limits)
+    {
+        var request = RequestWithPeriodicMeter();
+        request.Meters[0].SubLimits = [.. limits];
+
+        return new PlanDefinitionRequestValidator().ValidateAsync(request);
+    }
+
     private static UpdatePlanRequest RequestWithPeriodicMeter() => new()
     {
         DisplayName = "Screening plan",

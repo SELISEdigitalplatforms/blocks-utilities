@@ -54,11 +54,18 @@ internal static class SubscriptionSnapshotBuilder
                     OverageAllowed = meter.OverageAllowed,
                     // The pace is snapshotted like the amount. A plan tightened later must not
                     // start refusing a subscriber who bought it looser.
-                    SubLimitWindow = meter.SubLimitWindow,
-                    SubLimitQuantity = meter.SubLimitQuantity,
-                    SubLimitBehaviour = meter.SubLimitBehaviour,
-                    SubLimitWindowCount = meter.SubLimitWindowCount,
-                    SubLimitRolling = meter.SubLimitRolling,
+                    // Through EffectiveSubLimits, so a plan stored with the legacy single pace
+                    // is snapshotted as the list every subscription now carries.
+                    SubLimits = meter.EffectiveSubLimits()
+                        .Select(limit => new PlanMeterSubLimit
+                        {
+                            Window = limit.Window,
+                            WindowCount = limit.WindowCount,
+                            Rolling = limit.Rolling,
+                            Quantity = limit.Quantity,
+                            Behaviour = limit.Behaviour
+                        })
+                        .ToList(),
                     ThresholdPercents = [.. meter.ThresholdPercents],
                     RateTables = meter.RateTables
                         .Select(table => new MeterRateTable

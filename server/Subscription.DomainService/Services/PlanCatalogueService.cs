@@ -1231,11 +1231,18 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 // initializer the scale had to be added to.
                 CarryForwardCap = meter.CarryForwardCap,
                 OverageAllowed = meter.OverageAllowed,
-                SubLimitWindow = meter.SubLimitWindow,
-                SubLimitQuantity = meter.SubLimitQuantity,
-                SubLimitBehaviour = meter.SubLimitBehaviour,
-                SubLimitWindowCount = meter.SubLimitWindowCount,
-                SubLimitRolling = meter.SubLimitRolling,
+                // Written to the list only. The single legacy fields are left empty, so a plan
+                // saved from here on never carries two versions of its pace.
+                SubLimits = meter.SubLimits
+                    .Select(limit => new PlanMeterSubLimit
+                    {
+                        Window = limit.Window,
+                        WindowCount = limit.WindowCount,
+                        Rolling = limit.Rolling,
+                        Quantity = limit.Quantity,
+                        Behaviour = limit.Behaviour
+                    })
+                    .ToList(),
                 ThresholdPercents = meter.ThresholdPercents.Distinct().Order().ToList(),
                 RateTables = meter.RateTables
                     .Select(table => new MeterRateTable

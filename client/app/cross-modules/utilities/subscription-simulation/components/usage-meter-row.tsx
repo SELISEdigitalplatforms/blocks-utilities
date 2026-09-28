@@ -7,7 +7,10 @@ import { toast } from "@/hooks/use-toast";
 import { useRecordUsage } from "../hooks/use-record-usage";
 import type { MeterUsage } from "../models/subscription-simulation.model";
 import { subscriptionSimulationService } from "../services/subscription-simulation.service";
-import type { PlanMeter } from "../../subscription/models/subscription-plan.model";
+import type {
+  PlanMeter,
+  PlanMeterSubLimit,
+} from "../../subscription/models/subscription-plan.model";
 import { describePaceWindow } from "../../subscription/utilities/member-plan-format";
 
 /**
@@ -20,6 +23,9 @@ import { describePaceWindow } from "../../subscription/utilities/member-plan-for
  * the "checked" and "recorded" balances diverge under fast repeated clicks is the point of
  * simulating it this way rather than only calling the usage endpoint directly.
  */
+const describeLimit = (limit: PlanMeterSubLimit) =>
+  `${limit.quantity.toLocaleString()} ${describePaceWindow(limit.window, limit.windowCount, limit.rolling)}`;
+
 export const UsageMeterRow = ({
   meter,
   entitlementKey,
@@ -46,13 +52,7 @@ export const UsageMeterRow = ({
   const [lastResult, setLastResult] = useState<
     { message: string; tone: "success" | "over-pace" | "blocked" | "error" } | null
   >(null);
-  const pace = meter.subLimitWindow
-    ? `${meter.subLimitQuantity?.toLocaleString()} ${describePaceWindow(
-        meter.subLimitWindow,
-        meter.subLimitWindowCount,
-        meter.subLimitRolling,
-      )}`
-    : null;
+  const pace = meter.subLimits?.length ? meter.subLimits.map(describeLimit).join(", ") : null;
 
   // The record result wins while it is for the period the read describes; once the read catches
   // up (or the period turns over) the server's own row takes back over.
@@ -117,22 +117,23 @@ export const UsageMeterRow = ({
 
       setRecorded(result);
 
-      // A pace refusal arrives as a refusal with allowance still left — the period could have
-      // taken it, the short window could not.
-      const refusedByPace = !result.allowed && pace !== null && result.remaining >= parsedQuantity;
+      // The server names every limit this use went past, so the message can say which one — a
+      // meter with several limits would otherwise say "over pace" and leave the tester guessing.
+      const exceeded = (result.exceededSubLimits ?? []).map(describeLimit).join(" and ");
+      const refusedByPace = !result.allowed && exceeded !== "";
       const recordedLine = `Recorded. ${result.used}/${result.included} ${result.unitLabel} used this period, ${result.remaining} remaining${result.overage ? `, ${result.overage} over` : ""}.`;
 
       setLastResult(
         result.allowed && result.subLimitExceeded
           ? {
-              message: `${recordedLine} Past the pace of ${pace ?? "this meter"} — allowed, and reported so the caller can slow down.`,
+              message: `${recordedLine} Past the pace of ${exceeded || pace || "this meter"} — allowed, and reported so the caller can slow down.`,
               tone: "over-pace",
             }
           : result.allowed
             ? { message: recordedLine, tone: "success" }
             : {
                 message: refusedByPace
-                  ? `Refused by the pace limit of ${pace} — allowance remains, try again in the next window.`
+                  ? `Refused by the pace limit of ${exceeded} — allowance remains, try again in the next window.`
                   : "Refused by the usage call — the allowance was exhausted between the check and this call.",
                 tone: "blocked",
               },
@@ -143,7 +144,7 @@ export const UsageMeterRow = ({
           variant: "destructive",
           title: "Usage refused",
           description: refusedByPace
-            ? `${meter.displayName} is over its pace of ${pace}.`
+            ? `${meter.displayName} is over its pace of ${exceeded}.`
             : `${meter.displayName} has no remaining allowance.`,
         });
       }

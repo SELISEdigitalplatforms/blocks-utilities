@@ -1,4 +1,7 @@
-import type { BillingIntervalName } from "../../subscription/models/subscription-plan.model";
+import type {
+  BillingIntervalName,
+  PlanMeterSubLimit,
+} from "../../subscription/models/subscription-plan.model";
 
 export type SubscriptionStatus =
   | "Incomplete"
@@ -625,6 +628,8 @@ export interface RecordUsageResult {
    * on a recording's answer — a read never carries it. Absent from servers that predate paces.
    */
   subLimitExceeded?: boolean;
+  /** Every pace limit this recording went past, refusing or reporting. Empty on a read. */
+  exceededSubLimits?: PlanMeterSubLimit[];
 }
 
 /**

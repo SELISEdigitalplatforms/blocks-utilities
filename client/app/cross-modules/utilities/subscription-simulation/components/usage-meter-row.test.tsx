@@ -104,7 +104,15 @@ describe("UsageMeterRow", () => {
    * whole throttle behaviour would be invisible and the cap would appear to do nothing.
    */
   describe("against a meter with a pace", () => {
-    const paced = { ...meter, subLimitWindow: "Hour", subLimitQuantity: 10 } as PlanMeter;
+    const hourly = {
+      window: "Hour",
+      windowCount: 1,
+      rolling: false,
+      quantity: 10,
+      behaviour: "Refuse",
+    } as const;
+    const weekly = { ...hourly, window: "Week", quantity: 500 } as const;
+    const paced = { ...meter, subLimits: [hourly, weekly] } as PlanMeter;
 
     const consume = (quantity: string) => {
       render(
@@ -125,7 +133,13 @@ describe("UsageMeterRow", () => {
     });
 
     it("reads as over pace when the use was allowed but past it", async () => {
-      recordUsage.mockResolvedValue({ ...usage, used: 54, remaining: 96, subLimitExceeded: true });
+      recordUsage.mockResolvedValue({
+        ...usage,
+        used: 54,
+        remaining: 96,
+        subLimitExceeded: true,
+        exceededSubLimits: [{ ...hourly, behaviour: "Throttle" }],
+      });
       consume("12");
 
       expect(await screen.findByText("Over pace")).toBeInTheDocument();
@@ -133,10 +147,10 @@ describe("UsageMeterRow", () => {
     });
 
     it("reads as refused by the pace, not the allowance, when allowance remains", async () => {
-      recordUsage.mockResolvedValue({ ...usage, allowed: false });
+      recordUsage.mockResolvedValue({ ...usage, allowed: false, exceededSubLimits: [weekly] });
       consume("12");
 
-      expect(await screen.findByText(/Refused by the pace limit of 10 an hour/)).toBeInTheDocument();
+      expect(await screen.findByText(/Refused by the pace limit of 500 a week/)).toBeInTheDocument();
       expect(screen.queryByText("Over pace")).not.toBeInTheDocument();
     });
   });

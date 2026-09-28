@@ -175,13 +175,17 @@ const PlanBuilderWizard = ({
         .map((table) => table?.currencyCode)
         .filter((currencyCode): currencyCode is string => Boolean(currencyCode))
         .map((currencyCode) => ({ currencyCode })),
-      // The form holds the window's number; the summary reads names, as a stored plan does.
-      subLimitWindow:
-        meter?.subLimitWindow === undefined ? null : USAGE_WINDOW_NAMES[meter.subLimitWindow],
-      subLimitQuantity: meter?.subLimitQuantity ?? null,
-      subLimitBehaviour: meter?.subLimitBehaviour === 1 ? "Throttle" : "Refuse",
-      subLimitWindowCount: meter?.subLimitWindowCount ?? 1,
-      subLimitRolling: meter?.subLimitRolling ?? false,
+      // The form holds numbers; the summary reads names, as a stored plan does. A row still
+      // being typed has no quantity yet and says nothing until it does.
+      subLimits: (meter?.subLimits ?? [])
+        .filter((limit) => limit?.quantity !== undefined)
+        .map((limit) => ({
+          window: USAGE_WINDOW_NAMES[limit?.window ?? 0],
+          windowCount: limit?.count ?? 1,
+          rolling: limit?.rolling ?? false,
+          quantity: limit?.quantity ?? 0,
+          behaviour: limit?.behaviour === 1 ? ("Throttle" as const) : ("Refuse" as const),
+        })),
     })),
     entitlements: (draft.entitlements ?? []).map((entitlement) => ({
       key: entitlement?.key ?? "",
