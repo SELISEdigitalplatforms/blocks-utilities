@@ -229,6 +229,7 @@ export const StepPricingModel = ({
         defaultOpen={meters.fields.length > 0}
       >
         <CardListShell
+          columns={1}
           addLabel="Add meter"
           onAdd={() =>
             meters.append({

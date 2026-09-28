@@ -55,6 +55,7 @@ vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
 
 vi.mock("@seliseblocks/genesis-os", () => ({
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
+  useUserStore: () => ({ userDetails: { itemId: "user-1" } }),
 }));
 
 import { SubscriptionSimulationPage } from "./subscription-simulation-page";

@@ -744,6 +744,7 @@ const QUANTITY_ERROR_CODES = [
   "subscription_quantity_unchanged",
   "subscription_quantity_invalid",
   "subscription_pending_quantity_change_not_found",
+  "subscription_member_seats_occupied",
 ] as const;
 
 const serialize = (error: unknown): string => {
@@ -823,6 +824,15 @@ const subscribeErrorCode = (error: unknown): string => codeFrom(error, SUBSCRIBE
 const planChangeErrorCode = (error: unknown): string => codeFrom(error, PLAN_CHANGE_ERROR_CODES);
 
 const messageFrom = (error: unknown, fallback: string): string => {
+  // The envelope's own sentence first. An HttpError's `errors` is the whole response body, whose
+  // top-level values are success/data/error rather than strings, so the search below found none
+  // and fell through to `error.message` — the raw JSON, which is what a subscriber was shown.
+  const failure = subscriptionApiFailure(error);
+
+  if (failure?.message) {
+    return failure.message;
+  }
+
   if (error instanceof HttpError) {
     const values = Object.values(error.errors ?? {}).flat();
     const first = values.find((value) => typeof value === "string" && value.trim().length > 0);

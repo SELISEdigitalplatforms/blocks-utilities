@@ -389,6 +389,37 @@ public sealed class SubscriptionMemberServiceTests
                          "share what was bought for one of them");
     }
 
+    /// <summary>
+    /// Found testing in the portal: re-sending a list on a full subscription told the administrator
+    /// the subscription was out of room — for someone who already had a place on it.
+    /// </summary>
+    [Fact]
+    public async Task Somebody_already_on_a_full_subscription_is_reported_as_already_on_it()
+    {
+        _subscription = UserWise(seats: 3);
+        _held = 3;
+
+        var result = await Assign("held-2");
+
+        result.Value!.Refused.Should().ContainSingle()
+            .Which.ReasonCode.Should().Be("subscription_member_already_assigned",
+                because: "they are on it; telling the administrator to buy another seat for them " +
+                         "sends them after a problem that does not exist");
+    }
+
+    [Fact]
+    public async Task A_name_already_on_it_does_not_use_up_a_free_place_for_the_next_name()
+    {
+        _subscription = UserWise(seats: 3);
+        _held = 2;
+
+        var result = await Assign("held-1", "newcomer");
+
+        result.Value!.Assigned.Should().ContainSingle().Which.UserId.Should().Be("newcomer");
+        result.Value.Refused.Should().ContainSingle()
+            .Which.ReasonCode.Should().Be("subscription_member_already_assigned");
+    }
+
     [Fact]
     public async Task The_member_list_says_which_place_each_person_holds()
     {

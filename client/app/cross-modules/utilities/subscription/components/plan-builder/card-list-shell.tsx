@@ -12,12 +12,18 @@ export const CardListShell = ({
   children,
   onAdd,
   addLabel,
+  columns = 2,
 }: {
   children: ReactNode;
   onAdd: () => void;
   addLabel: string;
+  /**
+   * One for a card that holds a whole form. A meter carries its limits, rates and thresholds, and
+   * two of them side by side left each too narrow to read — a rule message wrapped one word a line.
+   */
+  columns?: 1 | 2;
 }) => (
-  <div className="grid gap-3 sm:grid-cols-2">
+  <div className={columns === 2 ? "grid gap-3 sm:grid-cols-2" : "grid gap-3"}>
     {children}
     <button
       type="button"

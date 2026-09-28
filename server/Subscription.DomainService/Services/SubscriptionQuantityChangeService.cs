@@ -394,12 +394,14 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         }
 
         if (direction < 0 &&
-            await OccupiedBeyondAsync(subscription, target, cancellationToken) is { } occupied)
+            await OccupiedBeyondAsync(subscription, target, cancellationToken) is { } stranded)
         {
             return SubscriptionOperationResult<QuantityChangeResponse>.Failure(
                 PaymentFailureKind.Conflict,
                 "subscription_member_seats_occupied",
-                $"{occupied} people are on seats this change would remove. Take them off first.",
+                stranded == 1
+                    ? "1 person has to come off before this change can take a seat away. Take them off first."
+                    : $"{stranded} people have to come off before this change can take their seats away. Take them off first.",
                 correlationId);
         }
 
@@ -923,7 +925,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         var held = await _assignments.CountActiveAsync(
             subscription.TenantId, subscription.ItemId, cancellationToken);
 
-        return held > counting.Quantity ? held : null;
+        // How many have to come off, not how many are on: going from five seats to three with
+        // five people seated strands two of them, and "5 people" sent the administrator to empty
+        // the whole subscription.
+        return held > counting.Quantity ? held - counting.Quantity : null;
     }
 
     private async Task<SubscriptionOperationResult<QuantityChangeResponse>> DecreaseAsync(

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { AlertCircle, FlaskConical, Layers, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useUserStore } from "@seliseblocks/genesis-os";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import {
@@ -47,7 +47,7 @@ import { SimulationHarnessCard } from "../components/simulation-harness-card";
 import { SubscribeDialog } from "../components/subscribe-dialog";
 import { UsageSection } from "../components/usage-section";
 import { useCurrentSimulatedSubscription } from "../hooks/use-current-simulated-subscription";
-import { useMemberBasedSubscriptions } from "../hooks/use-members";
+import { useMemberBasedSubscriptions, useSubscriptionsWithMyPlace } from "../hooks/use-members";
 import type {
   SubscriptionSimulationActionResponse,
   SubscriptionSimulationJobRunResponse,
@@ -125,13 +125,20 @@ export const SubscriptionSimulationPage = () => {
   );
   const currentPlan = plans?.find((plan) => plan.code === currentSubscription?.planCode);
 
-  // The plans people hold places on. Shared with the members card through the query cache.
+  // The plans the signed-in user holds a place on — not every user-wise plan the organization
+  // holds. A plan with no place of theirs lends them neither its limits nor its entitlements, and
+  // reading one anyway gated their usage on an entitlement they did not have. Shared with the
+  // members card through the query cache.
+  const userId = useUserStore()?.userDetails?.itemId;
   const { data: memberBasedSubscriptions } = useMemberBasedSubscriptions(organizationScope);
-  const memberPlans = (plans ?? []).filter((plan) =>
-    memberBasedSubscriptions?.some(
-      (subscription) =>
-        subscription.planCode === plan.code && ENTITLED_STATUSES.has(subscription.status),
+  const withMyPlace = useSubscriptionsWithMyPlace(
+    (memberBasedSubscriptions ?? []).filter((subscription) =>
+      ENTITLED_STATUSES.has(subscription.status),
     ),
+    userId,
+  );
+  const memberPlans = (plans ?? []).filter((plan) =>
+    withMyPlace.some((subscription) => subscription.planCode === plan.code),
   );
 
   const refresh = () => {

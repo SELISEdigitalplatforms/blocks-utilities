@@ -47,6 +47,14 @@ describe("AssignMembersDialog", () => {
     );
   });
 
+  it("counts a name given twice once, as the server places it once", async () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText("User ids"), { target: { value: "u1\nu2\nu1" } });
+
+    expect(screen.getByRole("button", { name: "Assign 2 people" })).toBeInTheDocument();
+  });
+
   /**
    * The whole reason assignment answers per person. A batch that seats two and refuses one is a
    * success, and a toast saying so would hide who missed out and why.

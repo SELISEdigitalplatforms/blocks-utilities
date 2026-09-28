@@ -80,8 +80,11 @@ export const describePlaces = (plan: PlanSummaryData): string => {
     return pace ? `${each}, ${pace}` : each;
   });
 
+  // Semicolons between the parts, because each part already uses commas: with two meters, one
+  // comma-joined run read "…then refused, 100 calls each, at most…" with no telling where one
+  // meter stopped and the next began.
   const sentence = (places: string) =>
-    `${[places, ...allowances].join(", ")}.`;
+    `${[places, ...allowances].join("; ")}.`;
 
   const counting = countingItemOf(plan);
 
