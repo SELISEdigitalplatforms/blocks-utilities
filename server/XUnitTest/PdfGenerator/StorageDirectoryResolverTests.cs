@@ -52,6 +52,13 @@ namespace XUnitTest.PdfGenerator
                     It.IsAny<string?>(), It.IsAny<string[]?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(result);
 
+        private void UpdateReturns(DirectoryOperationResult result) =>
+            _directories
+                .Setup(x => x.UpdateDirectoryAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+                    It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(result);
+
         [Fact]
         public async Task An_existing_directory_is_found_by_its_configured_name_and_not_recreated()
         {
@@ -99,6 +106,32 @@ namespace XUnitTest.PdfGenerator
 
             _directories.Verify(x => x.CreateDirectoryAsync(
                 Configured, null, Configured, null, Configured, null, "Creator", It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task An_existing_directory_with_a_different_access_level_is_updated_to_match()
+        {
+            _repository
+                .Setup(x => x.GetDefaultDirectoryByModuleNameAsync(Configured, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new FileDirectory { ItemId = "dir-1", ObjectAccessLevel = ObjectAccessLevel.Creator });
+            UpdateReturns(DirectoryOperationResult.Success("dir-1"));
+
+            (await Resolver().ResolveAsync(Logical, "Organization")).Should().Be("dir-1");
+
+            _directories.Verify(x => x.UpdateDirectoryAsync(
+                "dir-1", Configured, Configured, "Organization", true, It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task A_directory_already_at_the_requested_access_level_is_not_updated()
+        {
+            Existing(Configured, "dir-1");
+
+            (await Resolver().ResolveAsync(Logical, null)).Should().Be("dir-1");
+
+            _directories.Verify(x => x.UpdateDirectoryAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
         [Fact]
