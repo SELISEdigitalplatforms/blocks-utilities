@@ -457,16 +457,15 @@ describe("a plan sold to each person", () => {
    * back is deleted by the next unrelated edit — a dropped mark leaves a plan nobody can be
    * assigned to, and a dropped pace leaves a meter uncapped.
    */
-  it("reopens with its scope, its counting mark and its pace intact", () => {
+  it("reopens with its scope, its counting mark and every pace limit intact", () => {
     const plan = storedPlan({ subscriberScope: 1 });
     plan.quantityItems[0] = { ...plan.quantityItems[0], countsMembers: true };
     plan.meters[0] = {
       ...plan.meters[0],
-      subLimitWindow: "Hour",
-      subLimitQuantity: 1_000,
-      subLimitBehaviour: "Throttle",
-      subLimitWindowCount: 6,
-      subLimitRolling: true,
+      subLimits: [
+        { window: "Hour", windowCount: 5, rolling: true, quantity: 1_000, behaviour: "Throttle" },
+        { window: "Week", windowCount: 1, rolling: false, quantity: 20_000, behaviour: "Refuse" },
+      ],
     };
 
     const values = planToFormValues(plan);
@@ -474,13 +473,10 @@ describe("a plan sold to each person", () => {
 
     expect(values.subscriberScope).toBe("User");
     expect(request.quantityItems[0].countsMembers).toBe(true);
-    expect(request.meters[0]).toMatchObject({
-      subLimitWindow: 0,
-      subLimitQuantity: 1_000,
-      subLimitBehaviour: 1,
-      subLimitWindowCount: 6,
-      subLimitRolling: true,
-    });
+    expect(request.meters[0].subLimits).toEqual([
+      { window: 0, windowCount: 5, rolling: true, quantity: 1_000, behaviour: 1 },
+      { window: 2, windowCount: 1, rolling: false, quantity: 20_000, behaviour: 0 },
+    ]);
   });
 
   it("reopens a plan stored before any of this as organization-wise and uncapped", () => {
@@ -488,32 +484,7 @@ describe("a plan sold to each person", () => {
 
     expect(planToFormValues(storedPlan()).subscriberScope).toBe("Organization");
     expect(request.quantityItems[0].countsMembers).toBe(false);
-    expect(request.meters[0].subLimitWindow).toBeUndefined();
-    expect(request.meters[0].subLimitQuantity).toBeUndefined();
-    expect(request.meters[0].subLimitBehaviour).toBe(0);
-  });
-
-  /**
-   * A plan stored before a pace count could span more than one window has no such field at all —
-   * this is the field this bug shipped without: the mapping compiled, and every edit of a
-   * six-hour plan would have silently rewritten it back as one hour, because nothing here read
-   * the count or the rolling flag back from what the server sent.
-   */
-  it("reopens a plan stored before window counts existed as a single, non-rolling window", () => {
-    const plan = storedPlan();
-    plan.meters[0] = {
-      ...plan.meters[0],
-      subLimitWindow: "Hour",
-      subLimitQuantity: 1_000,
-      subLimitBehaviour: "Refuse",
-    };
-
-    const request = toUpdatePlanRequest(planToFormValues(plan), "org-1");
-
-    expect(request.meters[0]).toMatchObject({
-      subLimitWindowCount: 1,
-      subLimitRolling: false,
-    });
+    expect(request.meters[0].subLimits).toEqual([]);
   });
 
   it("sends the scope on create as the number the server binds", () => {

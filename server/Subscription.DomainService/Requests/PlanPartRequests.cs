@@ -49,25 +49,10 @@ public sealed class PlanMeterRequest
     public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
 
     /// <summary>
-    /// A shorter window this meter also caps within, or null for the period's allowance alone.
+    /// Every cap on how fast this meter may be spent — the pace the plan is sold at, as distinct
+    /// from the amount. Empty for the period's allowance alone; at most three.
     /// </summary>
-    /// <remarks>
-    /// The pace the plan is sold at, as distinct from the amount. Requires
-    /// <see cref="SubLimitQuantity"/>, and the two are refused separately so a half-written cap
-    /// cannot be saved as one that enforces nothing.
-    /// </remarks>
-    public UsageWindow? SubLimitWindow { get; set; }
-
-    public decimal? SubLimitQuantity { get; set; }
-
-    /// <summary>Whether reaching the sub-limit refuses the usage or merely reports it.</summary>
-    public MeterSubLimitBehaviour SubLimitBehaviour { get; set; } = MeterSubLimitBehaviour.Refuse;
-
-    /// <summary>How many of <see cref="SubLimitWindow"/> the limit spans. One unless stated.</summary>
-    public int SubLimitWindowCount { get; set; } = 1;
-
-    /// <summary>Whether the limit looks back from now rather than counting within a window on the clock.</summary>
-    public bool SubLimitRolling { get; set; }
+    public List<PlanMeterSubLimitRequest> SubLimits { get; set; } = [];
 
     /// <summary>
     /// How many decimal places this meter's quantities may carry. Zero — whole units only — unless
@@ -86,6 +71,23 @@ public sealed class PlanMeterRequest
     public List<int> ThresholdPercents { get; set; } = [];
 
     public List<MeterRateTableRequest> RateTables { get; set; } = [];
+}
+
+/// <summary>One pace: so much per window.</summary>
+public sealed class PlanMeterSubLimitRequest
+{
+    public UsageWindow Window { get; set; }
+
+    /// <summary>How many of <see cref="Window"/> the limit spans. One unless stated.</summary>
+    public int WindowCount { get; set; } = 1;
+
+    /// <summary>Looks back from now rather than counting within a block on the clock.</summary>
+    public bool Rolling { get; set; }
+
+    public decimal Quantity { get; set; }
+
+    /// <summary>Whether going past it refuses the use or only reports it.</summary>
+    public MeterSubLimitBehaviour Behaviour { get; set; } = MeterSubLimitBehaviour.Refuse;
 }
 
 public sealed class MeterRateTableRequest

@@ -95,6 +95,19 @@ public sealed class UsageWindowKeyTests
             .Should().Be(UsageWindowKey.Create(UsageWindow.Hour, Instant));
     }
 
+    /// <summary>
+    /// A meter can hold a one-hour and a two-hour limit at once. At an even hour both blocks start
+    /// at the same instant, and a key naming only the instant would have them spend one counter.
+    /// </summary>
+    [Fact]
+    public void Blocks_of_different_lengths_starting_together_are_different_counters()
+    {
+        var evenHour = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+
+        UsageWindowKey.Create(UsageWindow.Hour, evenHour, count: 2)
+            .Should().NotBe(UsageWindowKey.Create(UsageWindow.Hour, evenHour, count: 1));
+    }
+
     [Fact]
     public void A_six_hour_block_starts_at_midnight_and_at_six_hour_marks()
     {

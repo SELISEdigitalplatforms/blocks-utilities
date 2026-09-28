@@ -26,12 +26,13 @@ import {
   METER_AGGREGATION_OPTIONS,
   METER_RESET_POLICY_OPTIONS,
 } from "../../constants/subscription.constants";
-import { USAGE_WINDOW_NAMES, type PlanPrice } from "../../models/subscription-plan.model";
+import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { METER_QUANTITY_MAX_SCALE, stepFor } from "../../utilities/meter-quantity";
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { StepHeading } from "./step-heading";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
+import { MeterPaceFields } from "./meter-pace-fields";
 import { PlanPriceFields } from "./plan-price-fields";
 import { QuantityDiscountTiers } from "./quantity-discount-tiers";
 import { ThresholdChipInput } from "./threshold-chip-input";
@@ -241,9 +242,7 @@ export const StepPricingModel = ({
               overageAllowed: true,
               thresholdPercents: [],
               rateTables: [],
-              subLimitBehaviour: 0,
-              subLimitWindowCount: 1,
-              subLimitRolling: false,
+              subLimits: [],
             })
           }
         >
@@ -641,234 +640,6 @@ const placesModeOf = (
   return (prices ?? []).every((price) => price?.quantityItemKey === counting.itemKey)
     ? "perPlace"
     : "flat";
-};
-
-/**
- * Where a fixed window actually begins, in the terms somebody would read off a clock.
- *
- * Worth saying because the alternative is what most people assume: that the window runs from
- * whenever the subscriber signed up. It does not, deliberately — a pace measured from each
- * subscriber's own instant cannot be reasoned about by anybody comparing two of them.
- */
-const PACE_WINDOW_BOUNDARIES = [
-  "Each hour runs on the clock, 09:00 to 10:00 and so on — not from when the subscriber signed up.",
-  "Each day runs midnight to midnight, UTC — not from when the subscriber signed up.",
-  "Each week runs Monday to Monday — not from when the subscriber signed up.",
-] as const;
-
-const ROLLING_EXPLANATION =
-  "A rolling window ends now and looks back — spend right up to the cap, wait, and the oldest " +
-  "use ages out and makes room again.";
-
-/** Reads as a ceiling, which is always of more than one. "token" alone reads as a typo. */
-const pluralUnits = (unitLabel?: string) => {
-  const label = unitLabel?.trim() || "units";
-
-  return label.endsWith("s") ? label : `${label}s`;
-};
-
-/**
- * Hour counts a fixed window can be measured in without leaving a short block somewhere in the
- * day. Every divisor of 24; nothing else tiles evenly from midnight.
- */
-const TILING_HOUR_COUNTS = new Set([1, 2, 3, 4, 6, 8, 12, 24]);
-
-/**
- * A second cap measured in a short window, on top of the period's allowance. Collapsed unless the
- * meter already has one, so every meter that never opted in looks exactly as it did.
- */
-const MeterPaceFields = ({
-  meterIndex,
-  unitLabel,
-  quantityScale,
-}: {
-  meterIndex: number;
-  unitLabel?: string;
-  quantityScale: number;
-}) => {
-  const { control, setValue, trigger } = useFormContext<CreateSubscriptionPlanFormValues>();
-  const paceWindow = useWatch({ control, name: `meters.${meterIndex}.subLimitWindow` });
-  const paceCount = useWatch({ control, name: `meters.${meterIndex}.subLimitWindowCount` });
-  const rolling = useWatch({ control, name: `meters.${meterIndex}.subLimitRolling` });
-  const hasPace = paceWindow !== undefined;
-  const count = paceCount ?? 1;
-
-  // The divide-a-day rule reads the window and the rolling flag but files its error under
-  // subLimitWindowCount, not under the field the author changes to fix it. React Hook Form only
-  // revalidates the field that changed, so without this the error outlived the click that made
-  // it stop applying: the author checked Rolling and the count stayed red, naming a rule that no
-  // longer held.
-  const revalidateCount = () => void trigger(`meters.${meterIndex}.subLimitWindowCount`);
-
-  return (
-    <Collapsible defaultOpen={hasPace}>
-      <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-        <ChevronDown className="h-3.5 w-3.5" />
-        Pace (optional)
-        {hasPace
-          ? ` — ${count === 1 ? "per" : `every ${count}`} ${USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}${count === 1 ? "" : "s"}${rolling ? ", rolling" : ""}`
-          : ""}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-2 pt-2">
-        <p className="text-xs text-muted-foreground">
-          Caps how fast the allowance is spent, not how much of it. An allowance with nothing
-          shorter than the billing period can be spent in an afternoon.
-          {hasPace ? ` ${rolling ? ROLLING_EXPLANATION : PACE_WINDOW_BOUNDARIES[paceWindow]}` : ""}
-        </p>
-        <div className="grid grid-cols-3 gap-2">
-          <FormField
-            control={control}
-            name={`meters.${meterIndex}.subLimitWindow`}
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-xs">Window</FormLabel>
-                <Select
-                  value={field.value === undefined ? "none" : String(field.value)}
-                  onValueChange={(value) => {
-                    field.onChange(value === "none" ? undefined : Number(value));
-                    // Taking the window away takes the cap with it: half a pace is refused.
-                    if (value === "none") {
-                      setValue(`meters.${meterIndex}.subLimitQuantity`, undefined);
-                      setValue(`meters.${meterIndex}.subLimitWindowCount`, 1);
-                      setValue(`meters.${meterIndex}.subLimitRolling`, false);
-                    }
-                    // The divide-a-day rule only ever applies to Hour, so switching away from
-                    // or onto it can turn the count's own error on or off.
-                    revalidateCount();
-                  }}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="none">No pace limit</SelectItem>
-                    {USAGE_WINDOW_NAMES.map((name, value) => (
-                      <SelectItem key={name} value={String(value)}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={control}
-            name={`meters.${meterIndex}.subLimitWindowCount`}
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-xs">
-                  How many {hasPace ? USAGE_WINDOW_NAMES[paceWindow].toLowerCase() : "windows"}
-                  {count === 1 ? "" : "s"}
-                </FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    value={field.value ?? 1}
-                    type="number"
-                    min={1}
-                    step={1}
-                    disabled={!hasPace}
-                    onChange={(event) => field.onChange(Number(event.target.value) || 1)}
-                  />
-                </FormControl>
-                {!rolling && paceWindow === 0 && !TILING_HOUR_COUNTS.has(count) ? (
-                  <p className="text-xs text-destructive">
-                    A fixed hourly window has to divide a day evenly — 1, 2, 3, 4, 6, 8, 12 or 24
-                    — or mark it rolling below.
-                  </p>
-                ) : null}
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={control}
-            name={`meters.${meterIndex}.subLimitQuantity`}
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-xs">
-                  Most {pluralUnits(unitLabel)}
-                  {hasPace
-                    ? ` per ${count === 1 ? "" : `${count} `}${USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}${count === 1 ? "" : "s"}`
-                    : " per window"}
-                </FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    value={field.value ?? ""}
-                    type="number"
-                    min={stepFor(quantityScale)}
-                    step={stepFor(quantityScale)}
-                    disabled={!hasPace}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-        {hasPace ? (
-          <FormField
-            control={control}
-            name={`meters.${meterIndex}.subLimitRolling`}
-            render={({ field }) => (
-              <FormItem>
-                <div className="flex items-center gap-2">
-                  <FormControl>
-                    <Checkbox
-                      checked={field.value}
-                      onCheckedChange={(checked) => {
-                        field.onChange(checked === true);
-                        revalidateCount();
-                      }}
-                    />
-                  </FormControl>
-                  <FormLabel className="!m-0 text-xs">
-                    Rolling — measure the last {count === 1 ? "" : `${count} `}
-                    {USAGE_WINDOW_NAMES[paceWindow].toLowerCase()}
-                    {count === 1 ? "" : "s"} from right now, not a window on the clock
-                  </FormLabel>
-                </div>
-              </FormItem>
-            )}
-          />
-        ) : null}
-        {hasPace ? (
-          <FormField
-            control={control}
-            name={`meters.${meterIndex}.subLimitBehaviour`}
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-xs">When the pace is exceeded</FormLabel>
-                <Select
-                  value={String(field.value ?? 0)}
-                  onValueChange={(value) => field.onChange(Number(value))}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="0">Refuse the usage</SelectItem>
-                    <SelectItem value="1">Allow it, and report it as over pace</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Reporting slows nobody down by itself — the caller is told it is over pace and
-                  decides what to do, e.g. fall back to a cheaper model.
-                </p>
-              </FormItem>
-            )}
-          />
-        ) : null}
-      </CollapsibleContent>
-    </Collapsible>
-  );
 };
 
 const OptionalSection = ({

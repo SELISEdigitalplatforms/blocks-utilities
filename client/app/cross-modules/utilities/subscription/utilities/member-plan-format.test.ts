@@ -18,9 +18,9 @@ const plan = (overrides: Partial<PlanSummaryData> = {}): PlanSummaryData => ({
       unitLabel: "token",
       includedQuantity: 10_000_000,
       overageAllowed: false,
-      subLimitWindow: "Hour",
-      subLimitQuantity: 1_000_000,
-      subLimitBehaviour: "Refuse",
+      subLimits: [
+        { window: "Hour", windowCount: 1, rolling: false, quantity: 1_000_000, behaviour: "Refuse" },
+      ],
     },
   ],
   entitlements: [],
@@ -74,20 +74,32 @@ describe("describePlaces", () => {
 });
 
 describe("describePace", () => {
-  const meter = (overrides: Partial<PlanSummaryData["meters"][number]> = {}) => ({
+  type Limit = NonNullable<PlanSummaryData["meters"][number]["subLimits"]>[number];
+
+  const limit = (overrides: Partial<Limit> = {}): Limit => ({
+    window: "Hour",
+    windowCount: 1,
+    rolling: false,
+    quantity: 1_000,
+    behaviour: "Refuse",
+    ...overrides,
+  });
+
+  const meter = (...subLimits: Limit[]) => ({
     meterKey: "tokens",
     displayName: "Tokens",
     unitLabel: "token",
     includedQuantity: 1_000_000,
     overageAllowed: false,
-    subLimitWindow: "Hour" as const,
-    subLimitQuantity: 1_000,
-    subLimitBehaviour: "Refuse" as const,
-    ...overrides,
+    subLimits,
+  });
+
+  it("says nothing for a meter with no limit", () => {
+    expect(describePace(meter())).toBeNull();
   });
 
   it("reads a one-hour fixed pace as per hour", () => {
-    expect(describePace(meter())).toBe("at most 1,000 an hour, then refused");
+    expect(describePace(meter(limit()))).toBe("at most 1,000 an hour, then refused");
   });
 
   /**
@@ -95,17 +107,42 @@ describe("describePace", () => {
    * review step told its author "1,000 an hour" for a pace of 1,000 every 5 hours.
    */
   it("names every window a fixed pace spans", () => {
-    expect(describePace(meter({ subLimitWindowCount: 5 }))).toBe(
+    expect(describePace(meter(limit({ windowCount: 5 })))).toBe(
       "at most 1,000 every 5 hours, then refused",
     );
   });
 
   it("says a rolling pace looks back over any stretch of that length", () => {
-    expect(describePace(meter({ subLimitWindowCount: 5, subLimitRolling: true }))).toBe(
+    expect(describePace(meter(limit({ windowCount: 5, rolling: true })))).toBe(
       "at most 1,000 in any 5 hours, then refused",
     );
-    expect(describePace(meter({ subLimitRolling: true }))).toBe(
+    expect(describePace(meter(limit({ rolling: true })))).toBe(
       "at most 1,000 in any hour, then refused",
+    );
+  });
+
+  it("names every limit, with the outcome said once when they all share it", () => {
+    expect(
+      describePace(
+        meter(
+          limit({ windowCount: 5, rolling: true }),
+          limit({ window: "Week", quantity: 20_000 }),
+        ),
+      ),
+    ).toBe("at most 1,000 in any 5 hours and 20,000 a week, then refused");
+  });
+
+  /** Refuse and report are opposites to whoever is spending, so each says which it is. */
+  it("says each limit's own outcome when they differ", () => {
+    expect(
+      describePace(
+        meter(
+          limit({ windowCount: 5, rolling: true, behaviour: "Throttle" }),
+          limit({ window: "Week", quantity: 20_000 }),
+        ),
+      ),
+    ).toBe(
+      "at most 1,000 in any 5 hours (then reported as over pace) and 20,000 a week (then refused)",
     );
   });
 });

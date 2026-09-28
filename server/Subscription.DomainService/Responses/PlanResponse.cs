@@ -221,19 +221,11 @@ public sealed class PlanMeterResponse
     /// </summary>
     public List<int> ThresholdPercents { get; init; } = [];
 
-    /// <summary>The short window this meter also caps within, as its name. Null when uncapped.</summary>
-    public string? SubLimitWindow { get; init; }
-
-    public decimal? SubLimitQuantity { get; init; }
-
-    /// <summary>"Refuse" or "Throttle". Reported on every meter, meaningful only with a window.</summary>
-    public string SubLimitBehaviour { get; init; } = string.Empty;
-
-    /// <summary>How many of <see cref="SubLimitWindow"/> the limit spans.</summary>
-    public int SubLimitWindowCount { get; init; } = 1;
-
-    /// <summary>Whether the window looks back from now rather than sitting on the clock.</summary>
-    public bool SubLimitRolling { get; init; }
+    /// <summary>
+    /// Every cap on how fast this meter may be spent. Returned because an edit rewrites the whole
+    /// plan: a limit the console cannot read back, the next edit would drop.
+    /// </summary>
+    public List<PlanMeterSubLimitResponse> SubLimits { get; init; } = [];
 
     /// <summary>
     /// What usage past the allowance costs, per currency. Empty means overage cannot be priced
@@ -241,6 +233,22 @@ public sealed class PlanMeterResponse
     /// that a meter allowing overage has no table behind it.
     /// </summary>
     public List<PlanMeterRateTableResponse> RateTables { get; init; } = [];
+}
+
+/// <summary>One pace, with its enums as names like every other meter enum here.</summary>
+public sealed class PlanMeterSubLimitResponse
+{
+    /// <summary>"Hour", "Day" or "Week".</summary>
+    public string Window { get; init; } = string.Empty;
+
+    public int WindowCount { get; init; } = 1;
+
+    public bool Rolling { get; init; }
+
+    public decimal Quantity { get; init; }
+
+    /// <summary>"Refuse" or "Throttle".</summary>
+    public string Behaviour { get; init; } = string.Empty;
 }
 
 public sealed class PlanMeterRateTableResponse

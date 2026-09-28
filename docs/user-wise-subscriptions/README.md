@@ -143,15 +143,35 @@ windows are truncated to the clock rather than offset from each subscriber's anc
 measured from each subscriber's own signup instant cannot be reasoned about by anybody comparing
 two of them.
 
-Meter fields: `SubLimitWindow`, `SubLimitQuantity`, `SubLimitBehaviour` (`Refuse` | `Throttle`).
+A multi-hour fixed block carries its length in the key (`h6x20260914T060000Z`), so a one-hour and a
+two-hour limit on the same meter never name the same counter at an even hour. A count of one keeps
+the plain key above.
 
-Throttle cannot actually slow a caller down from inside this module, so it reports
-`subLimitExceeded: true` on the response and allows the usage. A cap that reported nothing would
-have capped nothing.
+A meter holds up to three limits in `PlanMeter.SubLimits`, each with `Window` (Hour/Day/Week),
+`WindowCount`, `Rolling`, `Quantity` and `Behaviour` (`Refuse` | `Throttle`) — e.g. 1,000 every
+5 hours *and* 20,000 a week. Plans and subscriptions stored when a meter held one pace in single
+`SubLimit*` fields are read through `PlanMeter.EffectiveSubLimits()`, which turns those into a
+one-item list; nothing writes the single fields any more.
 
-A refused use must **not** be left counted in the short window, or the next attempt opens already
-spent and somebody who waited exactly as instructed is refused again. `ReversePaceAsync` exists for
-this.
+`IncludedQuantity` keeps its meaning: the total budget per allowance period, and the only figure
+that is sold, carried forward or billed as overage. Limits cap only how fast it is spent. A use has
+to fit the budget **and** every limit.
+
+A use is counted against every limit before any is judged. If any **refusing** limit is exceeded the
+use is refused and taken back out of **every** limit, not only the one that refused — left in any of
+them, a use nobody was allowed to make would open that limit's next window already spent.
+`ReversePaceAsync` exists for this. Otherwise the use is allowed.
+
+Throttle cannot actually slow a caller down from inside this module, so a reporting limit that is
+exceeded sets `subLimitExceeded: true` and allows the usage. Either way the response's
+`exceededSubLimits` names every limit the use went past, so a caller can say which one.
+
+Authoring refuses more than three limits, two limits of the same length (a day and 24 hours are
+the same), and a longer limit that allows no more than a shorter one (the shorter could never
+bite). The builder only *warns* when a limit can never be reached, when the limits leave the
+included amount out of reach, or when a fixed limit is exactly as long as the allowance period.
+Those bounds are upper estimates once fixed and rolling limits mix, so refusing on them would
+block plans that are valid.
 
 ---
 

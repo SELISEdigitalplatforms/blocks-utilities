@@ -939,21 +939,35 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     cancellationToken);
             }
 
-            // The pace, checked after the amount. A use the period already refused never reaches
-            // here, so a refused call consumes none of the short window either.
-            var pace = await ApplyPaceAsync(
-                context, subscription, seat, meter, occurredAt, request.Quantity,
-                cancellationToken);
+            // Every pace, checked after the amount. A use the period already refused never
+            // reaches here, so a refused call consumes none of the short windows either. All are
+            // counted before any is judged: the answer names every limit this use went past, not
+            // only the first one found.
+            var limits = meter.EffectiveSubLimits();
+            var exceeded = new List<PlanMeterSubLimit>();
 
-            if (request.Enforce && pace.Exceeded &&
-                meter.SubLimitBehaviour == MeterSubLimitBehaviour.Refuse)
+            foreach (var limit in limits)
             {
-                // Both windows are put back, in the order they were taken. Reversing only the
-                // period would leave the short window holding a use nobody was allowed to make,
-                // and the next hour would open already spent.
-                await ReversePaceAsync(
-                    context, subscription, seat, meter, occurredAt, request.Quantity,
-                    cancellationToken);
+                if ((await ApplyPaceAsync(
+                        context, subscription, seat, meter, limit, occurredAt, request.Quantity,
+                        cancellationToken)).Exceeded)
+                {
+                    exceeded.Add(limit);
+                }
+            }
+
+            if (request.Enforce &&
+                exceeded.Exists(limit => limit.Behaviour == MeterSubLimitBehaviour.Refuse))
+            {
+                // Every window is put back, not only the one that refused. A limit left holding a
+                // use nobody was allowed to make would open its next window already spent - and
+                // with several limits, the one that refused is rarely the only one counted.
+                foreach (var limit in limits)
+                {
+                    await ReversePaceAsync(
+                        context, subscription, seat, meter, limit, occurredAt, request.Quantity,
+                        cancellationToken);
+                }
 
                 return await RefuseAsync(
                     record,
@@ -964,7 +978,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     period,
                     allowance,
                     correlationId,
-                    cancellationToken);
+                    cancellationToken,
+                    exceeded);
             }
 
             await _thresholds.EvaluateAsync(
@@ -1023,7 +1038,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     // The only way the pace reaches the caller. A cap that reports instead of
                     // refusing and then says nothing has capped nothing at all — the consumer is
                     // the one that can slow down, and it can only do so on being told.
-                    subLimitExceeded: pace.Exceeded),
+                    subLimitExceeded: exceeded.Count > 0,
+                    exceeded: exceeded),
                 correlationId);
         }
         finally
@@ -1068,7 +1084,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         BillingPeriod period,
         decimal allowance,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<PlanMeterSubLimit>? exceeded = null)
     {
         await _usage.TryAppendRecordAsync(
             new SubscriptionUsageRecord
@@ -1135,7 +1152,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 allowance,
                 allowed: false,
                 replayed: false,
-                projection),
+                projection,
+                exceeded: exceeded),
             correlationId);
     }
 
@@ -1219,28 +1237,24 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         int? seat,
         PlanMeter meter,
+        PlanMeterSubLimit limit,
         DateTime occurredAt,
         decimal quantity,
         CancellationToken cancellationToken)
     {
-        if (meter.SubLimitWindow is not { } window || meter.SubLimitQuantity is not { } cap)
-        {
-            return (false, 0);
-        }
-
-        if (meter.SubLimitRolling)
+        if (limit.Rolling)
         {
             return await ApplyRollingPaceAsync(
-                context, subscription, seat, meter, window, cap, occurredAt, quantity,
+                context, subscription, seat, meter, limit, occurredAt, quantity,
                 cancellationToken);
         }
 
         var counter = await _usage.ApplyDeltaAsync(
-            PaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
+            PaceSeedFor(context, subscription, seat, meter, limit, occurredAt),
             quantity,
             cancellationToken);
 
-        return (counter.Balance > cap, counter.Balance);
+        return (counter.Balance > limit.Quantity, counter.Balance);
     }
 
     /// <summary>
@@ -1257,14 +1271,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         int? seat,
         PlanMeter meter,
-        UsageWindow window,
-        decimal cap,
+        PlanMeterSubLimit limit,
         DateTime occurredAt,
         decimal quantity,
         CancellationToken cancellationToken)
     {
-        var span = RollingWindowKey.SpanOf(window, CountOf(meter));
-        var seed = RollingPaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt);
+        var span = RollingWindowKey.SpanOf(limit.Window, CountOf(limit));
+        var seed = RollingPaceSeedFor(context, subscription, seat, meter, limit, occurredAt);
 
         // Read from a separate query rather than from the seed: what a previous write left behind
         // is what this one prunes, so the map never carries more than two spans of history.
@@ -1280,7 +1293,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         var spent = RollingWindowKey.SumWithin(counter.Buckets, span, occurredAt);
 
-        return (spent > cap, spent);
+        return (spent > limit.Quantity, spent);
     }
 
     /// <summary>
@@ -1301,7 +1314,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// One, unless the plan asked for a longer span. Guards a stored zero or a negative, which
     /// would otherwise ask for a window of no length and refuse every use ever made.
     /// </summary>
-    private static int CountOf(PlanMeter meter) => Math.Max(1, meter.SubLimitWindowCount);
+    private static int CountOf(PlanMeterSubLimit limit) => Math.Max(1, limit.WindowCount);
 
     /// <summary>Puts back what <see cref="ApplyPaceAsync"/> counted, for a use that was refused.</summary>
     private async Task ReversePaceAsync(
@@ -1309,19 +1322,15 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         int? seat,
         PlanMeter meter,
+        PlanMeterSubLimit limit,
         DateTime occurredAt,
         decimal quantity,
         CancellationToken cancellationToken)
     {
-        if (meter.SubLimitWindow is not { } window || meter.SubLimitQuantity is not { } cap)
-        {
-            return;
-        }
-
-        if (meter.SubLimitRolling)
+        if (limit.Rolling)
         {
             await _usage.ApplyBucketDeltaAsync(
-                RollingPaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
+                RollingPaceSeedFor(context, subscription, seat, meter, limit, occurredAt),
                 RollingWindowKey.BucketFor(occurredAt),
                 -quantity,
                 [],
@@ -1331,7 +1340,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
         }
 
         await _usage.ApplyDeltaAsync(
-            PaceSeedFor(context, subscription, seat, meter, window, cap, occurredAt),
+            PaceSeedFor(context, subscription, seat, meter, limit, occurredAt),
             -quantity,
             cancellationToken);
     }
@@ -1358,11 +1367,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         int? seat,
         PlanMeter meter,
-        UsageWindow window,
-        decimal cap,
+        PlanMeterSubLimit limit,
         DateTime occurredAt)
     {
-        var count = CountOf(meter);
+        var window = limit.Window;
+        var cap = limit.Quantity;
+        var count = CountOf(limit);
         var key = UsageWindowKey.Create(window, occurredAt, count);
 
         return new SubscriptionUsageCounter
@@ -1396,12 +1406,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         SubscriptionDetail subscription,
         int? seat,
         PlanMeter meter,
-        UsageWindow window,
-        decimal cap,
+        PlanMeterSubLimit limit,
         DateTime occurredAt)
     {
-        var key = RollingWindowKey.Create(window, CountOf(meter));
-        var span = RollingWindowKey.SpanOf(window, CountOf(meter));
+        var cap = limit.Quantity;
+        var key = RollingWindowKey.Create(limit.Window, CountOf(limit));
+        var span = RollingWindowKey.SpanOf(limit.Window, CountOf(limit));
 
         return new SubscriptionUsageCounter
         {
@@ -1463,10 +1473,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
         bool allowed,
         bool replayed,
         UsageProjectionOutcome projection,
-        bool subLimitExceeded = false) =>
+        bool subLimitExceeded = false,
+        IReadOnlyList<PlanMeterSubLimit>? exceeded = null) =>
         Describe(
             meter, period, balance, allowance, allowed, replayed, ToState(projection),
-            subLimitExceeded);
+            subLimitExceeded, exceeded);
 
     private static UsageResponse Describe(
         PlanMeter meter,
@@ -1476,10 +1487,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         bool allowed,
         bool replayed,
         UsageProjectionState projection = UsageProjectionState.Published,
-        bool subLimitExceeded = false) => new()
+        bool subLimitExceeded = false,
+        IReadOnlyList<PlanMeterSubLimit>? exceeded = null) => new()
     {
         Allowed = allowed,
         SubLimitExceeded = subLimitExceeded,
+        ExceededSubLimits = [.. (exceeded ?? []).Select(PlanResponseMapper.DescribeSubLimit)],
         MeterKey = meter.MeterKey,
         UnitLabel = meter.UnitLabel,
         QuantityScale = meter.QuantityScale,

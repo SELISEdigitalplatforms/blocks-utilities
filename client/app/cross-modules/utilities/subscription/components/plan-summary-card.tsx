@@ -2,10 +2,9 @@ import { CircleDollarSign, Gauge, Hourglass, Layers, ShieldCheck } from "lucide-
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import type {
-  MeterSubLimitBehaviourName,
+  PlanMeterSubLimit,
   SubscriberScopeName,
   TrialDurationKindName,
-  UsageWindowName,
 } from "../models/subscription-plan.model";
 import { describePace, describePlaces } from "../utilities/member-plan-format";
 import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
@@ -50,14 +49,8 @@ export interface PlanSummaryData {
     overageAllowed: boolean;
     /** Drives whether overage is described as billed or given away. */
     rateTables?: { currencyCode: string }[];
-    /** A pace cap, by name ("Hour"). Null or absent when the meter is capped by its period alone. */
-    subLimitWindow?: UsageWindowName | null;
-    subLimitQuantity?: number | null;
-    subLimitBehaviour?: MeterSubLimitBehaviourName;
-    /** How many windows the pace spans. Absent reads as one, as on plans authored before it. */
-    subLimitWindowCount?: number;
-    /** Counted back from now rather than within blocks on the clock. */
-    subLimitRolling?: boolean;
+    /** Every pace limit, as a stored plan reports them. Empty or absent when there are none. */
+    subLimits?: PlanMeterSubLimit[];
   }[];
   entitlements: {
     key: string;

@@ -191,178 +191,144 @@ describe("what decides how many places a plan has", () => {
  * The pace fields: window, count, rolling, and how they talk to each other.
  */
 describe("capping how fast a meter is spent", () => {
+  const limit = (overrides: Record<string, unknown> = {}) => ({
+    window: 0,
+    count: 1,
+    rolling: false,
+    quantity: 10,
+    behaviour: 0,
+    ...overrides,
+  });
+
+  /**
+   * A meter complete enough to parse. Zod skips a plan's cross-field rules when any field fails
+   * on type, so a meter missing its name or rate tables would never raise those errors at all.
+   */
   const metered = (
+    subLimits: Record<string, unknown>[] = [],
     overrides: Record<string, unknown> = {},
   ): Partial<CreateSubscriptionPlanFormValues> => ({
     meters: [
       {
         meterKey: "token",
+        displayName: "Tokens",
         unitLabel: "token",
+        aggregation: 0,
         includedQuantity: 1000,
         overageAllowed: false,
         quantityScale: 0,
         resetPolicy: 0,
-        rates: [],
+        rateTables: [],
         thresholdPercents: [],
-        subLimitBehaviour: 0,
-        subLimitWindowCount: 1,
-        subLimitRolling: false,
+        subLimits,
         ...overrides,
       },
-    ],
+    ] as CreateSubscriptionPlanFormValues["meters"],
   });
 
-  it("shows no count or rolling control until a window is chosen", async () => {
+  const rows = () => screen.queryAllByTestId("pace-limit");
+
+  it("starts with no limit and a way to add one", async () => {
+    render(<Harness values={metered()} />);
+    await userEvent.setup().click(screen.getByText(/Pace limits \(optional\)/));
+
+    expect(rows()).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /Add limit/ })).toBeEnabled();
+  });
+
+  it("adds limits up to three, and no more", async () => {
     const user = userEvent.setup();
 
-    render(<Harness values={metered()} />);
-    await user.click(screen.getByText("Pace (optional)"));
+    render(<Harness values={metered([limit()])} />);
 
-    expect(screen.getByLabelText(/How many windows/i)).toBeDisabled();
-    expect(screen.queryByText(/Rolling —/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Add limit/ }));
+    await user.click(screen.getByRole("button", { name: /Add limit/ }));
+
+    expect(rows()).toHaveLength(3);
+    expect(screen.getByRole("button", { name: /Add limit/ })).toBeDisabled();
   });
 
-  it("names the unit in the plural against the window that was chosen", async () => {
-    render(<Harness values={metered({ subLimitWindow: 0, subLimitQuantity: 10 })} />);
+  it("removes a limit", async () => {
+    const user = userEvent.setup();
 
-    expect(await screen.findByLabelText(/Most tokens per hour/i)).toBeInTheDocument();
+    render(<Harness values={metered([limit(), limit({ window: 2, quantity: 500 })])} />);
+
+    await user.click(screen.getByRole("button", { name: "Remove the week limit" }));
+
+    expect(rows()).toHaveLength(1);
   });
 
-  it("names the count in the ceiling once more than one window is set", async () => {
-    render(
-      <Harness
-        values={metered({ subLimitWindow: 0, subLimitQuantity: 10, subLimitWindowCount: 5 })}
-      />,
-    );
+  it("names the unit in the plural against each limit's own span", () => {
+    render(<Harness values={metered([limit({ count: 5, rolling: true }), limit({ window: 2, quantity: 500 })])} />);
 
-    expect(await screen.findByLabelText(/Most tokens per 5 hours/i)).toBeInTheDocument();
+    expect(screen.getByText("Most tokens per 5 hours")).toBeInTheDocument();
+    expect(screen.getByText("Most tokens per week")).toBeInTheDocument();
   });
 
-  it("offers the rolling checkbox once a window is set, and names the span in it", async () => {
-    render(
-      <Harness
-        values={metered({ subLimitWindow: 0, subLimitQuantity: 10, subLimitWindowCount: 5 })}
-      />,
-    );
+  it("says where each fixed window begins, and how a rolling one measures", () => {
+    render(<Harness values={metered([limit({ count: 5, rolling: true }), limit({ window: 2, quantity: 500 })])} />);
 
-    expect(await screen.findByText(/measure the last 5 hours from right now/i)).toBeInTheDocument();
+    expect(screen.getByText(/ends now and looks back/i)).toBeInTheDocument();
+    expect(screen.getByText(/Each week runs Monday to Monday/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Each hour runs on the clock/i)).not.toBeInTheDocument();
   });
 
-  it("warns on a fixed hourly count that does not divide a day", async () => {
-    render(
-      <Harness
-        values={metered({ subLimitWindow: 0, subLimitQuantity: 10, subLimitWindowCount: 5 })}
-      />,
-    );
+  /** The hourly limit caps a day at about 25,000, so a 50,000 daily limit can never apply. */
+  it("warns when a longer limit can never be reached", () => {
+    render(<Harness values={metered([limit({ quantity: 1000 }), limit({ window: 1, quantity: 50_000 })], { includedQuantity: 10_000_000 })} />);
 
-    expect(await screen.findByText(/has to divide a day evenly/i)).toBeInTheDocument();
+    expect(screen.getByText(/this one never applies/)).toBeInTheDocument();
   });
 
-  it("says nothing when the fixed hourly count divides a day evenly", () => {
-    render(
-      <Harness
-        values={metered({ subLimitWindow: 0, subLimitQuantity: 10, subLimitWindowCount: 6 })}
-      />,
-    );
+  it("warns when the limits leave the included amount out of reach", () => {
+    render(<Harness values={metered([limit({ window: 2, quantity: 20_000 })], { includedQuantity: 1_000_000 })} />);
 
-    expect(screen.queryByText(/has to divide a day evenly/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/can never all be used/)).toBeInTheDocument();
   });
 
-  it("does not warn about dividing a day once the window is marked rolling", () => {
-    render(
-      <Harness
-        values={metered({
-          subLimitWindow: 0,
-          subLimitQuantity: 10,
-          subLimitWindowCount: 5,
-          subLimitRolling: true,
-        })}
-      />,
-    );
+  it("does not warn about a reporting limit leaving the included amount out of reach", () => {
+    render(<Harness values={metered([limit({ window: 2, quantity: 20_000, behaviour: 1 })], { includedQuantity: 1_000_000 })} />);
 
-    expect(screen.queryByText(/has to divide a day evenly/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/can never all be used/)).not.toBeInTheDocument();
   });
 
   /**
-   * The stale error this guards: the live-conditional paragraph above hides itself correctly the
-   * moment Rolling is checked — but React Hook Form's own error state does not revalidate a field
-   * nobody touched, so the field's own {@link FormMessage} and its label, coloured from that same
-   * error state, kept naming a rule that had just stopped applying. An author who checked Rolling
-   * specifically to satisfy it was told, in the form's own voice, that they had not.
+   * The divide-a-day rule is filed on the count but fixed by the rolling box. React Hook Form
+   * only revalidates the field that changed, so without the re-check the count stayed red after
+   * the click that made it valid.
    */
-  it("clears the field's own error once rolling is checked, not only the hint text", async () => {
+  it("clears the count's error once rolling makes it valid", async () => {
     const user = userEvent.setup();
 
-    // A meter complete enough to parse. Zod skips a plan's cross-field rules when any field fails
-    // on type, so a meter missing its name or rate tables would never raise the error at all —
-    // and the test would pass on the hint text alone, with or without the fix.
-    render(
-      <ValidatedHarness
-        values={metered({
-          displayName: "Tokens",
-          aggregation: 0,
-          rateTables: [],
-          subLimitWindow: 0,
-          subLimitQuantity: 10,
-          subLimitWindowCount: 5,
-        })}
-      />,
-    );
+    render(<ValidatedHarness values={metered([limit({ count: 5 })])} />);
 
-    const countField = screen.getByLabelText(/How many hours/i);
+    const count = screen.getByLabelText(/How many hours/i);
 
-    await user.click(countField);
+    await user.click(count);
     await user.tab();
-
-    // The field's own error state, which the hint paragraph cannot fake.
-    await waitFor(() => expect(countField).toHaveAttribute("aria-invalid", "true"));
+    await waitFor(() => expect(count).toHaveAttribute("aria-invalid", "true"));
 
     await user.click(screen.getByRole("checkbox", { name: /Rolling/i }));
 
-    await waitFor(() => expect(countField).toHaveAttribute("aria-invalid", "false"));
-    expect(screen.queryByText(/has to divide a day evenly/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(count).toHaveAttribute("aria-invalid", "false"));
   });
 
-  it("says where a fixed window begins, and nothing about the other two", async () => {
-    render(<Harness values={metered({ subLimitWindow: 2, subLimitQuantity: 10 })} />);
-
-    expect(await screen.findByText(/Each week runs Monday to Monday/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Each hour runs on the clock/i)).not.toBeInTheDocument();
-  });
-
-  it("explains a rolling window differently from a fixed one", async () => {
-    render(
-      <Harness
-        values={metered({
-          subLimitWindow: 0,
-          subLimitQuantity: 10,
-          subLimitRolling: true,
-        })}
-      />,
-    );
-
-    expect(await screen.findByText(/ends now and looks back/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Each hour runs on the clock/i)).not.toBeInTheDocument();
-  });
-
-  it("clearing the window also clears the count and rolling, not only the cap", async () => {
+  /** The same-length error sits on one row and is fixed on the other. */
+  it("clears one row's error when the other row is changed to fix it", async () => {
     const user = userEvent.setup();
 
-    render(
-      <Harness
-        values={metered({
-          subLimitWindow: 0,
-          subLimitQuantity: 10,
-          subLimitWindowCount: 5,
-          subLimitRolling: true,
-        })}
-      />,
-    );
+    render(<ValidatedHarness values={metered([limit({ count: 24 }), limit({ window: 1, quantity: 500 })])} />);
 
-    await user.click(screen.getByLabelText(/^Window$/i));
-    await user.click(await screen.findByText(/No pace limit/i));
+    const [, secondCount] = screen.getAllByLabelText(/How many/i);
 
-    expect(screen.queryByLabelText(/How many windows/i)).toBeDisabled();
-    expect(screen.queryByText(/Rolling —/i)).not.toBeInTheDocument();
+    await user.click(secondCount);
+    await user.tab();
+    await waitFor(() => expect(secondCount).toHaveAttribute("aria-invalid", "true"));
+
+    const firstCount = screen.getAllByLabelText(/How many/i)[0];
+    await user.clear(firstCount);
+    await user.type(firstCount, "6");
+
+    await waitFor(() => expect(secondCount).toHaveAttribute("aria-invalid", "false"));
   });
 });

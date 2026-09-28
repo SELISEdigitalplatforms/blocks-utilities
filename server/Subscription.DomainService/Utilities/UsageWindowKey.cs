@@ -38,10 +38,16 @@ public static class UsageWindowKey
     /// <paramref name="count"/> of 1 is byte-identical to <see cref="Create(UsageWindow, DateTime)"/>
     /// — every meter authored before counted windows existed keeps the counter it has always had,
     /// with nothing to migrate.
+    /// <para>
+    /// Above one, the count is part of the key. A meter can carry several limits, and without it a
+    /// fixed one-hour and a fixed two-hour limit would name the same counter at every even hour
+    /// and spend each other's allowance.
+    /// </para>
     /// </remarks>
     public static string Create(UsageWindow window, DateTime instantUtc, int count) =>
         string.Concat(
             Code(window),
+            count > 1 ? string.Create(CultureInfo.InvariantCulture, $"{count}x") : string.Empty,
             StartOf(window, instantUtc, count).ToString(InstantFormat, CultureInfo.InvariantCulture),
             "Z");
 

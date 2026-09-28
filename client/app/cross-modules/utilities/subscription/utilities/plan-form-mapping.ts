@@ -81,11 +81,14 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
         unitAmountMinor: toMinorUnits(tier.unitAmount, table.currencyCode),
       })),
     })),
-    subLimitWindow: meter.subLimitWindow,
-    subLimitQuantity: meter.subLimitQuantity,
-    subLimitBehaviour: meter.subLimitBehaviour,
-    subLimitWindowCount: meter.subLimitWindowCount,
-    subLimitRolling: meter.subLimitRolling,
+    // The schema has already refused a row with no quantity, so every row here carries one.
+    subLimits: meter.subLimits.map((limit) => ({
+      window: limit.window,
+      windowCount: limit.count,
+      rolling: limit.rolling,
+      quantity: limit.quantity ?? 0,
+      behaviour: limit.behaviour,
+    })),
   })),
   entitlements: values.entitlements.map((entitlement) => ({
     key: entitlement.key.trim(),
@@ -218,13 +221,15 @@ export const planToFormValues = (
         unitAmount: toMajorUnits(tier.unitAmountMinor, table.currencyCode),
       })),
     })),
-    subLimitWindow: meter.subLimitWindow ? USAGE_WINDOW[meter.subLimitWindow] : undefined,
-    subLimitQuantity: meter.subLimitQuantity ?? undefined,
-    subLimitBehaviour: METER_SUB_LIMIT_BEHAVIOUR[meter.subLimitBehaviour ?? "Refuse"] ?? 0,
-    // A plan authored before counted windows existed has no such field, and reopens as one —
-    // the single window it has always been.
-    subLimitWindowCount: meter.subLimitWindowCount ?? 1,
-    subLimitRolling: meter.subLimitRolling ?? false,
+    // Read back in full, not defaulted: an edit rewrites the meter, and a limit the form did not
+    // reopen would be deleted by the next edit of anything else on the plan.
+    subLimits: (meter.subLimits ?? []).map((limit) => ({
+      window: USAGE_WINDOW[limit.window] ?? USAGE_WINDOW.Hour,
+      count: limit.windowCount ?? 1,
+      rolling: limit.rolling ?? false,
+      quantity: limit.quantity,
+      behaviour: METER_SUB_LIMIT_BEHAVIOUR[limit.behaviour] ?? 0,
+    })),
   })),
   entitlements: plan.entitlements.map((entitlement) => ({
     key: entitlement.key,

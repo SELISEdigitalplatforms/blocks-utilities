@@ -369,6 +369,77 @@ public sealed class UsageSubLimitTests
                      "here can slow a caller down by itself");
     }
 
+    [Fact]
+    public async Task Every_limit_on_a_meter_counts_the_same_use()
+    {
+        _subscription = Limited(
+            Limit(UsageWindow.Hour, 10),
+            Limit(UsageWindow.Day, 15));
+
+        var start = new DateTimeOffset(2026, 8, 14, 9, 0, 0, TimeSpan.Zero);
+
+        (await RecordAt(start, 9, "first")).Value!.Allowed.Should().BeTrue();
+
+        // A new hour, so the hourly limit has room — but the day now holds eighteen of fifteen.
+        var second = await RecordAt(start.AddHours(1), 9, "second");
+
+        second.Value!.Allowed.Should().BeFalse(
+            because: "the use fits the hour and not the day, and a meter selling both has to " +
+                     "hold it to both");
+        second.Value.ExceededSubLimits.Should().ContainSingle()
+            .Which.Window.Should().Be(nameof(UsageWindow.Day),
+                because: "the caller is told which limit stopped them, not only that one did");
+    }
+
+    [Fact]
+    public async Task A_reporting_limit_past_its_pace_does_not_refuse_while_a_refusing_one_has_room()
+    {
+        _subscription = Limited(
+            Limit(UsageWindow.Hour, 10, MeterSubLimitBehaviour.Throttle),
+            Limit(UsageWindow.Week, 1_000));
+
+        await Record(quantity: 9, key: "first");
+        var result = await Record(quantity: 4, key: "second");
+
+        result.Value!.Allowed.Should().BeTrue(
+            because: "only the hourly pace is past, and the plan asked for it to report, not refuse");
+        result.Value.SubLimitExceeded.Should().BeTrue();
+        result.Value.ExceededSubLimits.Should().ContainSingle()
+            .Which.Window.Should().Be(nameof(UsageWindow.Hour));
+    }
+
+    /// <summary>
+    /// The limit that refused is rarely the only one counted. Left in any of the others, a use
+    /// nobody was allowed to make would open that limit's next window already spent.
+    /// </summary>
+    [Fact]
+    public async Task A_refused_use_is_taken_back_out_of_every_limit_not_only_the_one_that_refused()
+    {
+        _subscription = Limited(
+            Limit(UsageWindow.Hour, 10),
+            Limit(UsageWindow.Week, 1_000));
+
+        await Record(quantity: 9, key: "first");
+        (await Record(quantity: 4, key: "second")).Value!.Allowed.Should().BeFalse();
+
+        _balances.Where(entry => entry.Key.Contains(":w", StringComparison.Ordinal))
+            .Should().ContainSingle()
+            .Which.Value.Should().Be(9,
+                because: "the week never allowed the refused four, so it must not hold them");
+    }
+
+    [Fact]
+    public async Task A_meter_stored_with_the_legacy_single_pace_is_enforced_as_one_limit()
+    {
+        // Metered builds the meter with the single fields, as every plan written before the list
+        // was stored.
+        _subscription = Metered(UsageWindow.Hour, cap: 10, MeterSubLimitBehaviour.Refuse);
+
+        await Record(quantity: 9, key: "first");
+
+        (await Record(quantity: 4, key: "second")).Value!.Allowed.Should().BeFalse();
+    }
+
     private async Task<SubscriptionOperationResult<UsageResponse>> Record(
         decimal quantity,
         string key = "idem-1") =>
@@ -464,6 +535,21 @@ public sealed class UsageSubLimitTests
                 ]
             }
         };
+
+    private static PlanMeterSubLimit Limit(
+        UsageWindow window,
+        decimal quantity,
+        MeterSubLimitBehaviour behaviour = MeterSubLimitBehaviour.Refuse) =>
+        new() { Window = window, Quantity = quantity, Behaviour = behaviour };
+
+    private static SubscriptionDetail Limited(params PlanMeterSubLimit[] limits)
+    {
+        var subscription = Metered(window: null, cap: null, MeterSubLimitBehaviour.Refuse);
+
+        subscription.Plan.Meters[0].SubLimits = [.. limits];
+
+        return subscription;
+    }
 
     private static SubscriptionDetail RollingMetered(
         UsageWindow window,

@@ -116,57 +116,64 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                 meter.RuleFor(definition => definition.UnitLabel).NotEmpty().MaximumLength(64);
                 meter.RuleFor(definition => definition.IncludedQuantity)
                     .GreaterThanOrEqualTo(0);
-                // Both halves or neither. A window with no quantity caps nothing, and a quantity
-                // with no window has nowhere to apply — either saved alone is a cap the author
-                // believes they wrote and the meter does not enforce.
-                meter.RuleFor(definition => definition.SubLimitQuantity)
-                    .NotNull()
-                    .When(definition => definition.SubLimitWindow is not null)
-                    .WithMessage(
-                        "A sub-limit window needs a quantity to cap, or it caps nothing.")
-                    .WithErrorCode("subscription_meter_sub_limit_incomplete");
+                // Each pace on its own terms. A window is always present on the list form, so the
+                // half-written cap the single fields had to guard against cannot be sent at all.
+                meter.RuleForEach(definition => definition.SubLimits)
+                    .ChildRules(limit =>
+                    {
+                        limit.RuleFor(pace => pace.Window)
+                            .IsInEnum()
+                            .WithMessage("A sub-limit window is an hour, a day or a week.")
+                            .WithErrorCode("subscription_meter_sub_limit_invalid");
 
-                meter.RuleFor(definition => definition.SubLimitWindow)
-                    .NotNull()
-                    .When(definition => definition.SubLimitQuantity is not null)
-                    .WithMessage(
-                        "A sub-limit quantity needs a window to be measured in.")
-                    .WithErrorCode("subscription_meter_sub_limit_incomplete");
+                        limit.RuleFor(pace => pace.Quantity)
+                            .GreaterThan(0)
+                            .WithMessage(
+                                "A sub-limit of zero refuses everything. Remove it to cap by " +
+                                "period alone.")
+                            .WithErrorCode("subscription_meter_sub_limit_invalid");
 
-                meter.RuleFor(definition => definition.SubLimitQuantity)
-                    .GreaterThan(0)
-                    .When(definition => definition.SubLimitQuantity is not null)
-                    .WithMessage(
-                        "A sub-limit of zero refuses everything. Leave it unset to cap by " +
-                        "period alone.")
+                        limit.RuleFor(pace => pace.WindowCount)
+                            .GreaterThan(0)
+                            .WithMessage("A sub-limit spans at least one window.")
+                            .WithErrorCode("subscription_meter_sub_limit_invalid");
+
+                        // A fixed window only tiles a day evenly when its length divides one — five
+                        // hours does not, and would leave one short block a day with nowhere
+                        // consistent to start it. Rolling has no start on the clock to tile from.
+                        limit.RuleFor(pace => pace.WindowCount)
+                            .Must(TilesADay)
+                            .When(pace => !pace.Rolling && pace.Window == UsageWindow.Hour)
+                            .WithMessage(
+                                "A fixed hourly window has to divide a day evenly — 1, 2, 3, 4, " +
+                                "6, 8, 12 or 24 — or mark it rolling instead.")
+                            .WithErrorCode("subscription_meter_sub_limit_invalid");
+                    });
+
+                meter.RuleFor(definition => definition.SubLimits)
+                    .Must(limits => limits.Count <= MaximumSubLimits)
+                    .WithMessage($"A meter takes at most {MaximumSubLimits} sub-limits.")
                     .WithErrorCode("subscription_meter_sub_limit_invalid");
 
-                // Rolling has no meaning without a window to roll: nothing above says what a
-                // rolling flag alone would even be rolling.
-                meter.RuleFor(definition => definition.SubLimitRolling)
-                    .Equal(false)
-                    .When(definition => definition.SubLimitWindow is null)
-                    .WithMessage(
-                        "A rolling sub-limit needs a window and a quantity, same as a fixed one.")
-                    .WithErrorCode("subscription_meter_sub_limit_incomplete");
-
-                meter.RuleFor(definition => definition.SubLimitWindowCount)
-                    .GreaterThan(0)
-                    .WithMessage("A sub-limit spans at least one window.")
+                // Two limits of the same length always have one that makes the other pointless —
+                // the smaller always binds first. Compared in hours, so a day and twenty-four hours
+                // are the same limit however they were written.
+                meter.RuleFor(definition => definition.SubLimits)
+                    .Must(limits => limits
+                        .Select(SpanHours)
+                        .Distinct()
+                        .Count() == limits.Count)
+                    .WithMessage("Two sub-limits on one meter cannot cover the same length of time.")
                     .WithErrorCode("subscription_meter_sub_limit_invalid");
 
-                // A fixed window only tiles a day evenly when its length divides one — two, three,
-                // four, six, eight or twelve hours all do, five does not, and a fixed five-hour
-                // window would leave one short block a day with nowhere consistent to start it.
-                // Rolling has no such requirement: it has no start on the clock to tile from.
-                meter.RuleFor(definition => definition.SubLimitWindowCount)
-                    .Must((definition, count) =>
-                        definition.SubLimitWindow != UsageWindow.Hour || TilesADay(count))
-                    .When(definition =>
-                        !definition.SubLimitRolling && definition.SubLimitWindow is not null)
+                // A longer limit allowing no more than a shorter one leaves the shorter one unable
+                // ever to bite: 1,000 an hour beside 500 a day is 500 a day, and the hourly figure
+                // is a promise the plan never keeps.
+                meter.RuleFor(definition => definition.SubLimits)
+                    .Must(LongerLimitsAllowMore)
                     .WithMessage(
-                        "A fixed hourly window has to divide a day evenly — 1, 2, 3, 4, 6, 8, 12 " +
-                        "or 24 — or mark it rolling instead.")
+                        "A longer sub-limit has to allow more than a shorter one, or the shorter " +
+                        "one can never apply.")
                     .WithErrorCode("subscription_meter_sub_limit_invalid");
 
                 meter.RuleFor(definition => definition.QuantityScale)
@@ -397,6 +404,25 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
     /// number and is not one that tiles.
     /// </remarks>
     private static bool TilesADay(int hours) => hours is 1 or 2 or 3 or 4 or 6 or 8 or 12 or 24;
+
+    private const int MaximumSubLimits = 3;
+
+    private static int SpanHours(PlanMeterSubLimitRequest limit) =>
+        Math.Max(1, limit.WindowCount) * limit.Window switch
+        {
+            UsageWindow.Day => 24,
+            UsageWindow.Week => 24 * 7,
+            _ => 1
+        };
+
+    private static bool LongerLimitsAllowMore(List<PlanMeterSubLimitRequest> limits)
+    {
+        var bySpan = limits.OrderBy(SpanHours).ToList();
+
+        return bySpan.Zip(bySpan.Skip(1))
+            .All(pair => SpanHours(pair.First) == SpanHours(pair.Second) ||
+                pair.Second.Quantity > pair.First.Quantity);
+    }
 
     private static bool BeContiguousBands(PlanQuantityItemRequest item)
     {

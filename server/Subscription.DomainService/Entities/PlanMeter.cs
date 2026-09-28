@@ -59,8 +59,41 @@ public sealed class PlanMeter
     public bool OverageAllowed { get; set; } = true;
 
     /// <summary>
-    /// A shorter window this meter also caps within, or null when only the period's allowance
+    /// Every cap on how fast this meter may be spent. Empty when only the period's allowance
     /// applies.
+    /// </summary>
+    /// <remarks>
+    /// Read through <see cref="EffectiveSubLimits"/>, never directly: a plan or subscription stored
+    /// before limits became a list carries its one pace in the single fields below instead.
+    /// </remarks>
+    public List<PlanMeterSubLimit> SubLimits { get; set; } = [];
+
+    /// <summary>
+    /// The limits this meter enforces — the list, or the one legacy pace when the list is empty.
+    /// </summary>
+    /// <remarks>
+    /// The single place the two storage shapes meet. Plans and subscription snapshots both hold
+    /// <see cref="PlanMeter"/>, so one fallback here keeps every document written before the list
+    /// counting exactly as it did, with nothing to migrate.
+    /// </remarks>
+    public IReadOnlyList<PlanMeterSubLimit> EffectiveSubLimits() =>
+        SubLimits.Count > 0 || SubLimitWindow is not { } window || SubLimitQuantity is not { } cap
+            ? SubLimits
+            :
+            [
+                new PlanMeterSubLimit
+                {
+                    Window = window,
+                    WindowCount = SubLimitWindowCount,
+                    Rolling = SubLimitRolling,
+                    Quantity = cap,
+                    Behaviour = SubLimitBehaviour
+                }
+            ];
+
+    /// <summary>
+    /// Legacy: the single pace a meter carried before <see cref="SubLimits"/>. Read only through
+    /// <see cref="EffectiveSubLimits"/>; nothing writes it any more.
     /// </summary>
     /// <remarks>
     /// The pace a plan is sold at, as distinct from the amount. Ten million tokens a month with no

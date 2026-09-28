@@ -66,6 +66,13 @@ public sealed class UsageResponse
     public bool SubLimitExceeded { get; init; }
 
     /// <summary>
+    /// Every limit this use went past, refusing or reporting — so a caller can say which one:
+    /// "over the five-hour pace" is a different message from "the week's cap is reached". Empty
+    /// when none was, and on every read.
+    /// </summary>
+    public List<PlanMeterSubLimitResponse> ExceededSubLimits { get; init; } = [];
+
+    /// <summary>
     /// Whether the read model describing this meter was published before this response was returned.
     /// </summary>
     /// <remarks>

@@ -165,17 +165,20 @@ export interface PlanMeter {
    * took the whole detail page down.
    */
   rateTables?: MeterRateTable[];
-  /** A pace cap inside the period. Null or absent on a meter capped by its period alone. */
-  subLimitWindow?: UsageWindowName | null;
-  subLimitQuantity?: number | null;
-  subLimitBehaviour?: MeterSubLimitBehaviourName;
   /**
-   * How many of {@link subLimitWindow} the pace spans. Absent on a plan authored before this
-   * existed, which reopens as one — the single window it has always been.
+   * Every cap on how fast the allowance may be spent. Empty or absent on a meter capped by its
+   * period alone. The server reports a plan stored with the old single pace as a list of one.
    */
-  subLimitWindowCount?: number;
-  /** Whether the pace looks back from now rather than sitting on the clock. */
-  subLimitRolling?: boolean;
+  subLimits?: PlanMeterSubLimit[];
+}
+
+/** One pace, as a response carries it: enums by name. */
+export interface PlanMeterSubLimit {
+  window: UsageWindowName;
+  windowCount: number;
+  rolling: boolean;
+  quantity: number;
+  behaviour: MeterSubLimitBehaviourName;
 }
 
 export interface PlanEntitlement {
@@ -357,13 +360,14 @@ export interface CreatePlanMeterRequest {
     currencyCode: string;
     tiers: { upToQuantity?: number; unitAmountMinor: number }[];
   }[];
-  subLimitWindow?: number;
-  subLimitQuantity?: number;
-  subLimitBehaviour: number;
-  /** How many of {@link subLimitWindow} the pace spans. Always sent — the schema defaults it. */
-  subLimitWindowCount: number;
-  /** Whether the pace looks back from now rather than sitting on the clock. */
-  subLimitRolling: boolean;
+  /** Always sent, empty for none: an edit rewrites the meter, and absent would read as none too. */
+  subLimits: {
+    window: number;
+    windowCount: number;
+    rolling: boolean;
+    quantity: number;
+    behaviour: number;
+  }[];
 }
 
 export interface CreatePlanEntitlementRequest {

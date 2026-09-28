@@ -23,26 +23,35 @@ export const describePaceWindow = (window: string, count = 1, rolling = false): 
   return count === 1 ? PER_WINDOW[window] : `every ${span}`;
 };
 
+const THEN = { Refuse: "then refused", Throttle: "then reported as over pace" } as const;
+
 /**
- * A meter's pace cap in words, or null when it has none — "at most 1,000 an hour, then refused".
+ * A meter's pace limits in words, or null when it has none — "at most 1,000 every 5 hours and
+ * 20,000 a week, then refused".
  *
- * Says what happens past it as well as where it is, because the two behaviours read identically
- * otherwise and are opposites to whoever is spending: one stops them, the other only tells them.
+ * Says what happens past each as well as where it is, because the two behaviours read
+ * identically otherwise and are opposites to whoever is spending: one stops them, the other only
+ * tells them. Said once when every limit does the same, against each when they differ.
  */
 export const describePace = (meter: SummaryMeter): string | null => {
-  if (!meter.subLimitWindow || meter.subLimitQuantity == null) {
+  const limits = meter.subLimits ?? [];
+
+  if (limits.length === 0) {
     return null;
   }
 
-  const then = meter.subLimitBehaviour === "Throttle" ? "then reported as over pace" : "then refused";
+  const amount = (limit: (typeof limits)[number]) =>
+    `${limit.quantity.toLocaleString()} ${describePaceWindow(limit.window, limit.windowCount, limit.rolling)}`;
+  const joined = (parts: string[]) =>
+    parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
 
-  const span = describePaceWindow(
-    meter.subLimitWindow,
-    meter.subLimitWindowCount,
-    meter.subLimitRolling,
-  );
+  const behaviours = new Set(limits.map((limit) => limit.behaviour));
 
-  return `at most ${meter.subLimitQuantity.toLocaleString()} ${span}, ${then}`;
+  if (behaviours.size === 1) {
+    return `at most ${joined(limits.map(amount))}, ${THEN[limits[0].behaviour]}`;
+  }
+
+  return `at most ${joined(limits.map((limit) => `${amount(limit)} (${THEN[limit.behaviour]})`))}`;
 };
 
 /**
