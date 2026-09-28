@@ -180,6 +180,8 @@ const PlanBuilderWizard = ({
         meter?.subLimitWindow === undefined ? null : USAGE_WINDOW_NAMES[meter.subLimitWindow],
       subLimitQuantity: meter?.subLimitQuantity ?? null,
       subLimitBehaviour: meter?.subLimitBehaviour === 1 ? "Throttle" : "Refuse",
+      subLimitWindowCount: meter?.subLimitWindowCount ?? 1,
+      subLimitRolling: meter?.subLimitRolling ?? false,
     })),
     entitlements: (draft.entitlements ?? []).map((entitlement) => ({
       key: entitlement?.key ?? "",

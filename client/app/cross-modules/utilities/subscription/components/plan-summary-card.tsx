@@ -54,6 +54,10 @@ export interface PlanSummaryData {
     subLimitWindow?: UsageWindowName | null;
     subLimitQuantity?: number | null;
     subLimitBehaviour?: MeterSubLimitBehaviourName;
+    /** How many windows the pace spans. Absent reads as one, as on plans authored before it. */
+    subLimitWindowCount?: number;
+    /** Counted back from now rather than within blocks on the clock. */
+    subLimitRolling?: boolean;
   }[];
   entitlements: {
     key: string;

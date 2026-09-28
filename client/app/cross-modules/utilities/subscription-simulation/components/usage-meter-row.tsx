@@ -8,6 +8,7 @@ import { useRecordUsage } from "../hooks/use-record-usage";
 import type { MeterUsage } from "../models/subscription-simulation.model";
 import { subscriptionSimulationService } from "../services/subscription-simulation.service";
 import type { PlanMeter } from "../../subscription/models/subscription-plan.model";
+import { describePaceWindow } from "../../subscription/utilities/member-plan-format";
 
 /**
  * One meter's consume control.
@@ -46,7 +47,11 @@ export const UsageMeterRow = ({
     { message: string; tone: "success" | "over-pace" | "blocked" | "error" } | null
   >(null);
   const pace = meter.subLimitWindow
-    ? `${meter.subLimitQuantity?.toLocaleString()} per ${meter.subLimitWindow.toLowerCase()}`
+    ? `${meter.subLimitQuantity?.toLocaleString()} ${describePaceWindow(
+        meter.subLimitWindow,
+        meter.subLimitWindowCount,
+        meter.subLimitRolling,
+      )}`
     : null;
 
   // The record result wins while it is for the period the read describes; once the read catches

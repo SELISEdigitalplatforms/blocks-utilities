@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlanSummaryData } from "../components/plan-summary-card";
-import { describePlaces } from "./member-plan-format";
+import { describePace, describePlaces } from "./member-plan-format";
 
 const plan = (overrides: Partial<PlanSummaryData> = {}): PlanSummaryData => ({
   displayName: "AI",
@@ -70,5 +70,42 @@ describe("describePlaces", () => {
     });
 
     expect(describePlaces(two)).toMatch(/^Mark which quantity counts people/);
+  });
+});
+
+describe("describePace", () => {
+  const meter = (overrides: Partial<PlanSummaryData["meters"][number]> = {}) => ({
+    meterKey: "tokens",
+    displayName: "Tokens",
+    unitLabel: "token",
+    includedQuantity: 1_000_000,
+    overageAllowed: false,
+    subLimitWindow: "Hour" as const,
+    subLimitQuantity: 1_000,
+    subLimitBehaviour: "Refuse" as const,
+    ...overrides,
+  });
+
+  it("reads a one-hour fixed pace as per hour", () => {
+    expect(describePace(meter())).toBe("at most 1,000 an hour, then refused");
+  });
+
+  /**
+   * Dropping the count describes a cap five times tighter than the one sold — the plan's own
+   * review step told its author "1,000 an hour" for a pace of 1,000 every 5 hours.
+   */
+  it("names every window a fixed pace spans", () => {
+    expect(describePace(meter({ subLimitWindowCount: 5 }))).toBe(
+      "at most 1,000 every 5 hours, then refused",
+    );
+  });
+
+  it("says a rolling pace looks back over any stretch of that length", () => {
+    expect(describePace(meter({ subLimitWindowCount: 5, subLimitRolling: true }))).toBe(
+      "at most 1,000 in any 5 hours, then refused",
+    );
+    expect(describePace(meter({ subLimitRolling: true }))).toBe(
+      "at most 1,000 in any hour, then refused",
+    );
   });
 });
