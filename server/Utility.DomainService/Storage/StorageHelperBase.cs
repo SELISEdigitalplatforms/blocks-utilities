@@ -38,10 +38,11 @@ namespace Utility.DomainService.Storage
         /// <see cref="StorageDirectoryResolver"/>. Passed through unchanged when no resolver was
         /// supplied, which only a hand-constructed helper lacks; the container always supplies one.
         /// </summary>
-        protected Task<string?> ResolveParentDirectoryAsync(string logicalName, string? objectAccessLevel = null) =>
+        protected Task<string?> ResolveParentDirectoryAsync(
+            string logicalName, string? objectAccessLevel = null, string? moduleName = null) =>
             _directories is null
                 ? Task.FromResult<string?>(logicalName)
-                : _directories.ResolveAsync(logicalName, objectAccessLevel);
+                : _directories.ResolveAsync(logicalName, objectAccessLevel, moduleName);
 
         /// <summary>
         /// A driver response's own account of itself, for a log line.
