@@ -6,6 +6,8 @@ export const SUBSCRIPTIONS_CURRENT_ENDPOINT = "/api/subscriptions/current";
  * at `${SUBSCRIPTIONS_ENDPOINT}/{id}/members`, composed at the call site.
  */
 export const SUBSCRIPTIONS_MEMBER_BASED_ENDPOINT = "/api/subscriptions/member-based";
+/** The subscriptions the signed-in person holds a place on — their question, not an administrator's. */
+export const SUBSCRIPTIONS_MINE_ENDPOINT = "/api/subscriptions/mine";
 /**
  * Buyer-facing, read-only validation of a discount code: it prices the code against a plan and
  * price without reserving a redemption or writing anything. A rejected code is data here, not an

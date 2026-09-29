@@ -594,6 +594,56 @@ public sealed class SubscriptionMemberServiceTests
             "corr-1",
             CancellationToken.None);
 
+    /// <remarks>
+    /// The person's own question, which no endpoint answered: <c>current</c> never returns a
+    /// user-wise subscription, and finding oneself in every roster needs the administrator's
+    /// permission and a call per subscription.
+    /// </remarks>
+    [Fact]
+    public async Task Mine_lists_the_live_subscriptions_the_caller_holds_a_place_on_with_the_place()
+    {
+        _subscription.Plan.Code = "u_t_4";
+        _assignments
+            .Setup(repository => repository.ListSeatsForUserAsync(
+                TenantId, OrganizationId, "admin-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new HeldSeat(SubscriptionId, 2), new HeldSeat("sub-ended", 1)]);
+        _subscriptions
+            .Setup(repository => repository.ListLiveByIdsAsync(
+                TenantId,
+                It.Is<IReadOnlyCollection<string>>(ids => ids.Count == 2),
+                _time.GetUtcNow().UtcDateTime,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([_subscription]);
+
+        var result = await Service().ListMineAsync(null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var place = result.Value!.Should().ContainSingle(
+            "a place on a subscription that has ended grants nothing, so it is not listed").Subject;
+        place.SubscriptionId.Should().Be(SubscriptionId);
+        place.PlanCode.Should().Be("u_t_4");
+        place.SeatNumber.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Mine_is_empty_for_someone_holding_no_place()
+    {
+        _assignments
+            .Setup(repository => repository.ListSeatsForUserAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var result = await Service().ListMineAsync(null, "corr-1", CancellationToken.None);
+
+        result.Value.Should().BeEmpty();
+        _subscriptions.Verify(
+            repository => repository.ListLiveByIdsAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private SubscriptionMemberService Service() => new(
         _subscriptions.Object,
         _assignments.Object,

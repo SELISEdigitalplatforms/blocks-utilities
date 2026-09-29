@@ -1,5 +1,5 @@
 import { useProjectStore } from "@seliseblocks/genesis-os";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { subscriptionSimulationService } from "../services/subscription-simulation.service";
 
 /**
@@ -27,27 +27,20 @@ const membersQuery = (subscriptionId: string) => ({
 export const useMembers = (subscriptionId: string) => useQuery(membersQuery(subscriptionId));
 
 /**
- * The user-wise subscriptions this user holds a place on — the only ones their own usage can draw
- * from.
+ * The user-wise subscriptions the signed-in person holds a place on — the only ones their own
+ * usage can draw from. A plan they have no place on lends them neither its limits nor its
+ * entitlements.
  *
- * Every user-wise subscription the organization holds is not the same thing: a plan they have no
- * place on lends them neither its limits nor its entitlements. Read from the same member lists the
- * members card shows, under the same keys, so nothing is fetched twice.
+ * Keyed under "subscription-simulation-current" so assigning, releasing and cancelling refresh it.
  */
-export const useSubscriptionsWithMyPlace = <T extends { subscriptionId: string }>(
-  subscriptions: T[],
-  userId: string | undefined,
-): T[] => {
-  const members = useQueries({
-    queries: subscriptions.map((subscription) => ({
-      ...membersQuery(subscription.subscriptionId),
-      enabled: Boolean(userId),
-    })),
-  });
+export const useMyPlaces = (organizationId?: string) => {
+  const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
 
-  return subscriptions.filter((_, index) =>
-    members[index]?.data?.seats.some((seat) => seat.userId === userId),
-  );
+  return useQuery({
+    queryKey: ["subscription-simulation-current", "mine", tenantId, organizationId ?? null],
+    queryFn: () => subscriptionSimulationService.listMine(organizationId),
+    staleTime: 5_000,
+  });
 };
 
 /**

@@ -38,6 +38,19 @@ public interface ISubscriptionMemberService
         string correlationId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The live subscriptions the caller holds a place on, with the place.
+    /// </summary>
+    /// <remarks>
+    /// What a person asks, as opposed to an administrator: <c>current</c> answers for the
+    /// organization's own subscription and never a user-wise one, and reading every roster to
+    /// find oneself needs the administrator's permission and a call per subscription.
+    /// </remarks>
+    Task<SubscriptionOperationResult<IReadOnlyList<HeldPlaceResponse>>> ListMineAsync(
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     /// <summary>Who is holding this subscription's seats, and how many are left.</summary>
     Task<SubscriptionOperationResult<SubscriptionMembersResponse>> ListAsync(
         string subscriptionId,

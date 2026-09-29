@@ -345,6 +345,58 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             correlationId);
     }
 
+    public async Task<SubscriptionOperationResult<IReadOnlyList<HeldPlaceResponse>>> ListMineAsync(
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, organizationId, cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<IReadOnlyList<HeldPlaceResponse>>(correlationId);
+        }
+
+        var context = resolution.Context!;
+
+        // The same two reads entitlement resolves a caller's places with, so this lists exactly
+        // what the caller is drawing on — a place on an ended subscription is left out, as it
+        // grants nothing.
+        var seats = string.IsNullOrEmpty(context.UserId)
+            ? []
+            : await _assignments.ListSeatsForUserAsync(
+                context.TenantId, context.OrganizationId, context.UserId, cancellationToken);
+
+        var live = seats.Count == 0
+            ? []
+            : await _subscriptions.ListLiveByIdsAsync(
+                context.TenantId,
+                [.. seats.Select(seat => seat.SubscriptionId)],
+                _time.GetUtcNow().UtcDateTime,
+                cancellationToken);
+
+        var seatBySubscription = seats.ToDictionary(
+            seat => seat.SubscriptionId, seat => seat.SeatNumber, StringComparer.Ordinal);
+
+        IReadOnlyList<HeldPlaceResponse> held =
+        [
+            .. live.Select(subscription => new HeldPlaceResponse
+            {
+                SubscriptionId = subscription.ItemId,
+                PlanCode = subscription.Plan.Code,
+                PlanName = subscription.Plan.DisplayName,
+                Status = subscription.Status.ToString(),
+                SeatNumber = seatBySubscription[subscription.ItemId],
+                CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
+                CancelAtPeriodEnd = subscription.CancelAtPeriodEnd
+            })
+        ];
+
+        return SubscriptionOperationResult<IReadOnlyList<HeldPlaceResponse>>.Success(
+            held, correlationId);
+    }
+
     public async Task<SubscriptionOperationResult<SubscriptionMembersResponse>> ListAsync(
         string subscriptionId,
         string correlationId,

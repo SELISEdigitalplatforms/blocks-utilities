@@ -196,6 +196,27 @@ public sealed class SubscriptionsController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>The subscriptions the caller holds a place on, with the place.</summary>
+    /// <remarks>
+    /// For the person rather than an administrator: <c>member-based</c> and <c>…/members</c> need
+    /// the subscription read permission, while this needs only what checking an entitlement does.
+    /// Empty is an answer.
+    /// </remarks>
+    [HttpGet("mine")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<HeldPlaceResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::entitlement::read")]
+    public async Task<IActionResult> GetMine(
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _members.ListMineAsync(organizationId, correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     /// <summary>
     /// Cancels a subscription.
     /// </summary>
