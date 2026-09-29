@@ -1496,6 +1496,32 @@ public sealed class SubscriptionCreationServiceTests
             .Which.Code.Should().Be("subscription_already_active");
     }
 
+    /// <remarks>
+    /// Found testing on dev: once the organization had its own subscription, every user-wise plan
+    /// was quoted as blocked, though the create — whose unique index covers organization-wise plans
+    /// only — would have accepted it.
+    /// </remarks>
+    [Fact]
+    public async Task A_user_wise_plan_is_not_blocked_by_the_organizations_own_subscription()
+    {
+        _plan.SubscriberScope = SubscriberScope.User;
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail { ItemId = "existing" });
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail { ItemId = "unpaid" });
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Blockers.Should().NotContain(
+            blocker => blocker.Code == "subscription_already_active");
+    }
+
     [Fact]
     public async Task An_incomplete_checkout_left_over_is_also_a_blocker()
     {

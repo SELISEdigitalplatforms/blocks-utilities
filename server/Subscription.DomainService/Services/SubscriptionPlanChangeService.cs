@@ -1518,6 +1518,19 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        // The organization's own subscription and one it gives places on are different things —
+        // one per organization against several, a shared allowance against one per place, members
+        // or none. Changing across would leave either kind carrying the other's records.
+        if (plan.SubscriberScope != subscription.Plan.SubscriberScope)
+        {
+            return SubscriptionOperationResult<(Plan, Price)>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_plan_change_scope_mismatch",
+                "A subscription cannot change between a plan for the organization and a plan for " +
+                "each person. Subscribe to the other plan separately.",
+                correlationId);
+        }
+
         return SubscriptionOperationResult<(Plan, Price)>.Success((plan, price), correlationId);
     }
 
