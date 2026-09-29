@@ -235,6 +235,7 @@ describe("MembersCard per-person actions", () => {
         cancelAtPeriodEnd: true,
         currentPeriodEndUtc: "2026-10-29T00:00:00Z",
         pendingPlanChange: null,
+        quantities: [],
       },
     ]);
     listMembers.mockResolvedValue({ subscriptionId: "sub-1", purchased: 1, held: 0, available: 1, seats: [] });

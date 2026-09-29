@@ -43,9 +43,12 @@ export const UsageMeterRow = ({
 
   const [quantity, setQuantity] = useState("1");
   const [phase, setPhase] = useState<"idle" | "checking" | "recording">("idle");
-  // A record answers with the balance including that call, so it is newer than any read. It is
-  // dropped as soon as a fresh read arrives for the same period.
-  const [recorded, setRecorded] = useState<MeterUsage | null>(null);
+  // A record answers with the balance including that call, so it is newer than the read it was
+  // made against — and only that read. Kept with it, and shown while that read is still the one
+  // on screen.
+  const [recorded, setRecorded] = useState<{ result: MeterUsage; against: MeterUsage | undefined } | null>(
+    null,
+  );
   // Three outcomes of a recording, not two. "Over pace" is allowed-but-past-the-short-window-cap:
   // neither fine nor blocked, and folded into either one the whole pace behaviour is invisible —
   // a tester would conclude the cap does nothing.
@@ -54,12 +57,10 @@ export const UsageMeterRow = ({
   >(null);
   const pace = meter.subLimits?.length ? meter.subLimits.map(describeLimit).join(", ") : null;
 
-  // The record result wins while it is for the period the read describes; once the read catches
-  // up (or the period turns over) the server's own row takes back over.
-  const current =
-    recorded && (!usage || (usage.periodKey === recorded.periodKey && usage.used < recorded.used))
-      ? recorded
-      : usage;
+  // Any fresh read takes back over. Comparing totals instead could not tell a read that had not
+  // caught up from one for another place: moving from a place 130 in to an empty one kept showing
+  // 130, because the new place's 0 looked like a read that was behind.
+  const current = recorded && recorded.against === usage ? recorded.result : usage;
 
   const consume = async () => {
     const parsedQuantity = Number(quantity);
@@ -115,7 +116,7 @@ export const UsageMeterRow = ({
         organizationId,
       });
 
-      setRecorded(result);
+      setRecorded({ result, against: usage });
 
       // The server names every limit this use went past, so the message can say which one — a
       // meter with several limits would otherwise say "over pace" and leave the tester guessing.

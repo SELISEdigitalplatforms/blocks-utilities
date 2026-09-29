@@ -69,7 +69,7 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
         }
     }
 
-    public async Task<MemberReleaseOutcome> TryReleaseAsync(
+    public async Task<SubscriptionAssignment?> TryReleaseAsync(
         string tenantId,
         string subscriptionId,
         string userId,
@@ -78,7 +78,9 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
 
-        var result = await Assignments(tenantId).UpdateOneAsync(
+        // Null means there was no live seat. The filter already excludes released rows, so this
+        // cannot be a seat given up twice being reported as a release.
+        return await Assignments(tenantId).FindOneAndUpdateAsync(
             Builders<SubscriptionAssignment>.Filter.And(
                 ActiveFilter(tenantId, subscriptionId),
                 Builders<SubscriptionAssignment>.Filter.Eq(
@@ -86,13 +88,11 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
             Builders<SubscriptionAssignment>.Update
                 .Set(assignment => assignment.ReleasedAtUtc, releasedAtUtc)
                 .Set(assignment => assignment.LastUpdatedDateUtc, releasedAtUtc),
-            cancellationToken: cancellationToken);
-
-        // Nothing modified means there was no live seat. The filter already excludes released
-        // rows, so this cannot be a seat given up twice being reported as a release.
-        return result.ModifiedCount == 1
-            ? MemberReleaseOutcome.Released
-            : MemberReleaseOutcome.NotHeld;
+            new FindOneAndUpdateOptions<SubscriptionAssignment>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
     }
 
     public async Task<IReadOnlyList<HeldSeat>> ListSeatsForUserAsync(

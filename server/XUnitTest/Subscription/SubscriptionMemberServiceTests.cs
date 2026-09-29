@@ -90,7 +90,7 @@ public sealed class SubscriptionMemberServiceTests
             .Setup(repository => repository.TryReleaseAsync(
                 TenantId, SubscriptionId, It.IsAny<string>(),
                 It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(MemberReleaseOutcome.Released);
+            .ReturnsAsync(new SubscriptionAssignment { SeatNumber = 1 });
     }
 
     [Fact]
@@ -668,6 +668,23 @@ public sealed class SubscriptionMemberServiceTests
                 TenantId, SubscriptionId, seat, "user-b", It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    /// <remarks>Found on dev: the answer said place null, assigned 0001-01-01.</remarks>
+    [Fact]
+    public async Task A_release_answers_with_the_place_given_back()
+    {
+        var assignedAt = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        _assignments
+            .Setup(repository => repository.TryReleaseAsync(
+                TenantId, SubscriptionId, "user-b", It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionAssignment { SeatNumber = 2, AssignedAtUtc = assignedAt });
+
+        var released = (await Service().ReleaseAsync(
+            SubscriptionId, "user-b", "corr-1", CancellationToken.None)).Value!;
+
+        released.SeatNumber.Should().Be(2);
+        released.AssignedAtUtc.Should().Be(assignedAt);
     }
 
     [Fact]

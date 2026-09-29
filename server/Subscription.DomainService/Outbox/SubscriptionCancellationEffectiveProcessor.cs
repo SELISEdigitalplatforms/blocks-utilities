@@ -30,6 +30,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     private readonly ISubscriptionUsageRepository? _usage;
     private readonly IMeterAllowanceResolver? _allowances;
     private readonly ISubscriptionAssignmentRepository? _assignments;
+    private readonly ISubscriptionUsageCurrentRepository? _current;
 
     public SubscriptionCancellationEffectiveProcessor(
         ISubscriptionRepository subscriptions,
@@ -41,7 +42,8 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         IUsagePeriodClosureRepository? closures = null,
         ISubscriptionUsageRepository? usage = null,
         IMeterAllowanceResolver? allowances = null,
-        ISubscriptionAssignmentRepository? assignments = null)
+        ISubscriptionAssignmentRepository? assignments = null,
+        ISubscriptionUsageCurrentRepository? current = null)
     {
         _subscriptions = subscriptions;
         _events = events;
@@ -53,6 +55,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         _usage = usage;
         _allowances = allowances;
         _assignments = assignments;
+        _current = current;
     }
 
     public async Task<int> ProcessDueAsync(
@@ -214,7 +217,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
         await ReleaseMembersAsync(
-            _assignments, subscription, _time.GetUtcNow().UtcDateTime, _logger, cancellationToken);
+            _assignments, _current, subscription, _time.GetUtcNow().UtcDateTime, _logger, cancellationToken);
 
         return true;
     }
@@ -242,9 +245,15 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     /// cheaper wrong, and releasing again is harmless because it only ever touches seats still
     /// held.
     /// </para>
+    /// <para>
+    /// The places' usage rows stop naming a holder too, as a single release already makes them.
+    /// Left alone they went on reporting whoever last held each place on a subscription nobody
+    /// holds any more.
+    /// </para>
     /// </remarks>
     internal static async Task ReleaseMembersAsync(
         ISubscriptionAssignmentRepository? assignments,
+        ISubscriptionUsageCurrentRepository? current,
         SubscriptionDetail subscription,
         DateTime releasedAtUtc,
         ILogger logger,
@@ -263,6 +272,12 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                 subscription.ItemId,
                 releasedAtUtc,
                 cancellationToken);
+
+            if (current is not null)
+            {
+                await current.ClearSeatHoldersAsync(
+                    subscription.TenantId, subscription.ItemId, cancellationToken);
+            }
 
             if (released > 0)
             {

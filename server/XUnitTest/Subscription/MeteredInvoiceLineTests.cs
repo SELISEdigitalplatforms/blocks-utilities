@@ -137,6 +137,23 @@ public sealed class MeteredInvoiceLineTests
     }
 
     /// <summary>
+    /// Found on dev: two places with 100 each, one 30 over and one under, read "beyond the 200
+    /// included (190 used) × 30" — a charge that looked like it was for usage under the allowance.
+    /// </summary>
+    [Fact]
+    public async Task A_user_wise_overage_line_says_each_place_is_measured_against_its_own_allowance()
+    {
+        Subscribed(SingleBandMeter());
+        UsageInvoiced(overageQuantity: 30, amountMinor: 4_500, includedQuantity: 200, usedQuantity: 190, placeCount: 2);
+        SettledUsageCharge(grossMinor: 4_500, taxMinor: 360);
+
+        var document = await Issue();
+
+        document!.Lines.Single().Description.Should()
+            .EndWith(": usage beyond each place's own allowance (2 places: 200 included, 190 used between them)");
+    }
+
+    /// <summary>
     /// A usage invoice rated before the allowance was recorded still says what it is, without
     /// figures it would have to reconstruct from today's plan.
     /// </summary>
@@ -372,7 +389,8 @@ public sealed class MeteredInvoiceLineTests
         decimal overageQuantity,
         long amountMinor,
         decimal? includedQuantity = null,
-        decimal? usedQuantity = null) =>
+        decimal? usedQuantity = null,
+        int? placeCount = null) =>
         _usageInvoices
             .Setup(invoices => invoices.GetAsync(
                 TenantId,
@@ -397,6 +415,7 @@ public sealed class MeteredInvoiceLineTests
                         OverageQuantity = overageQuantity,
                         IncludedQuantity = includedQuantity,
                         UsedQuantity = usedQuantity,
+                        PlaceCount = placeCount,
                         AmountMinor = amountMinor
                     }
                 ]

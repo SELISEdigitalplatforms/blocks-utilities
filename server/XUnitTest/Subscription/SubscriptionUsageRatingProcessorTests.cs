@@ -151,6 +151,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
         screening.IncludedQuantity.Should().Be(500);
         screening.UsedQuantity.Should().Be(700);
         screening.OverageQuantity.Should().Be(200);
+        screening.PlaceCount.Should().BeNull("the organization's own allowance is one pool");
     }
 
     [Fact]
@@ -1136,6 +1137,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         var line = _createdInvoice!.Lines.Should().ContainSingle().Subject;
         line.OverageQuantity.Should().Be(200, "place 1 went 200 past its 500; place 2 is under its own");
+        line.PlaceCount.Should().Be(2, "the invoice says the figures are summed over places");
         line.UsedQuantity.Should().Be(1_000);
         line.IncludedQuantity.Should().Be(1_000);
         _createdInvoice.TotalAmountMinor.Should().Be(2_000);

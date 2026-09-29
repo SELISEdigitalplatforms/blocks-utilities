@@ -24,6 +24,7 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
     private readonly Mock<IEntitlementSnapshotCache> _cache = new();
     private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
+    private readonly Mock<ISubscriptionUsageCurrentRepository> _current = new();
     private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
@@ -254,6 +255,19 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
     }
 
     [Fact]
+    public async Task Ending_a_user_wise_subscription_stops_its_usage_rows_naming_anyone()
+    {
+        _due = [UserWise("sub-members")];
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.ClearSeatHoldersAsync(
+                TenantId, "sub-members", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task An_organizations_own_subscription_has_nobody_to_take_off()
     {
         _due = [NewSubscription("sub-org")];
@@ -310,7 +324,8 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
         NullLogger<SubscriptionCancellationEffectiveProcessor>.Instance,
         _time,
         _closures.Object,
-        assignments: _assignments.Object);
+        assignments: _assignments.Object,
+        current: _current.Object);
 
     private static SubscriptionDetail NewSubscription(string id) => new()
     {

@@ -416,7 +416,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     /// was, so a period holding any is read from the place counters instead.
     /// </para>
     /// </remarks>
-    private async Task<(decimal Used, decimal Allowance, decimal Overage)> MeasurePlacesAsync(
+    private async Task<(decimal Used, decimal Allowance, decimal Overage, int Places)> MeasurePlacesAsync(
         SubscriptionDetail subscription,
         PlanMeter meter,
         BillingPeriod period,
@@ -437,9 +437,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             .ToDictionary(entry => entry.Seat!.Value);
 
         decimal used = 0, allowance = 0, overage = 0;
+        var places = 0;
 
         foreach (var seat in placeCounters.Keys.Union(ledgerBySeat.Keys))
         {
+            places++;
             var counter = placeCounters.GetValueOrDefault(seat);
             var balance = fromLedger && ledgerBySeat.TryGetValue(seat, out var entry) && entry.RecordCount > 0
                 ? entry.Balance
@@ -459,7 +461,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             overage += Math.Max(0, balance - placeAllowance);
         }
 
-        return (used, allowance, overage);
+        return (used, allowance, overage, places);
     }
 
     /// <summary>
@@ -530,10 +532,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             decimal balance;
             decimal allowance;
             decimal overageQuantity;
+            int? places = null;
 
             if (seated)
             {
-                (balance, allowance, overageQuantity) = await MeasurePlacesAsync(
+                (balance, allowance, overageQuantity, places) = await MeasurePlacesAsync(
                     subscription, meter, period, allCounters, frozenAllowances, cancellationToken);
             }
             else
@@ -608,6 +611,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 OverageQuantity = overageQuantity,
                 IncludedQuantity = allowance,
                 UsedQuantity = balance,
+                PlaceCount = places,
                 AmountMinor = allocations.TotalAmountMinor
             });
         }

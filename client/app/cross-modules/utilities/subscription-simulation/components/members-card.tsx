@@ -38,6 +38,7 @@ import { ChangeQuantityDialog } from "./change-quantity-dialog";
 import { CloseUsagePeriodDialog } from "./close-usage-period-dialog";
 import { RunDueJobsDialog } from "./run-due-jobs-dialog";
 import { SubscriptionStatusBadge } from "./subscription-status-badge";
+import { describePendingMove } from "../utilities/plan-change-label";
 
 const LIVE_STATUSES = new Set(["Trialing", "Active", "PastDue"]);
 
@@ -224,7 +225,7 @@ const SubscriptionPlaces = ({
           <span className="text-muted-foreground">
             {subscription.cancelAtPeriodEnd
               ? `Cancellation scheduled for ${new Date(subscription.currentPeriodEndUtc).toLocaleDateString()}.`
-              : `Moving to ${subscription.pendingPlanChange!.targetPlanName} on ${new Date(
+              : `Moving to ${describePendingMove(subscription, subscription.pendingPlanChange!)} on ${new Date(
                   subscription.pendingPlanChange!.effectiveAtUtc,
                 ).toLocaleDateString()}.`}
           </span>

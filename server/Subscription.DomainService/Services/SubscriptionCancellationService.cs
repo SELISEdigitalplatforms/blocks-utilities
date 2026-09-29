@@ -43,6 +43,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly IMeterAllowanceResolver? _allowances;
     private readonly ICampaignRedemptionRepository? _redemptions;
     private readonly ISubscriptionAssignmentRepository? _assignments;
+    private readonly ISubscriptionUsageCurrentRepository? _current;
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
@@ -60,7 +61,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         ISubscriptionUsageRepository? usage = null,
         IMeterAllowanceResolver? allowances = null,
         ICampaignRedemptionRepository? redemptions = null,
-        ISubscriptionAssignmentRepository? assignments = null)
+        ISubscriptionAssignmentRepository? assignments = null,
+        ISubscriptionUsageCurrentRepository? current = null)
     {
         _subscriptions = subscriptions;
         _links = links;
@@ -78,6 +80,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _allowances = allowances;
         _redemptions = redemptions;
         _assignments = assignments;
+        _current = current;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
@@ -687,7 +690,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             // Ended now, so nothing is left to hold a place on. Only the period-end sweep released
             // members before, which left an immediately cancelled roster listing everyone forever.
             await SubscriptionCancellationEffectiveProcessor.ReleaseMembersAsync(
-                _assignments, subscription, now, _logger, cancellationToken);
+                _assignments, _current, subscription, now, _logger, cancellationToken);
         }
 
         return applied;
