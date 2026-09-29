@@ -8,6 +8,7 @@ import type {
   SubscriptionPlan,
 } from "../../subscription/models/subscription-plan.model";
 import { useCurrentUsage } from "../hooks/use-current-usage";
+import type { MeterUsage } from "../models/subscription-simulation.model";
 import { useMyUsage } from "../hooks/use-my-usage";
 import { UsageMeterRow } from "./usage-meter-row";
 
@@ -114,13 +115,23 @@ export const UsageSection = ({
         ) : (
           <div>
             {meters.map(({ meter, entitlementKey }) => (
-              <UsageMeterRow
-                key={meter.meterKey}
-                meter={meter}
-                entitlementKey={entitlementKey}
-                usage={usage?.find((row) => row.meterKey === meter.meterKey)}
-                organizationId={organizationId}
-              />
+              <div key={meter.meterKey}>
+                <UsageMeterRow
+                  meter={meter}
+                  entitlementKey={entitlementKey}
+                  // The organization's own row. current also lists each person's share under the
+                  // same meter, and taking the first match could pick one of those instead.
+                  usage={usage?.find((row) => row.meterKey === meter.meterKey && !row.userId)}
+                  organizationId={organizationId}
+                />
+                {view === "organization" ? (
+                  <PeopleBreakdown
+                    rows={(usage ?? []).filter(
+                      (row) => row.meterKey === meter.meterKey && Boolean(row.userId),
+                    )}
+                  />
+                ) : null}
+              </div>
             ))}
           </div>
         )}
@@ -128,6 +139,25 @@ export const UsageSection = ({
     </Card>
   );
 };
+
+/**
+ * Each person's share of an organization-wide meter — the per-user rows current returns beside the
+ * organization's own. They add up to the pool; nobody holds an allowance of their own.
+ */
+const PeopleBreakdown = ({ rows }: { rows: MeterUsage[] }) =>
+  rows.length === 0 ? null : (
+    <div className="mb-3 ml-1 border-l pl-3 text-xs text-muted-foreground">
+      <p className="mb-1 font-medium">By person</p>
+      <ul className="space-y-0.5">
+        {rows.map((row) => (
+          <li key={row.userId}>
+            <span className="font-mono">{row.userId}</span> used {row.used.toLocaleString()}{" "}
+            {row.unitLabel}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 
 /**
  * The meters a view can show, each with the entitlement that gates it — found through the plan's

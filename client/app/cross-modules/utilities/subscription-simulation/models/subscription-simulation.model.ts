@@ -612,6 +612,11 @@ export interface SubscriptionAuditEvent {
 }
 
 export interface RecordUsageResult {
+  /**
+   * Set on a per-person row of `GET /api/subscription-usage/current` — one person's own share of
+   * the organization's pool. Empty or absent on the organization's own row.
+   */
+  userId?: string;
   allowed: boolean;
   meterKey: string;
   unitLabel: string;
@@ -750,6 +755,41 @@ export interface SubscriptionMembers {
   /** When the scheduled decrease takes effect. */
   scheduledAtUtc?: string | null;
   seats: SubscriptionMember[];
+  /** Each place's usage in its current windows, one entry per place and meter. */
+  usage?: PlaceUsage[];
+}
+
+/** One pace as the last recording left it. */
+export interface PlaceSubLimit {
+  window: string;
+  windowCount: number;
+  rolling: boolean;
+  behaviour: string;
+  quantity: number;
+  used: number;
+  remaining: number;
+  exceeded: boolean;
+  windowStartUtc: string;
+  /** When a fixed window resets; null for a rolling one. */
+  windowEndUtc: string | null;
+}
+
+/** One place's usage of one meter, from the usage projection. */
+export interface PlaceUsage {
+  seatNumber: number;
+  /** Who holds the place now; empty when nobody does. */
+  userId: string;
+  meterKey: string;
+  unitLabel: string;
+  quantityScale: number;
+  included: number;
+  /** The place's, so it includes whatever an earlier holder spent in this window. */
+  used: number;
+  remaining: number;
+  overage: number;
+  periodEndUtc: string;
+  updatedAtUtc: string;
+  subLimits: PlaceSubLimit[];
 }
 
 export interface AssignMemberRequest {

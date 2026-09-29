@@ -963,6 +963,169 @@ public sealed class UsageProjectionPublisherTests
             .Should().Be(SubscriptionUsageCounter.CreateId("sub-1", "screening", "M2026-09", 2));
     }
 
+    /// <remarks>
+    /// A place's row is the only row a user-wise plan has, so it has to say whose it is — without
+    /// that, a direct reader must join to the assignments to learn who is spending it.
+    /// </remarks>
+    [Fact]
+    public async Task A_places_row_names_its_holder_and_the_aggregate_row_never_does()
+    {
+        await Publisher().PublishAsync(
+            UserWise(), Meter(), Period(), Counter(balance: 10, appliedRecordCount: 1, seatNumber: 2),
+            allowance: 100, "corr-1", CancellationToken.None, holderUserId: "user-1");
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 10, appliedRecordCount: 1),
+            allowance: 100, "corr-2", CancellationToken.None, holderUserId: "user-1");
+
+        _published[0].UserId.Should().Be("user-1");
+        _published[1].UserId.Should().BeEmpty(
+            because: "every reader of the aggregate row finds it by its empty user");
+    }
+
+    [Fact]
+    public async Task The_paces_a_recording_reports_are_published_and_none_reported_is_left_null()
+    {
+        var pace = new SubscriptionUsageCurrentSubLimit
+        {
+            Window = UsageWindow.Hour, WindowCount = 5, Quantity = 10, Used = 4, Remaining = 6
+        };
+
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 4, appliedRecordCount: 1),
+            allowance: 100, "corr-1", CancellationToken.None, subLimits: [pace]);
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 4, appliedRecordCount: 2),
+            allowance: 100, "corr-2", CancellationToken.None);
+
+        _published[0].SubLimits.Should().ContainSingle().Which.Used.Should().Be(4);
+        _published[1].SubLimits.Should().BeNull(
+            because: "null is what tells the merge to keep the figures a recording last reported");
+    }
+
+    /// <remarks>
+    /// The place row already carries this person's allowance and names them, so a per-user row
+    /// beside it would report the same window twice under two keys.
+    /// </remarks>
+    [Fact]
+    public async Task A_user_wise_plan_writes_no_per_user_row_beside_its_place_row()
+    {
+        await Publisher().PublishUserDeltaAsync(
+            UserWise(), Meter(), Period(), "user-1", delta: 3, allowance: 100, "corr-1",
+            CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.ApplyUserDeltaAsync(
+                It.IsAny<SubscriptionUsageCurrent>(), It.IsAny<decimal>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <remarks>
+    /// The sweep used to skip user-wise plans entirely, so a place row that missed its publish, or
+    /// stood behind a schema change, was never repaired, and a held place nobody had used had no row.
+    /// </remarks>
+    [Fact]
+    public async Task Refreshing_a_user_wise_plan_seeds_a_held_unused_place_naming_its_holder()
+    {
+        var assignments = HeldSeats((2, "user-2"));
+
+        await PublisherWith(assignments).RefreshAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _seeded.Should().HaveCount(2, "one row per meter on the plan");
+        var seeded = _seeded.Single(row => row.MeterKey == "screening");
+        seeded.ItemId.Should().EndWith(":s2");
+        seeded.SeatNumber.Should().Be(2);
+        seeded.UserId.Should().Be("user-2");
+        seeded.Used.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Refreshing_a_user_wise_plan_republishes_a_used_place_from_its_own_counter()
+    {
+        var assignments = HeldSeats((1, "user-1"));
+        _usage
+            .Setup(repository => repository.GetCountersAsync(
+                TenantId, It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, IReadOnlyCollection<string> ids, CancellationToken _) =>
+                ids.Where(id => id.StartsWith("sub-1:screening:", StringComparison.Ordinal))
+                    .ToDictionary(
+                        id => id,
+                        id => Counter(balance: 30, appliedRecordCount: 4, itemId: id, seatNumber: 1),
+                        StringComparer.Ordinal));
+
+        await PublisherWith(assignments).RefreshAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var document = _published.Should().ContainSingle(
+            "the unused meter is seeded, and only the used one is published").Subject;
+        document.SeatNumber.Should().Be(1);
+        document.UserId.Should().Be("user-1");
+        document.Used.Should().Be(30);
+        document.CounterVersion.Should().Be(4);
+        document.SubLimits.Should().BeNull("only a recording counts the paces, so a repair keeps them");
+    }
+
+    /// <remarks>
+    /// The merge writes UserId unconditionally, so a republished stored row that did not carry it
+    /// wiped a per-user row's user and a place's holder on every subscription change.
+    /// </remarks>
+    [Fact]
+    public async Task A_stored_row_republished_on_a_subscription_change_keeps_its_user()
+    {
+        var subscription = Subscription();
+        subscription.Plan.Meters = [];
+        subscription.Version = 7;
+
+        var row = OrphanRow();
+        row.UserId = "user-1";
+        row.SeatNumber = 2;
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[row]);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var document = _published.Should().ContainSingle().Subject;
+        document.UserId.Should().Be("user-1");
+        document.SeatNumber.Should().Be(2);
+    }
+
+    private static Mock<ISubscriptionAssignmentRepository> HeldSeats(
+        params (int Seat, string UserId)[] seats)
+    {
+        var assignments = new Mock<ISubscriptionAssignmentRepository>();
+
+        assignments
+            .Setup(repository => repository.ListActiveAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([.. seats.Select(seat => new SubscriptionAssignment
+            {
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                SubscriptionId = "sub-1",
+                UserId = seat.UserId,
+                SeatNumber = seat.Seat
+            })]);
+
+        return assignments;
+    }
+
+    private UsageProjectionPublisher PublisherWith(Mock<ISubscriptionAssignmentRepository> assignments) =>
+        new(
+            _current.Object,
+            _usage.Object,
+            new MeterAllowanceResolver(_usage.Object),
+            _scheduler.Object,
+            new OptionsStub(),
+            NullLogger<UsageProjectionPublisher>.Instance,
+            _time,
+            entitlements: _entitlements.Object,
+            assignments: assignments.Object);
+
     private static SubscriptionUsageCounter Counter(
         long balance,
         long appliedRecordCount,

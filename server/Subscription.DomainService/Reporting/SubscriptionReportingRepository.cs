@@ -311,7 +311,10 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
             Builders<SubscriptionUsageCurrent>.Filter.Eq(
                 current => current.UserId, string.Empty),
             Builders<SubscriptionUsageCurrent>.Filter.Exists(
-                current => current.UserId, false));
+                current => current.UserId, false),
+            // A place's row names its holder, and on a user-wise plan it is the only row there is.
+            Builders<SubscriptionUsageCurrent>.Filter.Ne(
+                current => current.SeatNumber, null));
 
     public async Task<IReadOnlyList<CouponUptakeBucket>> AggregateCouponUptakeAsync(
         string tenantId,

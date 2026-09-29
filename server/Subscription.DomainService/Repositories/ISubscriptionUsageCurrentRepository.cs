@@ -161,6 +161,33 @@ public interface ISubscriptionUsageCurrentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Names <paramref name="userId"/> as the holder on a place's rows for windows still open at
+    /// <paramref name="asOfUtc"/>.
+    /// </summary>
+    /// <remarks>
+    /// A place's row exists only once the place has been used, so this touches nothing on a place
+    /// nobody has used yet; its first recording names the holder then.
+    /// </remarks>
+    Task SetSeatHolderAsync(
+        string tenantId,
+        string subscriptionId,
+        int seatNumber,
+        string userId,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Empties the holder on the place rows <paramref name="userId"/> holds, for windows still open
+    /// at <paramref name="asOfUtc"/>.
+    /// </summary>
+    Task ClearSeatHolderAsync(
+        string tenantId,
+        string subscriptionId,
+        string userId,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Clamps a superseded row's window to <paramref name="endUtc"/>, so it stops overlapping the
     /// window that replaced it.
     /// </summary>

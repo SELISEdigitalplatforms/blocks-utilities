@@ -440,6 +440,42 @@ public sealed class UsageSubLimitTests
         (await Record(quantity: 4, key: "second")).Value!.Allowed.Should().BeFalse();
     }
 
+    /// <remarks>
+    /// The paces used to live only in their own window counters, which a reader of the usage
+    /// projection could not reach.
+    /// </remarks>
+    [Fact]
+    public async Task A_recording_publishes_how_much_of_each_pace_is_spent()
+    {
+        await Record(quantity: 4);
+
+        _projection.Verify(projection => projection.PublishAsync(
+            It.IsAny<SubscriptionDetail>(), It.IsAny<PlanMeter>(), It.IsAny<BillingPeriod>(),
+            It.IsAny<SubscriptionUsageCounter>(), It.IsAny<decimal>(), It.IsAny<string>(),
+            It.IsAny<CancellationToken>(), It.IsAny<string?>(),
+            It.Is<IReadOnlyList<SubscriptionUsageCurrentSubLimit>?>(paces =>
+                paces != null && paces.Count == 1 &&
+                paces[0].Used == 4 && paces[0].Remaining == 6 && !paces[0].Exceeded &&
+                paces[0].WindowEndUtc != null)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_refused_use_publishes_the_paces_as_they_stand_once_it_is_put_back()
+    {
+        await Record(quantity: 9, key: "first");
+        await Record(quantity: 4, key: "second");
+
+        _projection.Verify(projection => projection.PublishAsync(
+            It.IsAny<SubscriptionDetail>(), It.IsAny<PlanMeter>(), It.IsAny<BillingPeriod>(),
+            It.IsAny<SubscriptionUsageCounter>(), It.IsAny<decimal>(), It.IsAny<string>(),
+            It.IsAny<CancellationToken>(), It.IsAny<string?>(),
+            It.Is<IReadOnlyList<SubscriptionUsageCurrentSubLimit>?>(paces =>
+                paces != null && paces[0].Used == 9)),
+            Times.Exactly(2),
+            "both the first use and the refusal leave nine spent; the refused four never counted");
+    }
+
     private async Task<SubscriptionOperationResult<UsageResponse>> Record(
         decimal quantity,
         string key = "idem-1") =>
