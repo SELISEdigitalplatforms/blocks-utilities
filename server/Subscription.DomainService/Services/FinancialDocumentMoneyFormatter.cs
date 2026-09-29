@@ -71,10 +71,54 @@ public sealed class FinancialDocumentMoneyFormatter
         return negative ? $"-{_currencyCode} {text}" : $"{_currencyCode} {text}";
     }
 
+    /// <summary>The currency every figure on the document is in, upper-cased.</summary>
+    public string CurrencyCode => _currencyCode;
+
+    /// <summary>
+    /// The number alone, for a column whose currency is stated once beside it.
+    /// </summary>
+    /// <remarks>
+    /// The reference layout prints bare figures in the line table and the code once per totals row,
+    /// rather than repeating "CHF" in every cell. Same conversion and the same fallback reasoning as
+    /// <see cref="Format"/>: a currency whose exponent is unknown prints an em dash rather than minor
+    /// units that would be wrong by a factor of a hundred.
+    /// </remarks>
+    public string FormatFigure(long amountMinor)
+    {
+        if (amountMinor == 0 && _known)
+        {
+            return FormatAmount(0m);
+        }
+
+        if (!_currency.TryConvertBack(Math.Abs(amountMinor), _currencyCode, out var amount))
+        {
+            return "—";
+        }
+
+        var text = FormatAmount(amount);
+
+        return amountMinor < 0 ? $"-{text}" : text;
+    }
+
+    /// <summary>
+    /// Invariant grouping, except the Swiss apostrophe for francs.
+    /// </summary>
+    /// <remarks>
+    /// "5'000.00" is how a CHF amount is written in Switzerland and on the AMLORA reference invoice.
+    /// Tied to the currency rather than to a locale, so the output never depends on the server's
+    /// culture, and an EUR or USD invoice keeps the comma its reader expects. The decimal point stays
+    /// a point either way, so no reader can mistake the separator for it.
+    /// </remarks>
+    private static readonly NumberFormatInfo SwissFrancNumbers = new()
+    {
+        NumberGroupSeparator = "'",
+        NumberDecimalSeparator = "."
+    };
+
     private string FormatAmount(decimal amount) =>
         amount.ToString(
             $"N{_decimals.ToString(CultureInfo.InvariantCulture)}",
-            CultureInfo.InvariantCulture);
+            _currencyCode == "CHF" ? SwissFrancNumbers : CultureInfo.InvariantCulture);
 
     /// <summary>
     /// How many decimal places this currency has, asked rather than assumed.

@@ -51,14 +51,19 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("<title>").Append(Escape(document.DocumentNumber)).Append("</title>");
         html.Append("<style>").Append(Styles(palette)).Append("</style></head><body>");
 
-        AppendHeader(html, document, logo?.DataUri);
+        // The content sits in a one-cell table whose footer row is an empty spacer. Chromium repeats
+        // a table's footer group on every printed page, so each page keeps a band at the bottom
+        // clear, and the merchant footer (fixed-position, which Chromium also repeats per page) is
+        // drawn into that band. Without the spacer a full page runs its last lines under the
+        // footer, and a line item hidden behind the letterhead is a line the subscriber never saw.
+        html.Append("<table class=\"page\"><tfoot><tr><td><div class=\"foot-space\"></div>")
+            .Append("</td></tr></tfoot><tbody><tr><td>");
 
-        // Order follows the reference design: identity, then who the document is between, then the
-        // amount, then what it is made of. The previous order put the amount before the facts that
-        // qualify it, which read as a headline with its own footnotes underneath.
-        AppendSubject(html, document);
-        AppendParties(html, document);
-        AppendHeadline(html, document, money);
+        // Order and placement follow the AMLORA reference: logo alone at the top, then who is billed
+        // beside what the document is, then the details table, then the totals. Seller identity and
+        // bank details belong to the page footer, as they do on the reference.
+        AppendHeader(html, document, logo?.DataUri);
+        AppendParties(html, document, money);
 
         if (document.Trial is { } trial)
         {
@@ -73,8 +78,9 @@ public static class FinancialDocumentHtmlTemplate
         }
 
         AppendTotals(html, document, money);
-        AppendPaymentInstructions(html, document);
-        AppendFooter(html, document, money);
+
+        html.Append("</td></tr></tbody></table>");
+        AppendFooter(html, document);
 
         html.Append("</body></html>");
 
@@ -107,7 +113,9 @@ public static class FinancialDocumentHtmlTemplate
         SubscriptionFinancialDocument document,
         string? logoDataUri)
     {
-        html.Append("<div class=\"head\"><div class=\"brand\">");
+        // The logo alone, as on the reference. The document's title moved to the head of the facts
+        // column, where the reference prints "Invoice" above the fields it names.
+        html.Append("<div class=\"head\">");
 
         if (logoDataUri is { Length: > 0 })
         {
@@ -128,107 +136,87 @@ public static class FinancialDocumentHtmlTemplate
                 .Append("</div>");
         }
 
-        html.Append("</div><div class=\"kind\">").Append(Escape(TitleOf(document.DocumentType)))
-            .Append("</div></div>");
+        html.Append("</div>");
     }
 
-    private static void AppendParties(StringBuilder html, SubscriptionFinancialDocument document)
+    /// <summary>
+    /// "Bill to" on the left and the document's facts on the right, the reference's two columns.
+    /// </summary>
+    private static void AppendParties(
+        StringBuilder html,
+        SubscriptionFinancialDocument document,
+        FinancialDocumentMoneyFormatter money)
     {
         html.Append("<div class=\"cols\">");
-
-        html.Append("<div class=\"col\"><div class=\"strong\">")
-            .Append(Escape(Fallback(
-                document.Merchant.DisplayName,
-                Fallback(document.Merchant.LegalName, "Subscription billing"))))
-            .Append("</div>");
-        AppendAddress(html, document.Merchant.Address);
-
-        if (document.Merchant.SupportEmail is { Length: > 0 } merchantEmail)
-        {
-            html.Append("<div class=\"muted\">").Append(Escape(merchantEmail)).Append("</div>");
-        }
-
-        if (document.Merchant.TaxRegistrationId is { Length: > 0 } merchantTaxId)
-        {
-            html.Append("<div class=\"muted\">Tax ID ").Append(Escape(merchantTaxId)).Append("</div>");
-        }
-
+        AppendBillTo(html, document);
+        AppendFacts(html, document, money);
         html.Append("</div>");
+    }
 
-        html.Append("<div class=\"col\"><div class=\"label\">Bill to</div>");
-        html.Append("<div class=\"strong\">")
+    private static void AppendBillTo(StringBuilder html, SubscriptionFinancialDocument document)
+    {
+        html.Append("<div class=\"col\"><div class=\"strong\">Bill to</div>");
+        html.Append("<div>")
             .Append(Escape(Fallback(document.Subscriber.LegalName, document.Subscriber.OrganizationId)))
             .Append("</div>");
 
         if (document.Subscriber.DisplayName is { Length: > 0 } displayName &&
             !string.Equals(displayName, document.Subscriber.LegalName, StringComparison.Ordinal))
         {
-            html.Append("<div class=\"muted\">").Append(Escape(displayName)).Append("</div>");
+            html.Append("<div>").Append(Escape(displayName)).Append("</div>");
         }
 
         AppendAddress(html, document.Subscriber.Address);
 
         if (document.Subscriber.TaxRegistrationId is { Length: > 0 } taxId)
         {
-            html.Append("<div class=\"muted\">Tax ID ").Append(Escape(taxId)).Append("</div>");
+            html.Append("<div>VAT No. ").Append(Escape(taxId)).Append("</div>");
         }
 
-        // Kept, but compact: who to reconcile a charge with, and who set it in motion. Real audit
-        // value that the reference design's two-column layout does not show at all, so it is folded
-        // into the "Bill to" column rather than given a third of its own.
-        html.Append("<div class=\"label spaced\">Contact</div>");
-        AppendPerson(html, document.BillingContact);
-
-        if (document.InitiatedBy.UserId is { Length: > 0 } || document.InitiatedBy.Name is { Length: > 0 })
+        // The reference names the person under the address and ends on their email. The billing
+        // contact is that person here; a name identical to the organization's is not repeated.
+        var contact = document.BillingContact;
+        if (contact.Name is { Length: > 0 } contactName &&
+            !string.Equals(contactName, document.Subscriber.LegalName, StringComparison.Ordinal))
         {
-            html.Append("<div class=\"label spaced\">Initiated by</div>");
-            AppendPerson(html, document.InitiatedBy);
+            html.Append("<div>").Append(Escape(contactName)).Append("</div>");
         }
 
-        html.Append("</div></div>");
-    }
-
-    private static void AppendPerson(StringBuilder html, FinancialDocumentPerson person)
-    {
-        html.Append("<div>").Append(Escape(Fallback(person.Name, "—"))).Append("</div>");
-
-        if (person.Email is { Length: > 0 } email)
+        if (contact.Email is { Length: > 0 } contactEmail)
         {
-            html.Append("<div class=\"muted\">").Append(Escape(email)).Append("</div>");
+            html.Append("<div>").Append(Escape(contactEmail)).Append("</div>");
         }
+
+        html.Append("</div>");
     }
 
     /// <summary>
-    /// The one large, colored line the reference design puts the money on.
+    /// The facts column: the reference's fields in the reference's order, then the ones this
+    /// application keeps on top of it.
     /// </summary>
     /// <remarks>
-    /// The design's own version reads "CHF 5,000 due September 17, 2026" — but nothing this
-    /// application issues is ever awaiting a future payment: a document exists because a charge, a
-    /// trial or a refund already happened, so there is no due date to state. What is true, and what
-    /// this states instead, is the same figure paired with what actually became of it — paid,
-    /// credited, or nothing due for a trial — which is the honest analogue of the same visual weight
-    /// the reference design gives the amount.
+    /// Kept beyond the reference, deliberately: the subscription id and the UTC service period are
+    /// what support and reconciliation look a document up by; the status is where a refund shows,
+    /// which a paid-at-issue document otherwise cannot say; and who initiated the charge is stated
+    /// because the subscription module records the acting person on every invoice and credit note.
+    /// The reference's "Delivery date" is not shown: nothing is delivered here beyond the service
+    /// period, which the details table already states per line.
     /// </remarks>
-    private static void AppendHeadline(
+    private static void AppendFacts(
         StringBuilder html,
         SubscriptionFinancialDocument document,
         FinancialDocumentMoneyFormatter money)
     {
-        html.Append("<div class=\"headline\">")
-            .Append(Escape(money.Format(document.Amounts.TotalMinor)))
-            .Append(" — ").Append(Escape(StatusText(document))).Append("</div>");
-    }
+        var title = TitleOf(document.DocumentType);
 
-    private static void AppendSubject(StringBuilder html, SubscriptionFinancialDocument document)
-    {
+        html.Append("<div class=\"col\"><div class=\"kind\">").Append(Escape(title)).Append("</div>");
         html.Append("<table class=\"meta\">");
+
         AppendMetaRow(html, "Customer number", document.Subscriber.OrganizationId);
-        AppendMetaRow(html, "Invoice number", document.DocumentNumber);
-        AppendMetaRow(html, "Date of issue", Date(document.IssuedAtUtc));
         AppendMetaRow(html, "Currency", document.CurrencyCode);
-        AppendMetaRow(html, "Plan", $"{document.Subject.PlanName} ({document.Subject.PlanCode})");
-        AppendMetaRow(html, "Billing cadence", Cadence(document.Subject));
-        AppendMetaRow(html, "Subscription", document.SubscriptionId);
+        AppendMetaRow(html, $"{title} total", money.Format(document.Amounts.TotalMinor), strong: true);
+        AppendMetaRow(html, $"{title} number", document.DocumentNumber);
+        AppendMetaRow(html, $"{title} date", Date(document.IssuedAtUtc));
 
         if (document.OriginalDocumentNumber is { Length: > 0 } originalNumber)
         {
@@ -237,33 +225,34 @@ public static class FinancialDocumentHtmlTemplate
             AppendMetaRow(html, "Adjusts invoice", originalNumber);
         }
 
+        // The merchant's own registration, where the reference prints it: among the document's
+        // facts, bold, rather than under an address block the reference does not have.
+        if (document.Merchant.TaxRegistrationId is { Length: > 0 } merchantTaxId)
+        {
+            AppendMetaRow(html, "VAT No.", merchantTaxId, strong: true);
+        }
+
+        AppendMetaRow(html, "Subscription", document.SubscriptionId);
+
         var period = document.Period;
         if (period.StartUtc != default || period.EndUtc != default)
         {
-            // Stated twice on purpose. The local dates are the boundary the subscriber experienced;
-            // the UTC instants are the only version two documents can be compared on.
-            AppendMetaRow(
-                html,
-                "Service period",
-                $"{Fallback(period.LocalStart, Date(period.StartUtc))} to " +
-                $"{Fallback(period.LocalEnd, Date(period.EndUtc))} ({Escape(period.TimeZoneId)})");
+            // The UTC instants are the only version two documents can be compared on; the local
+            // dates the subscriber experienced are in the details table's Period column.
             AppendMetaRow(
                 html,
                 "Service period (UTC)",
                 $"{Instant(period.StartUtc)} to {Instant(period.EndUtc)}");
         }
 
-        if (period.IsProrated && period.ProratedDays is { } days &&
-            period.ProratedTotalDays is { } total)
+        AppendMetaRow(html, "Status", StatusText(document));
+
+        if (document.InitiatedBy.UserId is { Length: > 0 } || document.InitiatedBy.Name is { Length: > 0 })
         {
-            AppendMetaRow(
-                html,
-                "Prorated",
-                $"{days.ToString(CultureInfo.InvariantCulture)} of " +
-                $"{total.ToString(CultureInfo.InvariantCulture)} days");
+            AppendMetaRow(html, "Initiated by", Fallback(document.InitiatedBy.Name, "—"));
         }
 
-        html.Append("</table>");
+        html.Append("</table></div>");
     }
 
     private static void AppendTrial(
@@ -298,47 +287,125 @@ public static class FinancialDocumentHtmlTemplate
             return;
         }
 
+        html.Append("<div class=\"section\">Details</div>");
         html.Append("<table class=\"lines\"><thead><tr>");
-        html.Append("<th>Description</th><th class=\"num\">Qty</th>");
-        html.Append("<th class=\"num\">Unit price</th><th class=\"num\">Tax</th>");
-        html.Append("<th class=\"num\">Amount</th></tr></thead><tbody>");
+        html.Append("<th>Item</th><th>Description</th><th>Period</th>");
+        html.Append("<th class=\"num\">Qty</th><th class=\"num\">Discount</th>");
+        html.Append("<th class=\"num\">Price</th><th class=\"num\">Value</th></tr></thead><tbody>");
 
-        // The document carries one rate for all of its lines rather than a rate per line, so the
-        // column states that rate rather than implying a per-line figure the record does not hold.
-        var lineTax = LineTaxLabel(document.Amounts);
+        // One period for the whole document rather than one per line, so every line states it.
+        var period = PeriodCell(document.Period);
 
-        foreach (var line in document.Lines)
+        for (var index = 0; index < document.Lines.Count; index++)
         {
-            html.Append("<tr><td>").Append(Escape(line.Description));
+            var line = document.Lines[index];
 
-            // The item key under the description, the way the design carries "25–40 Users" under
-            // its plan name: it is what tells two lines with the same wording apart.
+            // Numbered in tens, as the reference numbers its first item "10": the convention that
+            // leaves room to insert a line between two others without renumbering either.
+            html.Append("<tr><td>")
+                .Append(((index + 1) * 10).ToString(CultureInfo.InvariantCulture))
+                .Append("</td><td>").Append(Escape(line.Description));
+
+            // The item key under the description: it is what tells two lines with the same wording
+            // apart.
             if (line.ItemKey is { Length: > 0 } itemKey)
             {
                 html.Append("<span class=\"sub\">").Append(Escape(itemKey)).Append("</span>");
             }
 
-            html.Append("</td>");
+            html.Append("</td><td>").Append(period).Append("</td>");
             html.Append("<td class=\"num\">")
                 .Append(line.Quantity is { } quantity
                     ? Escape(MeterQuantity.Describe(quantity))
                     : "&mdash;")
-                .Append("</td>");
+                .Append("</td><td class=\"num\"></td>");
             html.Append("<td class=\"num\">")
-                .Append(line.UnitAmountMinor is { } unit ? Escape(money.Format(unit)) : "&mdash;")
+                .Append(line.UnitAmountMinor is { } unit ? Escape(money.FormatFigure(unit)) : "&mdash;")
                 .Append("</td>");
-            html.Append("<td class=\"num\">").Append(lineTax).Append("</td>");
-            html.Append("<td class=\"num\">").Append(Escape(money.Format(line.AmountMinor)))
+            html.Append("<td class=\"num strong\">").Append(Escape(money.FormatFigure(line.AmountMinor)))
                 .Append("</td></tr>");
         }
 
-        // Each discount source as its own row here rather than as its own total below: the reference
-        // design prices a line, then adjusts it, in the same table, so a subscriber reads what they
-        // were charged and what brought it down without moving to a second section for the second half.
+        // Each discount source as its own row in the same table, the way the reference adjusts a line
+        // directly beneath it. Its Value is the deduction itself, so the column adds up to the net
+        // amount below: the document records its discounts once for the whole invoice rather than
+        // per line, and on a multi-line invoice there is no single line's value to net them into.
         AppendDiscountLines(html, document.Amounts, money);
 
         html.Append("</tbody></table>");
     }
+
+    /// <summary>
+    /// The Period cell: the local dates the subscriber experienced, then their zone and, when the
+    /// period is a fraction of an interval, how much of it this covers.
+    /// </summary>
+    /// <remarks>
+    /// The proration note sits here because it is what reconciles Price with Value on the same row —
+    /// "10.00" priced and "0.67" charged reads as an error unless the row says it was two days.
+    /// </remarks>
+    private static string PeriodCell(FinancialDocumentPeriod period)
+    {
+        if (period.StartUtc == default && period.EndUtc == default)
+        {
+            return "&mdash;";
+        }
+
+        var start = LocalDay(period.LocalStart, period.StartUtc);
+        var end = LocalDay(period.LocalEnd, period.EndUtc);
+        var cell = new StringBuilder();
+
+        cell.Append(Escape(start is { } first ? Date(first) : "—"))
+            .Append("–<br>")
+            .Append(Escape(end is { } last && start is { } from ? Date(LastServiceDay(from, last)) : "—"));
+
+        var notes = new List<string>(2);
+        if (!string.Equals(period.TimeZoneId, "UTC", StringComparison.Ordinal))
+        {
+            notes.Add(period.TimeZoneId);
+        }
+
+        if (period.IsProrated && period.ProratedDays is { } days &&
+            period.ProratedTotalDays is { } total)
+        {
+            notes.Add(
+                $"{days.ToString(CultureInfo.InvariantCulture)} of " +
+                $"{total.ToString(CultureInfo.InvariantCulture)} days");
+        }
+
+        if (notes.Count > 0)
+        {
+            cell.Append("<span class=\"sub\">").Append(Escape(string.Join(" · ", notes))).Append("</span>");
+        }
+
+        return cell.ToString();
+    }
+
+    /// <summary>
+    /// The local calendar date the issuer wrote, or the UTC date when a document predates it.
+    /// </summary>
+    private static DateOnly? LocalDay(string local, DateTime instantUtc) =>
+        DateOnly.TryParseExact(
+            local,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var day)
+            ? day
+            : instantUtc == default
+                ? null
+                : DateOnly.FromDateTime(instantUtc.ToUniversalTime());
+
+    /// <summary>
+    /// The last calendar day the service covers, as the reference states a period's end.
+    /// </summary>
+    /// <remarks>
+    /// The stored end is the period's boundary — the instant the next period starts — so its local
+    /// date is the first day that is no longer covered. Printed as-is, a period from the 29th to a
+    /// boundary on the 1st reads as three days beside a "2 of 30 days" that says two, and a
+    /// year from 01.10 reads as ending on the 01.10 of the next year.
+    /// </remarks>
+    private static DateOnly LastServiceDay(DateOnly localStart, DateOnly localEnd) =>
+        localEnd > localStart ? localEnd.AddDays(-1) : localStart;
 
     private static bool HasAnyDiscount(FinancialDocumentAmounts amounts) =>
         amounts.AutomaticDiscountMinor != 0 ||
@@ -354,7 +421,8 @@ public static class FinancialDocumentHtmlTemplate
         {
             AppendDiscountLine(
                 html,
-                RateLabel("Automatic price discount", amounts.AutomaticDiscountBasisPoints),
+                "Automatic price discount",
+                amounts.AutomaticDiscountBasisPoints,
                 money,
                 -amounts.AutomaticDiscountMinor);
         }
@@ -363,18 +431,22 @@ public static class FinancialDocumentHtmlTemplate
         {
             AppendDiscountLine(
                 html,
-                RateLabel("Volume discount", amounts.QuantityDiscountBasisPoints),
+                "Volume discount",
+                amounts.QuantityDiscountBasisPoints,
                 money,
                 -amounts.QuantityDiscountMinor);
         }
 
         if (amounts.PromotionalDiscountMinor != 0)
         {
+            // No rate: the document records what a promotion took off, not the percentage it was
+            // authored at, and a rate back-computed from rounded minor units is a figure nobody set.
             AppendDiscountLine(
                 html,
                 amounts.PromotionCode is { Length: > 0 } code
                     ? $"Promotional discount ({code})"
                     : "Promotional discount",
+                null,
                 money,
                 -amounts.PromotionalDiscountMinor);
         }
@@ -383,13 +455,15 @@ public static class FinancialDocumentHtmlTemplate
     private static void AppendDiscountLine(
         StringBuilder html,
         string label,
+        int? basisPoints,
         FinancialDocumentMoneyFormatter money,
         long amountMinor)
     {
-        html.Append("<tr><td>").Append(Escape(label)).Append("</td>");
-        html.Append("<td class=\"num\">&mdash;</td><td class=\"num\">&mdash;</td>");
-        html.Append("<td class=\"num\">&mdash;</td>");
-        html.Append("<td class=\"num\">").Append(Escape(money.Format(amountMinor)))
+        html.Append("<tr><td></td><td>").Append(Escape(label)).Append("</td><td></td><td></td>");
+        html.Append("<td class=\"num\">")
+            .Append(basisPoints is > 0 ? Escape(Percent(basisPoints.Value)) : string.Empty)
+            .Append("</td><td></td>");
+        html.Append("<td class=\"num\">").Append(Escape(money.FormatFigure(amountMinor)))
             .Append("</td></tr>");
     }
 
@@ -456,7 +530,7 @@ public static class FinancialDocumentHtmlTemplate
         AppendSettlementRow(html, "Promotional discount", money,
             -settlement.Outgoing.PromotionalDiscountMinor,
             -settlement.Target.PromotionalDiscountMinor);
-        AppendSettlementRow(html, "Tax", money,
+        AppendSettlementRow(html, "VAT", money,
             settlement.Outgoing.TaxAmountMinor, settlement.Target.TaxAmountMinor);
         AppendSettlementRow(html, "Full period", money,
             settlement.Outgoing.PeriodTotalMinor, settlement.Target.PeriodTotalMinor);
@@ -501,25 +575,23 @@ public static class FinancialDocumentHtmlTemplate
     {
         var amounts = document.Amounts;
 
+        // The reference's three rows: net amount, VAT, total. No gross "Subtotal" above them: the
+        // lines and their discount rows already add up to the net amount in the table above, and a
+        // second, larger figure here invited a subscriber to subtract the discounts from it twice.
         html.Append("<table class=\"totals\">");
-        AppendTotalRow(html, "Subtotal", money, amounts.GrossSubtotalMinor);
-
-        // Each discount source already got its own row in the line table above, priced against the
-        // charge it reduced. Repeating the same three figures here would either duplicate them or,
-        // worse, invite a subscriber to add both copies together.
-        AppendTotalRow(html, "Net subtotal", money, amounts.NetSubtotalMinor);
-        AppendTotalRow(html, TaxLabel(amounts), money, amounts.TaxAmountMinor);
+        AppendTotalRow(html, "Net amount", money, amounts.NetSubtotalMinor);
+        AppendTotalRow(html, VatLabel(amounts), money, amounts.TaxAmountMinor);
 
         if (amounts.CreditAppliedMinor != 0)
         {
-            // Below tax, because credit pays a bill rather than changing what the bill was for. Put
+            // Below VAT, because credit pays a bill rather than changing what the bill was for. Put
             // above, it would look like it reduced the taxable base, which it does not.
             AppendTotalRow(html, "Account credit applied", money, -amounts.CreditAppliedMinor);
         }
 
         AppendTotalRow(
             html,
-            document.DocumentType == FinancialDocumentType.CreditNote ? "Total credited" : "Total",
+            document.DocumentType == FinancialDocumentType.CreditNote ? "Total credited" : "Invoice total",
             money,
             amounts.TotalMinor,
             strong: true);
@@ -528,68 +600,53 @@ public static class FinancialDocumentHtmlTemplate
     }
 
     /// <summary>
-    /// The rate shown against each line, or an em dash when the document carries none.
+    /// The seller's letterhead, at the foot of every page as the reference prints it.
     /// </summary>
     /// <remarks>
-    /// "10% incl." in the reference design. Abbreviated rather than spelled out because it sits in
-    /// a narrow numeric column, and the unabbreviated form is already stated once in the totals,
-    /// where there is room for it.
+    /// Everything here is the merchant profile as snapshotted at issue: the name, address and
+    /// support email on the first line, the payment instructions — the reference's bank line — on
+    /// the second, verbatim. A field the merchant left empty is left out rather than dashed, because
+    /// a labelled blank reads as a value withheld rather than one this tenant does not use. The
+    /// document id stays, small, because it is what support finds the record by.
     /// </remarks>
-    private static string LineTaxLabel(FinancialDocumentAmounts amounts)
+    private static void AppendFooter(StringBuilder html, SubscriptionFinancialDocument document)
     {
-        if (amounts.TaxRateBasisPoints is not > 0)
-        {
-            return "&mdash;";
-        }
+        var merchant = document.Merchant;
+        var address = merchant.Address;
 
-        var mode = string.Equals(amounts.TaxMode, "Inclusive", StringComparison.OrdinalIgnoreCase)
-            ? "incl."
-            : "excl.";
+        var identity = new[]
+            {
+                MerchantName(merchant),
+                address?.Line1,
+                address?.Line2,
+                Join(
+                    address?.CountryCode is { Length: > 0 } country && address.PostalCode is { Length: > 0 } postal
+                        ? $"{country}-{postal}"
+                        : address?.PostalCode,
+                    address?.City),
+                merchant.SupportEmail
+            }
+            .Where(part => !string.IsNullOrWhiteSpace(part));
 
-        return Escape($"{Percent(amounts.TaxRateBasisPoints.Value)} {mode}");
-    }
-
-    /// <summary>
-    /// How to pay, in the place the reference design puts it: after the totals, before the footer.
-    /// </summary>
-    /// <remarks>
-    /// The design prints bank fields with em dashes where a value has yet to be issued. This prints
-    /// only what the merchant actually snapshotted onto the document, because a labelled row with a
-    /// dash beside it reads as a value that exists and was withheld, rather than as a field this
-    /// tenant does not use. Absent instructions render nothing at all.
-    /// </remarks>
-    private static void AppendPaymentInstructions(
-        StringBuilder html,
-        SubscriptionFinancialDocument document)
-    {
-        if (document.Merchant.PaymentInstructions is not { Length: > 0 } instructions)
-        {
-            return;
-        }
-
-        html.Append("<div class=\"pay\"><div class=\"pay-title\">How to pay</div>");
-        html.Append("<div class=\"pay-body\">").Append(Escape(instructions)).Append("</div></div>");
-    }
-
-    private static void AppendFooter(
-        StringBuilder html,
-        SubscriptionFinancialDocument document,
-        FinancialDocumentMoneyFormatter money)
-    {
         html.Append("<div class=\"foot\">");
-        html.Append("<div class=\"summary-line\">").Append(Escape(document.DocumentNumber))
-            .Append(" · ").Append(Escape(money.Format(document.Amounts.TotalMinor)))
-            .Append(" · ").Append(Escape(StatusText(document))).Append("</div>");
+        html.Append("<div>").Append(Escape(string.Join(" - ", identity))).Append("</div>");
 
-        if (document.Merchant.SupportEmail is { Length: > 0 } supportEmail)
+        if (merchant.PaymentInstructions is { Length: > 0 } instructions)
         {
-            html.Append("<div class=\"muted\">Questions? ").Append(Escape(supportEmail))
-                .Append("</div>");
+            html.Append("<div class=\"pay-body\">").Append(Escape(instructions)).Append("</div>");
         }
 
-        html.Append("<div class=\"muted\">Document ").Append(Escape(document.ItemId))
+        html.Append("<div class=\"doc-id\">Document ").Append(Escape(document.ItemId))
             .Append("</div></div>");
     }
+
+    /// <summary>"AMLORA – SELISE Group AG": the trading name, then the registered one.</summary>
+    private static string MerchantName(FinancialDocumentMerchant merchant) =>
+        merchant.DisplayName is { Length: > 0 } displayName &&
+        !string.Equals(displayName, merchant.LegalName, StringComparison.Ordinal) &&
+        merchant.LegalName is { Length: > 0 }
+            ? $"{displayName} – {merchant.LegalName}"
+            : Fallback(merchant.LegalName, merchant.DisplayName ?? string.Empty);
 
     private static void AppendAddress(StringBuilder html, BillingAddress? address)
     {
@@ -608,14 +665,19 @@ public static class FinancialDocumentHtmlTemplate
         {
             if (!string.IsNullOrWhiteSpace(part))
             {
-                html.Append("<div class=\"muted\">").Append(Escape(part)).Append("</div>");
+                html.Append("<div>").Append(Escape(part)).Append("</div>");
             }
         }
     }
 
-    private static void AppendMetaRow(StringBuilder html, string label, string value)
+    private static void AppendMetaRow(
+        StringBuilder html,
+        string label,
+        string value,
+        bool strong = false)
     {
-        html.Append("<tr><th>").Append(Escape(label)).Append("</th><td>")
+        html.Append("<tr><th>").Append(Escape(label))
+            .Append(strong ? "</th><td class=\"strong\">" : "</th><td>")
             .Append(Escape(value)).Append("</td></tr>");
     }
 
@@ -626,30 +688,29 @@ public static class FinancialDocumentHtmlTemplate
         long amountMinor,
         bool strong = false)
     {
+        // Label, currency, figure: the reference's three columns, so the code is stated once per row
+        // beside a bare number rather than fused into it.
         html.Append(strong ? "<tr class=\"grand\">" : "<tr>");
-        html.Append("<th>").Append(Escape(label)).Append("</th><td class=\"num\">")
-            .Append(Escape(money.Format(amountMinor))).Append("</td></tr>");
+        html.Append("<th>").Append(Escape(label)).Append("</th><td class=\"cur\">")
+            .Append(Escape(money.CurrencyCode)).Append("</td><td class=\"num\">")
+            .Append(Escape(money.FormatFigure(amountMinor))).Append("</td></tr>");
     }
 
-    private static string RateLabel(string label, int? basisPoints) =>
-        basisPoints is > 0
-            ? $"{label} ({Percent(basisPoints.Value)})"
-            : label;
-
-    private static string TaxLabel(FinancialDocumentAmounts amounts)
+    private static string VatLabel(FinancialDocumentAmounts amounts)
     {
         if (amounts.TaxRateBasisPoints is not > 0)
         {
-            return "Tax";
+            return "VAT";
         }
 
-        // The mode is on the line because the same rate means two different things: added to the net,
-        // or already inside the price. A subscriber checking the arithmetic needs to know which.
-        var mode = string.Equals(amounts.TaxMode, "Inclusive", StringComparison.OrdinalIgnoreCase)
-            ? "included"
-            : "added";
+        var rate = Percent(amounts.TaxRateBasisPoints.Value);
 
-        return $"Tax ({Percent(amounts.TaxRateBasisPoints.Value)}, {mode})";
+        // "VAT (8.1%)" as the reference writes it for VAT added to the net. An inclusive price says
+        // so, because the same rate then means the figure is already inside the net amount above,
+        // and a subscriber checking the arithmetic would otherwise add it a second time.
+        return string.Equals(amounts.TaxMode, "Inclusive", StringComparison.OrdinalIgnoreCase)
+            ? $"VAT ({rate}, included)"
+            : $"VAT ({rate})";
     }
 
     private static string Percent(int basisPoints) =>
@@ -676,25 +737,21 @@ public static class FinancialDocumentHtmlTemplate
             _ => "Invoice"
         };
 
-    private static string Cadence(FinancialDocumentSubject subject) =>
-        subject.IntervalCount <= 1
-            ? $"Every {subject.Interval.ToString().ToLowerInvariant()}"
-            : $"Every {subject.IntervalCount.ToString(CultureInfo.InvariantCulture)} " +
-                $"{subject.Interval.ToString().ToLowerInvariant()}s";
-
     /// <summary>
-    /// A date as the reference design writes it: "August 26, 2026".
+    /// A date as the reference writes it: "26.08.2026".
     /// </summary>
     /// <remarks>
-    /// Long form rather than ISO, and invariant rather than localised. The design spells the month
-    /// out, which also removes the one ambiguity a numeric date carries across readers — 08-09 is
-    /// two different days depending on where it is read, and a month name is the same day
-    /// everywhere. The instants beside it stay ISO: those exist to be compared, not read.
+    /// Day, month, year, dot-separated and zero-padded — the reference's own form, and unambiguous
+    /// read as the Swiss format it is. The instants in the facts column stay ISO: those exist to be
+    /// compared, not read.
     /// </remarks>
     private static string Date(DateTime instantUtc) =>
         instantUtc == default
             ? "—"
-            : instantUtc.ToUniversalTime().ToString("MMMM d, yyyy", CultureInfo.InvariantCulture);
+            : Date(DateOnly.FromDateTime(instantUtc.ToUniversalTime()));
+
+    private static string Date(DateOnly day) =>
+        day.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
 
     private static string Instant(DateTime instantUtc) =>
         instantUtc == default
@@ -742,41 +799,48 @@ public static class FinancialDocumentHtmlTemplate
     /// </remarks>
     private static string Styles(Palette palette) =>
         $"*{{box-sizing:border-box}}" +
+        // Honoured only when the engine prefers CSS page size; the invoice adapter does not, so the
+        // engine's own margins apply and this stays as the intent for any renderer that does.
         "@page{size:A4;margin:16mm 14mm}" +
         // No @font-face and no network font, by the same rule that forbids a remote logo. The stack
-        // is the one a headless Chromium can actually satisfy; the design's own face is not
-        // installed in the render container, so asking for it here would silently fall back anyway.
-        "body{font:11px/1.55 -apple-system,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;" +
-        "margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
-        ".head{display:flex;justify-content:space-between;align-items:flex-start;" +
-        "margin-bottom:28px}" +
+        // is the one a headless Chromium can actually satisfy.
+        "body{font:11px/1.5 -apple-system,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;" +
+        "margin:0;padding:0 8mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
+        // The page frame: one cell of content above a repeated footer spacer. Its height is the
+        // footer's own budget -- two lines of letterhead, a few of payment instructions and the
+        // document id.
+        "table.page{width:100%;border-collapse:collapse}" +
+        "table.page>tfoot{display:table-footer-group}" +
+        "table.page>tbody>tr>td,table.page>tfoot>tr>td{padding:0}" +
+        ".foot-space{height:30mm}" +
+        ".head{margin:8mm 0 18mm}" +
         ".logo{max-height:34px;max-width:200px}" +
         $".merchant{{font-size:19px;font-weight:700;letter-spacing:.02em;color:{palette.Primary}}}" +
-        ".kind{font-size:19px;font-weight:700;color:#1a1a1a}" +
-        ".cols{display:flex;gap:40px;margin-bottom:28px}" +
+        ".cols{display:flex;gap:40px;margin-bottom:34px}" +
         ".col{flex:1}" +
-        // Sentence case, not the small-caps the previous template used. The reference design labels
-        // every field as ordinary prose — "Bill to", "Date of issue" — and uppercase letterspacing
-        // is the single change that made the old output read as a different document.
+        // Wider than "Bill to", because its values are ids and instants that only read correctly
+        // whole: a GUID broken mid-run is one nobody can copy back out of the PDF.
+        ".col+.col{flex:1.35}" +
+        ".kind{font-size:17px;font-weight:700;margin-bottom:4px}" +
         ".label{font-size:11px;color:#697386;margin-bottom:4px}" +
         ".spaced{margin-top:14px}" +
-        ".strong{font-weight:600}" +
+        ".strong{font-weight:700}" +
         ".muted{color:#697386}" +
-        // Black, and not the brand colour. The design gives the amount its weight through size
-        // alone; colouring it as well made the figure compete with the wordmark above it.
-        ".headline{font-size:19px;font-weight:700;color:#1a1a1a;margin-bottom:26px}" +
         "table{border-collapse:collapse;width:100%}" +
-        ".meta{margin-bottom:26px;width:auto}" +
-        ".meta th{text-align:left;font-weight:400;color:#697386;padding:2px 28px 2px 0;" +
-        "white-space:nowrap;vertical-align:top}" +
-        ".meta td{padding:2px 0;vertical-align:top;font-weight:600}" +
+        // The facts column: labels left, values flush right, as on the reference.
+        ".meta{width:100%}" +
+        ".meta th{text-align:left;font-weight:400;padding:1px 16px 1px 0;white-space:nowrap;" +
+        "vertical-align:top}" +
+        ".meta td{text-align:right;padding:1px 0;vertical-align:top}" +
         $".note{{background:{palette.Accent};padding:12px 14px;margin-bottom:22px;" +
         "break-inside:avoid}" +
+        ".section{font-weight:700;margin-bottom:6px}" +
         ".lines{margin-bottom:0}" +
         ".lines thead{display:table-header-group}" +
-        ".lines th{text-align:left;font-weight:400;color:#697386;" +
-        "border-bottom:1px solid #e6e8eb;padding:8px 10px 8px 0}" +
-        ".lines td{border-bottom:1px solid #e6e8eb;padding:10px 10px 10px 0;vertical-align:top}" +
+        ".lines th{text-align:left;font-weight:700;border-bottom:1px solid #e6e8eb;" +
+        "padding:6px 10px 6px 0}" +
+        ".lines td{padding:8px 10px 8px 0;vertical-align:top}" +
+        ".lines tbody tr:last-child td{border-bottom:1px solid #e6e8eb;padding-bottom:14px}" +
         ".lines tr{break-inside:avoid}" +
         ".sub{display:block;color:#697386;margin-top:2px}" +
         ".num{text-align:right;white-space:nowrap}" +
@@ -784,18 +848,19 @@ public static class FinancialDocumentHtmlTemplate
         // the more specific selector, so a plain ".num" lost to it and every numeric heading sat
         // left of the figures underneath it.
         ".lines th.num,.lines td.num,.totals td.num{text-align:right}" +
+        ".lines th:last-child,.lines td:last-child{padding-right:0}" +
         // Indented to sit under the right-hand half of the line table, which is what makes the
         // totals read as a continuation of it rather than as a second table.
-        ".totals{width:55%;margin-left:auto;margin-top:0;break-inside:avoid}" +
-        ".totals th{text-align:left;font-weight:400;color:#1a1a1a;padding:8px 24px 8px 0;" +
-        "white-space:nowrap;border-bottom:1px solid #e6e8eb}" +
-        ".totals td{padding:8px 0;border-bottom:1px solid #e6e8eb}" +
+        ".totals{width:45%;margin-left:auto;margin-top:6px;break-inside:avoid}" +
+        ".totals th{text-align:right;font-weight:400;padding:7px 12px 7px 0;white-space:nowrap}" +
+        ".totals td{padding:7px 0}" +
+        ".totals td.cur{text-align:left;width:1%;padding-right:12px;white-space:nowrap}" +
         ".totals tr{break-inside:avoid}" +
-        ".totals tr.grand th,.totals tr.grand td{font-weight:700;border-bottom:none}" +
-        ".pay{margin-top:34px;break-inside:avoid}" +
-        ".pay-title{font-weight:600;margin-bottom:4px}" +
-        ".pay-body{color:#697386;margin-bottom:10px;white-space:pre-line}" +
-        ".foot{margin-top:40px;padding-top:12px;border-top:1px solid #e6e8eb;" +
-        "color:#697386;break-inside:avoid}" +
-        ".summary-line{margin-bottom:4px}";
+        ".totals tr.grand th,.totals tr.grand td{font-weight:700;border-top:1px solid #e6e8eb}" +
+        // Fixed, so Chromium prints it at the foot of every page, into the band the page frame's
+        // repeated spacer keeps clear.
+        ".foot{position:fixed;left:8mm;right:8mm;bottom:0;font-size:10px;line-height:1.45;" +
+        "color:#1a1a1a}" +
+        ".pay-body{white-space:pre-line}" +
+        ".doc-id{color:#697386;margin-top:2px}";
 }
