@@ -53,6 +53,29 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
+    public void A_discount_is_a_row_in_the_line_table_rather_than_only_a_total()
+    {
+        var html = Render(document =>
+        {
+            document.Amounts.AutomaticDiscountMinor = 8_000;
+            document.Amounts.AutomaticDiscountBasisPoints = 800;
+        });
+
+        // Priced next to the charge it reduced, not filed away in a second section — and stated
+        // once, so a subscriber cannot add the same figure to itself while reconciling the total.
+        html.IndexOf("Automatic price discount (8%)", StringComparison.Ordinal)
+            .Should().BeLessThan(html.IndexOf("<table class=\"totals\">", StringComparison.Ordinal));
+        html.Should().NotContain("Automatic price discount (8%)</th>");
+    }
+
+    [Fact]
+    public void The_customer_number_is_the_subscribers_organization_id()
+    {
+        Render().Should().Contain("Customer number");
+        Render().Should().Contain(">org-1<");
+    }
+
+    [Fact]
     public void The_tax_line_says_whether_the_rate_was_added_or_already_inside_the_price()
     {
         Render(document =>

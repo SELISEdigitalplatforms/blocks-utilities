@@ -222,6 +222,7 @@ public static class FinancialDocumentHtmlTemplate
     private static void AppendSubject(StringBuilder html, SubscriptionFinancialDocument document)
     {
         html.Append("<table class=\"meta\">");
+        AppendMetaRow(html, "Customer number", document.Subscriber.OrganizationId);
         AppendMetaRow(html, "Invoice number", document.DocumentNumber);
         AppendMetaRow(html, "Date of issue", Date(document.IssuedAtUtc));
         AppendMetaRow(html, "Currency", document.CurrencyCode);
@@ -292,7 +293,7 @@ public static class FinancialDocumentHtmlTemplate
         SubscriptionFinancialDocument document,
         FinancialDocumentMoneyFormatter money)
     {
-        if (document.Lines.Count == 0)
+        if (document.Lines.Count == 0 && !HasAnyDiscount(document.Amounts))
         {
             return;
         }
@@ -331,7 +332,65 @@ public static class FinancialDocumentHtmlTemplate
                 .Append("</td></tr>");
         }
 
+        // Each discount source as its own row here rather than as its own total below: the reference
+        // design prices a line, then adjusts it, in the same table, so a subscriber reads what they
+        // were charged and what brought it down without moving to a second section for the second half.
+        AppendDiscountLines(html, document.Amounts, money);
+
         html.Append("</tbody></table>");
+    }
+
+    private static bool HasAnyDiscount(FinancialDocumentAmounts amounts) =>
+        amounts.AutomaticDiscountMinor != 0 ||
+        amounts.QuantityDiscountMinor != 0 ||
+        amounts.PromotionalDiscountMinor != 0;
+
+    private static void AppendDiscountLines(
+        StringBuilder html,
+        FinancialDocumentAmounts amounts,
+        FinancialDocumentMoneyFormatter money)
+    {
+        if (amounts.AutomaticDiscountMinor != 0)
+        {
+            AppendDiscountLine(
+                html,
+                RateLabel("Automatic price discount", amounts.AutomaticDiscountBasisPoints),
+                money,
+                -amounts.AutomaticDiscountMinor);
+        }
+
+        if (amounts.QuantityDiscountMinor != 0)
+        {
+            AppendDiscountLine(
+                html,
+                RateLabel("Volume discount", amounts.QuantityDiscountBasisPoints),
+                money,
+                -amounts.QuantityDiscountMinor);
+        }
+
+        if (amounts.PromotionalDiscountMinor != 0)
+        {
+            AppendDiscountLine(
+                html,
+                amounts.PromotionCode is { Length: > 0 } code
+                    ? $"Promotional discount ({code})"
+                    : "Promotional discount",
+                money,
+                -amounts.PromotionalDiscountMinor);
+        }
+    }
+
+    private static void AppendDiscountLine(
+        StringBuilder html,
+        string label,
+        FinancialDocumentMoneyFormatter money,
+        long amountMinor)
+    {
+        html.Append("<tr><td>").Append(Escape(label)).Append("</td>");
+        html.Append("<td class=\"num\">&mdash;</td><td class=\"num\">&mdash;</td>");
+        html.Append("<td class=\"num\">&mdash;</td>");
+        html.Append("<td class=\"num\">").Append(Escape(money.Format(amountMinor)))
+            .Append("</td></tr>");
     }
 
     /// <summary>
@@ -445,38 +504,9 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("<table class=\"totals\">");
         AppendTotalRow(html, "Subtotal", money, amounts.GrossSubtotalMinor);
 
-        // Each source on its own line, always. "Discount" as one figure cannot be read back into
-        // "the annual price gave 8% and the coupon gave nothing", and which it was is the question
-        // somebody reconciling this in two years is actually asking.
-        if (amounts.AutomaticDiscountMinor != 0)
-        {
-            AppendTotalRow(
-                html,
-                RateLabel("Automatic price discount", amounts.AutomaticDiscountBasisPoints),
-                money,
-                -amounts.AutomaticDiscountMinor);
-        }
-
-        if (amounts.QuantityDiscountMinor != 0)
-        {
-            AppendTotalRow(
-                html,
-                RateLabel("Volume discount", amounts.QuantityDiscountBasisPoints),
-                money,
-                -amounts.QuantityDiscountMinor);
-        }
-
-        if (amounts.PromotionalDiscountMinor != 0)
-        {
-            AppendTotalRow(
-                html,
-                amounts.PromotionCode is { Length: > 0 } code
-                    ? $"Promotional discount ({code})"
-                    : "Promotional discount",
-                money,
-                -amounts.PromotionalDiscountMinor);
-        }
-
+        // Each discount source already got its own row in the line table above, priced against the
+        // charge it reduced. Repeating the same three figures here would either duplicate them or,
+        // worse, invite a subscriber to add both copies together.
         AppendTotalRow(html, "Net subtotal", money, amounts.NetSubtotalMinor);
         AppendTotalRow(html, TaxLabel(amounts), money, amounts.TaxAmountMinor);
 
