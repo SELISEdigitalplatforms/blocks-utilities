@@ -727,6 +727,17 @@ export interface SubscriptionMember {
   releasedAtUtc: string | null;
 }
 
+/** A place the signed-in person holds, from `GET /api/subscriptions/mine`. */
+export interface HeldPlace {
+  subscriptionId: string;
+  planCode: string;
+  planName: string;
+  status: string;
+  seatNumber: number;
+  currentPeriodEndUtc: string;
+  cancelAtPeriodEnd: boolean;
+}
+
 export interface SubscriptionMembers {
   subscriptionId: string;
   /** How many places the subscription has — bought, or the ceiling on a flat price. */

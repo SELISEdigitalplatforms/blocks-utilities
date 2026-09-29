@@ -213,7 +213,8 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
 
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
-        await ReleaseMembersAsync(subscription, cancellationToken);
+        await ReleaseMembersAsync(
+            _assignments, subscription, _time.GetUtcNow().UtcDateTime, _logger, cancellationToken);
 
         return true;
     }
@@ -222,10 +223,11 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     /// Takes everyone off a subscription that has stopped granting anything.
     /// </summary>
     /// <remarks>
-    /// Safe to do here and nowhere earlier. This sweep runs once the paid period has actually
-    /// ended, so the cancellation can no longer be withdrawn and nobody is going to want their
-    /// seat back — a release during the notice period would have emptied a subscription the
-    /// subscriber was still paying for and still using.
+    /// Safe here and once an immediate cancellation has landed
+    /// (<see cref="SubscriptionCancellationService"/>), and nowhere earlier: both are past the
+    /// point a cancellation can be withdrawn, so nobody is going to want their seat back — a
+    /// release during the notice period would have emptied a subscription the subscriber was
+    /// still paying for and still using.
     /// <para>
     /// Access does not depend on this. Entitlement resolves only live subscriptions, so an
     /// unreleased seat on an ended one already grants nothing. What it corrects is the record:
@@ -241,11 +243,14 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
     /// held.
     /// </para>
     /// </remarks>
-    private async Task ReleaseMembersAsync(
+    internal static async Task ReleaseMembersAsync(
+        ISubscriptionAssignmentRepository? assignments,
         SubscriptionDetail subscription,
+        DateTime releasedAtUtc,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
-        if (_assignments is null ||
+        if (assignments is null ||
             subscription.Plan.SubscriberScope != SubscriberScope.User)
         {
             return;
@@ -253,15 +258,15 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
 
         try
         {
-            var released = await _assignments.ReleaseAllAsync(
+            var released = await assignments.ReleaseAllAsync(
                 subscription.TenantId,
                 subscription.ItemId,
-                _time.GetUtcNow().UtcDateTime,
+                releasedAtUtc,
                 cancellationToken);
 
             if (released > 0)
             {
-                _logger.LogInformation(
+                logger.LogInformation(
                     "Released members from a cancelled subscription "
                         + "TenantHash={TenantHash} SubscriptionHash={SubscriptionHash} "
                         + "Released={Released} CorrelationId={CorrelationId}",
@@ -273,7 +278,7 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 exception,
                 "Could not release members from a cancelled subscription; the cancellation stands "
                     + "and they are granted nothing, but the roster still lists them "

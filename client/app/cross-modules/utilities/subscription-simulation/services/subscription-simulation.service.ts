@@ -10,6 +10,7 @@ import {
   SUBSCRIPTION_USAGE_OVERAGE_PREVIEW_ENDPOINT,
   SUBSCRIPTIONS_CURRENT_ENDPOINT,
   SUBSCRIPTIONS_MEMBER_BASED_ENDPOINT,
+  SUBSCRIPTIONS_MINE_ENDPOINT,
   SUBSCRIPTIONS_ENDPOINT,
 } from "../constants/subscription-simulation.constants";
 import { subscriptionApiFailure } from "../../subscription/utilities/subscription-api-failure";
@@ -22,6 +23,7 @@ import type {
   QuantityChangeQuote,
   EntitlementDecision,
   EntitlementsSnapshot,
+  HeldPlace,
   MeterUsage,
   PreviewUsageOverageRequest,
   RecordUsageRequest,
@@ -579,6 +581,20 @@ class SubscriptionSimulationService {
           `${SUBSCRIPTIONS_MEMBER_BASED_ENDPOINT}${query}`,
         ),
       "The subscriptions people are placed on could not be loaded.",
+    );
+  }
+
+  async listMine(organizationId?: string): Promise<HeldPlace[]> {
+    const query = organizationId
+      ? `?organizationId=${encodeURIComponent(organizationId)}`
+      : "";
+
+    return this.memberCall(
+      () =>
+        serviceInstances.utitlitiesService.get<SimulationApiResponse<HeldPlace[]>>(
+          `${SUBSCRIPTIONS_MINE_ENDPOINT}${query}`,
+        ),
+      "Your places could not be loaded.",
     );
   }
 

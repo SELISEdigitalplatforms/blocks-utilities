@@ -24,6 +24,7 @@ import type {
   SimulatedSubscription,
   SubscriptionMemberAssignment,
 } from "../models/subscription-simulation.model";
+import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
 import { ChangeQuantityDialog } from "./change-quantity-dialog";
 import { SubscriptionStatusBadge } from "./subscription-status-badge";
 
@@ -107,6 +108,9 @@ const SubscriptionPlaces = ({
 }) => {
   const [isAssigning, setIsAssigning] = useState(false);
   const [isChangingPlaces, setIsChangingPlaces] = useState(false);
+  // Here because current never returns a user-wise subscription, so the current subscription
+  // card — the only other place cancel is offered — can never show one.
+  const [isCancelling, setIsCancelling] = useState(false);
   const isLive = LIVE_STATUSES.has(subscription.status);
   const { data: members, isLoading, isError, error } = useMembers(subscription.subscriptionId);
   const release = useReleaseMember();
@@ -165,6 +169,14 @@ const SubscriptionPlaces = ({
             onClick={() => setIsChangingPlaces(true)}
           >
             Change places
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!isLive}
+            onClick={() => setIsCancelling(true)}
+          >
+            Cancel
           </Button>
           <Button
             size="sm"
@@ -249,6 +261,15 @@ const SubscriptionPlaces = ({
           open={isChangingPlaces}
           onOpenChange={setIsChangingPlaces}
           onRefresh={onRefresh}
+        />
+      ) : null}
+
+      {isCancelling ? (
+        <CancelSubscriptionDialog
+          subscription={subscription}
+          organizationId={organizationId}
+          open={isCancelling}
+          onOpenChange={setIsCancelling}
         />
       ) : null}
     </div>

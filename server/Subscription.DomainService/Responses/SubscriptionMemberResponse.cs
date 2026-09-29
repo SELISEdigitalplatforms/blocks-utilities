@@ -77,3 +77,23 @@ public sealed class SubscriptionMembersResponse
 
     public List<SubscriptionMemberResponse> Seats { get; init; } = [];
 }
+
+/// <summary>A place the caller holds, and the subscription it is on.</summary>
+public sealed class HeldPlaceResponse
+{
+    public string SubscriptionId { get; init; } = string.Empty;
+
+    public string PlanCode { get; init; } = string.Empty;
+
+    public string PlanName { get; init; } = string.Empty;
+
+    public string Status { get; init; } = string.Empty;
+
+    /// <summary>Which place, 1-based — the one whose allowance this person spends.</summary>
+    public int SeatNumber { get; init; }
+
+    public DateTime CurrentPeriodEndUtc { get; init; }
+
+    /// <summary>True when a cancellation is scheduled for the end of the current period.</summary>
+    public bool CancelAtPeriodEnd { get; init; }
+}

@@ -137,3 +137,32 @@ describe("MembersCard", () => {
     expect(screen.getByRole("button", { name: /Assign/ })).toBeDisabled();
   });
 });
+
+describe("MembersCard cancel", () => {
+  /**
+   * Found testing in the portal: current never returns a user-wise subscription, so the current
+   * subscription card could never offer to cancel one, and nothing else did.
+   */
+  it("offers to cancel each user-wise subscription", async () => {
+    listMemberBasedSubscriptions.mockResolvedValue([
+      { subscriptionId: "sub-1", status: "Active", planCode: "u", planName: "user-test-4", checkoutUrl: null },
+    ]);
+    listMembers.mockResolvedValue({
+      subscriptionId: "sub-1",
+      purchased: 2,
+      held: 0,
+      available: 2,
+      seats: [],
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembersCard plans={[]} organizationId={undefined} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(await screen.findByRole("dialog", { name: "Cancel user-test-4" })).toBeInTheDocument();
+  });
+});
