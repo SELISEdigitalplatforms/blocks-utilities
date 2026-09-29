@@ -1094,6 +1094,31 @@ public sealed class UsageProjectionPublisherTests
         document.SeatNumber.Should().Be(2);
     }
 
+    [Fact]
+    public async Task Refreshing_a_user_wise_plan_removes_its_rows_that_name_no_place()
+    {
+        await PublisherWith(HeldSeats()).RefreshAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.DeleteSeatlessRowsAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Refreshing_an_organization_wise_plan_deletes_nothing()
+    {
+        await Publisher().RefreshAsync(
+            Subscription(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.DeleteSeatlessRowsAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "its subscription-wide and per-user rows are the ones it has");
+    }
+
     private static Mock<ISubscriptionAssignmentRepository> HeldSeats(
         params (int Seat, string UserId)[] seats)
     {

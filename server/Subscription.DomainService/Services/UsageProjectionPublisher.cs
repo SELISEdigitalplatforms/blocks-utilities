@@ -374,9 +374,18 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         // rows are each place's own, repaired place by place below.
         var seated = subscription.Plan.SubscriberScope == SubscriberScope.User;
 
-        if (windows.Count > 0 && seated)
+        if (seated)
         {
-            published += await RefreshPlaceRowsAsync(subscription, windows, cancellationToken);
+            // Every row of a user-wise subscription is a place's. Recordings before the counter
+            // stored its seat wrote one under the subscription's own id instead, and per-user rows
+            // were written beside the places until they became the only row — both are removed.
+            published += (int)await _current.DeleteSeatlessRowsAsync(
+                subscription.TenantId, subscription.ItemId, cancellationToken);
+
+            if (windows.Count > 0)
+            {
+                published += await RefreshPlaceRowsAsync(subscription, windows, cancellationToken);
+            }
         }
 
         if (windows.Count > 0 && !seated)

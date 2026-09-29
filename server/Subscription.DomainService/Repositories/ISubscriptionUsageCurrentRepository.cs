@@ -188,6 +188,19 @@ public interface ISubscriptionUsageCurrentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Removes a subscription's rows that name no place.
+    /// </summary>
+    /// <remarks>
+    /// For a user-wise subscription, where every row belongs to a place: a subscription-wide row
+    /// there was written under the wrong id and reports one place's balance as though it were
+    /// everybody's, and a per-user row repeats a place's window under another key.
+    /// </remarks>
+    Task<long> DeleteSeatlessRowsAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Clamps a superseded row's window to <paramref name="endUtc"/>, so it stops overlapping the
     /// window that replaced it.
     /// </summary>

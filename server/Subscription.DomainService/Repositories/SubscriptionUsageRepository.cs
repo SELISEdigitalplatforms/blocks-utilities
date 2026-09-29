@@ -131,6 +131,11 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             .Inc(counter => counter.Balance, delta)
             .Inc(counter => counter.AppliedRecordCount, 1)
             .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow)
+            // Set on every write rather than on insert: it is part of the id, so rewriting it
+            // changes nothing, and a counter opened before it was stored gains it on its next use.
+            // Without it the document handed back names no seat, and whatever reads the seat from
+            // it — the projection's row id, above all — treats a place as the whole subscription.
+            .Set(counter => counter.SeatNumber, seed.SeatNumber)
             .SetOnInsert(counter => counter.TenantId, seed.TenantId)
             .SetOnInsert(counter => counter.OrganizationId, seed.OrganizationId)
             .SetOnInsert(counter => counter.SubscriptionId, seed.SubscriptionId)

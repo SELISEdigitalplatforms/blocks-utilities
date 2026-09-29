@@ -692,6 +692,22 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                     subscriptionId)))
             .ToListAsync(cancellationToken);
 
+    public async Task<long> DeleteSeatlessRowsAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken) =>
+        (await Current(tenantId).DeleteManyAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.TenantId, tenantId),
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SubscriptionId, subscriptionId),
+                // Matches a missing field as well as a null one, which is what a row written
+                // before seats existed has.
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SeatNumber, null)),
+            cancellationToken)).DeletedCount;
+
     public async Task SetSeatHolderAsync(
         string tenantId,
         string subscriptionId,

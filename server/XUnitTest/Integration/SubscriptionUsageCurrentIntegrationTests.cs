@@ -1141,6 +1141,66 @@ public sealed class SubscriptionUsageCurrentIntegrationTests
         stored.SubscriptionVersion.Should().Be(9);
     }
 
+    /// <remarks>
+    /// The paces move with the balance, and only when the writer reported them: a refusal, a
+    /// replay or a repair publishes a newer counter without them and must not wipe them.
+    /// </remarks>
+    [Fact]
+    public async Task Paces_land_with_a_newer_counter_and_survive_a_writer_that_did_not_report_them()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        (await _current.TryPublishAsync(
+            Document(tenantId, used: 1, counterVersion: 1), CancellationToken.None)).Should().BeTrue();
+
+        var withPaces = Document(tenantId, used: 4, counterVersion: 2);
+        withPaces.SubLimits =
+        [
+            new SubscriptionUsageCurrentSubLimit
+            {
+                Window = UsageWindow.Hour, WindowCount = 5, Rolling = true, Quantity = 10, Used = 4,
+                Remaining = 6, WindowStartUtc = new DateTime(2026, 9, 15, 6, 0, 0, DateTimeKind.Utc)
+            }
+        ];
+        (await _current.TryPublishAsync(withPaces, CancellationToken.None)).Should().BeTrue();
+
+        var stored = await _current.GetAsync(tenantId, withPaces.ItemId, CancellationToken.None);
+        stored!.SubLimits.Should().ContainSingle().Which.Used.Should().Be(4);
+
+        (await _current.TryPublishAsync(
+            Document(tenantId, used: 5, counterVersion: 3), CancellationToken.None)).Should().BeTrue();
+
+        stored = await _current.GetAsync(tenantId, withPaces.ItemId, CancellationToken.None);
+        stored!.Used.Should().Be(5);
+        stored.SubLimits.Should().ContainSingle(
+            "a writer that did not count the paces leaves the last reported figures").Which.Used
+            .Should().Be(4);
+    }
+
+    [Fact]
+    public async Task A_places_holder_is_set_and_cleared_on_its_open_windows_only()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var place = Document(tenantId, used: 3, counterVersion: 1);
+        place.ItemId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "screening", "M2026-09", 2);
+        place.SeatNumber = 2;
+        place.UserId = "user-a";
+
+        (await _current.TryPublishAsync(place, CancellationToken.None)).Should().BeTrue();
+
+        var during = new DateTime(2026, 9, 20, 0, 0, 0, DateTimeKind.Utc);
+        await _current.SetSeatHolderAsync(tenantId, Sub(tenantId), 2, "user-b", during, CancellationToken.None);
+        (await _current.GetAsync(tenantId, place.ItemId, CancellationToken.None))!.UserId.Should().Be("user-b");
+
+        await _current.ClearSeatHolderAsync(tenantId, Sub(tenantId), "user-b", during, CancellationToken.None);
+        (await _current.GetAsync(tenantId, place.ItemId, CancellationToken.None))!.UserId.Should().BeEmpty();
+
+        var after = new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc);
+        await _current.SetSeatHolderAsync(tenantId, Sub(tenantId), 2, "user-c", after, CancellationToken.None);
+        (await _current.GetAsync(tenantId, place.ItemId, CancellationToken.None))!.UserId.Should().BeEmpty(
+            "a closed window describes who held the place then, not now");
+    }
+
     private static SubscriptionUsageCurrent Document(
         string tenantId,
         long used,
