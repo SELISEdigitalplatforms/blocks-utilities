@@ -32,11 +32,11 @@ public sealed class EntitlementSnapshotCache : IEntitlementSnapshotCache
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<IReadOnlyList<SubscriptionDetail>> GetAsync(
+    public async Task<IReadOnlyList<ResolvedSubscription>> GetAsync(
         string tenantId,
         string organizationId,
         string subscriberUserId,
-        Func<Task<IReadOnlyList<SubscriptionDetail>>> loader)
+        Func<Task<IReadOnlyList<ResolvedSubscription>>> loader)
     {
         ArgumentNullException.ThrowIfNull(loader);
 
@@ -108,6 +108,6 @@ public sealed class EntitlementSnapshotCache : IEntitlementSnapshotCache
         OrganizationPrefix(tenantId, organizationId) + subscriberUserId;
 
     private sealed record Entry(
-        IReadOnlyList<SubscriptionDetail> Subscriptions,
+        IReadOnlyList<ResolvedSubscription> Subscriptions,
         DateTime ExpiresAtUtc);
 }

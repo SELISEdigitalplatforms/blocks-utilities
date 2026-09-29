@@ -10,13 +10,14 @@ public interface IEntitlementSnapshotCache
     /// <remarks>
     /// Keyed on the subscriber, not just the organization. Two people in one organization can hold
     /// different user-wise plans, and a cache that could not tell them apart would answer one
-    /// person's allowance with another's.
+    /// person's allowance with another's. For the same reason each entry carries the place the
+    /// subscriber holds on it.
     /// </remarks>
-    Task<IReadOnlyList<SubscriptionDetail>> GetAsync(
+    Task<IReadOnlyList<ResolvedSubscription>> GetAsync(
         string tenantId,
         string organizationId,
         string subscriberUserId,
-        Func<Task<IReadOnlyList<SubscriptionDetail>>> loader);
+        Func<Task<IReadOnlyList<ResolvedSubscription>>> loader);
 
     /// <summary>
     /// Drops everything cached for an organization, every subscriber included.

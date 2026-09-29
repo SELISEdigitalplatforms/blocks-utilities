@@ -149,11 +149,12 @@ public sealed class EntitlementSubscriberScopeTests
         // a per-subscriber removal would have left user-a's entry behind.
         var loads = 0;
 
-        Task<IReadOnlyList<SubscriptionDetail>> Load()
+        Task<IReadOnlyList<ResolvedSubscription>> Load()
         {
             loads++;
 
-            return Task.FromResult<IReadOnlyList<SubscriptionDetail>>([OrganizationSubscription()]);
+            return Task.FromResult<IReadOnlyList<ResolvedSubscription>>(
+                [new ResolvedSubscription(OrganizationSubscription(), SeatNumber: null)]);
         }
 
         _cache.GetAsync(TenantId, OrganizationId, "user-a", Load).GetAwaiter().GetResult();
