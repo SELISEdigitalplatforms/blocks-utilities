@@ -993,6 +993,14 @@
             one: an organization may seat people on more than one user-wise plan. Empty is an answer.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.GetMine(System.String,System.Threading.CancellationToken)">
+            <summary>The subscriptions the caller holds a place on, with the place.</summary>
+            <remarks>
+            For the person rather than an administrator: <c>member-based</c> and <c>…/members</c> need
+            the subscription read permission, while this needs only what checking an entitlement does.
+            Empty is an answer.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.Cancel(System.String,System.Boolean,System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Cancels a subscription.
