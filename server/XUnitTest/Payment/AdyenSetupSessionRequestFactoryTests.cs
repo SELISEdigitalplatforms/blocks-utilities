@@ -42,7 +42,10 @@ public sealed class AdyenSetupSessionRequestFactoryTests
         // any flag the paid checkout path conditions the same fields on.
         session.Amount.Value.Should().Be(0);
         session.Amount.Currency.Should().Be("EUR");
-        session.StorePaymentMethodMode.Should().Be("askForConsent");
+        session.StorePaymentMethodMode.Should().Be(
+            "enabled",
+            "askForConsent leaves storing to an unticked checkbox, and a shopper who skips it " +
+            "finishes the setup with no token, so the card is never saved");
         // A setup token is for a subscription renewal -- a merchant-initiated, scheduled charge --
         // never a shopper-initiated one, so this must be "Subscription" and never the "CardOnFile"
         // this factory used to hardcode.
