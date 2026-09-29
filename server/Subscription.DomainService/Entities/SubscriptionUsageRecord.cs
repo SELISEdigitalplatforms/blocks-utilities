@@ -66,5 +66,16 @@ public sealed class SubscriptionUsageRecord
 
     public string? RecordedByUserId { get; set; }
 
+    /// <summary>
+    /// The place this was counted against, or null for the organization's own allowance.
+    /// </summary>
+    /// <remarks>
+    /// What lets a user-wise period be rated from the ledger place by place: each place has its
+    /// own allowance, so overage is what each one went past, not what they spent together past
+    /// one of them. Null on every entry written before it existed, which rating then reads from
+    /// the counters instead.
+    /// </remarks>
+    public int? SeatNumber { get; set; }
+
     public string CorrelationId { get; set; } = string.Empty;
 }

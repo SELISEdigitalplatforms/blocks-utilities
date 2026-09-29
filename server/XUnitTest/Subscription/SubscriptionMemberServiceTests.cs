@@ -70,6 +70,12 @@ public sealed class SubscriptionMemberServiceTests
                     SeatNumber = seat
                 })]);
 
+        // Nobody holds a place anywhere else unless a test says so.
+        _assignments
+            .Setup(repository => repository.ListSeatsForUserAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
         _assignments
             .Setup(repository => repository.CountActiveAsync(
                 TenantId, SubscriptionId, It.IsAny<CancellationToken>()))
@@ -759,6 +765,59 @@ public sealed class SubscriptionMemberServiceTests
             }
         ]
     };
+
+    /// <remarks>
+    /// Found testing on dev: a person on two user-wise plans that both meter tokens had every use
+    /// go to one of them, with the other's paces shown beside it.
+    /// </remarks>
+    [Fact]
+    public async Task A_person_already_on_a_plan_metering_the_same_usage_is_refused_a_second_place()
+    {
+        _subscription.Plan.Meters = [new PlanMeter { MeterKey = "token", DisplayName = "Tokens" }];
+        var other = UserWise(seats: 2);
+        other.ItemId = "sub-other";
+        other.Plan.DisplayName = "user-test-4";
+        other.Plan.Meters = [new PlanMeter { MeterKey = "token", DisplayName = "Tokens" }];
+        OnlyOtherPlace("user-b", other);
+
+        var result = await Service().AssignAsync(
+            SubscriptionId, new AssignMemberRequest { UserIds = ["user-b"] }, "corr-1",
+            CancellationToken.None);
+
+        var refusal = result.Value!.Refused.Should().ContainSingle().Subject;
+        refusal.ReasonCode.Should().Be("subscription_member_meter_overlap");
+        refusal.Reason.Should().Contain("user-test-4");
+        result.Value.Assigned.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_place_on_a_plan_metering_different_usage_does_not_stand_in_the_way()
+    {
+        _subscription.Plan.Meters = [new PlanMeter { MeterKey = "token", DisplayName = "Tokens" }];
+        var other = UserWise(seats: 2);
+        other.ItemId = "sub-other";
+        other.Plan.Meters = [new PlanMeter { MeterKey = "call", DisplayName = "Calls" }];
+        OnlyOtherPlace("user-b", other);
+
+        var result = await Service().AssignAsync(
+            SubscriptionId, new AssignMemberRequest { UserIds = ["user-b"] }, "corr-1",
+            CancellationToken.None);
+
+        result.Value!.Assigned.Should().ContainSingle();
+    }
+
+    private void OnlyOtherPlace(string userId, SubscriptionDetail other)
+    {
+        _assignments
+            .Setup(repository => repository.ListSeatsForUserAsync(
+                TenantId, OrganizationId, userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new HeldSeat(other.ItemId, 1)]);
+        _subscriptions
+            .Setup(repository => repository.ListLiveByIdsAsync(
+                TenantId, It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([other]);
+    }
 
     private SubscriptionMemberService Service() => new(
         _subscriptions.Object,

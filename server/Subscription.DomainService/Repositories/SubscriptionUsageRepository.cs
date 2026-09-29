@@ -296,6 +296,27 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
         return (records.Sum(), records.Count);
     }
 
+    public async Task<IReadOnlyList<(int? Seat, decimal Balance, long RecordCount)>> SummariseLedgerBySeatAsync(
+        string tenantId,
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        CancellationToken cancellationToken)
+    {
+        var records = await Records(tenantId)
+            .Find(Builders<SubscriptionUsageRecord>.Filter.And(
+                Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.TenantId, tenantId),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.SubscriptionId, subscriptionId),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.MeterKey, meterKey),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.PeriodKey, periodKey)))
+            .Project(record => new { record.SeatNumber, record.Delta })
+            .ToListAsync(cancellationToken);
+
+        return [.. records
+            .GroupBy(record => record.SeatNumber)
+            .Select(group => (group.Key, group.Sum(record => record.Delta), (long)group.Count()))];
+    }
+
     public async Task<(decimal Balance, long RecordCount)> SummariseLedgerByUserAsync(
         string tenantId,
         string subscriptionId,

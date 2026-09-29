@@ -13,8 +13,13 @@ import {
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { toast } from "@/hooks/use-toast";
-import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
+import {
+  SUBSCRIBER_SCOPE,
+  type SubscriptionPlan,
+} from "../../subscription/models/subscription-plan.model";
 import { describePaceWindow } from "../../subscription/utilities/member-plan-format";
+import { useWithdrawCancellation } from "../hooks/use-cancel-subscription";
+import { useCancelPendingPlanChange } from "../hooks/use-change-subscription-plan";
 import {
   useAssignMembers,
   useMemberBasedSubscriptions,
@@ -26,8 +31,12 @@ import type {
   SimulatedSubscription,
   SubscriptionMemberAssignment,
 } from "../models/subscription-simulation.model";
+import { subscriptionSimulationService } from "../services/subscription-simulation.service";
 import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
+import { ChangePlanDialog } from "./change-plan-dialog";
 import { ChangeQuantityDialog } from "./change-quantity-dialog";
+import { CloseUsagePeriodDialog } from "./close-usage-period-dialog";
+import { RunDueJobsDialog } from "./run-due-jobs-dialog";
 import { SubscriptionStatusBadge } from "./subscription-status-badge";
 
 const LIVE_STATUSES = new Set(["Trialing", "Active", "PastDue"]);
@@ -87,6 +96,7 @@ export const MembersCard = ({
               key={subscription.subscriptionId}
               subscription={subscription}
               plan={plans?.find((plan) => plan.code === subscription.planCode)}
+              plans={plans}
               organizationId={organizationId}
               onRefresh={() => refetch()}
             />
@@ -100,11 +110,13 @@ export const MembersCard = ({
 const SubscriptionPlaces = ({
   subscription,
   plan,
+  plans,
   organizationId,
   onRefresh,
 }: {
   subscription: SimulatedSubscription;
   plan: SubscriptionPlan | undefined;
+  plans: SubscriptionPlan[] | undefined;
   organizationId: string | undefined;
   onRefresh: () => void;
 }) => {
@@ -113,6 +125,13 @@ const SubscriptionPlaces = ({
   // Here because current never returns a user-wise subscription, so the current subscription
   // card — the only other place cancel is offered — can never show one.
   const [isCancelling, setIsCancelling] = useState(false);
+  // The rest of what the current subscription card offers, here because a user-wise subscription
+  // is never the current one — without them none of it could be exercised on one.
+  const [isChangingPlan, setIsChangingPlan] = useState(false);
+  const [isClosingPeriod, setIsClosingPeriod] = useState(false);
+  const [isRunningJobs, setIsRunningJobs] = useState(false);
+  const withdrawCancellation = useWithdrawCancellation();
+  const keepPlan = useCancelPendingPlanChange();
   const isLive = LIVE_STATUSES.has(subscription.status);
   const { data: members, isLoading, isError, error } = useMembers(subscription.subscriptionId);
   const release = useReleaseMember();
@@ -163,7 +182,15 @@ const SubscriptionPlaces = ({
             </span>
           ) : null}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!isLive}
+            onClick={() => setIsChangingPlan(true)}
+          >
+            Change plan
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -190,6 +217,48 @@ const SubscriptionPlaces = ({
             Assign
           </Button>
         </div>
+      </div>
+
+      {subscription.cancelAtPeriodEnd || subscription.pendingPlanChange ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3 text-xs">
+          <span className="text-muted-foreground">
+            {subscription.cancelAtPeriodEnd
+              ? `Cancellation scheduled for ${new Date(subscription.currentPeriodEndUtc).toLocaleDateString()}.`
+              : `Moving to ${subscription.pendingPlanChange!.targetPlanName} on ${new Date(
+                  subscription.pendingPlanChange!.effectiveAtUtc,
+                ).toLocaleDateString()}.`}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={withdrawCancellation.isPending || keepPlan.isPending}
+            onClick={() =>
+              (subscription.cancelAtPeriodEnd ? withdrawCancellation : keepPlan).mutate(
+                { subscriptionId: subscription.subscriptionId, organizationId },
+                {
+                  onError: (failure) =>
+                    toast({
+                      variant: "destructive",
+                      title: "Could not undo it",
+                      description: failure instanceof Error ? failure.message : "Try again.",
+                    }),
+                },
+              )
+            }
+          >
+            {subscription.cancelAtPeriodEnd ? "Keep subscription" : "Keep current plan"}
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
+        Harness:
+        <Button size="sm" variant="ghost" onClick={() => setIsClosingPeriod(true)}>
+          Close usage period
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setIsRunningJobs(true)}>
+          Run due jobs
+        </Button>
       </div>
 
       {!isLive && subscription.checkoutUrl ? (
@@ -271,12 +340,45 @@ const SubscriptionPlaces = ({
         />
       ) : null}
 
+      {isChangingPlan ? (
+        <ChangePlanDialog
+          subscription={subscription}
+          currentPlan={plan}
+          // A plan change cannot cross to a plan for the organization; the server refuses it.
+          plans={(plans ?? []).filter((candidate) => candidate.subscriberScope === SUBSCRIBER_SCOPE.User)}
+          organizationId={organizationId}
+          open={isChangingPlan}
+          onOpenChange={setIsChangingPlan}
+        />
+      ) : null}
+
+      {isClosingPeriod ? (
+        <CloseUsagePeriodDialog
+          subscriptionId={subscription.subscriptionId}
+          organizationId={organizationId}
+          open={isClosingPeriod}
+          onOpenChange={setIsClosingPeriod}
+          onResult={harnessToast}
+        />
+      ) : null}
+
+      {isRunningJobs ? (
+        <RunDueJobsDialog
+          subscriptionId={subscription.subscriptionId}
+          organizationId={organizationId}
+          open={isRunningJobs}
+          onOpenChange={setIsRunningJobs}
+          onResult={harnessToast}
+        />
+      ) : null}
+
       {isCancelling ? (
         <CancelSubscriptionDialog
           subscription={subscription}
           organizationId={organizationId}
           open={isCancelling}
           onOpenChange={setIsCancelling}
+          onCanceled={reportPlacesAfterCancel}
         />
       ) : null}
     </div>
@@ -308,6 +410,47 @@ const PlaceUsageLines = ({ usage }: { usage: PlaceUsage[] }) =>
       ))}
     </ul>
   );
+
+/**
+ * Reads the roster back once a cancellation has ended a subscription, so whether its places were
+ * released can be seen: an ended subscription drops out of this card, and nothing else here would
+ * show its members again.
+ */
+const reportPlacesAfterCancel = async (canceled: SimulatedSubscription) => {
+  if (canceled.status !== "Canceled") {
+    return;
+  }
+
+  try {
+    const members = await subscriptionSimulationService.listMembers(canceled.subscriptionId);
+
+    toast(
+      members.held === 0
+        ? {
+            variant: "success",
+            title: "Every place released",
+            description: `${canceled.planName} has ended and nobody holds a place on it.`,
+          }
+        : {
+            variant: "destructive",
+            title: `${members.held} place${members.held === 1 ? "" : "s"} still held`,
+            description: `${canceled.planName} has ended but still lists ${members.seats
+              .map((seat) => seat.userId)
+              .join(", ")}.`,
+          },
+    );
+  } catch (failure) {
+    toast({
+      variant: "destructive",
+      title: "Could not read the places back",
+      description: failure instanceof Error ? failure.message : "Try again.",
+    });
+  }
+};
+
+/** The current subscription card shows a harness run in full; here a line is enough. */
+const harnessToast = () =>
+  toast({ variant: "success", title: "Harness run finished", description: "Re-read the card for its effect." });
 
 /** One name per line; commas and spaces also separate, since ids are pasted from anywhere. */
 const parseUserIds = (text: string): string[] => [

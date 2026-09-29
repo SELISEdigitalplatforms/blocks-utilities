@@ -517,6 +517,37 @@ public sealed class UsageSubLimitTests
         return await Record(quantity, key);
     }
 
+    /// <remarks>
+    /// What lets a user-wise period be rated place by place from the ledger: without it the
+    /// ledger could only say how much was used, not against whose allowance.
+    /// </remarks>
+    [Fact]
+    public async Task A_use_and_its_reversal_are_recorded_against_the_place_they_counted_against()
+    {
+        var resolver = new Mock<ISubscriberSubscriptionResolver>();
+        resolver
+            .Setup(r => r.ResolveAsync(
+                It.IsAny<SubscriptionContext>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => [new ResolvedSubscription(_subscription, 2)]);
+
+        var service = new UsageRecordingService(
+            _subscriptions.Object, _usage.Object, _closures.Object,
+            new MeterAllowanceResolver(_usage.Object), _contextResolver.Object, _thresholds.Object,
+            _projection.Object, _current.Object, _scheduler.Object,
+            new RecordUsageRequestValidator(new OptionsStub()), new OptionsStub(),
+            NullLogger<UsageRecordingService>.Instance, _time, resolver: resolver.Object);
+
+        foreach (var (quantity, key) in new[] { (9m, "first"), (4m, "second") })
+        {
+            await service.RecordAsync(
+                new RecordUsageRequest { MeterKey = MeterKey, Quantity = quantity, IdempotencyKey = key, Enforce = true },
+                "corr-1", CancellationToken.None);
+        }
+
+        _ledger.Should().HaveCount(3, "two uses and the reversal of the refused one");
+        _ledger.Should().OnlyContain(record => record.SeatNumber == 2);
+    }
+
     private UsageRecordingService Service() => new(
         _subscriptions.Object,
         _usage.Object,

@@ -884,6 +884,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 OccurredAtUtc = occurredAt,
                 Metadata = request.Metadata,
                 RecordedByUserId = context.UserId,
+                SeatNumber = seat,
                 CorrelationId = correlationId
             };
 
@@ -1114,6 +1115,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 Delta = -record.Delta,
                 IdempotencyKey = $"{record.IdempotencyKey}:reversal",
                 CompensatesRecordId = record.ItemId,
+                SeatNumber = record.SeatNumber,
                 OccurredAtUtc = record.OccurredAtUtc,
                 CorrelationId = correlationId
             },

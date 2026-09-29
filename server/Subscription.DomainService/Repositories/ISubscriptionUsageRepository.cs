@@ -100,6 +100,17 @@ public interface ISubscriptionUsageRepository
         string idempotencyKey,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The ledger's view of a period split by the place each entry counted against — null for
+    /// the organization's own allowance, and for entries written before places were recorded.
+    /// </summary>
+    Task<IReadOnlyList<(int? Seat, decimal Balance, long RecordCount)>> SummariseLedgerBySeatAsync(
+        string tenantId,
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        CancellationToken cancellationToken);
+
     /// <summary>The ledger's own view of a period, used to rebuild a counter that has drifted.</summary>
     Task<(decimal Balance, long RecordCount)> SummariseLedgerAsync(
         string tenantId,
