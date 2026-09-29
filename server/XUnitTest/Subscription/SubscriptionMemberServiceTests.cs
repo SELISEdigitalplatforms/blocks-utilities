@@ -506,6 +506,77 @@ public sealed class SubscriptionMemberServiceTests
                          "removes strands somebody the moment the period turns over");
     }
 
+    private static PendingQuantityChange CutTo(long seats) => new()
+    {
+        RequestedQuantities = [new SubscriptionQuantityItem { ItemKey = "seat", Quantity = seats }],
+        EffectiveAtUtc = new DateTime(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc)
+    };
+
+    /// <summary>
+    /// Found testing in the portal: with a cut from five to four scheduled and four people on, the
+    /// list said "4 of 5" and showed place 5 empty, and assigning to it was then refused. Both have
+    /// to read the same count.
+    /// </summary>
+    [Fact]
+    public async Task The_member_list_counts_a_scheduled_decrease_as_assignment_does()
+    {
+        _subscription = UserWise(seats: 5);
+        _subscription.PendingQuantityChange = CutTo(4);
+        _held = 4;
+
+        var list = (await Service().ListAsync(SubscriptionId, "corr-1", CancellationToken.None)).Value!;
+
+        list.Purchased.Should().Be(5, "the fifth place is still paid for until the period ends");
+        list.Available.Should().Be(0,
+            because: "the fifth place is going, so there is nothing an assignment could fill");
+        list.ScheduledPlaces.Should().Be(4);
+        list.ScheduledAtUtc.Should().Be(new DateTime(2026, 12, 31, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public async Task A_member_list_with_no_decrease_scheduled_says_nothing_of_one()
+    {
+        _subscription = UserWise(seats: 5);
+        _held = 4;
+
+        var list = (await Service().ListAsync(SubscriptionId, "corr-1", CancellationToken.None)).Value!;
+
+        list.Available.Should().Be(1);
+        list.ScheduledPlaces.Should().BeNull();
+        list.ScheduledAtUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_place_closed_by_a_scheduled_decrease_is_refused_for_that_reason()
+    {
+        _subscription = UserWise(seats: 5);
+        _subscription.PendingQuantityChange = CutTo(4);
+        _held = 4;
+
+        (await Assign("newcomer")).Value!.Refused.Should().ContainSingle()
+            .Which.Reason.Should().Be(
+                "This subscription drops to 4 places on 2026-12-31, and every one of them is taken.",
+                because: "it was bought for five and has four — \"all the people it was bought " +
+                         "for\" sent the administrator looking for a fifth");
+    }
+
+    /// <summary>
+    /// A flat-priced plan's places are its maximum. Lowering its quantity changes neither the price
+    /// nor the places, so it must not close any.
+    /// </summary>
+    [Fact]
+    public async Task A_quantity_decrease_on_a_flat_priced_plan_closes_no_places()
+    {
+        _subscription = UserWise(seats: 5, maxQuantity: 10, pricedPerMember: false);
+        _subscription.PendingQuantityChange = CutTo(2);
+        _held = 4;
+
+        var result = await Assign("newcomer");
+
+        result.Value!.Assigned.Should().ContainSingle(
+            because: "ten places were sold whatever the quantity says, and four are taken");
+    }
+
     private static SubscriptionAssignment Held(string userId, int seat) => new()
     {
         TenantId = TenantId,

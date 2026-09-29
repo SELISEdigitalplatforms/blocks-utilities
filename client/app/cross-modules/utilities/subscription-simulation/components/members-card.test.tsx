@@ -5,6 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
 
 const assignMembers = vi.fn();
+const listMemberBasedSubscriptions = vi.fn();
+const listMembers = vi.fn();
+
+vi.mock("@seliseblocks/genesis-os", () => ({
+  useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
+}));
 
 vi.mock("../services/subscription-simulation.service", async () => {
   const actual = await vi.importActual<
@@ -15,11 +21,13 @@ vi.mock("../services/subscription-simulation.service", async () => {
     ...actual,
     subscriptionSimulationService: {
       assignMembers: (...args: unknown[]) => assignMembers(...args),
+      listMemberBasedSubscriptions: (...args: unknown[]) => listMemberBasedSubscriptions(...args),
+      listMembers: (...args: unknown[]) => listMembers(...args),
     },
   };
 });
 
-import { AssignMembersDialog } from "./members-card";
+import { AssignMembersDialog, MembersCard } from "./members-card";
 
 const renderDialog = () =>
   render(
@@ -87,5 +95,45 @@ describe("AssignMembersDialog", () => {
     expect(refused).toHaveTextContent("u3");
     expect(refused).toHaveTextContent("subscription_member_limit_reached");
     expect(refused).toHaveTextContent("Every place is taken.");
+  });
+});
+
+describe("MembersCard", () => {
+  const holder = (userId: string, seatNumber: number) => ({
+    subscriptionId: "sub-1",
+    userId,
+    seatNumber,
+    assignedAtUtc: "",
+    releasedAtUtc: null,
+  });
+
+  /**
+   * Found testing in the portal: with a cut from five to four scheduled and four people on, the
+   * card showed place 5 as empty with Assign enabled, and assigning to it was then refused.
+   */
+  it("shows a place a scheduled decrease is removing as removed, not empty, and offers no assign", async () => {
+    listMemberBasedSubscriptions.mockResolvedValue([
+      { subscriptionId: "sub-1", status: "Active", planCode: "u", planName: "user-test-4", checkoutUrl: null },
+    ]);
+    listMembers.mockResolvedValue({
+      subscriptionId: "sub-1",
+      purchased: 5,
+      held: 4,
+      available: 0,
+      scheduledPlaces: 4,
+      scheduledAtUtc: "2026-10-29T04:05:00Z",
+      seats: [holder("a", 1), holder("b", 2), holder("c", 3), holder("d", 4)],
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembersCard plans={[]} organizationId={undefined} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(/4 of 5 places held · drops to 4 on/)).toBeInTheDocument();
+    expect(screen.getByText(/Removed on/)).toBeInTheDocument();
+    expect(screen.queryByText("Empty")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Assign/ })).toBeDisabled();
   });
 });

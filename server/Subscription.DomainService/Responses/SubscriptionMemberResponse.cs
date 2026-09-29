@@ -63,7 +63,17 @@ public sealed class SubscriptionMembersResponse
 
     public long Held { get; init; }
 
+    /// <summary>How many can be filled today: the smaller of bought and scheduled, less those held.</summary>
     public long Available { get; init; }
+
+    /// <summary>
+    /// How many places a scheduled decrease leaves, or null when none is scheduled. Places above
+    /// it can no longer be filled; they go when the period turns over.
+    /// </summary>
+    public long? ScheduledPlaces { get; init; }
+
+    /// <summary>When <see cref="ScheduledPlaces"/> takes effect.</summary>
+    public DateTime? ScheduledAtUtc { get; init; }
 
     public List<SubscriptionMemberResponse> Seats { get; init; } = [];
 }

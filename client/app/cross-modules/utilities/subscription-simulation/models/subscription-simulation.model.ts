@@ -732,7 +732,12 @@ export interface SubscriptionMembers {
   /** How many places the subscription has — bought, or the ceiling on a flat price. */
   purchased: number;
   held: number;
+  /** How many can be filled today — the smaller of bought and a scheduled decrease, less held. */
   available: number;
+  /** How many places a scheduled decrease leaves, or null/absent when none is scheduled. */
+  scheduledPlaces?: number | null;
+  /** When the scheduled decrease takes effect. */
+  scheduledAtUtc?: string | null;
   seats: SubscriptionMember[];
 }
 

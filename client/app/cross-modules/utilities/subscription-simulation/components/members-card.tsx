@@ -122,6 +122,14 @@ const SubscriptionPlaces = ({
     holder: members?.seats.find((seat) => seat.seatNumber === index + 1),
   }));
 
+  // Places a scheduled decrease is taking away. Still paid for, so still listed — but not
+  // fillable, and shown as empty they invited an assignment the server then refused.
+  const scheduled = members?.scheduledPlaces ?? null;
+  const cutOn = members?.scheduledAtUtc
+    ? new Date(members.scheduledAtUtc).toLocaleDateString()
+    : null;
+  const isFull = members !== undefined && members.available <= 0;
+
   const releaseHolder = async (userId: string) => {
     try {
       await release.mutateAsync({ subscriptionId: subscription.subscriptionId, userId });
@@ -145,6 +153,7 @@ const SubscriptionPlaces = ({
           {members ? (
             <span className="text-xs text-muted-foreground">
               {members.held} of {members.purchased} places held
+              {scheduled !== null ? ` · drops to ${scheduled} on ${cutOn}` : ""}
             </span>
           ) : null}
         </div>
@@ -157,7 +166,12 @@ const SubscriptionPlaces = ({
           >
             Change places
           </Button>
-          <Button size="sm" disabled={!isLive} onClick={() => setIsAssigning(true)}>
+          <Button
+            size="sm"
+            disabled={!isLive || isFull}
+            title={isFull ? "Every place that can be filled is taken." : undefined}
+            onClick={() => setIsAssigning(true)}
+          >
             <UserPlus className="mr-1 h-4 w-4" />
             Assign
           </Button>
@@ -193,6 +207,10 @@ const SubscriptionPlaces = ({
                   <span className="w-16 text-xs text-muted-foreground">Place {number}</span>
                   {holder ? (
                     <span className="font-mono text-xs">{holder.userId}</span>
+                  ) : scheduled !== null && number > scheduled ? (
+                    <span className="text-xs italic text-muted-foreground">
+                      Removed on {cutOn}
+                    </span>
                   ) : (
                     <span className="text-xs italic text-muted-foreground">Empty</span>
                   )}
