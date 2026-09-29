@@ -39,6 +39,8 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     private readonly Mock<ISubscriptionMerchantProfileService> _merchants = new();
     private readonly Mock<ISubscriptionDocumentCursorRepository> _cursors = new();
     private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
+    private readonly Mock<IBillingAccountRepository> _billingAccounts = new();
+    private readonly Mock<IStoredPaymentMethodRepository> _storedMethods = new();
 
     /// <summary>The obligations a transition would have appended, keyed by source key.</summary>
     private readonly Dictionary<string, SubscriptionDocumentSource> _consumed = [];
@@ -163,6 +165,100 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         // and documented in January stays in December's numbers.
         document.IssuedAtUtc.Should().Be(SettledAt);
     }
+
+    [Fact]
+    public async Task A_renewal_invoice_carries_the_masked_card_the_renewal_charged()
+    {
+        Subscribed();
+        SettledRenewal(payment => payment.StoredPaymentMethodPublicId = "card-1");
+        StoredCard("card-1", "visa", "4242");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.PaymentCard.Should().BeEquivalentTo(
+            new FinancialDocumentPaymentCard { Brand = "visa", LastFour = "4242" },
+            "the invoice names the card that paid, so the subscriber can recognise the charge");
+    }
+
+    [Fact]
+    public async Task A_charge_naming_no_card_falls_back_to_the_accounts_saved_card()
+    {
+        // A first checkout saves its card through the same charge, so the payment names none; the
+        // account's default is that card once the provider has confirmed it.
+        Subscribed(subscription => subscription.BillingAccountId = "account-1");
+        SettledRenewal();
+        _billingAccounts
+            .Setup(accounts => accounts.GetAsync(TenantId, "account-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ItemId = "account-1", DefaultPaymentMethodId = "card-2" });
+        StoredCard("card-2", "mc", "5454");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.PaymentCard!.LastFour.Should().Be(
+            "5454",
+            "a first checkout's invoice would otherwise never show the card it just saved");
+    }
+
+    [Fact]
+    public async Task The_card_the_charge_names_wins_over_whatever_the_account_defaults_to_now()
+    {
+        Subscribed(subscription => subscription.BillingAccountId = "account-1");
+        SettledRenewal(payment => payment.StoredPaymentMethodPublicId = "card-old");
+        _billingAccounts
+            .Setup(accounts => accounts.GetAsync(TenantId, "account-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ItemId = "account-1", DefaultPaymentMethodId = "card-new" });
+        StoredCard("card-old", "visa", "1111");
+        StoredCard("card-new", "visa", "9999");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.PaymentCard!.LastFour.Should().Be(
+            "1111",
+            "a card replaced after the charge did not pay it, and must not be printed as if it had");
+    }
+
+    [Fact]
+    public async Task A_card_that_cannot_be_read_costs_the_invoice_its_card_line_not_the_invoice()
+    {
+        Subscribed();
+        SettledRenewal(payment => payment.StoredPaymentMethodPublicId = "card-1");
+        _storedMethods
+            .Setup(methods => methods.GetAsync(TenantId, "card-1", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("stored methods unavailable"));
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document.Should().NotBeNull("the money has moved, so the document is owed regardless");
+        document!.PaymentCard.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_last_four_that_is_not_four_digits_is_not_printed()
+    {
+        Subscribed();
+        SettledRenewal(payment => payment.StoredPaymentMethodPublicId = "card-1");
+        StoredCard("card-1", "visa", "42x");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.PaymentCard.Should().BeNull("an unverified value has no place beside a card mask");
+    }
+
+    private void StoredCard(string itemId, string brand, string lastFour) =>
+        _storedMethods
+            .Setup(methods => methods.GetAsync(TenantId, itemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredPaymentMethod
+            {
+                ItemId = itemId,
+                TenantId = TenantId,
+                Brand = brand,
+                LastFour = lastFour
+            });
 
     [Fact]
     public async Task An_automatic_discount_and_a_volume_band_appear_as_two_lines_not_one()
@@ -1859,7 +1955,9 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             {
                 Invoicing = new SubscriptionInvoicingOptions { LegalName = "Blocks AG" }
             }),
-            NullLogger<SubscriptionFinancialDocumentIssuer>.Instance);
+            NullLogger<SubscriptionFinancialDocumentIssuer>.Instance,
+            billingAccounts: _billingAccounts.Object,
+            storedMethods: _storedMethods.Object);
 
     /// <summary>
     /// Appends the obligation a transition would have left, so the issuer has terms to read.
