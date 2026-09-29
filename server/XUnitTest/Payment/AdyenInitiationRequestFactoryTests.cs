@@ -118,6 +118,9 @@ public sealed class AdyenInitiationRequestFactoryTests
                 minorUnits: 2500));
 
         session.RecurringProcessingModel.Should().Be("CardOnFile");
+        session.StorePaymentMethodMode.Should().Be(
+            "askForConsent",
+            "outside a subscription, saving the card is the shopper's choice to make");
     }
 
     [Fact]
@@ -143,6 +146,10 @@ public sealed class AdyenInitiationRequestFactoryTests
 
         session.RecurringProcessingModel.Should().Be(PaymentConstants.SubscriptionRecurringModel);
         session.RecurringProcessingModel.Should().Be("Subscription");
+        session.StorePaymentMethodMode.Should().Be(
+            "enabled",
+            "a subscriber who leaves Adyen's consent checkbox unticked would otherwise pay " +
+            "without a saved card, and the first renewal would have nothing to charge");
     }
 
     [Fact]
@@ -170,6 +177,9 @@ public sealed class AdyenInitiationRequestFactoryTests
 
         session.RecurringProcessingModel.Should().BeNull();
         session.ShopperReference.Should().BeNull();
+        session.StorePaymentMethodMode.Should().Be(
+            "disabled",
+            "a subscription model alone must not store a card the caller did not ask to save");
     }
 
     private ProviderInitiationRequest Create(
