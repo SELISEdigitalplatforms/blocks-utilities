@@ -43,16 +43,16 @@ A resource with no row answers 403 for every endpoint that names it.
 | `blocks-utilities::payment-provider::manage` | `PUT /payments/providers/{id}`, `POST /payments/providers/{id}/rotate`, `POST /payments/providers` |
 | `blocks-utilities::payment-provider::read-encryption` | `GET /payments/providers/encryption` |
 | `blocks-utilities::payment-provider::manage-encryption` | `POST /payments/providers/encryption/re-encrypt` |
-| `blocks-utilities::subscription::read` | `GET /subscriptions/current`, `GET /subscriptions/{id}/audit`, every `preview` |
-| `blocks-utilities::subscription::manage` | subscribe, cancel, change plan, change quantity, payment-method setup |
+| `blocks-utilities::subscription::read` | `GET /subscriptions/current`, `GET /subscriptions/member-based`, `GET /subscriptions/{id}/members`, `GET /subscriptions/{id}/audit`, every `preview` |
+| `blocks-utilities::subscription::manage` | subscribe, cancel, change plan, change quantity, payment-method setup, `POST /subscriptions/{id}/members`, `DELETE /subscriptions/{id}/members/{userId}` |
 | `blocks-utilities::subscription::read-invoice` | `GET /subscriptions/invoices`, `GET /subscriptions/invoices/{id}/pdf` |
 | `blocks-utilities::subscription::manage-invoice` | `POST /subscriptions/invoices/{id}/resend` |
-| `blocks-utilities::entitlement::read` | `GET /entitlements`, `GET /entitlements/{key}` |
+| `blocks-utilities::entitlement::read` | `GET /entitlements`, `GET /entitlements/{key}`, `GET /subscriptions/mine` |
 | `blocks-utilities::subscription-plan::read` | `GET /subscription-plans`, `GET /subscription-plans/{id}` |
 | `blocks-utilities::subscription-plan::manage` | create/update/archive plans and prices |
 | `blocks-utilities::subscription-discount::read` | list, get, `POST /subscription-discounts/preview` |
 | `blocks-utilities::subscription-discount::manage` | create, update, archive |
-| `blocks-utilities::subscription-usage::read` | `GET /subscription-usage/current`, `POST /subscription-usage/overage/preview` |
+| `blocks-utilities::subscription-usage::read` | `GET /subscription-usage/current`, `GET /subscription-usage/mine`, `POST /subscription-usage/overage/preview` |
 | `blocks-utilities::subscription-usage::manage` | `POST /subscription-usage` |
 | `blocks-utilities::subscription-billing-profile::read` | `GET /subscription-billing-profile` |
 | `blocks-utilities::subscription-billing-profile::manage` | `PUT /subscription-billing-profile` |
