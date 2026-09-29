@@ -378,6 +378,26 @@ public sealed class SubscriptionPlanChangeServiceTests
         result.ErrorCode.Should().Be("subscription_plan_change_currency_mismatch");
     }
 
+    /// <remarks>
+    /// Found testing on dev: an organization's own subscription could be scheduled onto a
+    /// user-wise plan, which would have turned it into one people are given places on.
+    /// </remarks>
+    [Fact]
+    public async Task A_plan_for_each_person_is_refused_to_the_organizations_own_subscription()
+    {
+        var target = NewPlan();
+        target.SubscriberScope = SubscriberScope.User;
+        _catalogue
+            .Setup(repository => repository.FindPlanByCodeAsync(
+                TenantId, OrganizationId, "premium", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(target);
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_plan_change_scope_mismatch");
+    }
+
     [Fact]
     public async Task A_different_billing_interval_rebuilds_the_fee_schedule()
     {

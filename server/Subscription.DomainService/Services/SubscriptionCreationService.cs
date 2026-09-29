@@ -290,20 +290,28 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // rather than attempted, since a preview writes nothing to conflict on. Both reservation
         // statuses matter: an Incomplete checkout left over from an abandoned attempt blocks a new
         // one exactly as a Live subscription does.
-        var liveTask = _subscriptions.GetLiveAsync(
-            context.TenantId, context.OrganizationId, _time.GetUtcNow().UtcDateTime, cancellationToken);
-        var incompleteTask = _subscriptions.GetIncompleteAsync(
-            context.TenantId, context.OrganizationId, cancellationToken);
-
-        await Task.WhenAll(liveTask, incompleteTask);
-
-        if (liveTask.Result is not null || incompleteTask.Result is not null)
+        //
+        // Only for an organization-wise plan, which is all that index covers. Both reads answer for
+        // the organization's own subscription, and a user-wise one is held beside it — several to an
+        // organization — so quoting it as blocked refused a signup the create would have accepted.
+        if (plan.SubscriberScope != SubscriberScope.User)
         {
-            blockers.Add(new SubscriptionPreviewBlockerResponse
+            var liveTask = _subscriptions.GetLiveAsync(
+                context.TenantId, context.OrganizationId, _time.GetUtcNow().UtcDateTime,
+                cancellationToken);
+            var incompleteTask = _subscriptions.GetIncompleteAsync(
+                context.TenantId, context.OrganizationId, cancellationToken);
+
+            await Task.WhenAll(liveTask, incompleteTask);
+
+            if (liveTask.Result is not null || incompleteTask.Result is not null)
             {
-                Code = "subscription_already_active",
-                Message = "This organization already has a live subscription."
-            });
+                blockers.Add(new SubscriptionPreviewBlockerResponse
+                {
+                    Code = "subscription_already_active",
+                    Message = "This organization already has a live subscription."
+                });
+            }
         }
 
         return SubscriptionOperationResult<SubscriptionPreviewResponse>.Success(

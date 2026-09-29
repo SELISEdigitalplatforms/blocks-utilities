@@ -491,7 +491,11 @@ export const SubscriptionSimulationPage = () => {
         <ChangePlanDialog
           subscription={currentSubscription}
           currentPlan={currentPlan}
-          plans={plans ?? []}
+          // current is always the organization's own, and a plan change cannot cross to a plan for
+          // each person — the server refuses it, so it is not offered.
+          plans={(plans ?? []).filter(
+            (plan) => (plan.subscriberScope ?? SUBSCRIBER_SCOPE.Organization) === SUBSCRIBER_SCOPE.Organization,
+          )}
           organizationId={organizationScope}
           open={isChangingPlan}
           onOpenChange={setIsChangingPlan}
