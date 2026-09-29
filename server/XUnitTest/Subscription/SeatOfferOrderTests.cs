@@ -58,6 +58,12 @@ public sealed class SeatOfferOrderTests
                 TenantId, OrganizationId, SubscriptionId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Metered);
 
+        // Nobody here holds a place on another subscription.
+        _assignments
+            .Setup(repository => repository.ListSeatsForUserAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
         _assignments
             .Setup(repository => repository.ListActiveAsync(
                 TenantId, SubscriptionId, It.IsAny<CancellationToken>()))

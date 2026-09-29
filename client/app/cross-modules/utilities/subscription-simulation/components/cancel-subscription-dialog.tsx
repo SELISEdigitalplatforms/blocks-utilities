@@ -21,11 +21,14 @@ export const CancelSubscriptionDialog = ({
   organizationId,
   open,
   onOpenChange,
+  onCanceled,
 }: {
   subscription: SimulatedSubscription;
   organizationId: string | undefined;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called with the subscription as the cancellation left it. */
+  onCanceled?: (canceled: SimulatedSubscription) => void;
 }) => {
   const { mutateAsync, isPending } = useCancelSubscription();
 
@@ -53,6 +56,7 @@ export const CancelSubscriptionDialog = ({
       });
 
       onOpenChange(false);
+      onCanceled?.(canceled);
     } catch (error) {
       setFormError(
         error instanceof Error ? error.message : "The subscription could not be canceled.",

@@ -315,6 +315,36 @@ public sealed class FractionalUsageQuantityIntegrationTests
             .Should().ContainSingle().Which.ItemId.Should().Be(place.ItemId);
     }
 
+    [Fact]
+    public async Task The_ledger_is_summarised_place_by_place_with_unmarked_entries_apart()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        async Task Append(string key, decimal delta, int? seat) =>
+            (await _usage.TryAppendRecordAsync(new SubscriptionUsageRecord
+            {
+                TenantId = tenantId,
+                OrganizationId = "org-1",
+                SubscriptionId = Sub(tenantId),
+                MeterKey = "storage",
+                PeriodKey = "M2026-09",
+                Delta = delta,
+                IdempotencyKey = key,
+                SeatNumber = seat,
+                OccurredAtUtc = new DateTime(2026, 9, 2, 0, 0, 0, DateTimeKind.Utc)
+            }, CancellationToken.None)).Should().BeTrue();
+
+        await Append("a", 3, 1);
+        await Append("b", 4.5m, 1);
+        await Append("c", 2, 2);
+        await Append("d", 7, null);
+
+        var summary = await _usage.SummariseLedgerBySeatAsync(
+            tenantId, Sub(tenantId), "storage", "M2026-09", CancellationToken.None);
+
+        summary.Should().BeEquivalentTo(new (int?, decimal, long)[] { (1, 7.5m, 2), (2, 2m, 1), (null, 7m, 1) });
+    }
+
     private static SubscriptionUsageCounter Seed(string tenantId, string counterId) => new()
     {
         ItemId = counterId,

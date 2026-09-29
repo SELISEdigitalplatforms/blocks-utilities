@@ -137,6 +137,14 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 continue;
             }
 
+            if (await OverlappingSubscriptionAsync(subscription, userId, cancellationToken) is { } other)
+            {
+                refused.Add(Refusal(userId, "subscription_member_meter_overlap",
+                    $"This person already holds a place on {other.Plan.DisplayName}, which meters " +
+                    "the same usage. A use could not tell which place to draw on."));
+                continue;
+            }
+
             var seat = offered.Count == 0 ? (int?)null : offered.Peek();
 
             if (seat is null)
@@ -645,6 +653,48 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             .ToList();
 
         return marked.Count == 1 ? marked[0] : null;
+    }
+
+    /// <summary>
+    /// Another live subscription this person holds a place on whose plan meters any of the same
+    /// keys, or null.
+    /// </summary>
+    /// <remarks>
+    /// A recording names a meter, not a subscription, and resolves it to one of the caller's
+    /// places. Two places metering the same key leave one of them unreachable for it — found on
+    /// dev, where a use went silently to one plan while the other's paces were shown — so the
+    /// second is refused where it would be given.
+    /// </remarks>
+    private async Task<SubscriptionDetail?> OverlappingSubscriptionAsync(
+        SubscriptionDetail subscription,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var meters = subscription.Plan.Meters
+            .Select(meter => meter.MeterKey)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (meters.Count == 0)
+        {
+            return null;
+        }
+
+        var others = (await _assignments.ListSeatsForUserAsync(
+                subscription.TenantId, subscription.OrganizationId, userId, cancellationToken))
+            .Select(seat => seat.SubscriptionId)
+            .Where(id => !string.Equals(id, subscription.ItemId, StringComparison.Ordinal))
+            .ToList();
+
+        if (others.Count == 0)
+        {
+            return null;
+        }
+
+        var live = await _subscriptions.ListLiveByIdsAsync(
+            subscription.TenantId, others, _time.GetUtcNow().UtcDateTime, cancellationToken);
+
+        return live.FirstOrDefault(other =>
+            other.Plan.Meters.Any(meter => meters.Contains(meter.MeterKey)));
     }
 
     /// <summary>

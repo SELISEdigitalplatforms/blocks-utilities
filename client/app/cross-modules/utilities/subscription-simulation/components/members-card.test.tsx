@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
+const toast = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/use-toast", () => ({ toast }));
 
 const assignMembers = vi.fn();
 const listMemberBasedSubscriptions = vi.fn();
 const listMembers = vi.fn();
+const cancel = vi.fn();
 
 vi.mock("@seliseblocks/genesis-os", () => ({
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
@@ -23,6 +25,7 @@ vi.mock("../services/subscription-simulation.service", async () => {
       assignMembers: (...args: unknown[]) => assignMembers(...args),
       listMemberBasedSubscriptions: (...args: unknown[]) => listMemberBasedSubscriptions(...args),
       listMembers: (...args: unknown[]) => listMembers(...args),
+      cancel: (...args: unknown[]) => cancel(...args),
     },
   };
 });
@@ -212,5 +215,75 @@ describe("MembersCard place usage", () => {
     const line = (await screen.findByText("tokens")).closest("li");
     expect(line).toHaveTextContent("tokens 12 / 100 tokens · 11 / 10 in any 5 hours");
     expect(screen.getByText(/11 \/ 10 in any 5 hours/)).toHaveClass("text-destructive");
+  });
+});
+
+describe("MembersCard per-person actions", () => {
+  /**
+   * current never returns a user-wise subscription, so the current subscription card could never
+   * offer these for one — and a plan change, a withdrawn cancellation or a closed usage period on
+   * one could not be tried at all.
+   */
+  it("offers a plan change, the harness actions and a way back from a scheduled cancellation", async () => {
+    listMemberBasedSubscriptions.mockResolvedValue([
+      {
+        subscriptionId: "sub-1",
+        status: "Active",
+        planCode: "u",
+        planName: "user-test-5",
+        checkoutUrl: null,
+        cancelAtPeriodEnd: true,
+        currentPeriodEndUtc: "2026-10-29T00:00:00Z",
+        pendingPlanChange: null,
+      },
+    ]);
+    listMembers.mockResolvedValue({ subscriptionId: "sub-1", purchased: 1, held: 0, available: 1, seats: [] });
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembersCard plans={[]} organizationId={undefined} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Keep subscription" })).toBeInTheDocument();
+    expect(screen.getByText(/Cancellation scheduled for/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close usage period" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run due jobs" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change plan" }));
+    expect(await screen.findByRole("dialog", { name: "Change plan" })).toBeInTheDocument();
+  });
+});
+
+describe("MembersCard immediate cancel", () => {
+  /**
+   * An ended subscription drops out of the card, so whether its places were released could not be
+   * seen anywhere. Reading the roster back is how the harness shows it.
+   */
+  it("reads the places back once it has ended and says whether any are still held", async () => {
+    listMemberBasedSubscriptions.mockResolvedValue([
+      { subscriptionId: "sub-1", status: "Active", planCode: "u", planName: "user-test-5", checkoutUrl: null },
+    ]);
+    listMembers.mockResolvedValue({ subscriptionId: "sub-1", purchased: 3, held: 0, available: 3, seats: [] });
+    cancel.mockResolvedValue({
+      subscriptionId: "sub-1",
+      status: "Canceled",
+      planName: "user-test-5",
+      currentPeriodEndUtc: "2026-10-29T00:00:00Z",
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembersCard plans={[]} organizationId={undefined} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /Cancel immediately/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel subscription" }));
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Every place released" })),
+    );
   });
 });

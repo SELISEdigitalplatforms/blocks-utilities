@@ -434,7 +434,9 @@ export const ChangePlanDialog = ({
                   />
                 </>
               ) : null}
-              {quote.settlement.netSettlementMinor !== 0 ? (
+              {/* Only for a change that settles today: a scheduled one moves no money, and a
+                  negative figure beside "nothing is refunded" read as a refund. */}
+              {quote.timing === "Immediate" && quote.settlement.netSettlementMinor !== 0 ? (
                 <Row
                   label="Net settlement"
                   value={formatMoney(quote.settlement.netSettlementMinor, quote.currencyCode)}
