@@ -78,6 +78,7 @@ public static class FinancialDocumentHtmlTemplate
         }
 
         AppendTotals(html, document, money);
+        AppendPaymentCard(html, document);
 
         html.Append("</td></tr></tbody></table>");
         AppendFooter(html, document);
@@ -600,6 +601,51 @@ public static class FinancialDocumentHtmlTemplate
     }
 
     /// <summary>
+    /// The masked card the charge was taken from, left-aligned under the totals.
+    /// </summary>
+    /// <remarks>
+    /// Only on an invoice and only when the card was identified at issue: a credit note returns
+    /// money rather than taking it, a trial takes none, and a guessed card is worse than none.
+    /// Brand and last four only — see <see cref="FinancialDocumentPaymentCard"/>.
+    /// </remarks>
+    private static void AppendPaymentCard(StringBuilder html, SubscriptionFinancialDocument document)
+    {
+        if (document.DocumentType != FinancialDocumentType.Invoice ||
+            document.PaymentCard is not { LastFour.Length: 4 } card)
+        {
+            return;
+        }
+
+        html.Append("<div class=\"card\"><div class=\"strong\">Payment method</div><div>")
+            .Append(Escape($"{BrandName(card.Brand)} •••• {card.LastFour}"))
+            .Append("</div></div>");
+    }
+
+    /// <summary>
+    /// A card network as a subscriber would write it, from the code the provider reported.
+    /// </summary>
+    /// <remarks>
+    /// Adyen and Stripe report the same networks under different codes ("mc" and "mastercard"), so
+    /// both spellings map to one name. An unknown code prints as given rather than being dropped,
+    /// and an absent one as "Card", so the masked number is never left without a noun.
+    /// </remarks>
+    private static string BrandName(string? brand) =>
+        brand?.Trim().ToUpperInvariant() switch
+        {
+            null or "" => "Card",
+            "VISA" => "Visa",
+            "MC" or "MASTERCARD" => "Mastercard",
+            "AMEX" or "AMERICAN_EXPRESS" => "American Express",
+            "MAESTRO" => "Maestro",
+            "DISCOVER" => "Discover",
+            "JCB" => "JCB",
+            "DINERS" => "Diners Club",
+            "CUP" or "UNIONPAY" => "UnionPay",
+            "CARTEBANCAIRE" or "CARTES_BANCAIRES" => "Cartes Bancaires",
+            _ => brand.Trim()
+        };
+
+    /// <summary>
     /// The seller's letterhead, at the foot of every page as the reference prints it.
     /// </summary>
     /// <remarks>
@@ -857,6 +903,9 @@ public static class FinancialDocumentHtmlTemplate
         ".totals td.cur{text-align:left;width:1%;padding-right:12px;white-space:nowrap}" +
         ".totals tr{break-inside:avoid}" +
         ".totals tr.grand th,.totals tr.grand td{font-weight:700;border-top:1px solid #e6e8eb}" +
+        // Under the totals on the left, with room above it so it reads as its own fact rather than
+        // as a fourth totals row; the page frame's spacer keeps it clear of the footer below.
+        ".card{margin-top:28px;break-inside:avoid}" +
         // Fixed, so Chromium prints it at the foot of every page, into the band the page frame's
         // repeated spacer keeps clear.
         ".foot{position:fixed;left:8mm;right:8mm;bottom:0;font-size:10px;line-height:1.45;" +

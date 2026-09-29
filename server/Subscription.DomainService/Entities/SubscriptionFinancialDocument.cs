@@ -134,6 +134,18 @@ public sealed class SubscriptionFinancialDocument
 
     public List<FinancialDocumentLine> Lines { get; set; } = [];
 
+    /// <summary>
+    /// The card the charge was taken from, masked. Null when it is not known.
+    /// </summary>
+    /// <remarks>
+    /// Snapshotted like the merchant, and for the same reason: a subscriber who replaces their card
+    /// next month must not see the new one on an invoice the old one paid. Null on every document
+    /// that describes no card charge — a trial, a credit note — and on a charge whose card could not
+    /// be identified at issue, including every document issued before this existed. The document
+    /// then says nothing about the payment method rather than guessing at one.
+    /// </remarks>
+    public FinancialDocumentPaymentCard? PaymentCard { get; set; }
+
     public FinancialDocumentDelivery Delivery { get; set; } = new();
 
     public string CorrelationId { get; set; } = string.Empty;
@@ -368,6 +380,23 @@ public sealed class FinancialDocumentLine
 
     /// <summary>A quantity item key or a meter key, so a client can group lines it recognises.</summary>
     public string? ItemKey { get; set; }
+}
+
+/// <summary>
+/// The masked card a charge was taken from: its network and last four digits, nothing more.
+/// </summary>
+/// <remarks>
+/// Deliberately no expiry, no holder name and no token. Brand and last four are what a subscriber
+/// recognises their card by and what a receipt conventionally prints; anything beyond that turns a
+/// document mailed as a PDF into a copy of card data it has no need to carry.
+/// </remarks>
+[BsonIgnoreExtraElements]
+public sealed class FinancialDocumentPaymentCard
+{
+    /// <summary>The network as the provider reported it — "visa", "mc", "amex", ...</summary>
+    public string? Brand { get; set; }
+
+    public string LastFour { get; set; } = string.Empty;
 }
 
 /// <summary>

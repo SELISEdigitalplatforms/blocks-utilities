@@ -663,6 +663,64 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
+    public void The_masked_card_sits_below_the_totals_and_above_the_footer()
+    {
+        var html = Render(document => document.PaymentCard =
+            new FinancialDocumentPaymentCard { Brand = "visa", LastFour = "4242" });
+
+        html.Should().Contain(
+            "<div class=\"card\"><div class=\"strong\">Payment method</div><div>Visa •••• 4242</div></div>");
+        html.IndexOf("class=\"card\"", StringComparison.Ordinal)
+            .Should().BeGreaterThan(
+                html.IndexOf("<table class=\"totals\">", StringComparison.Ordinal),
+                "the card is stated after what it paid");
+        html.IndexOf("class=\"card\"", StringComparison.Ordinal)
+            .Should().BeLessThan(html.IndexOf("<div class=\"foot\">", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("mc", "Mastercard")]
+    [InlineData("mastercard", "Mastercard")]
+    [InlineData("AMEX", "American Express")]
+    [InlineData(null, "Card")]
+    [InlineData("twint", "twint")]
+    public void Card_networks_are_named_the_way_a_subscriber_writes_them(string? brand, string expected)
+    {
+        // Adyen and Stripe report one network under different codes; both must read the same.
+        Render(document => document.PaymentCard =
+                new FinancialDocumentPaymentCard { Brand = brand, LastFour = "0005" })
+            .Should().Contain($"<div>{expected} •••• 0005</div>");
+    }
+
+    [Fact]
+    public void Only_the_last_four_digits_of_the_card_are_ever_printed()
+    {
+        var html = Render(document => document.PaymentCard =
+            new FinancialDocumentPaymentCard { Brand = "visa", LastFour = "4242" });
+
+        html.Should().NotContainAny(
+            ["Expires", "4242 4242"],
+            "a mailed PDF has no need of card data beyond what identifies the card to its holder");
+    }
+
+    [Fact]
+    public void A_document_whose_card_is_unknown_says_nothing_about_the_payment_method()
+    {
+        Render().Should().NotContain("Payment method", "a guessed card is worse than none");
+    }
+
+    [Fact]
+    public void A_credit_note_does_not_print_a_card_because_it_took_no_money()
+    {
+        Render(document =>
+            {
+                document.DocumentType = FinancialDocumentType.CreditNote;
+                document.PaymentCard = new FinancialDocumentPaymentCard { Brand = "visa", LastFour = "4242" };
+            })
+            .Should().NotContain("Payment method");
+    }
+
+    [Fact]
     public void The_stylesheet_asks_for_no_font_it_cannot_be_given()
     {
         // Self-contained by the same rule that forbids a remote logo: no @font-face, no network
