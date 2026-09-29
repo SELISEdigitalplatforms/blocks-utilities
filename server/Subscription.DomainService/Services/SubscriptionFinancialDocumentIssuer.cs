@@ -73,6 +73,15 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly ISubscriptionUsageInvoiceRepository? _usageInvoices;
     private readonly TimeProvider _time;
+    private readonly IBillingAccountRepository? _billingAccounts;
+    private readonly IStoredPaymentMethodRepository? _storedMethods;
+
+    private static readonly Action<ILogger, string, Exception?> LogPaymentCardUnreadable =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(0, nameof(LogPaymentCardUnreadable)),
+            "The card behind a settled charge could not be read, so its document is issued " +
+            "without a payment method PaymentId={PaymentId}");
 
     public SubscriptionFinancialDocumentIssuer(
         ISubscriptionFinancialDocumentRepository documents,
@@ -88,7 +97,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         ILogger<SubscriptionFinancialDocumentIssuer> logger,
         ISubscriptionWorkScheduler? scheduler = null,
         ISubscriptionUsageInvoiceRepository? usageInvoices = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        IBillingAccountRepository? billingAccounts = null,
+        IStoredPaymentMethodRepository? storedMethods = null)
     {
         _documents = documents;
         _numbers = numbers;
@@ -104,6 +115,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         _scheduler = scheduler;
         _usageInvoices = usageInvoices;
         _time = time ?? TimeProvider.System;
+        _billingAccounts = billingAccounts;
+        _storedMethods = storedMethods;
     }
 
     public async Task<FinancialDocumentIssueResult> IssueForPaymentAsync(
@@ -221,7 +234,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             initiatedBy: source?.InitiatedBy,
             initiatedByUserId: payment.UserId,
             settlementReservationId: null,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken,
+            paymentCard: await PaymentCardAsync(payment, subscription, cancellationToken)
+                .ConfigureAwait(false));
 
         if (document is null)
         {
@@ -239,6 +254,70 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         return new FinancialDocumentIssueResult(
             FinancialDocumentIssueOutcome.Issued,
             document);
+    }
+
+    /// <summary>
+    /// The masked card a settled charge was taken from, or null when it cannot be told.
+    /// </summary>
+    /// <remarks>
+    /// The payment's own record first: a renewal, a usage charge and a plan change each name the
+    /// stored card they charged, and that is the card that paid — whatever the account's default is
+    /// by now. A first checkout names none, because its card is saved by the same charge rather
+    /// than chosen for it; the account's default is that card once the provider has confirmed it.
+    /// <para>
+    /// Best effort, by design. The money has already moved and the document is owed, so a card that
+    /// cannot be identified or read costs the document its payment-method line, never the document.
+    /// A first checkout whose token has not been confirmed yet is the ordinary case of that.
+    /// </para>
+    /// </remarks>
+    private async Task<FinancialDocumentPaymentCard?> PaymentCardAsync(
+        PaymentDetail payment,
+        SubscriptionDetail subscription,
+        CancellationToken cancellationToken)
+    {
+        if (_storedMethods is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var methodId = payment.StoredPaymentMethodPublicId;
+
+            if (string.IsNullOrWhiteSpace(methodId) &&
+                _billingAccounts is not null &&
+                !string.IsNullOrWhiteSpace(subscription.BillingAccountId))
+            {
+                var account = await _billingAccounts.GetAsync(
+                    subscription.TenantId,
+                    subscription.BillingAccountId,
+                    cancellationToken).ConfigureAwait(false);
+
+                methodId = account?.DefaultPaymentMethodId;
+            }
+
+            if (string.IsNullOrWhiteSpace(methodId))
+            {
+                return null;
+            }
+
+            var method = await _storedMethods.GetAsync(
+                subscription.TenantId,
+                methodId,
+                cancellationToken).ConfigureAwait(false);
+
+            // Four digits or nothing. A value of any other shape is not a card's last four, and
+            // printing it beside the mask would put something unverified on a financial record.
+            return method?.LastFour is { Length: 4 } lastFour && lastFour.All(char.IsAsciiDigit)
+                ? new FinancialDocumentPaymentCard { Brand = method.Brand, LastFour = lastFour }
+                : null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogPaymentCardUnreadable(_logger, PaymentLogValue.Id(payment.ItemId), exception);
+
+            return null;
+        }
     }
 
     public async Task<int> IssueForSubscriptionAsync(
@@ -1040,7 +1119,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         CancellationToken cancellationToken,
         FinancialDocumentTrial? trial = null,
         SubscriptionFinancialDocument? originalDocument = null,
-        string? refundId = null)
+        string? refundId = null,
+        FinancialDocumentPaymentCard? paymentCard = null)
     {
         // Every issuing path passes through here, including the sweeps that walk many subscriptions.
         using var subscriptionScope = SubscriptionWorkLogValue.SubscriptionScope(_logger, subscription.ItemId);
@@ -1105,6 +1185,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             Amounts = amounts,
             Settlement = settlement,
             Lines = lines,
+            PaymentCard = paymentCard,
             CorrelationId = correlationId
         };
 
