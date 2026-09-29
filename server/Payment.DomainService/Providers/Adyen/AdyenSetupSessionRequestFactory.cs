@@ -84,10 +84,12 @@ public sealed class AdyenSetupSessionRequestFactory : IPaymentMethodSetupRequest
                 SiteId = provider.SiteId,
                 OrganizationId = payment.OrganizationId
             },
-            // A card-on-file setup's entire purpose is a reusable token, so consent and a shopper
-            // reference are always requested -- never conditional the way a priced checkout's
-            // ShouldSavePaymentMethod is.
-            StorePaymentMethodMode = "askForConsent",
+            // A card-on-file setup's entire purpose is a reusable token, so storing is enabled and a
+            // shopper reference always sent -- never conditional the way a priced checkout's
+            // ShouldSavePaymentMethod is. Not "askForConsent": that renders an unticked checkbox,
+            // and a shopper who leaves it alone completes the session without Adyen ever creating
+            // a token, so the setup waits for a token-confirmed signal that never arrives.
+            StorePaymentMethodMode = "enabled",
             // The subscription module is this factory's only caller (see the type's own remarks),
             // and every token it saves is for a scheduled, merchant-initiated renewal -- Adyen's
             // "Subscription" recurring model, not "CardOnFile" (shopper-initiated reuse). Not

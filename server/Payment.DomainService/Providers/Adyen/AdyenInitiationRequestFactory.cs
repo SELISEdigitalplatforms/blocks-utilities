@@ -73,9 +73,21 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
                 // those webhooks unauthorized and leaves the payment in Processing for good.
                 OrganizationId = payment.OrganizationId
             },
-            StorePaymentMethodMode = request.ShouldSavePaymentMethod
-                ? "askForConsent"
-                : "disabled",
+            // A subscription charge stores the card unconditionally: its renewal is charged with
+            // nobody present, so the token is a precondition of the purchase, not an optional
+            // convenience. "askForConsent" only offers an unticked checkbox on Adyen's page, and a
+            // shopper who left it alone paid without leaving a card behind -- no token webhook, no
+            // saved card, and a renewal with nothing to charge. The shopper's consent to recurring
+            // charges is the subscription terms they accepted. Any other caller that saves a card
+            // keeps asking, because there saving really is the shopper's choice.
+            StorePaymentMethodMode = !request.ShouldSavePaymentMethod
+                ? "disabled"
+                : string.Equals(
+                    request.RecurringModel,
+                    PaymentConstants.SubscriptionRecurringModel,
+                    StringComparison.Ordinal)
+                    ? "enabled"
+                    : "askForConsent",
             // Subscription checkout declares its own model explicitly (see MakePaymentRequest.
             // RecurringModel and the validator that limits it to that one caller); any other
             // caller that saves a token here keeps the long-standing CardOnFile default -- a
