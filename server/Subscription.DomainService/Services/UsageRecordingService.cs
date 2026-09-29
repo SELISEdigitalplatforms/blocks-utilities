@@ -891,6 +891,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
             {
                 return await ReplayAsync(
                     subscription,
+                    seat,
+                    context.UserId,
                     meter,
                     period,
                     opening,
@@ -1177,19 +1179,30 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// </summary>
     private async Task<SubscriptionOperationResult<UsageResponse>> ReplayAsync(
         SubscriptionDetail subscription,
+        int? seat,
+        string? holderUserId,
         PlanMeter meter,
         BillingPeriod period,
         decimal allowance,
         string correlationId,
         CancellationToken cancellationToken)
     {
+        // The counter the first call applied to — the place's own where it drew on one. Read by
+        // the subscription's id alone, a place's replay answered with a balance that was not its.
         var counter = await _usage.GetCounterAsync(
             subscription.TenantId,
             SubscriptionUsageCounter.CreateId(
                 subscription.ItemId,
                 meter.MeterKey,
-                period.Key),
+                period.Key,
+                seat),
             cancellationToken);
+
+        if (counter is not null)
+        {
+            // A counter last written before the seat was stored on it.
+            counter.SeatNumber ??= seat;
+        }
 
         var balance = counter?.Balance ?? 0;
 
@@ -1207,7 +1220,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 counter,
                 allowance,
                 correlationId,
-                cancellationToken));
+                cancellationToken,
+                holderUserId: holderUserId));
         }
 
         return SubscriptionOperationResult<UsageResponse>.Success(
