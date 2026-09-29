@@ -47,12 +47,20 @@ and consumes it **report-only**: it never blocks, waits on or rolls back a signa
 
 Mirrors `PdfIngestionJob`: written when a request is accepted, updated as the worker processes it,
 keyed by the file's storage id. **Re-validating a file replaces its job**: it is reset to `Queued`
-and the new verdict overwrites the old one, so `/status` always answers for the latest request.
+under a new `RunId` and the new verdict overwrites the old one, so `/status` always answers for the
+latest request.
+
+Every write the worker makes (`Processing`, `Completed`, `Failed`) is conditional on the job's
+`RunId` still matching the one in the queue message. A run that was superseded while in flight
+finds no match: its result is discarded, no notification is sent, and the discard is logged at
+information level. Without this, a run that started before a re-request would finish last and overwrite
+the newer job with a stale verdict.
 
 | Field | Meaning |
 |---|---|
 | `Id` | The file's storage id (key). |
 | `Status` | `Queued` → `Processing` → `Completed` or `Failed`; stored as a string (as `PdfIngestionJob`). |
+| `RunId` | New for every accepted request and carried in its queue message; guards the worker's writes (see above). Not in `PdfIngestionJob`. |
 | `MessageCoRelationId`, `UserId`, `TenantId`, `CreatedBy`, `CreateDate`, `LastUpdateDate`, `CompletedDate`, `FileName` | As `PdfIngestionJob`. |
 | `ErrorCode`, `ErrorMessage` | Why the job produced no verdict; only when `Failed`. |
 | `Verdict` | Once `Completed`. |
@@ -97,10 +105,15 @@ Both endpoints `[Authorize]`, `ApiResponse<T>` envelope and status-code mapping 
 | POST | `/pdf-signature-validations` | `{ fileIds: string[], messageCoRelationId?: string }` | `202` `{ results: [{ fileId, accepted, status?, errorCode?, errorMessage? }], acceptedCount, rejectedCount, statusUrl, messageCoRelationId }` | `400` empty or more than **50** ids; `503` queue unavailable |
 | POST | `/pdf-signature-validations/status` | `{ fileIds: string[] }` | `200` `{ results: [{ fileId, found, status?, isComplete, errorCode?, errorMessage?, requestedAtUtc?, completedAtUtc?, verdict? }] }` | `400` empty or more than **50** ids |
 
-- Each file in a batch is accepted or rejected independently (blank or duplicate id → that entry
-  rejected, the rest queued), as ingestion does.
-- `/status` answers **every** id asked about: `found: false` for one never submitted (or belonging
-  to another tenant).
+- Each entry in a batch is accepted or rejected independently, and the response has **one result
+  per entry sent**, in order. A blank id is rejected with `input_file_id_required` (as ingestion).
+  A repeated id is queued once: its first occurrence is accepted and each later one is rejected with
+  `input_file_id_duplicate`. **This differs from ingestion**, which silently removes duplicates.
+- The 50-id limit counts the entries as sent, before blanks or duplicates are removed. (Ingestion
+  removes duplicates first, so it accepts a longer list.)
+- `/status` works as ingestion's does: it ignores blank ids and answers each distinct id once, in the
+  order first asked. A never-submitted id, or one belonging to another tenant, answers
+  `found: false`. A request whose ids are all blank is a `400`.
 - `isComplete` is true once `status` is `Completed` or `Failed`.
 - With `messageCoRelationId`, a completion notification is sent per file, as for ingestion.
 
@@ -122,11 +135,13 @@ from storage under that project key. No new permission.
 | Signer's CA on no trusted list and not a configured anchor | `Completed`; that signature `INDETERMINATE` / `NO_CERTIFICATE_CHAIN_FOUND`. |
 | Document carries no revocation data for the signer | `Completed`; level stops below LT, `RevocationOrigin = None` (online fetching is off by design). |
 | Several signatures, some failing | `Completed`; each reported on its own, `AllPassed = false`. |
-| A file takes longer than the per-file timeout (default **60 s**, configurable) | `Failed`, `validation_timeout`; the Java process is restarted before the next file. |
-| The Java process crashes | `Failed`, `validator_crashed`; restarted before the next file. **No automatic retry**; the caller may re-request. |
+| A file takes longer than the per-file timeout (default **30 s**, configurable) | `Failed`, `validation_timeout`; the Java process is restarted before the next file and reloads the trusted lists from the local cache (see Runtime), not from the network. |
+| The Java process crashes | `Failed`, `validator_crashed`; restarted before the next file, reloading from the local cache as above. **No automatic retry**; the caller may re-request. |
 | Trusted-list refresh fails | Keep using the lists already loaded; log a warning. |
-| No trusted list has ever loaded in this process | Jobs `Failed`, `trust_lists_unavailable` (never a misleading `INDETERMINATE`). |
-| Same file id requested again while its job is queued or running | Accepted; the job is reset to `Queued` and the latest request's verdict is the one kept. |
+| The cached lists have expired (their `NextUpdate` has passed) and a refresh has not succeeded yet | Treated as a failed refresh: keep validating with them and log a warning. `TrustedListsLoadedAt` shows how old they are. |
+| Trusted lists not loaded yet (a new worker whose local cache is empty, still downloading) | The job is **not failed**: the message goes back on the queue with the queue's usual backoff and the job stays `Queued`, as financial-document delivery does while its PDF renderer is unhealthy. |
+| Trusted lists still not loaded when the job has been waiting longer than the start-up wait (default **10 min**, configurable, measured from the request) | `Failed`, `trust_lists_unavailable` (never a misleading `INDETERMINATE`). |
+| Same file id requested again while its job is queued or running | Accepted; the job is reset to `Queued` under a new `RunId`. The earlier run's writes no longer match, so only the latest request's verdict is kept and only it sends a notification. |
 | Notification fails | Logged; the job's recorded outcome is unchanged (as ingestion). |
 
 ## Non-Functional Requirements
@@ -134,14 +149,28 @@ from storage under that project key. No new permission.
 - **Volume:** a few hundred files per day, bursts of ~100 after bulk signing.
 - **Latency:** a verdict within **1–2 minutes** of the request at normal load; a burst of 100 files
   on one worker completes within **5 minutes** — spec 009 polls every 30 s for at most ~5 minutes.
+  The per-file timeout (30 s) is set so that even a file that runs to the timeout reaches a
+  `Failed` result within the 1-minute target. Raising it past about 45 s breaks that target.
+  Both targets assume the trusted lists are already loaded; a new pod's first download is outside
+  them.
 - **Runtime:** **one long-running JVM per worker**, started with the worker, with the trusted lists
   loaded once and refreshed every **24 h** (configurable). The .NET consumer sends it one file at a
   time (JSON over stdin/stdout); the JVM is supervised and restarted on crash or timeout.
+- **Trusted-list cache:** DSS's `FileCacheDataLoader` keeps the downloaded lists in a **local
+  directory** on the worker's disk (default `/tmp/dss-tl-cache`, configurable). It is created in
+  `Dockerfile.worker` and owned by `app`, as `/tmp/pdf-ingestion` is. On every start the JVM first
+  loads from that directory (`offlineRefresh()`), then refreshes from the network in the background
+  (`onlineRefresh()`). A JVM restarted after a timeout or crash is therefore ready in seconds, not
+  after a full download.
 - **Concurrency:** one file at a time per worker; scale by worker replicas.
 - **Memory:** the JVM's heap is capped by configuration (starting point 512 MB), sized so the
   worker's existing tools keep their headroom.
-- **Stateless trust:** nothing persists across worker restarts; the lists are downloaded again at
-  start-up.
+- **Trust state is per worker:** the cache lasts as long as the container, so it survives JVM
+  restarts but not pod restarts or rescheduling. Nothing is shared between workers. A new pod starts
+  with an empty cache, and its jobs wait as described under Edge Cases rather than fail. Share the
+  cache between workers (e.g. in Redis, which Payment and Sms already use through Genesis
+  `ICacheClient`) only if that wait proves too long. The lists are signed and DSS checks those
+  signatures on load, so a shared copy would not need to be trusted.
 
 ## Integrations
 
@@ -154,7 +183,7 @@ from storage under that project key. No new permission.
 | Storage | Existing `PdfStorageHelper`: read only. |
 | Queue | **New queue** for validation events, alongside `blocks_pdf_ingestion_listener`. |
 | Notifications | Existing `IPdfGeneratorNotificationService`, a new event type for validation completion. |
-| Health / metrics | The worker's tool health check gains the validator (process up, trusted-list age). Counters: completed, failed, timed out; gauge: trusted-list age. |
+| Health / metrics | **New work.** The Worker has no HTTP host and no `IHealthCheck` registrations; those exist only in `Api/Program.cs`. The validator follows the Worker's in-process pattern for the PDF renderer (`FinancialDocumentRendererReadinessCheck`, `FinancialDocumentRendererHealthMonitor`, `IFinancialDocumentRendererHealth`): a health gate records whether the JVM is up and the lists are loaded, the consumer reads it (see Edge Cases), and a critical log is written when it turns unhealthy. The Api's health endpoints do not report it. Counters: completed, failed, timed out, re-queued while not ready; gauges: trusted-list age, validator ready (0/1). |
 | `l3-net-signature-app` spec 009 | First consumer, report-only; this spec is its "Required blocks-utilities contract". |
 
 ## Acceptance Criteria
@@ -165,14 +194,17 @@ response is `202` with one result per id, each valid id `accepted: true` and a j
 **AC-2** — Given 0 or 51+ ids, when POSTed to either endpoint, then `400` with a `fileIds` field
 error, and nothing is queued.
 
-**AC-3** — Given a blank or duplicate id in a batch, then that entry is rejected and every other
-id is still queued.
+**AC-3** — Given a batch with a blank id and an id repeated twice, then the response has one result
+per entry sent: the blank one is rejected with `input_file_id_required`, the repeat's first
+occurrence is accepted and its second is rejected with `input_file_id_duplicate`, and every other id
+is still queued. Given 51 entries of which only 50 are distinct, then `400`.
 
 **AC-4** — Given a file validated before, when requested again, then its job resets to `Queued`
 and, once done, `/status` returns only the new verdict.
 
 **AC-5** — Given ids that were never submitted, or belong to another tenant, when `/status` is
-called, then each answers `found: false`, and every id asked about has exactly one result.
+called, then each answers `found: false`, and every distinct non-blank id asked about has exactly
+one result. Blank ids are ignored and a repeated id is answered once.
 
 **AC-6** — Given the SELISE signature app's legacy-signed reference file (one Swisscom AIS Static
 signature, `/DSS` with OCSP and CRL), with Swisscom's CAs configured as extra anchors, when
@@ -200,23 +232,31 @@ validated, then `INDETERMINATE` / `NO_CERTIFICATE_CHAIN_FOUND`.
 `Failed` with `input_not_pdf`, `input_password_protected` or `input_file_not_found`.
 
 **AC-13** — Given a file that takes longer than the per-file timeout, then `Failed` with
-`validation_timeout`, and the next file is validated by a fresh Java process.
+`validation_timeout`, and the next file is validated by a fresh Java process that loads the trusted
+lists from the local cache without any network access.
 
-**AC-14** — Given the trusted lists have never loaded, when a file is processed, then `Failed` with
-`trust_lists_unavailable`; given a refresh fails after a successful load, then validation continues
-with the loaded lists and a warning is logged.
+**AC-14** — Given the trusted lists are not loaded yet, when a file is processed, then the job stays
+`Queued` and is validated once they load. Given they are still not loaded after the start-up wait,
+then `Failed` with `trust_lists_unavailable`. Given a refresh fails after a successful load, then
+validation continues with the loaded lists and a warning is logged.
+
+**AC-14a** — Given a file is requested again while its first run is `Processing`, when the first run
+finishes after the second request, then `/status` shows the second request's result (`Queued`,
+`Processing` or its own verdict), never the first run's verdict, and only the second run sends a
+completion notification.
 
 **AC-15** — Given a validation run, then the file in storage is byte-for-byte unchanged.
 
 **AC-16** — Given a `messageCoRelationId`, when a file's job completes or fails, then one
 completion notification is sent for that file; a notification failure leaves the job unchanged.
 
-**AC-17** — Given the worker is up, then its health check reports the validator and the age of the
-trusted lists, and the completed / failed / timed-out counters and the trusted-list-age gauge are
-exported.
+**AC-17** — Given the worker is up, then the validator's health gate reports whether the JVM is up
+and the lists are loaded, a critical log is written when it turns unhealthy, and the counters and
+gauges listed under Integrations are exported.
 
-**AC-18** — Given 100 files queued at once on one worker, then every verdict is available within
-5 minutes of the first request, and a single file on an idle worker within 1 minute.
+**AC-18** — Given the trusted lists are loaded and 100 files are queued at once on one worker, then
+every result is available within 5 minutes of the first request. A single file on an idle worker has
+its result within 1 minute, including a file that runs to the per-file timeout.
 
 ## Deferred Decisions
 
@@ -224,6 +264,7 @@ exported.
 |---|---|---|
 | Job retention | Same as ingestion jobs (no TTL). | Ingestion gets a TTL, or validation jobs grow beyond expectations. |
 | Keeping full DSS reports | Not kept. | An audit or support case needs the detailed report. |
+| Sharing the trusted-list cache between workers | Local directory per worker; a new pod downloads its own copy while jobs wait. | New pods' first downloads push bursts past the 5-minute target, or the start-up wait expires in practice. |
 
 ## Open Questions
 
