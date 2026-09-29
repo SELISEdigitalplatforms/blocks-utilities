@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AlertCircle, FlaskConical, Layers, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { Button } from "@/components/ui-kits/button/button";
@@ -135,9 +136,17 @@ export const SubscriptionSimulationPage = () => {
     ),
   );
 
+  const queryClient = useQueryClient();
+
+  // Everything the page shows, not just the plans and the current subscription: the per-person
+  // list, its rosters and the usage read too. A payment landing in Stripe changes those without
+  // any action here, and only a reload used to bring the Members card up to date.
   const refresh = () => {
     refetchPlans();
     refetchCurrent();
+    queryClient.invalidateQueries({ queryKey: ["subscription-simulation-current"] });
+    queryClient.invalidateQueries({ queryKey: ["subscription-simulation-members"] });
+    queryClient.invalidateQueries({ queryKey: ["subscription-usage"] });
   };
 
   const cancelPendingQuantity = useCancelPendingQuantityChange();

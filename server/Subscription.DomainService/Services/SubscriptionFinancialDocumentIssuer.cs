@@ -1813,10 +1813,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// overage, without numbers it would have to reconstruct from today's plan.
     /// </remarks>
     private static string BeyondAllowance(UsageInvoiceLine line) =>
-        line is { IncludedQuantity: { } included, UsedQuantity: { } used }
-            ? $"usage beyond the {MeterQuantity.Describe(included)} included " +
-              $"({MeterQuantity.Describe(used)} used)"
-            : "usage beyond the included allowance";
+        line switch
+        {
+            { IncludedQuantity: { } included, UsedQuantity: { } used, PlaceCount: { } places } =>
+                $"usage beyond each place's own allowance ({places} {(places == 1 ? "place" : "places")}: " +
+                $"{MeterQuantity.Describe(included)} included, {MeterQuantity.Describe(used)} used between them)",
+            { IncludedQuantity: { } included, UsedQuantity: { } used } =>
+                $"usage beyond the {MeterQuantity.Describe(included)} included " +
+                $"({MeterQuantity.Describe(used)} used)",
+            _ => "usage beyond the included allowance"
+        };
 
     /// <summary>What a meter is called on an invoice: its display name, or its key where it has none.</summary>
     private static string MeterLabel(PlanMeter meter) =>

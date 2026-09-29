@@ -746,6 +746,24 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                 current => current.UserId, string.Empty),
             cancellationToken: cancellationToken);
 
+    public async Task ClearSeatHoldersAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken) =>
+        await Current(tenantId).UpdateManyAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.TenantId, tenantId),
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SubscriptionId, subscriptionId),
+                Builders<SubscriptionUsageCurrent>.Filter.Ne(
+                    current => current.SeatNumber, null),
+                Builders<SubscriptionUsageCurrent>.Filter.Ne(
+                    current => current.UserId, string.Empty)),
+            Builders<SubscriptionUsageCurrent>.Update.Set(
+                current => current.UserId, string.Empty),
+            cancellationToken: cancellationToken);
+
     public async Task<bool> TryRetireAsync(
         string tenantId,
         string itemId,

@@ -35,6 +35,7 @@ public sealed class SubscriptionCancellationServiceTests
     private readonly Mock<ISubscriptionWorkScheduler> _scheduler = new();
     private readonly Mock<IUsagePeriodClosureRepository> _closures = new();
     private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
+    private readonly Mock<ISubscriptionUsageCurrentRepository> _current = new();
     private readonly ControlledTimeProvider _time =
         new(new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
 
@@ -208,6 +209,36 @@ public sealed class SubscriptionCancellationServiceTests
             repository => repository.ReleaseAllAsync(
                 TenantId, "sub-1", _time.GetUtcNow().UtcDateTime, It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    /// <remarks>
+    /// Found on dev: every place was released, but each place's usage row still named its last
+    /// holder, so the subscription read as held by people nobody had kept on it.
+    /// </remarks>
+    [Fact]
+    public async Task An_immediate_cancellation_stops_the_usage_rows_naming_anyone()
+    {
+        _subscription!.Plan.SubscriberScope = SubscriberScope.User;
+
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.ClearSeatHoldersAsync(TenantId, "sub-1", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task An_organization_wise_cancellation_leaves_the_usage_rows_alone()
+    {
+        await Service().CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.ClearSeatHoldersAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "its rows are the organization's own and its per-person shares, which no place holds");
     }
 
     [Fact]
@@ -1158,7 +1189,8 @@ public sealed class SubscriptionCancellationServiceTests
         _time,
         _scheduler.Object,
         _closures.Object,
-        assignments: _assignments.Object);
+        assignments: _assignments.Object,
+        current: _current.Object);
 
     /// <summary>
     /// Only the allowance-snapshot tests need a real usage repository/resolver wired in — every

@@ -338,10 +338,10 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         var (context, subscription) = resolved.Value;
         var releasedAtUtc = _time.GetUtcNow().UtcDateTime;
 
-        var outcome = await _assignments.TryReleaseAsync(
+        var released = await _assignments.TryReleaseAsync(
             context.TenantId, subscription.ItemId, userId, releasedAtUtc, cancellationToken);
 
-        if (outcome == MemberReleaseOutcome.NotHeld)
+        if (released is null)
         {
             return Failure<SubscriptionMemberResponse>(
                 PaymentFailureKind.NotFound,
@@ -361,6 +361,8 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             {
                 SubscriptionId = subscription.ItemId,
                 UserId = userId,
+                SeatNumber = released.SeatNumber,
+                AssignedAtUtc = released.AssignedAtUtc,
                 ReleasedAtUtc = releasedAtUtc
             },
             correlationId);

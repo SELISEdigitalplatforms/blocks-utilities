@@ -68,7 +68,9 @@ export const ChangePlanDialog = ({
 
   const [targetPlanId, setTargetPlanId] = useState(currentPlan?.planId ?? "");
   const [priceId, setPriceId] = useState("");
-  const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [quantities, setQuantities] = useState<Record<string, string>>(() =>
+    Object.fromEntries(subscription.quantities.map((held) => [held.itemKey, String(held.quantity)])),
+  );
   const [quote, setQuote] = useState<SubscriptionPlanChangePreview | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmationProfileGap, setConfirmationProfileGap] =
@@ -97,7 +99,15 @@ export const ChangePlanDialog = ({
     setPriceId(plan?.prices[0]?.priceId ?? "");
     setQuantities(
       Object.fromEntries(
-        (plan?.quantityItems ?? []).map((item) => [item.itemKey, String(item.defaultQuantity)]),
+        // What the subscription holds now where the item carries over — the plan's default would
+        // quietly drop places a change of plan was never meant to touch.
+        (plan?.quantityItems ?? []).map((item) => [
+          item.itemKey,
+          String(
+            subscription.quantities.find((held) => held.itemKey === item.itemKey)?.quantity ??
+              item.defaultQuantity,
+          ),
+        ]),
       ),
     );
     setFormError(null);

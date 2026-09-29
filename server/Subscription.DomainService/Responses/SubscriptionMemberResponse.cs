@@ -8,7 +8,7 @@ public sealed class SubscriptionMemberResponse
     public string UserId { get; init; } = string.Empty;
 
     /// <summary>
-    /// Which place, 1-based. Null on a release, which answers who left rather than where from.
+    /// Which place, 1-based — on a release, the one just given back.
     /// </summary>
     public int? SeatNumber { get; init; }
 

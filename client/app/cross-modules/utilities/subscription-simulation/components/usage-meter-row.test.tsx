@@ -100,6 +100,31 @@ describe("UsageMeterRow", () => {
   });
 
   /**
+   * Found on dev: after moving from a place 130 in to an empty one, the row kept showing 130 — the
+   * new place's 0 looked like a read that had not caught up with the recording yet.
+   */
+  it("takes a fresh read over its own recording, even when the read shows less", async () => {
+    recordUsage.mockResolvedValue({ ...usage, used: 130, remaining: 20 });
+
+    const { rerender } = render(
+      <UsageMeterRow meter={meter} entitlementKey={undefined} usage={usage} organizationId={undefined} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Consume" }));
+    expect(await screen.findByText(/^130\/150 screenings used this period/)).toBeInTheDocument();
+
+    rerender(
+      <UsageMeterRow
+        meter={meter}
+        entitlementKey={undefined}
+        usage={{ ...usage, used: 0, remaining: 150 }}
+        organizationId={undefined}
+      />,
+    );
+
+    expect(screen.getByText(/^0\/150 screenings used this period/)).toBeInTheDocument();
+  });
+
+  /**
    * Three outcomes, not two. A use past a reporting pace is allowed, so shown as plain success the
    * whole throttle behaviour would be invisible and the cap would appear to do nothing.
    */

@@ -136,6 +136,23 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
     }
 
     [Fact]
+    public async Task A_release_hands_back_the_seat_it_released()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var releasedAt = new DateTime(2026, 9, 29, 0, 0, 0, DateTimeKind.Utc);
+
+        await _assignments.TryAssignAsync(
+            NewAssignment(tenantId, "sub-a", "user-a", seat: 3), CancellationToken.None);
+
+        var released = await _assignments.TryReleaseAsync(
+            tenantId, "sub-a", "user-a", releasedAt, CancellationToken.None);
+
+        released.Should().NotBeNull();
+        released!.SeatNumber.Should().Be(3);
+        released.ReleasedAtUtc.Should().Be(releasedAt);
+    }
+
+    [Fact]
     public async Task A_released_seat_stops_granting_anything()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
@@ -159,7 +176,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         (await _assignments.TryReleaseAsync(
                 tenantId, "sub-a", "user-ghost", DateTime.UtcNow, CancellationToken.None))
-            .Should().Be(MemberReleaseOutcome.NotHeld);
+            .Should().BeNull();
     }
 
     [Fact]
@@ -174,7 +191,7 @@ public sealed class SubscriptionAssignmentRepositoryIntegrationTests
 
         (await _assignments.TryReleaseAsync(
                 tenantId, "sub-a", "user-a", DateTime.UtcNow, CancellationToken.None))
-            .Should().Be(MemberReleaseOutcome.NotHeld,
+            .Should().BeNull(
                 because: "the filter already excludes released rows, so a repeat cannot be " +
                          "reported as a fresh release");
     }

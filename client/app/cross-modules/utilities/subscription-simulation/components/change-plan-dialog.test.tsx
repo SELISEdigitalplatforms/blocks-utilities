@@ -173,6 +173,34 @@ beforeEach(() => {
 });
 
 describe("ChangePlanDialog", () => {
+  /**
+   * Found on dev: the dialog filled each quantity from the target plan's default, so moving a
+   * two-place subscription quietly quoted — and would have applied — one place.
+   */
+  it("starts from the quantities the subscription holds, not the plan's defaults", () => {
+    const seat = { itemKey: "seat", unitLabel: "seat", defaultQuantity: 1, minQuantity: 1, maxQuantity: null };
+    const withSeats = (plan: SubscriptionPlan) => ({ ...plan, quantityItems: [seat] }) as SubscriptionPlan;
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ChangePlanDialog
+          subscription={{ ...subscription, quantities: [{ ...seat, quantity: 2 }] } as SimulatedSubscription}
+          currentPlan={withSeats(currentPlan)}
+          plans={[withSeats(currentPlan), withSeats(premiumPlan)]}
+          organizationId="org-1"
+          open
+          onOpenChange={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByLabelText("seat")).toHaveValue(2);
+
+    selectTargetPlan();
+
+    expect(screen.getByLabelText("seat")).toHaveValue(2);
+  });
+
   it("cannot be confirmed before a preview is taken", () => {
     renderDialog();
 

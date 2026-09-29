@@ -36,7 +36,11 @@ public interface ISubscriptionAssignmentRepository
     /// The meter counts against the subscription and is not reset when a seat changes hands, so
     /// this is the only record of why the next holder inherited a part-spent window.
     /// </remarks>
-    Task<MemberReleaseOutcome> TryReleaseAsync(
+    /// <returns>
+    /// The seat as released, or null when there was no live seat to give back — whether this
+    /// person never had one here or already gave it up, which no caller treats differently.
+    /// </returns>
+    Task<SubscriptionAssignment?> TryReleaseAsync(
         string tenantId,
         string subscriptionId,
         string userId,

@@ -188,6 +188,15 @@ public interface ISubscriptionUsageCurrentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Empties the holder on every place row of a subscription, for when the subscription ends and
+    /// every place is released at once.
+    /// </summary>
+    Task ClearSeatHoldersAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Removes a subscription's rows that name no place.
     /// </summary>
     /// <remarks>
