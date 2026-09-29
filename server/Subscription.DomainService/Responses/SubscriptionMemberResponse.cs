@@ -76,6 +76,12 @@ public sealed class SubscriptionMembersResponse
     public DateTime? ScheduledAtUtc { get; init; }
 
     public List<SubscriptionMemberResponse> Seats { get; init; } = [];
+
+    /// <summary>
+    /// Each place's usage in its current windows, one entry per place and meter, read from the
+    /// usage projection. A place used and since released is still here, with no holder.
+    /// </summary>
+    public List<PlaceUsageResponse> Usage { get; init; } = [];
 }
 
 /// <summary>A place the caller holds, and the subscription it is on.</summary>
@@ -96,4 +102,59 @@ public sealed class HeldPlaceResponse
 
     /// <summary>True when a cancellation is scheduled for the end of the current period.</summary>
     public bool CancelAtPeriodEnd { get; init; }
+}
+
+/// <summary>One place's usage of one meter in its current window.</summary>
+public sealed class PlaceUsageResponse
+{
+    public int SeatNumber { get; init; }
+
+    /// <summary>Who holds the place now; empty when nobody does.</summary>
+    public string UserId { get; init; } = string.Empty;
+
+    public string MeterKey { get; init; } = string.Empty;
+
+    public string UnitLabel { get; init; } = string.Empty;
+
+    public int QuantityScale { get; init; }
+
+    public decimal Included { get; init; }
+
+    /// <summary>The place's, so it includes whatever an earlier holder spent in this window.</summary>
+    public decimal Used { get; init; }
+
+    public decimal Remaining { get; init; }
+
+    public decimal Overage { get; init; }
+
+    public DateTime PeriodEndUtc { get; init; }
+
+    public DateTime UpdatedAtUtc { get; init; }
+
+    /// <summary>Each pace as the last recording left it; empty until one has.</summary>
+    public List<PlaceSubLimitResponse> SubLimits { get; init; } = [];
+}
+
+public sealed class PlaceSubLimitResponse
+{
+    public string Window { get; init; } = string.Empty;
+
+    public int WindowCount { get; init; } = 1;
+
+    public bool Rolling { get; init; }
+
+    public string Behaviour { get; init; } = string.Empty;
+
+    public decimal Quantity { get; init; }
+
+    public decimal Used { get; init; }
+
+    public decimal Remaining { get; init; }
+
+    public bool Exceeded { get; init; }
+
+    public DateTime WindowStartUtc { get; init; }
+
+    /// <summary>When a fixed window resets; null for a rolling one.</summary>
+    public DateTime? WindowEndUtc { get; init; }
 }

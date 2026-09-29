@@ -166,3 +166,51 @@ describe("MembersCard cancel", () => {
     expect(await screen.findByRole("dialog", { name: "Cancel user-test-4" })).toBeInTheDocument();
   });
 });
+
+describe("MembersCard place usage", () => {
+  it("shows what each place has spent of every meter and pace", async () => {
+    listMemberBasedSubscriptions.mockResolvedValue([
+      { subscriptionId: "sub-1", status: "Active", planCode: "u", planName: "user-test-4", checkoutUrl: null },
+    ]);
+    listMembers.mockResolvedValue({
+      subscriptionId: "sub-1",
+      purchased: 2,
+      held: 1,
+      available: 1,
+      seats: [
+        { subscriptionId: "sub-1", userId: "user-a", seatNumber: 1, assignedAtUtc: "", releasedAtUtc: null },
+      ],
+      usage: [
+        {
+          seatNumber: 1,
+          userId: "user-a",
+          meterKey: "tokens",
+          unitLabel: "tokens",
+          quantityScale: 0,
+          included: 100,
+          used: 12,
+          remaining: 88,
+          overage: 0,
+          periodEndUtc: "2026-10-29T00:00:00Z",
+          updatedAtUtc: "2026-09-29T00:00:00Z",
+          subLimits: [
+            {
+              window: "Hour", windowCount: 5, rolling: true, behaviour: "Refuse", quantity: 10,
+              used: 11, remaining: 0, exceeded: true, windowStartUtc: "", windowEndUtc: null,
+            },
+          ],
+        },
+      ],
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembersCard plans={[]} organizationId={undefined} />
+      </QueryClientProvider>,
+    );
+
+    const line = (await screen.findByText("tokens")).closest("li");
+    expect(line).toHaveTextContent("tokens 12 / 100 tokens · 11 / 10 in any 5 hours");
+    expect(screen.getByText(/11 \/ 10 in any 5 hours/)).toHaveClass("text-destructive");
+  });
+});

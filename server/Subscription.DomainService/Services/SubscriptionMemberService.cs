@@ -26,6 +26,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
     private readonly IEntitlementSnapshotCache _cache;
     private readonly ISubscriptionUsageRepository? _usage;
     private readonly IMeterAllowanceResolver? _allowances;
+    private readonly ISubscriptionUsageCurrentRepository? _current;
     private readonly TimeProvider _time;
 
     public SubscriptionMemberService(
@@ -37,7 +38,9 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         // Optional together: without them a free seat cannot be told from another free seat, and
         // the lowest free number is what this handed out before seats counted their own usage.
         ISubscriptionUsageRepository? usage = null,
-        IMeterAllowanceResolver? allowances = null)
+        IMeterAllowanceResolver? allowances = null,
+        // Optional: without it a place's usage row keeps naming whoever last recorded on it.
+        ISubscriptionUsageCurrentRepository? current = null)
     {
         _subscriptions = subscriptions;
         _assignments = assignments;
@@ -45,6 +48,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         _cache = cache;
         _usage = usage;
         _allowances = allowances;
+        _current = current;
         _time = time ?? TimeProvider.System;
     }
 
@@ -174,6 +178,11 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             taken.Add(seat.Value);
             seated.Add(userId);
             assigned.Add(Describe(assignment));
+
+            await NameHolderAsync(
+                () => _current!.SetSeatHolderAsync(
+                    context.TenantId, subscription.ItemId, seat.Value, userId,
+                    assignment.AssignedAtUtc, cancellationToken));
         }
 
         if (assigned.Count > 0)
@@ -335,6 +344,10 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
 
         _cache.Invalidate(context.TenantId, subscription.OrganizationId);
 
+        await NameHolderAsync(
+            () => _current!.ClearSeatHolderAsync(
+                context.TenantId, subscription.ItemId, userId, releasedAtUtc, cancellationToken));
+
         return SubscriptionOperationResult<SubscriptionMemberResponse>.Success(
             new SubscriptionMemberResponse
             {
@@ -431,9 +444,74 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 Available = Math.Max(0, fillable - held.Count),
                 ScheduledPlaces = cut ? places.Scheduled : null,
                 ScheduledAtUtc = cut ? places.ScheduledAtUtc : null,
-                Seats = [.. held.Select(Describe)]
+                Seats = [.. held.Select(Describe)],
+                Usage = await PlaceUsageAsync(context.TenantId, subscription.ItemId, cancellationToken)
             },
             correlationId);
+    }
+
+    /// <summary>
+    /// Each place's current-window rows from the usage projection, or none when it cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// A display figure beside the roster, so a failed read leaves it out rather than failing the
+    /// roster it sits beside.
+    /// </remarks>
+    private async Task<List<PlaceUsageResponse>> PlaceUsageAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken)
+    {
+        if (_current is null)
+        {
+            return [];
+        }
+
+        IReadOnlyList<SubscriptionUsageCurrent> rows;
+
+        try
+        {
+            rows = await _current.ListBySubscriptionAsync(tenantId, subscriptionId, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return [];
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        return [.. rows
+            .Where(row => row.SeatNumber is not null &&
+                          row.PeriodStartUtc <= now && now < row.PeriodEndUtc)
+            .OrderBy(row => row.SeatNumber)
+            .ThenBy(row => row.MeterKey, StringComparer.Ordinal)
+            .Select(row => new PlaceUsageResponse
+            {
+                SeatNumber = row.SeatNumber!.Value,
+                UserId = row.UserId,
+                MeterKey = row.MeterKey,
+                UnitLabel = row.UnitLabel,
+                QuantityScale = row.QuantityScale,
+                Included = row.Included,
+                Used = row.Used,
+                Remaining = row.Remaining,
+                Overage = row.Overage,
+                PeriodEndUtc = row.PeriodEndUtc,
+                UpdatedAtUtc = row.UpdatedAtUtc,
+                SubLimits = [.. (row.SubLimits ?? []).Select(pace => new PlaceSubLimitResponse
+                {
+                    Window = pace.Window.ToString(),
+                    WindowCount = pace.WindowCount,
+                    Rolling = pace.Rolling,
+                    Behaviour = pace.Behaviour.ToString(),
+                    Quantity = pace.Quantity,
+                    Used = pace.Used,
+                    Remaining = pace.Remaining,
+                    Exceeded = pace.Exceeded,
+                    WindowStartUtc = pace.WindowStartUtc,
+                    WindowEndUtc = pace.WindowEndUtc
+                })]
+            })];
     }
 
     /// <summary>
@@ -567,6 +645,31 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             .ToList();
 
         return marked.Count == 1 ? marked[0] : null;
+    }
+
+    /// <summary>
+    /// Updates who a place's usage row names, without letting that fail the assignment.
+    /// </summary>
+    /// <remarks>
+    /// The row is a read model; the assignment is the record. A write lost here is corrected by the
+    /// holder's next recording, which names them again.
+    /// </remarks>
+    private async Task NameHolderAsync(Func<Task> write)
+    {
+        if (_current is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await write();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // ponytail: swallowed unlogged; the next recording by the holder repairs it. Log it if
+            // stale holders ever need explaining.
+        }
     }
 
     /// <summary>

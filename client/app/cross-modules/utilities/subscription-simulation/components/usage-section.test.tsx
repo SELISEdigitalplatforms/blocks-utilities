@@ -93,4 +93,28 @@ describe("UsageSection", () => {
     expect(screen.queryByRole("button", { name: "Mine" })).not.toBeInTheDocument();
     expect(getCurrentUsage).not.toHaveBeenCalled();
   });
+
+  /**
+   * current lists each person's share under the same meter as the organization's own row. The row
+   * shown must be the organization's, whichever order they arrive in, with the shares beneath it.
+   */
+  it("shows the organization's figure for a meter and each person's share beneath it", async () => {
+    const [organization] = reading(700);
+    getCurrentUsage.mockResolvedValue([
+      { ...organization, userId: "user-a", used: 500, remaining: 500 },
+      organization,
+      { ...organization, userId: "user-b", used: 200, remaining: 800 },
+    ]);
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <UsageSection plan={plan("org")} organizationId="org-1" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(/700\/1000 tokens used/)).toBeInTheDocument();
+    expect(screen.getByText("By person")).toBeInTheDocument();
+    expect(screen.getByText("user-a").parentElement).toHaveTextContent("user-a used 500 token");
+    expect(screen.getByText("user-b").parentElement).toHaveTextContent("user-b used 200 token");
+  });
 });

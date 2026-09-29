@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { toast } from "@/hooks/use-toast";
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
+import { describePaceWindow } from "../../subscription/utilities/member-plan-format";
 import {
   useAssignMembers,
   useMemberBasedSubscriptions,
@@ -21,6 +22,7 @@ import {
   useReleaseMember,
 } from "../hooks/use-members";
 import type {
+  PlaceUsage,
   SimulatedSubscription,
   SubscriptionMemberAssignment,
 } from "../models/subscription-simulation.model";
@@ -214,7 +216,8 @@ const SubscriptionPlaces = ({
         ) : (
           <ul className="divide-y text-sm">
             {places.map(({ number, holder }) => (
-              <li key={number} className="flex items-center justify-between gap-2 py-1.5">
+              <li key={number} className="py-1.5">
+                <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-3">
                   <span className="w-16 text-xs text-muted-foreground">Place {number}</span>
                   {holder ? (
@@ -239,6 +242,10 @@ const SubscriptionPlaces = ({
                     Release
                   </Button>
                 ) : null}
+                </div>
+                <PlaceUsageLines
+                  usage={members?.usage?.filter((entry) => entry.seatNumber === number) ?? []}
+                />
               </li>
             ))}
           </ul>
@@ -275,6 +282,32 @@ const SubscriptionPlaces = ({
     </div>
   );
 };
+
+/**
+ * What a place has spent of each meter and each pace, from the usage projection. The place's own
+ * figures: they include whatever an earlier holder spent in the same window.
+ */
+const PlaceUsageLines = ({ usage }: { usage: PlaceUsage[] }) =>
+  usage.length === 0 ? null : (
+    <ul className="ml-[4.75rem] mt-1 space-y-0.5 text-xs text-muted-foreground">
+      {usage.map((entry) => (
+        <li key={entry.meterKey}>
+          <span className="font-medium text-foreground">{entry.meterKey}</span>{" "}
+          {entry.used.toLocaleString()} / {entry.included.toLocaleString()} {entry.unitLabel}
+          {entry.subLimits.map((pace) => (
+            <span
+              key={`${pace.window}-${pace.windowCount}-${pace.rolling}`}
+              className={pace.exceeded ? "text-destructive" : undefined}
+            >
+              {" · "}
+              {pace.used.toLocaleString()} / {pace.quantity.toLocaleString()}{" "}
+              {describePaceWindow(pace.window, pace.windowCount, pace.rolling)}
+            </span>
+          ))}
+        </li>
+      ))}
+    </ul>
+  );
 
 /** One name per line; commas and spaces also separate, since ids are pasted from anywhere. */
 const parseUserIds = (text: string): string[] => [

@@ -945,12 +945,17 @@ public sealed class UsageRecordingService : IUsageRecordingService
             // only the first one found.
             var limits = meter.EffectiveSubLimits();
             var exceeded = new List<PlanMeterSubLimit>();
+            var paces = new List<(PlanMeterSubLimit Limit, decimal Used)>();
 
             foreach (var limit in limits)
             {
-                if ((await ApplyPaceAsync(
-                        context, subscription, seat, meter, limit, occurredAt, request.Quantity,
-                        cancellationToken)).Exceeded)
+                var pace = await ApplyPaceAsync(
+                    context, subscription, seat, meter, limit, occurredAt, request.Quantity,
+                    cancellationToken);
+
+                paces.Add((limit, pace.Balance));
+
+                if (pace.Exceeded)
                 {
                     exceeded.Add(limit);
                 }
@@ -979,7 +984,10 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     allowance,
                     correlationId,
                     cancellationToken,
-                    exceeded);
+                    exceeded,
+                    // What the windows hold once this refused use is put back.
+                    [.. paces.Select(pace => PaceStateOf(
+                        pace.Limit, pace.Used - request.Quantity, occurredAt))]);
             }
 
             await _thresholds.EvaluateAsync(
@@ -999,7 +1007,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 counter,
                 allowance,
                 correlationId,
-                cancellationToken);
+                cancellationToken,
+                holderUserId: context.UserId,
+                subLimits: paces.Count == 0
+                    ? null
+                    : [.. paces.Select(pace => PaceStateOf(pace.Limit, pace.Used, occurredAt))]);
 
             // Only on the path that actually changed a balance, never on a replay — a retried
             // idempotent request must not add this user's contribution a second time, even though
@@ -1085,7 +1097,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
         decimal allowance,
         string correlationId,
         CancellationToken cancellationToken,
-        IReadOnlyList<PlanMeterSubLimit>? exceeded = null)
+        IReadOnlyList<PlanMeterSubLimit>? exceeded = null,
+        IReadOnlyList<SubscriptionUsageCurrentSubLimit>? paces = null)
     {
         await _usage.TryAppendRecordAsync(
             new SubscriptionUsageRecord
@@ -1119,7 +1132,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
             counter,
             allowance,
             correlationId,
-            cancellationToken);
+            cancellationToken,
+            holderUserId: context.UserId,
+            subLimits: paces);
 
         // The compensating half of the increment ApplyAsync already sent this user's row, so the
         // reversal has to be applied to it too or a refused call would still count against them.
@@ -1315,6 +1330,33 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// would otherwise ask for a window of no length and refuse every use ever made.
     /// </summary>
     private static int CountOf(PlanMeterSubLimit limit) => Math.Max(1, limit.WindowCount);
+
+    /// <summary>One pace as a direct reader of the projection is shown it.</summary>
+    private static SubscriptionUsageCurrentSubLimit PaceStateOf(
+        PlanMeterSubLimit limit,
+        decimal used,
+        DateTime occurredAt)
+    {
+        var count = CountOf(limit);
+
+        return new SubscriptionUsageCurrentSubLimit
+        {
+            Window = limit.Window,
+            WindowCount = count,
+            Rolling = limit.Rolling,
+            Behaviour = limit.Behaviour,
+            Quantity = limit.Quantity,
+            Used = used,
+            Remaining = Math.Max(0, limit.Quantity - used),
+            Exceeded = used > limit.Quantity,
+            WindowStartUtc = limit.Rolling
+                ? occurredAt - RollingWindowKey.SpanOf(limit.Window, count)
+                : UsageWindowKey.StartOf(limit.Window, occurredAt, count),
+            WindowEndUtc = limit.Rolling
+                ? null
+                : UsageWindowKey.EndOf(limit.Window, occurredAt, count)
+        };
+    }
 
     /// <summary>Puts back what <see cref="ApplyPaceAsync"/> counted, for a use that was refused.</summary>
     private async Task ReversePaceAsync(

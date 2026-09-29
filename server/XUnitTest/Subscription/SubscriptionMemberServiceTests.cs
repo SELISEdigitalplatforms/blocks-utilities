@@ -644,6 +644,122 @@ public sealed class SubscriptionMemberServiceTests
             Times.Never);
     }
 
+    [Fact]
+    public async Task Assigning_names_the_new_holder_on_the_places_usage_row()
+    {
+        var current = new Mock<ISubscriptionUsageCurrentRepository>();
+
+        var result = await new SubscriptionMemberService(
+            _subscriptions.Object, _assignments.Object, _contextResolver.Object,
+            new EntitlementSnapshotCache(new OptionsStub(), _time), _time, current: current.Object)
+            .AssignAsync(
+                SubscriptionId, new AssignMemberRequest { UserIds = ["user-b"] },
+                "corr-1", CancellationToken.None);
+
+        var seat = result.Value!.Assigned.Should().ContainSingle().Subject.SeatNumber!.Value;
+        current.Verify(
+            repository => repository.SetSeatHolderAsync(
+                TenantId, SubscriptionId, seat, "user-b", It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Releasing_clears_the_holder_from_the_places_usage_row()
+    {
+        var current = new Mock<ISubscriptionUsageCurrentRepository>();
+
+        await new SubscriptionMemberService(
+            _subscriptions.Object, _assignments.Object, _contextResolver.Object,
+            new EntitlementSnapshotCache(new OptionsStub(), _time), _time, current: current.Object)
+            .ReleaseAsync(SubscriptionId, "user-b", "corr-1", CancellationToken.None);
+
+        current.Verify(
+            repository => repository.ClearSeatHolderAsync(
+                TenantId, SubscriptionId, "user-b", It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_holder_that_cannot_be_written_does_not_fail_the_assignment()
+    {
+        var current = new Mock<ISubscriptionUsageCurrentRepository>();
+        current
+            .Setup(repository => repository.SetSeatHolderAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(),
+                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("mongo is away"));
+
+        var result = await new SubscriptionMemberService(
+            _subscriptions.Object, _assignments.Object, _contextResolver.Object,
+            new EntitlementSnapshotCache(new OptionsStub(), _time), _time, current: current.Object)
+            .AssignAsync(
+                SubscriptionId, new AssignMemberRequest { UserIds = ["user-b"] },
+                "corr-1", CancellationToken.None);
+
+        result.Value!.Assigned.Should().ContainSingle(
+            "the assignment is the record; the usage row is a read model the next recording repairs");
+    }
+
+    /// <remarks>
+    /// Where a person's own allowance and paces are shown beside the place they hold. Only the
+    /// current window: a row for a window that has closed describes a balance nobody can spend.
+    /// </remarks>
+    [Fact]
+    public async Task The_roster_carries_each_places_current_usage_and_paces()
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+        var current = new Mock<ISubscriptionUsageCurrentRepository>();
+        current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)
+            [
+                PlaceRow(seat: 1, "user-a", now.AddDays(-1), now.AddDays(1), used: 7),
+                PlaceRow(seat: 2, "user-b", now.AddDays(-31), now.AddDays(-1), used: 99),
+                // The organization's own row: not a place's.
+                new SubscriptionUsageCurrent
+                {
+                    SubscriptionId = SubscriptionId, MeterKey = "tokens",
+                    PeriodStartUtc = now.AddDays(-1), PeriodEndUtc = now.AddDays(1)
+                }
+            ]);
+
+        var result = await new SubscriptionMemberService(
+            _subscriptions.Object, _assignments.Object, _contextResolver.Object,
+            new EntitlementSnapshotCache(new OptionsStub(), _time), _time, current: current.Object)
+            .ListAsync(SubscriptionId, "corr-1", CancellationToken.None);
+
+        var usage = result.Value!.Usage.Should().ContainSingle(
+            "a closed window and the organization's own row are not a place's current usage").Subject;
+        usage.SeatNumber.Should().Be(1);
+        usage.UserId.Should().Be("user-a");
+        usage.Used.Should().Be(7);
+        usage.SubLimits.Should().ContainSingle().Which.Window.Should().Be("Hour");
+    }
+
+    private static SubscriptionUsageCurrent PlaceRow(
+        int seat, string userId, DateTime start, DateTime end, decimal used) => new()
+    {
+        SubscriptionId = SubscriptionId,
+        SeatNumber = seat,
+        UserId = userId,
+        MeterKey = "tokens",
+        PeriodStartUtc = start,
+        PeriodEndUtc = end,
+        Included = 100,
+        Used = used,
+        Remaining = 100 - used,
+        SubLimits =
+        [
+            new SubscriptionUsageCurrentSubLimit
+            {
+                Window = UsageWindow.Hour, WindowCount = 5, Rolling = true, Quantity = 10, Used = 3
+            }
+        ]
+    };
+
     private SubscriptionMemberService Service() => new(
         _subscriptions.Object,
         _assignments.Object,

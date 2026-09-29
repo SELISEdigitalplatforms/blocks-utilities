@@ -23,6 +23,13 @@ public interface IUsageProjectionPublisher
     /// reversal applied — so what it publishes is the balance the caller was told, never the momentary
     /// exceeded balance an enforced refusal passed through.
     /// </remarks>
+    /// <param name="holderUserId">
+    /// Who holds the place a seat counter belongs to. Ignored for a counter with no seat.
+    /// </param>
+    /// <param name="subLimits">
+    /// The meter's paces as this write left them, or null when it did not count them — which
+    /// leaves the stored figures as they are.
+    /// </param>
     Task<UsageProjectionOutcome> PublishAsync(
         SubscriptionDetail subscription,
         PlanMeter meter,
@@ -30,7 +37,9 @@ public interface IUsageProjectionPublisher
         SubscriptionUsageCounter counter,
         decimal allowance,
         string correlationId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? holderUserId = null,
+        IReadOnlyList<SubscriptionUsageCurrentSubLimit>? subLimits = null);
 
     /// <summary>
     /// Applies one acting user's own delta to their row for a meter and period.
@@ -38,7 +47,8 @@ public interface IUsageProjectionPublisher
     /// <remarks>
     /// A no-op, reported as <see cref="UsageProjectionOutcome.Published"/>, when
     /// <paramref name="userId"/> is empty: usage recorded with no user in context cannot be attributed
-    /// to one, and the aggregate row published by <see cref="PublishAsync"/> already carries it.
+    /// to one, and the aggregate row published by <see cref="PublishAsync"/> already carries it. Also
+    /// a no-op on a user-wise plan, whose place row already names its holder.
     /// <para>
     /// Called only from the recording path that actually changed a balance — never from a replay,
     /// which would otherwise double-count a retried idempotent request against this user even though
