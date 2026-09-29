@@ -1,4 +1,5 @@
-﻿using Payment.DomainService.Enums;
+﻿using System.Globalization;
+using Payment.DomainService.Enums;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
@@ -80,18 +81,8 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 correlationId);
         }
 
-        var purchased = subscription.QuantityItems.Count == 0
-            ? 1
-            : PurchasedMembersOf(subscription);
-
-        // A decrease already scheduled is the number that matters, when it is the smaller one.
-        // Filling seats that are about to be taken away would leave people assigned to seats the
-        // subscription no longer has the moment the period turns over — and a decrease cannot be
-        // refunded, so it will turn over.
-        if (purchased is { } bought && PendingMembersOf(subscription) is { } pending)
-        {
-            purchased = Math.Min(bought, pending);
-        }
+        var places = PlacesOf(subscription);
+        var purchased = places.Fillable;
 
         if (purchased is null)
         {
@@ -146,8 +137,13 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
 
             if (seat is null)
             {
+                // Said differently when it is a scheduled decrease that closed the last place:
+                // "all the people it was bought for" is false of a subscription bought for five
+                // with four on it, and sent the administrator looking for a fifth person.
                 refused.Add(Refusal(userId, "subscription_member_limit_reached",
-                    "This subscription already has all the people it was bought for."));
+                    places.Scheduled is { } scheduled && scheduled < places.Purchased
+                        ? DropsTo(scheduled, places.ScheduledAtUtc)
+                        : "This subscription already has all the people it was bought for."));
                 continue;
             }
 
@@ -367,9 +363,12 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         var held = await _assignments.ListActiveAsync(
             context.TenantId, subscription.ItemId, cancellationToken);
 
-        var purchased = (subscription.QuantityItems.Count == 0
-            ? 1
-            : PurchasedMembersOf(subscription)) ?? 0;
+        // The same count assignment fills against. Listed from what was bought alone, a scheduled
+        // decrease left an empty place on show that assignment then refused to fill.
+        var places = PlacesOf(subscription);
+        var purchased = places.Purchased ?? 0;
+        var fillable = places.Fillable ?? 0;
+        var cut = places.Scheduled < purchased;
 
         return SubscriptionOperationResult<SubscriptionMembersResponse>.Success(
             new SubscriptionMembersResponse
@@ -377,7 +376,9 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 SubscriptionId = subscription.ItemId,
                 Purchased = purchased,
                 Held = held.Count,
-                Available = Math.Max(0, purchased - held.Count),
+                Available = Math.Max(0, fillable - held.Count),
+                ScheduledPlaces = cut ? places.Scheduled : null,
+                ScheduledAtUtc = cut ? places.ScheduledAtUtc : null,
                 Seats = [.. held.Select(Describe)]
             },
             correlationId);
@@ -416,14 +417,51 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             return null;
         }
 
-        var pricedPerMember = !string.IsNullOrWhiteSpace(subscription.Price.QuantityItemKey) &&
-            string.Equals(
-                subscription.Price.QuantityItemKey,
-                counting.ItemKey,
-                StringComparison.Ordinal);
-
-        return pricedPerMember ? counting.Quantity : counting.MaxQuantity;
+        return PricedPerMember(subscription, counting) ? counting.Quantity : counting.MaxQuantity;
     }
+
+    private static bool PricedPerMember(
+        SubscriptionDetail subscription,
+        SubscriptionQuantityItem counting) =>
+        !string.IsNullOrWhiteSpace(subscription.Price.QuantityItemKey) &&
+        string.Equals(
+            subscription.Price.QuantityItemKey,
+            counting.ItemKey,
+            StringComparison.Ordinal);
+
+    /// <summary>
+    /// How many places a subscription has, how many a scheduled decrease leaves, and how many can
+    /// be filled today — the one answer assignment and the member list both read.
+    /// </summary>
+    /// <remarks>
+    /// Two readers of one number is how they came apart: assignment capped at the scheduled
+    /// decrease, the list did not, and an administrator was shown an empty place that assigning to
+    /// then refused. Fillable is the smaller of bought and scheduled — filling a place a decrease
+    /// is about to take away would leave somebody on a place the subscription no longer has the
+    /// moment the period turns over, and a decrease is not refunded, so it will turn over.
+    /// </remarks>
+    private static (long? Purchased, long? Scheduled, DateTime? ScheduledAtUtc, long? Fillable)
+        PlacesOf(SubscriptionDetail subscription)
+    {
+        if (subscription.QuantityItems.Count == 0)
+        {
+            return (1, null, null, 1);
+        }
+
+        var purchased = PurchasedMembersOf(subscription);
+        var scheduled = PendingMembersOf(subscription);
+        var fillable = purchased is { } bought && scheduled is { } pending
+            ? Math.Min(bought, pending)
+            : purchased;
+
+        return (purchased, scheduled, subscription.PendingQuantityChange?.EffectiveAtUtc, fillable);
+    }
+
+    private static string DropsTo(long scheduled, DateTime? atUtc) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"This subscription drops to {scheduled} {(scheduled == 1 ? "place" : "places")} " +
+            $"on {atUtc:yyyy-MM-dd}, and every one of them is taken.");
 
     /// <summary>
     /// How many people a scheduled decrease will leave room for, or null when none is scheduled.
@@ -431,6 +469,11 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
     /// <remarks>
     /// Read from the pending change rather than the subscription, because a decrease takes effect
     /// at the period end and the subscription still carries what was paid for until then.
+    /// <para>
+    /// Only a plan priced per person counts places from its quantity. A flat-priced plan's places
+    /// are its maximum, which a quantity change does not move — capping it at a scheduled quantity
+    /// would have closed places nobody gave up.
+    /// </para>
     /// </remarks>
     private static long? PendingMembersOf(SubscriptionDetail subscription)
     {
@@ -441,7 +484,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
 
         var counting = CountingItemOf(subscription);
 
-        if (counting is null)
+        if (counting is null || !PricedPerMember(subscription, counting))
         {
             return null;
         }
