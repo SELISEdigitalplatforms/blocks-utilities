@@ -68,24 +68,24 @@ public sealed class EntitlementService : IEntitlementService
         // seconds before its scheduled cancellation's CurrentPeriodEndUtc must stop granting the
         // instant that boundary passes, not merely once the cache entry itself expires.
         var live = subscriptions
-            .Where(subscription => SubscriptionLiveness.IsEffectivelyLive(subscription, now))
+            .Where(candidate => SubscriptionLiveness.IsEffectivelyLive(candidate.Subscription, now))
             .ToList();
 
         if (live.Count == 0)
         {
             return SubscriptionOperationResult<EntitlementSnapshotResponse>.Success(
-                NothingGranted(subscriptions.Count > 0 ? subscriptions[0] : null),
+                NothingGranted(subscriptions.Count > 0 ? subscriptions[0].Subscription : null),
                 correlationId);
         }
 
         var described = new List<EntitlementSnapshotResponse>(live.Count);
 
-        foreach (var subscription in live)
+        foreach (var (subscription, seat) in live)
         {
             // Per subscription, never pooled: a meter's balance belongs to the subscription that
             // recorded it, and rating one plan's usage against another's counter would bill the
             // wrong allowance.
-            var balances = await BalancesAsync(subscription, cancellationToken);
+            var balances = await BalancesAsync(subscription, seat, cancellationToken);
 
             described.Add(Describe(subscription, balances, now));
         }
@@ -198,7 +198,7 @@ public sealed class EntitlementService : IEntitlementService
     /// organization's subscription alone, which is exactly what every caller gets today.
     /// </para>
     /// </remarks>
-    private async Task<IReadOnlyList<SubscriptionDetail>> LoadAsync(
+    private async Task<IReadOnlyList<ResolvedSubscription>> LoadAsync(
         SubscriptionContext context,
         bool fresh,
         DateTime nowUtc,
@@ -215,16 +215,10 @@ public sealed class EntitlementService : IEntitlementService
             context.TenantId,
             context.OrganizationId,
             subscriberUserId,
-            async () =>
-            {
-                var resolved = await _resolver.ResolveAsync(
-                    context, nowUtc, cancellationToken);
-
-                // Entitlement asks what a plan grants, which does not depend on which
-                // seat of it somebody holds — that only decides whose allowance a
-                // recorded use spends.
-                return [.. resolved.Select(candidate => candidate.Subscription)];
-            });
+            // The place comes with each subscription: what a plan grants does not depend on it,
+            // but the balance shown against a metered entitlement does. A user-wise plan counts
+            // usage per place only, so reading without one showed nothing ever spent.
+            () => _resolver.ResolveAsync(context, nowUtc, cancellationToken));
     }
 
 
@@ -243,8 +237,13 @@ public sealed class EntitlementService : IEntitlementService
     /// <summary>
     /// The balance of every metered entitlement, read by identifier rather than searched for.
     /// </summary>
+    /// <param name="seat">
+    /// The caller's place on a user-wise subscription, whose counters are the only ones it has;
+    /// null for the organization's own.
+    /// </param>
     private async Task<Dictionary<string, MeterReading>> BalancesAsync(
         SubscriptionDetail subscription,
+        int? seat,
         CancellationToken cancellationToken)
     {
         var balances = new Dictionary<string, MeterReading>(StringComparer.Ordinal);
@@ -269,7 +268,8 @@ public sealed class EntitlementService : IEntitlementService
                 SubscriptionUsageCounter.CreateId(
                     subscription.ItemId,
                     meterKey,
-                    period.Key),
+                    period.Key,
+                    seat),
                 cancellationToken);
 
             // Resolved rather than read off the counter. A window that has not recorded
@@ -280,7 +280,7 @@ public sealed class EntitlementService : IEntitlementService
                 counter?.Balance ?? 0,
                 meter.ResetPolicy == MeterResetPolicy.CarryForward
                     ? await _allowances.EffectiveAsync(
-                        subscription, meter, period, counter, cancellationToken)
+                        subscription, meter, period, counter, cancellationToken, seat)
                     : null);
         }
 

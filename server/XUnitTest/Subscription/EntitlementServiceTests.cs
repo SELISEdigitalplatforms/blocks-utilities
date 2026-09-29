@@ -185,6 +185,31 @@ public sealed class EntitlementServiceTests
         entitlement.Remaining.Should().Be(13);
     }
 
+    /// <remarks>
+    /// Found writing the per-person docs: a user-wise plan counts usage per place only, and the
+    /// balance was read without the place, so every metered entitlement on one showed nothing spent.
+    /// </remarks>
+    [Fact]
+    public async Task A_place_holder_is_shown_their_places_balance()
+    {
+        _resolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<SubscriptionContext>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new ResolvedSubscription(_subscription!, SeatNumber: 3)]);
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.Is<string>(id => id.EndsWith(":s3", StringComparison.Ordinal)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageCounter { Balance = 42 });
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        var entitlement = result.Value!.Entitlements.Single();
+        entitlement.Used.Should().Be(42);
+        entitlement.Remaining.Should().Be(458);
+    }
+
     [Fact]
     public async Task A_lifetime_entitlement_reads_the_counter_that_survives_renewal()
     {
