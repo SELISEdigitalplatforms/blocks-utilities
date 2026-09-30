@@ -92,11 +92,13 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
     })
     .superRefine((values, context) => {
       if (!values.senderNumber && !values.senderName) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["senderNumber"],
-          message: "Set a sender number, a sender name, or both.",
-        });
+        for (const path of ["senderNumber", "senderName"]) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [path],
+            message: "Set a sender number or a sender name (or both).",
+          });
+        }
       }
 
       if (isCreate && !values.apiKey.trim()) {
