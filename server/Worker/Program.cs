@@ -115,6 +115,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                     // signals for one thing filed under two names.
                     .AddMeter(SubscriptionWorkMetrics.MeterName)
                     .AddMeter(FinancialDocumentRendererHealthGate.MeterName)
+                    .AddMeter(PdfSignatureValidationMetrics.MeterName)
                     // The reconciliation sweep and the backfill run here, so version lag and repair
                     // volume are recorded in this process. Creating the instruments is not enough:
                     // an exporter only observes a meter it has been told to subscribe to.

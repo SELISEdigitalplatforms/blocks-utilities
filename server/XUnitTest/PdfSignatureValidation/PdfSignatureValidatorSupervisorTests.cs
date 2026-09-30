@@ -17,6 +17,8 @@ namespace XUnitTest.PdfSignatureValidation;
 /// </remarks>
 public sealed class PdfSignatureValidatorSupervisorTests
 {
+    private static readonly DateTime ClockStart = new(2026, 9, 30, 2, 40, 0, DateTimeKind.Utc);
+
     [Fact]
     public async Task A_ready_validator_serves_a_file_and_returns_its_parsed_verdict()
     {
@@ -258,6 +260,136 @@ public sealed class PdfSignatureValidatorSupervisorTests
     }
 
     [Fact]
+    public async Task A_validator_unavailable_past_the_wait_logs_critical_once_and_says_when_it_recovers()
+    {
+        var loaded = false;
+        using var first = new FakeChannel();
+        first.Respond = request => Operation(request) == "status" ? Status(request, ready: loaded) : Serve(first, request);
+        await using var harness = new Harness(new FakeFactory(() => first));
+        await harness.StartAsync();
+        await WaitUntilAsync(() => first.Ops.Contains("status"), "the first status check");
+
+        harness.Logger.Entries.Should().NotContain(entry => entry.Level == LogLevel.Critical, "a validator that is still loading is not yet a problem");
+
+        harness.Time.UtcNow = ClockStart.AddMinutes(11);
+        await WaitUntilAsync(() => harness.Logger.Entries.Any(entry => entry.Level == LogLevel.Critical), "the critical log");
+        await Task.Delay(2500);
+
+        harness.Logger.Entries.Count(entry => entry.Level == LogLevel.Critical).Should().Be(
+            1, "it says so once, not on every poll, or it would bury the log it is trying to surface in");
+
+        loaded = true;
+        await WaitUntilAsync(() => harness.Supervisor.IsReady, "the lists to load");
+        await WaitUntilAsync(
+            () => harness.Logger.Entries.Any(entry => entry.Level == LogLevel.Information && entry.Message.Contains("ready again", StringComparison.Ordinal)),
+            "the recovery to be logged");
+    }
+
+    [Fact]
+    public async Task Starts_and_timeouts_are_counted_and_a_healthy_restart_is_not_a_crash()
+    {
+        using var first = new FakeChannel();
+        first.Respond = request => Operation(request) == "validate" ? null : Serve(first, request);
+        await using var harness = new Harness(new FakeFactory(() => first));
+        await harness.StartAsync();
+        await WaitUntilAsync(() => harness.Supervisor.IsReady, "the validator to report ready");
+
+        await harness.Supervisor.ValidateAsync("slow.pdf", CancellationToken.None);
+        await WaitUntilAsync(() => harness.Supervisor.IsReady && harness.Factory.Started.Count == 2, "the replacement process");
+
+        harness.Capture.Total("pdf_signature_validation.validator.timeouts").Should().Be(1);
+        harness.Capture.Total("pdf_signature_validation.validator.starts").Should().Be(2, "the original process and its replacement");
+        harness.Capture.Total("pdf_signature_validation.validator.crashes").Should().Be(0, "a timeout is counted as a timeout, not also as a crash");
+    }
+
+    [Fact]
+    public async Task A_process_that_dies_while_validating_is_counted_as_a_crash()
+    {
+        using var first = new FakeChannel();
+        first.Respond = request =>
+        {
+            if (Operation(request) != "validate")
+            {
+                return Serve(first, request);
+            }
+
+            first.Crash();
+            return null;
+        };
+        await using var harness = new Harness(new FakeFactory(() => first));
+        await harness.StartAsync();
+        await WaitUntilAsync(() => harness.Supervisor.IsReady, "the validator to report ready");
+
+        await harness.Supervisor.ValidateAsync("a.pdf", CancellationToken.None);
+
+        harness.Capture.Total("pdf_signature_validation.validator.crashes").Should().Be(1);
+        harness.Capture.Total("pdf_signature_validation.validator.timeouts").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_ready_and_age_gauges_follow_the_validators_state()
+    {
+        var loaded = false;
+        using var first = new FakeChannel();
+        first.Respond = request => Operation(request) == "status" ? Status(request, ready: loaded) : Serve(first, request);
+        await using var harness = new Harness(new FakeFactory(() => first));
+        await harness.StartAsync();
+        await WaitUntilAsync(() => first.Ops.Contains("status"), "the first status check");
+
+        harness.Capture.Collect();
+        harness.Capture.Gauge("pdf_signature_validation.validator.ready").Should().Be(0, "an alert rule compares this to zero");
+        harness.Capture.Gauge("pdf_signature_validation.trusted_lists.age").Should().BeNull(
+            "no lists have loaded, and an age alert must not fire for a worker that is merely still starting");
+
+        loaded = true;
+        await WaitUntilAsync(() => harness.Supervisor.IsReady, "the lists to load");
+        harness.Time.UtcNow = new DateTime(2026, 9, 30, 5, 31, 0, 709, DateTimeKind.Utc);
+
+        harness.Capture.Collect();
+        harness.Capture.Gauge("pdf_signature_validation.validator.ready").Should().Be(1);
+        harness.Capture.Gauge("pdf_signature_validation.trusted_lists.age").Should().BeApproximately(
+            10800, 1, "the lists loaded at 02:31:00.709 and it is now 05:31:00.709, three hours later");
+    }
+
+    [Fact]
+    public async Task A_process_that_dies_on_its_own_while_idle_is_logged_counted_and_replaced()
+    {
+        // The case nothing else reports: no file is in flight, so no timeout or failed request marks
+        // the death. A JVM killed for memory between files looks exactly like this.
+        using var first = new FakeChannel();
+        first.Respond = request => Serve(first, request);
+        await using var harness = new Harness(new FakeFactory(() => first));
+        await harness.StartAsync();
+        await WaitUntilAsync(() => harness.Supervisor.IsReady, "the validator to report ready");
+
+        first.Crash();
+
+        await WaitUntilAsync(() => harness.Supervisor.IsReady && harness.Factory.Started.Count == 2, "a replacement process");
+        harness.Logger.Entries.Should().Contain(
+            entry => entry.Level == LogLevel.Error && entry.Message.Contains("exited on its own", StringComparison.Ordinal),
+            "an operator needs to see that the JVM died, not just that a new one started");
+        harness.Capture.Total("pdf_signature_validation.validator.crashes").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_timeout_is_reported_once_even_when_a_status_poll_was_waiting_behind_the_file()
+    {
+        using var first = new FakeChannel();
+        first.Respond = request => Operation(request) == "validate" ? null : Serve(first, request);
+        await using var harness = new Harness(new FakeFactory(() => first), options => options.StatusPollSeconds = 1);
+        await harness.StartAsync();
+        await WaitUntilAsync(() => harness.Supervisor.IsReady, "the validator to report ready");
+
+        // The file holds the gate for the whole timeout, so the poll that falls due meanwhile queues.
+        await harness.Supervisor.ValidateAsync("slow.pdf", CancellationToken.None);
+        await WaitUntilAsync(() => harness.Supervisor.IsReady && harness.Factory.Started.Count == 2, "the replacement process");
+
+        harness.Capture.Total("pdf_signature_validation.validator.crashes").Should().Be(
+            0, "the poll found the process already killed for the timeout, which was reported where it happened");
+        harness.Logger.Entries.Count(entry => entry.Level == LogLevel.Error).Should().Be(0);
+    }
+
+    [Fact]
     public async Task Validating_with_nothing_running_is_not_ready()
     {
         await using var harness = new Harness(new FakeFactory());
@@ -292,8 +424,9 @@ public sealed class PdfSignatureValidatorSupervisorTests
     private static string Serve(FakeChannel channel, JsonElement request) =>
         Operation(request) == "status" ? Status(request, ready: true) : VerdictLine(Id(request));
 
+    // Like the real validator: until something has loaded there is no load time to report.
     private static string Status(JsonElement request, bool ready) =>
-        $$"""{"id":"{{Id(request)}}","ok":true,"ready":{{(ready ? "true" : "false")}},"trustedListsLoadedAt":"2026-09-30T02:31:00.709Z","trustedCertificateCount":4790}""";
+        $$"""{"id":"{{Id(request)}}","ok":true,"ready":{{(ready ? "true" : "false")}},"trustedListsLoadedAt":{{(ready ? "\"2026-09-30T02:31:00.709Z\"" : "null")}},"trustedCertificateCount":{{(ready ? 4790 : 0)}}}""";
 
     private static string ErrorLine(JsonElement request, string code) =>
         $$"""{"id":"{{Id(request)}}","ok":false,"errorCode":"{{code}}","errorMessage":"{{code}}"}""";
@@ -327,10 +460,17 @@ public sealed class PdfSignatureValidatorSupervisorTests
             };
             configure?.Invoke(options);
 
-            Supervisor = new PdfSignatureValidatorSupervisor(Options.Create(options), factory, Logger);
+            Supervisor = new PdfSignatureValidatorSupervisor(Options.Create(options), factory, Logger, Metrics, Time);
+            Capture = new MetricCapture(Metrics.Meter);
         }
 
         public CapturingLogger Logger { get; } = new();
+
+        public PdfSignatureValidationMetrics Metrics { get; } = new();
+
+        public FakeTimeProvider Time { get; } = new(ClockStart);
+
+        public MetricCapture Capture { get; }
 
         public PdfSignatureValidatorSupervisor Supervisor { get; }
 
@@ -343,12 +483,21 @@ public sealed class PdfSignatureValidatorSupervisorTests
             await Supervisor.StopAsync(CancellationToken.None);
             Supervisor.Dispose();
             Factory.Dispose();
+            Capture.Dispose();
+            Metrics.Dispose();
         }
+    }
+
+    private sealed class FakeTimeProvider(DateTime utcNow) : TimeProvider
+    {
+        public DateTime UtcNow { get; set; } = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => new(DateTime.SpecifyKind(UtcNow, DateTimeKind.Utc));
     }
 
     private sealed class CapturingLogger : ILogger<PdfSignatureValidatorSupervisor>
     {
-        public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+        public List<(LogLevel Level, Exception? Exception, string Message)> Entries { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
@@ -359,7 +508,7 @@ public sealed class PdfSignatureValidatorSupervisorTests
         {
             lock (Entries)
             {
-                Entries.Add((logLevel, exception));
+                Entries.Add((logLevel, exception, formatter(state, exception)));
             }
         }
     }

@@ -190,7 +190,7 @@ from storage under that project key. No new permission.
 | Storage | Existing `PdfStorageHelper`: read only. |
 | Queue | **New queue** for validation events, alongside `blocks_pdf_ingestion_listener`. |
 | Notifications | Existing `IPdfGeneratorNotificationService`, a new event type for validation completion. |
-| Health / metrics | **New work.** The Worker has no HTTP host and no `IHealthCheck` registrations; those exist only in `Api/Program.cs`. The validator follows the Worker's in-process pattern for the PDF renderer (`FinancialDocumentRendererReadinessCheck`, `FinancialDocumentRendererHealthMonitor`, `IFinancialDocumentRendererHealth`): a health gate records whether the JVM is up and the lists are loaded, the consumer reads it (see Edge Cases), and a critical log is written when it turns unhealthy. The Api's health endpoints do not report it. Counters: completed, failed, timed out, re-queued while not ready; gauges: trusted-list age, validator ready (0/1). |
+| Health / metrics | **New work.** The Worker has no HTTP host and no `IHealthCheck` registrations; those exist only in `Api/Program.cs`, which does not report the validator. Its health is the state the supervisor already keeps (`IPdfSignatureValidator.IsReady`, `TrustedListsLoadedAt`), read by the consumer and exported as metrics. No separate gate, readiness check and monitor as for the PDF renderer: the supervisor already polls the process, so those would duplicate it. A **Critical** log is written once when the validator has been unavailable for `TrustedListWaitMinutes` (10), the point at which queued files start failing, and an Information line when it recovers. Meter `Blocks.Utility.PdfSignatureValidation`. Counters: `jobs.completed` (tag `all_passed`), `jobs.failed` (tag `error_code`), `jobs.requeued`, `validator.starts`, `validator.timeouts`, `validator.crashes`. Gauges: `validator.ready` (1/0) and `trusted_lists.age` (seconds; no value until the lists have loaded once). Alert rules are versioned in `monitoring/pdf-signature-validation-alerts.yaml`. |
 | `l3-net-signature-app` spec 009 | First consumer, report-only; this spec is its "Required blocks-utilities contract". |
 
 ## Acceptance Criteria
@@ -256,9 +256,11 @@ completion notification.
 **AC-16** — Given a `messageCoRelationId`, when a file's job completes or fails, then one
 completion notification is sent for that file; a notification failure leaves the job unchanged.
 
-**AC-17** — Given the worker is up, then the validator's health gate reports whether the JVM is up
-and the lists are loaded, a critical log is written when it turns unhealthy, and the counters and
-gauges listed under Integrations are exported.
+**AC-17** — Given the worker is up, then `validator.ready` reports whether a process is up with the
+lists loaded and `trusted_lists.age` how old they are; given the validator has been unavailable for
+`TrustedListWaitMinutes`, then one Critical log is written (and one Information line when it
+recovers); and the counters listed under Integrations are exported. A validator process that dies
+or is killed, for any reason, is logged at Error and counted once, and never stops the worker.
 
 **AC-18** — Given the trusted lists are loaded and 100 files are queued at once on one worker, then
 every result is available within 5 minutes of the first request. A single file on an idle worker has

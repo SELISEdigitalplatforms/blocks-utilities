@@ -42,21 +42,43 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
         // two writers would not know whose answer they read.
         private readonly SemaphoreSlim _gate = new(1, 1);
 
+        private readonly PdfSignatureValidationMetrics _metrics;
+        private readonly TimeProvider _time;
+
         private volatile IValidatorChannel? _channel;
         private volatile bool _ready;
         private long _loadedAtTicks;
         private long _nextRequestId;
 
+        // When the validator last stopped being ready, or the supervisor was created if it never has
+        // been; zero while it is ready. What the Critical log measures "unavailable for too long" from.
+        private long _notReadySinceTicks;
+        private volatile bool _unhealthyLogged;
+
+        // Set by whoever first reports the current process's death. A process that dies mid-file is
+        // noticed twice, by the restart loop seeing it exit and by the request that was waiting on
+        // it; this makes sure it is logged and counted once.
+        private int _deathReported;
+
         public PdfSignatureValidatorSupervisor(
             IOptions<PdfSignatureValidatorOptions> options,
             IValidatorChannelFactory factory,
-            ILogger<PdfSignatureValidatorSupervisor> logger)
+            ILogger<PdfSignatureValidatorSupervisor> logger,
+            PdfSignatureValidationMetrics metrics,
+            TimeProvider time)
         {
             ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(metrics);
+            ArgumentNullException.ThrowIfNull(time);
 
             _options = options.Value;
             _factory = factory;
             _logger = logger;
+            _metrics = metrics;
+            _time = time;
+
+            _notReadySinceTicks = time.GetUtcNow().UtcDateTime.Ticks;
+            metrics.ObserveValidator(() => _ready, () => TrustedListsLoadedAt, time);
         }
 
         public bool IsReady => _ready;
@@ -106,6 +128,8 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
                     _logger.LogError(ex, "PdfSignatureValidatorSupervisor: The DSS validator process failed; it will be started again");
                 }
 
+                CheckUnhealthy();
+
                 try
                 {
                     await Task.Delay(RestartDelay(consecutiveFailures), stoppingToken).ConfigureAwait(false);
@@ -125,6 +149,8 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
         {
             using var channel = _factory.Start(_options);
             _channel = channel;
+            Interlocked.Exchange(ref _deathReported, 0);
+            _metrics.ValidatorStarted();
 
             _logger.LogInformation("PdfSignatureValidatorSupervisor: DSS validator process started; waiting for it to load the trusted lists");
 
@@ -141,17 +167,28 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
 
                 while (await SleepUnlessExitedAsync(channel, cancellationToken).ConfigureAwait(false))
                 {
+                    CheckUnhealthy();
+
                     if (!await PollStatusAsync(channel, TimeSpan.FromSeconds(_options.PerFileTimeoutSeconds), cancellationToken).ConfigureAwait(false))
                     {
                         break;
                     }
                 }
 
+                // Out of the loop with the process gone. If nobody has reported it, it died on its
+                // own between files - killed for memory, say - which nothing else would have logged.
+                // One this class killed, or that a request saw die, was reported where that happened.
+                if (!cancellationToken.IsCancellationRequested && ClaimDeath())
+                {
+                    _logger.LogError("PdfSignatureValidatorSupervisor: The DSS validator process exited on its own; restarting it");
+                    _metrics.ValidatorCrashed();
+                }
+
                 return responsive;
             }
             finally
             {
-                _ready = false;
+                SetReady(false);
                 _channel = null;
                 channel.Kill();
             }
@@ -180,6 +217,14 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
 
             try
             {
+                // A poll can be queued behind a file that then times out. By the time it gets the
+                // gate the process has been killed and that timeout already logged and counted, so
+                // asking the dead process would only report the same death a second time.
+                if (channel.Exited.IsCompleted)
+                {
+                    return false;
+                }
+
                 var exchange = await ExchangeAsync(channel, "status", path: null, timeout, cancellationToken).ConfigureAwait(false);
 
                 if (exchange.Kind != ExchangeKind.Reply)
@@ -187,15 +232,20 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
                     // Said here, where the two causes can still be told apart: a JVM that is slow and
                     // one that has died call for different fixes, and a message that blames the
                     // timeout for both sends an operator looking at the wrong one.
-                    if (exchange.Kind == ExchangeKind.TimedOut)
+                    if (ClaimDeath())
                     {
-                        _logger.LogError(
-                            "PdfSignatureValidatorSupervisor: The DSS validator did not answer within {Seconds} s; restarting it",
-                            (int)timeout.TotalSeconds);
-                    }
-                    else
-                    {
-                        _logger.LogError("PdfSignatureValidatorSupervisor: The DSS validator process exited or broke the protocol; restarting it");
+                        if (exchange.Kind == ExchangeKind.TimedOut)
+                        {
+                            _logger.LogError(
+                                "PdfSignatureValidatorSupervisor: The DSS validator did not answer within {Seconds} s; restarting it",
+                                (int)timeout.TotalSeconds);
+                        }
+                        else
+                        {
+                            _logger.LogError("PdfSignatureValidatorSupervisor: The DSS validator process exited or broke the protocol; restarting it");
+                        }
+
+                        _metrics.ValidatorCrashed();
                     }
 
                     MarkDown(channel);
@@ -228,7 +278,7 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
             }
 
             var wasReady = _ready;
-            _ready = ready;
+            SetReady(ready);
 
             if (ready && !wasReady)
             {
@@ -281,14 +331,23 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
                 switch (exchange.Kind)
                 {
                     case ExchangeKind.TimedOut:
+                        // The timeout is this file's and is always reported; claiming the death only
+                        // stops the restart loop reporting the kill that follows as a second event.
+                        ClaimDeath();
                         _logger.LogWarning(
                             "PdfSignatureValidatorSupervisor: A file took longer than {Seconds} s; restarting the DSS validator",
                             _options.PerFileTimeoutSeconds);
+                        _metrics.ValidatorTimedOut();
                         MarkDown(channel);
                         return PdfSignatureValidatorResult.TimedOut();
 
                     case ExchangeKind.Crashed:
-                        _logger.LogError("PdfSignatureValidatorSupervisor: The DSS validator died or broke the protocol while validating a file; restarting it");
+                        if (ClaimDeath())
+                        {
+                            _logger.LogError("PdfSignatureValidatorSupervisor: The DSS validator died or broke the protocol while validating a file; restarting it");
+                            _metrics.ValidatorCrashed();
+                        }
+
                         MarkDown(channel);
                         return PdfSignatureValidatorResult.Crashed();
 
@@ -322,7 +381,7 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
             {
                 // The validator knows better than our last poll did. Not ready is a state, and the
                 // next poll will say when it ends.
-                _ready = false;
+                SetReady(false);
                 return PdfSignatureValidatorResult.NotReady();
             }
 
@@ -398,8 +457,75 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
 
         private void MarkDown(IValidatorChannel channel)
         {
-            _ready = false;
+            SetReady(false);
             channel.Kill();
+        }
+
+        /// <summary>True for the first caller per process, which is then the one to report its death.</summary>
+        private bool ClaimDeath() => Interlocked.Exchange(ref _deathReported, 1) == 0;
+
+        /// <summary>
+        /// The one place readiness changes, so the clock that "unavailable for too long" is measured
+        /// against starts when it stops being ready and is cleared when it is ready again.
+        /// </summary>
+        private void SetReady(bool ready)
+        {
+            var wasReady = _ready;
+            _ready = ready;
+
+            if (ready)
+            {
+                Interlocked.Exchange(ref _notReadySinceTicks, 0);
+            }
+            else if (wasReady || Interlocked.Read(ref _notReadySinceTicks) == 0)
+            {
+                Interlocked.Exchange(ref _notReadySinceTicks, _time.GetUtcNow().UtcDateTime.Ticks);
+            }
+        }
+
+        /// <summary>
+        /// Says so, once, when the validator has been unavailable for as long as a job is allowed to
+        /// wait for it - the moment files start failing with <c>trust_lists_unavailable</c>.
+        /// </summary>
+        /// <remarks>
+        /// Critical rather than Error, for the reason the renderer's health gate gives: every other
+        /// part of this worker keeps running by design, so nothing else will say why validations have
+        /// gone quiet. A restart after a timeout or crash is expected to take a minute or two and is
+        /// logged as it happens; this is for a validator that is not coming back.
+        /// </remarks>
+        private void CheckUnhealthy()
+        {
+            if (_ready)
+            {
+                if (_unhealthyLogged)
+                {
+                    _unhealthyLogged = false;
+                    _logger.LogInformation("PdfSignatureValidatorSupervisor: The DSS validator is ready again; signature validation resumes");
+                }
+
+                return;
+            }
+
+            var sinceTicks = Interlocked.Read(ref _notReadySinceTicks);
+
+            if (_unhealthyLogged || sinceTicks == 0)
+            {
+                return;
+            }
+
+            var unavailableFor = _time.GetUtcNow().UtcDateTime - new DateTime(sinceTicks, DateTimeKind.Utc);
+
+            if (unavailableFor < TimeSpan.FromMinutes(_options.TrustedListWaitMinutes))
+            {
+                return;
+            }
+
+            _unhealthyLogged = true;
+            _logger.LogCritical(
+                "PdfSignatureValidatorSupervisor: The DSS validator has been unavailable for {Minutes:F0} minutes. " +
+                "Signature validation is failing with trust_lists_unavailable until it recovers; payments, " +
+                "renewals and everything else in this worker continue normally.",
+                unavailableFor.TotalMinutes);
         }
 
         private TimeSpan RestartDelay(int consecutiveFailures)

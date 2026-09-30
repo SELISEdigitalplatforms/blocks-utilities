@@ -41,6 +41,7 @@ namespace Worker.Consumers.PdfSignatureValidation
         private readonly IPdfGeneratorNotificationService _notificationService;
         private readonly IMessageClient _messageClient;
         private readonly PdfSignatureValidatorOptions _options;
+        private readonly PdfSignatureValidationMetrics _metrics;
         private readonly TimeProvider _timeProvider;
 
         public ValidatePdfSignaturesConsumer(
@@ -51,9 +52,11 @@ namespace Worker.Consumers.PdfSignatureValidation
             IPdfGeneratorNotificationService notificationService,
             IMessageClient messageClient,
             IOptions<PdfSignatureValidatorOptions> options,
+            PdfSignatureValidationMetrics metrics,
             TimeProvider timeProvider)
         {
             ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(metrics);
 
             _logger = logger;
             _storageHelper = storageHelper;
@@ -62,6 +65,7 @@ namespace Worker.Consumers.PdfSignatureValidation
             _notificationService = notificationService;
             _messageClient = messageClient;
             _options = options.Value;
+            _metrics = metrics;
             _timeProvider = timeProvider;
         }
 
@@ -217,6 +221,9 @@ namespace Worker.Consumers.PdfSignatureValidation
                 return;
             }
 
+            // Counted only once the write was accepted: a superseded run did not complete anything.
+            _metrics.JobCompleted(verdict.AllPassed);
+
             _logger.LogInformation(
                 "ValidatePdfSignaturesConsumer: Completed file {FileId}, {SignatureCount} signature(s), allPassed={AllPassed}",
                 LogSanitizer.Scrub(job.Id),
@@ -245,6 +252,8 @@ namespace Worker.Consumers.PdfSignatureValidation
             {
                 return;
             }
+
+            _metrics.JobFailed(errorCode);
 
             await NotifyAsync(job, @event, success: false);
         }
@@ -295,6 +304,8 @@ namespace Worker.Consumers.PdfSignatureValidation
                 await FailAsync(job, @event, "validation_not_queued", "The validation could not be queued to try again.");
                 return;
             }
+
+            _metrics.JobRequeued();
 
             _logger.LogInformation(
                 "ValidatePdfSignaturesConsumer: The validator is not ready; file {FileId} will be tried again in {Seconds} s",
