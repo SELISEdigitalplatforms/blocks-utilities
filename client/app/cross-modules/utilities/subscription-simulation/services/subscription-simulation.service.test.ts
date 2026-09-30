@@ -40,3 +40,34 @@ describe("a refused quantity change", () => {
     );
   });
 });
+
+describe("the caller's own usage", () => {
+  /**
+   * Found on dev: released from their only place, a person's usage read answered 404, which was
+   * retried in the background — and a place given to them meanwhile was not read until the next
+   * recording, so the previous place's figures stayed on screen.
+   */
+  it("reads as nothing to spend when there is nothing to draw on", async () => {
+    http.get.mockRejectedValue(
+      new HttpError(404, {
+        errors: {
+          success: false,
+          data: null,
+          error: { code: "subscription_not_found", message: "This caller has no active subscription." },
+        } as unknown as Record<string, string>,
+      }),
+    );
+
+    await expect(subscriptionSimulationService.getMyUsage()).resolves.toEqual([]);
+  });
+
+  it("still fails on anything else", async () => {
+    http.get.mockRejectedValue(
+      new HttpError(500, {
+        errors: { success: false, data: null, error: { code: "unknown", message: "boom" } } as unknown as Record<string, string>,
+      }),
+    );
+
+    await expect(subscriptionSimulationService.getMyUsage()).rejects.toBeDefined();
+  });
+});

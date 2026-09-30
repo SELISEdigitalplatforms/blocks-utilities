@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, UserMinus, UserPlus, Users } from "lucide-react";
+import { AlertCircle, ExternalLink, UserMinus, UserPlus, Users } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import {
@@ -263,12 +263,15 @@ const SubscriptionPlaces = ({
       </div>
 
       {!isLive && subscription.checkoutUrl ? (
-        <p className="border-b p-3 text-xs text-muted-foreground">
-          Waiting on its first payment — nobody can be given a place until it is paid.{" "}
-          <a className="underline" href={subscription.checkoutUrl} target="_blank" rel="noreferrer">
-            Open checkout
-          </a>
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3 text-xs text-muted-foreground">
+          <span>Waiting on its first payment — nobody can be given a place until it is paid.</span>
+          <Button size="sm" asChild>
+            <a href={subscription.checkoutUrl} target="_blank" rel="noreferrer">
+              Continue checkout
+              <ExternalLink className="ml-2 h-3.5 w-3.5" />
+            </a>
+          </Button>
+        </div>
       ) : null}
 
       <div className="p-3">
