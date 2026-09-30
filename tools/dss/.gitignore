@@ -1,0 +1,2 @@
+# Jars resolved locally by `mvn dependency:copy-dependencies`; the image resolves its own.
+.lib/

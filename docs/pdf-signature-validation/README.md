@@ -160,8 +160,12 @@ from storage under that project key. No new permission.
   directory** on the worker's disk (default `/tmp/dss-tl-cache`, configurable). It is created in
   `Dockerfile.worker` and owned by `app`, as `/tmp/pdf-ingestion` is. On every start the JVM first
   loads from that directory (`offlineRefresh()`), then refreshes from the network in the background
-  (`onlineRefresh()`). A JVM restarted after a timeout or crash is therefore ready in seconds, not
-  after a full download.
+  (`onlineRefresh()`). A JVM restarted after a timeout or crash therefore skips the download, but
+  it is **not** instant: the spike measured about **40–50 s** to load the cached lists (31 lists,
+  ~4,800 certificates, each list's signature checked again), against about 2 minutes cold. Jobs
+  that arrive in that window wait as described under Edge Cases. Each timeout or crash in a burst
+  costs about a minute of the 5-minute budget, so avoiding restarts is worth revisiting (see
+  Deferred Decisions).
 - **Concurrency:** one file at a time per worker; scale by worker replicas.
 - **Memory:** the JVM's heap is capped by configuration (starting point 512 MB), sized so the
   worker's existing tools keep their headroom.
@@ -177,9 +181,10 @@ from storage under that project key. No new permission.
 | Dependency | Change |
 |---|---|
 | EU DSS (`eu.europa.ec.joinup.sd-dss`, latest stable 6.x at implementation) | **New.** LGPL-2.1, shipped unmodified as jars with a small Java wrapper (`tools/dss/`), compiled in `Dockerfile.worker` the way `tools/pdfbox/*.java` is. Licence recorded in the image. |
-| Java 17 runtime | Existing (`openjdk17-jre-headless` in the worker image). |
+| Java 17 runtime | **Changed** from `openjdk17-jre-headless` to `openjdk17-jre` in the worker image (~11 MB). DSS renders each signed revision to detect visual changes, which needs `liblcms.so`; Alpine ships it only in the full JRE. Found by the spike: with `-headless` the JVM dies on the first file with an ICC-based image. |
 | EU LOTL (`https://ec.europa.eu/tools/lotl/eu-lotl.xml`) and the national trusted lists it points to | **New outbound HTTPS** from the worker, at start-up and on refresh. The only network access validation needs. |
-| Extra trust anchors | **New setting**: PEM certificates in configuration (per environment), e.g. Swisscom's CAs for the SELISE seal. |
+| Extra trust anchors | **New setting**, optional: PEM certificates in configuration (per environment). The SELISE seal does **not** need it: the spike validated a SELISE-signed file (issued by Swisscom Saphir EU CA 4.1) as `TOTAL_PASSED` on the EU trusted lists alone. |
+| EU LOTL signing certificates | **New file** `tools/dss/eu-lotl-signers.pem`: the certificates the Commission announces in the Official Journal as the LOTL's signers, taken from DSS 6.5's own demonstration keystore. Without it the LOTL's signature cannot be checked. Replace when the Official Journal announces new ones; the earliest current one expires April 2027. |
 | Storage | Existing `PdfStorageHelper`: read only. |
 | Queue | **New queue** for validation events, alongside `blocks_pdf_ingestion_listener`. |
 | Notifications | Existing `IPdfGeneratorNotificationService`, a new event type for validation completion. |
@@ -207,8 +212,7 @@ called, then each answers `found: false`, and every distinct non-blank id asked 
 one result. Blank ids are ignored and a repeated id is answered once.
 
 **AC-6** — Given the SELISE signature app's legacy-signed reference file (one Swisscom AIS Static
-signature, `/DSS` with OCSP and CRL), with Swisscom's CAs configured as extra anchors, when
-validated, then `Completed`, `SignatureCount = 1`, `Indication = TOTAL_PASSED`,
+signature, `/DSS` with OCSP and CRL), with no extra trust anchors configured, when validated, then `Completed`, `SignatureCount = 1`, `Indication = TOTAL_PASSED`,
 `SignatureLevel = PAdES-BASELINE-LT`, `RevocationOrigin = DssDictionary`, and `SignerSubject`
 names SELISE Group AG.
 
@@ -264,6 +268,7 @@ its result within 1 minute, including a file that runs to the per-file timeout.
 |---|---|---|
 | Job retention | Same as ingestion jobs (no TTL). | Ingestion gets a TTL, or validation jobs grow beyond expectations. |
 | Keeping full DSS reports | Not kept. | An audit or support case needs the detailed report. |
+| Restarting the JVM after a timeout | Restart, and pay ~40–50 s reloading the cached lists. | Timeouts in practice cost bursts their 5-minute budget. Alternatives: a standby JVM, or abandoning the timed-out worker thread instead of the process. |
 | Sharing the trusted-list cache between workers | Local directory per worker; a new pod downloads its own copy while jobs wait. | New pods' first downloads push bursts past the 5-minute target, or the start-up wait expires in practice. |
 
 ## Open Questions
