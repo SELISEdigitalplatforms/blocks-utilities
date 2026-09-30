@@ -572,6 +572,46 @@
             </para>
             </remarks>
         </member>
+        <member name="T:Api.Controllers.PdfSignatureValidationsController">
+            <summary>
+            Validating the signatures of PDFs already in storage with EU DSS: whether each signature holds,
+            which PAdES level it reaches, and whether the revocation data embedded in the file is what
+            validation relied on.
+            </summary>
+            <remarks>
+            Its own controller rather than more actions on <c>PdfIngestionsController</c>: validation never
+            changes the file and has its own verdict, but it follows ingestion's contract - a batch of file
+            IDs in, one outcome per file, a POST status endpoint to poll - and ingestion's status-code
+            mapping. See docs/pdf-signature-validation/README.md.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PdfSignatureValidationsController.Validate(Utility.DomainService.PdfSignatureValidation.ValidatePdfSignaturesRequest,System.Threading.CancellationToken)">
+            <summary>
+            Queues the signatures of one or more PDFs for validation.
+            </summary>
+            <remarks>
+            Returns 202 as soon as the batch is recorded and queued; no file has been validated yet. The
+            response has one result per entry sent, in order. A blank ID, or a repeat of an ID earlier in
+            the list, is rejected on its own without stopping the rest. The request as a whole is 400
+            only when <c>fileIds</c> is empty or has more than 50 entries.
+            <para>
+            Requesting a file that is already queued or running is accepted: the earlier run is
+            superseded and only this request's verdict is kept. Supplying <c>messageCoRelationId</c>
+            also gets a completion notification per file.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.PdfSignatureValidationsController.GetStatus(Utility.DomainService.PdfSignatureValidation.GetPdfSignatureValidationStatusRequest,System.Threading.CancellationToken)">
+            <summary>
+            Reads the validation outcome of one or more files, including each verdict once complete.
+            </summary>
+            <remarks>
+            A file still running answers with <c>status</c> <c>Queued</c> or <c>Processing</c> and
+            <c>isComplete: false</c>. A file never submitted, or submitted by another tenant, answers
+            <c>found: false</c>. Blank IDs are ignored and a repeated ID is answered once, so there is one
+            result per distinct ID; the request is 400 only when no usable ID remains or more than 50 do.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SequenceController.#ctor(Utility.DomainService.Sequence.service.ISequenceService)">
             <summary>
             Initializes a new instance of the <see cref="T:Api.Controllers.SequenceController"/> class.
