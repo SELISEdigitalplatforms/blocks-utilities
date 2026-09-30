@@ -256,6 +256,39 @@ describe("MembersCard per-person actions", () => {
   });
 });
 
+describe("MembersCard awaiting payment", () => {
+  /**
+   * Found on dev: a per-person subscription's checkout was a small link at the foot of the page,
+   * under the whole plan catalogue, and read as missing.
+   */
+  it("offers the checkout as a button", async () => {
+    listMemberBasedSubscriptions.mockResolvedValue([
+      {
+        subscriptionId: "sub-1",
+        status: "Incomplete",
+        planCode: "u",
+        planName: "user-test-5",
+        checkoutUrl: "https://checkout.example/cs_1",
+        cancelAtPeriodEnd: false,
+        pendingPlanChange: null,
+        quantities: [],
+      },
+    ]);
+    listMembers.mockResolvedValue({ subscriptionId: "sub-1", purchased: 2, held: 0, available: 2, seats: [] });
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembersCard plans={[]} organizationId={undefined} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("link", { name: /Continue checkout/ })).toHaveAttribute(
+      "href",
+      "https://checkout.example/cs_1",
+    );
+  });
+});
+
 describe("MembersCard immediate cancel", () => {
   /**
    * An ended subscription drops out of the card, so whether its places were released could not be

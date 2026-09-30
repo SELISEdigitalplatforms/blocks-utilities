@@ -694,15 +694,30 @@ class SubscriptionSimulationService {
       ? `?organizationId=${encodeURIComponent(organizationId)}`
       : "";
 
-    const response = await serviceInstances.utitlitiesService.get<
-      SimulationApiResponse<MeterUsage[]>
-    >(`${SUBSCRIPTION_USAGE_MINE_ENDPOINT}${query}`);
+    try {
+      const response = await serviceInstances.utitlitiesService.get<
+        SimulationApiResponse<MeterUsage[]>
+      >(`${SUBSCRIPTION_USAGE_MINE_ENDPOINT}${query}`);
 
-    if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "Your usage could not be loaded.");
+      if (!response.success || !response.data) {
+        if (response.error?.code === NOTHING_TO_SPEND) {
+          return [];
+        }
+
+        throw new Error(response.error?.message || "Your usage could not be loaded.");
+      }
+
+      return response.data;
+    } catch (error) {
+      // Somebody holding no place in an organization with no subscription of its own has nothing
+      // to spend — an answer, not a failure. As a failure it was retried in the background, and a
+      // place given to them meanwhile was not read until the next recording.
+      if (subscriptionApiFailure(error)?.code === NOTHING_TO_SPEND) {
+        return [];
+      }
+
+      throw error;
     }
-
-    return response.data;
   }
 
   /** The authoritative gate — the figures returned include this call. */
@@ -834,6 +849,9 @@ const codeFrom = (
 };
 
 const quantityErrorCode = (error: unknown): string => codeFrom(error, QUANTITY_ERROR_CODES);
+
+/** What `…/usage/mine` answers when the caller holds no place and the organization no subscription. */
+const NOTHING_TO_SPEND = "subscription_not_found";
 
 const subscribeErrorCode = (error: unknown): string => codeFrom(error, SUBSCRIBE_ERROR_CODES);
 

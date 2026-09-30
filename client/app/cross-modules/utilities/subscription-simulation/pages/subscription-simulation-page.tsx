@@ -15,6 +15,7 @@ import {
 } from "@/components/ui-kits/select/select";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui-kits/toaster/toast";
 import {
   ORGANIZATION_PAGE_SIZE,
   ORGANIZATION_QUERY_PARAM,
@@ -464,12 +465,23 @@ export const SubscriptionSimulationPage = () => {
           }}
           onSubscribed={(checkoutUrl) => {
             if (checkoutUrl) {
+              const perPerson = subscribingTo.subscriberScope === SUBSCRIBER_SCOPE.User;
+
               toast({
                 title: "Checkout ready",
-                description:
-                  subscribingTo.subscriberScope === SUBSCRIBER_SCOPE.User
-                    ? "Open the checkout link from the members card below."
-                    : "Open the checkout link from the current subscription card above.",
+                description: perPerson
+                  ? "Pay to activate it. The link also stays on its card under Members."
+                  : "Open the checkout link from the current subscription card above.",
+                // A per-person subscription is listed at the foot of the page, under the whole
+                // catalogue, so the link is put in front of the subscriber instead. The
+                // organization's own sits in the card at the top, where they already are.
+                action: perPerson ? (
+                  <ToastAction altText="Open checkout" asChild>
+                    <a href={checkoutUrl} target="_blank" rel="noreferrer">
+                      Open checkout
+                    </a>
+                  </ToastAction>
+                ) : undefined,
               });
             }
           }}
