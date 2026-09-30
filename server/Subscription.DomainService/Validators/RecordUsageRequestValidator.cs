@@ -21,6 +21,8 @@ public sealed class RecordUsageRequestValidator : AbstractValidator<RecordUsageR
                 "billable event, and callers do retry.")
             .WithErrorCode("subscription_usage_idempotency_key_required");
 
+        RuleFor(request => request.UserId).MaximumLength(128);
+
         RuleFor(request => request.Quantity)
             .NotEqual(0)
             .WithMessage(

@@ -110,11 +110,34 @@ public sealed class UsageRecordingService : IUsageRecordingService
         var context = resolution.Context!;
         var readAt = _time.GetUtcNow().UtcDateTime;
 
+        // Taken from the body only when the token names nobody. A client-credentials caller acts
+        // for no person of its own, so the body is the only place its user can come from; a
+        // signed-in caller's token is the stronger claim and the body loses, as OrganizationId's does.
+        var namedUserId = context.UserId is null && !string.IsNullOrWhiteSpace(request.UserId)
+            ? request.UserId.Trim()
+            : null;
+
+        var lookup = namedUserId is null ? context : context with { UserId = namedUserId };
+
         // Chosen by the meter being recorded rather than by taking whatever the organization
         // holds. Somebody on an allowance plan of their own spends theirs; a meter their plan says
         // nothing about still records against the organization's, which is what it pays for.
         var drawnOn = await ResolveForMeterAsync(
-            context, request.MeterKey, readAt, cancellationToken);
+            lookup, request.MeterKey, readAt, cancellationToken);
+
+        // A caller that named a person meant that person's place. Where the meter is sold per person
+        // and they hold none, charging the organization instead would turn a mistyped or unassigned
+        // id into a successful call against the shared pool.
+        if (namedUserId is not null &&
+            !IsSpentFromAPlace(drawnOn, request.MeterKey) &&
+            await IsSoldPerPersonAsync(context, request.MeterKey, readAt, cancellationToken))
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_member_seat_not_found",
+                "This user holds no place on the plan that meters this key.",
+                correlationId);
+        }
 
         var subscription = drawnOn?.Subscription;
         var seat = drawnOn?.SeatNumber;
@@ -190,9 +213,18 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 correlationId);
         }
 
+        // Whose usage this is, as far as everything downstream is concerned: the ledger's
+        // RecordedByUserId, the counter's holder and the per-user projection row all read it from
+        // the context ApplyAsync is given. The named user owns it only when a place of theirs is
+        // what it spends — keyed off the seat rather than the plan's scope, because the seat is what
+        // picks the counter, and a person's name on the shared pool's entry would give them a usage
+        // row for an allowance they do not hold. A signed-in caller's lookup is its own context, so
+        // this changes nothing for them.
+        var recordedAs = seat is not null ? lookup : context;
+
         return await ApplyAsync(
             request,
-            context,
+            recordedAs,
             subscription,
             seat,
             meter,
@@ -200,6 +232,33 @@ public sealed class UsageRecordingService : IUsageRecordingService
             occurredAt,
             correlationId,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether this meter lands on a place the resolved caller holds.
+    /// </summary>
+    private static bool IsSpentFromAPlace(ResolvedSubscription? drawnOn, string meterKey) =>
+        drawnOn is { SeatNumber: not null } &&
+        FindMeter(drawnOn.Subscription, meterKey) is not null;
+
+    /// <summary>
+    /// Whether any plan the organization sells per person meters this key.
+    /// </summary>
+    /// <remarks>
+    /// Includes a subscription still awaiting its first payment, which the repository returns
+    /// alongside the live ones. A named user refused while that checkout is pending is refused for
+    /// the right reason: the plan they are meant to spend exists, they just hold no place on it yet.
+    /// </remarks>
+    private async Task<bool> IsSoldPerPersonAsync(
+        SubscriptionContext context,
+        string meterKey,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var memberBased = await _subscriptions.ListLiveMemberBasedAsync(
+            context.TenantId, context.OrganizationId, nowUtc, cancellationToken);
+
+        return memberBased.Any(subscription => FindMeter(subscription, meterKey) is not null);
     }
 
     public async Task<SubscriptionOperationResult<IReadOnlyList<UsageResponse>>> GetCurrentUsageAsync(

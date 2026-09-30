@@ -1931,7 +1931,7 @@ Content-Type: application/json
         <li><a href="#api-mine"><code>GET /api/subscriptions/mine</code></a> — the places the signed-in person holds; empty means none.</li>
         <li><a href="#api-usage-mine"><code>GET /api/subscription-usage/mine</code></a> — their balances, one per meter, chosen as a recording would choose. A <code>404 subscription_not_found</code> means nothing to spend.</li>
         <li><a href="#api-entitlements"><code>GET /api/entitlements</code></a> — which features to show; a metered entitlement shows the person's own place's balance.</li>
-        <li><a href="#api-usage-record"><code>POST /api/subscription-usage</code></a> with <code>enforce: true</code> and a stable <code>idempotencyKey</code> on each metered action, <strong>with the person's own token</strong>: their place is found from the caller, and a service token holds no place.</li>
+        <li><a href="#api-usage-record"><code>POST /api/subscription-usage</code></a> with <code>enforce: true</code> and a stable <code>idempotencyKey</code> on each metered action, <strong>with the person's own token</strong>, whose place is found from the caller — or with a service token and the person's <code>userId</code> in the body.</li>
       </ol>
 
       <h3 id="per-person-permissions">Permissions</h3>
@@ -4116,7 +4116,7 @@ POST /api/subscriptions
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-usage</span></div>
         <div class="endpoint-body">
           <p><strong>The authoritative gate.</strong> The figures returned include this call.</p>
-          <p>On a <a href="#per-person">per-person plan</a> the use is counted against the <strong>caller's own place</strong> — found from the token, so record with the person's token — and the figures are that place's.</p>
+          <p>On a <a href="#per-person">per-person plan</a> the use is counted against the <strong>caller's own place</strong> — found from the token — and the figures are that place's. A service (client-credentials) token names no person, so it says whose place to spend with <code>userId</code>.</p>
           <h4>Body</h4>
           <div class="table-wrap">
             <table>
@@ -4128,6 +4128,7 @@ POST /api/subscriptions
                 <tr><td>occurredAtUtc</td><td class="type">DateTime?</td><td class="prose">When it happened, if not now. Decides which period it lands in, so a late report still bills the right month.</td></tr>
                 <tr><td>enforce</td><td class="type">bool</td><td class="prose">Refuse and roll back when the allowance is exhausted. <em>Only blocks when the meter disallows overage.</em></td></tr>
                 <tr><td>metadata</td><td class="type">object</td><td class="prose">Free-form context, bounded in count and length. Billing needs a count, not a dossier — no personal data.</td></tr>
+                <tr><td>userId</td><td class="type">string?</td><td class="prose">Whose place this spends, for a <strong>service token only</strong> — ignored when the token names a user, so nobody can spend a colleague's place. When a per-person plan meters the key: a user holding a place there spends it and the entry is filed as theirs; one holding none is refused with <code>subscription_member_seat_not_found</code> rather than charged to the organization. When only the organization's plan meters the key, the usage is the organization's, as without <code>userId</code>. <code>idempotencyKey</code> is still unique per subscription and meter, not per person.</td></tr>
               </tbody>
             </table>
           </div>
@@ -4759,6 +4760,7 @@ POST /api/subscriptions
             <tr><td>subscription_member_limit_reached</td><td class="prose">Per person, on assign: every fillable place is taken. Buy more places.</td></tr>
             <tr><td>subscription_member_already_assigned</td><td class="prose">Per person, on assign: already on this subscription. Safe to ignore when re-sending a list.</td></tr>
             <tr><td>subscription_member_not_assigned</td><td class="prose">Releasing someone who holds no place here.</td></tr>
+            <tr><td>subscription_member_seat_not_found</td><td class="prose">Recording usage with a service token for a <code>userId</code> who holds no place on the per-person plan that meters this key. Assign them first; nothing was recorded.</td></tr>
             <tr><td>subscription_member_seats_occupied</td><td class="prose">A decrease would leave fewer places than people on them. Release some first.</td></tr>
             <tr><td>subscription_plan_change_scope_mismatch</td><td class="prose">Changing between an organization plan and a per-person plan. Subscribe to the other separately.</td></tr>
             <tr><td>subscription_plan_member_quantity_ambiguous</td><td class="prose">Authoring a per-person plan that sells several quantities without marking exactly one <code>countsMembers</code>.</td></tr>
