@@ -161,11 +161,13 @@ from storage under that project key. No new permission.
   `Dockerfile.worker` and owned by `app`, as `/tmp/pdf-ingestion` is. On every start the JVM first
   loads from that directory (`offlineRefresh()`), then refreshes from the network in the background
   (`onlineRefresh()`). A JVM restarted after a timeout or crash therefore skips the download, but
-  it is **not** instant: the spike measured about **40–50 s** to load the cached lists (31 lists,
-  ~4,800 certificates, each list's signature checked again), against about 2 minutes cold. Jobs
-  that arrive in that window wait as described under Edge Cases. Each timeout or crash in a burst
-  costs about a minute of the 5-minute budget, so avoiding restarts is worth revisiting (see
-  Deferred Decisions).
+  it is **not** instant: measured in the worker image, the process takes **50–85 s** to become ready
+  from a warm cache (31 lists, ~4,800 certificates, each list's signature checked again; the range
+  is machine load, not the 512 MB heap cap), against about 2 minutes cold. The first file after
+  every start is slower still, **13–19 s** while the JVM warms up, against **2–6 s** for later
+  files. Jobs that arrive in the ready window wait as described under Edge Cases. Each timeout or
+  crash in a burst therefore costs about a minute and a half of the 5-minute budget, so avoiding
+  restarts is worth revisiting (see Deferred Decisions).
 - **Concurrency:** one file at a time per worker; scale by worker replicas.
 - **Memory:** the JVM's heap is capped by configuration (starting point 512 MB), sized so the
   worker's existing tools keep their headroom.
@@ -268,7 +270,9 @@ its result within 1 minute, including a file that runs to the per-file timeout.
 |---|---|---|
 | Job retention | Same as ingestion jobs (no TTL). | Ingestion gets a TTL, or validation jobs grow beyond expectations. |
 | Keeping full DSS reports | Not kept. | An audit or support case needs the detailed report. |
-| Restarting the JVM after a timeout | Restart, and pay ~40–50 s reloading the cached lists. | Timeouts in practice cost bursts their 5-minute budget. Alternatives: a standby JVM, or abandoning the timed-out worker thread instead of the process. |
+| Restarting the JVM after a timeout | Restart, and pay 50–85 s reloading the cached lists plus ~15 s for the first file. | Timeouts in practice cost bursts their 5-minute budget. Alternatives: a standby JVM, or abandoning the timed-out worker thread instead of the process. |
+| Throughput of one validator | One file at a time per worker; scale by replicas. Measured 2–6 s per warm file for a two-signature invoice, so 100 files take roughly 3.5 to 10 minutes on one worker against AC-18's 5. | The load check (AC-18) fails on realistic files. Options: more replicas for bursts, two validator processes per worker, turning off DSS's per-revision page rendering if it dominates (not yet measured), or a longer poll window in spec 009. |
+| Warming up the JVM | None: the first file after a start pays the ~15 s warm-up. | A first file ever times out on a slower pod, since every timeout restarts the JVM and the next first file pays the warm-up again. Fix: validate a small built-in PDF at start-up, before reporting ready. |
 | Sharing the trusted-list cache between workers | Local directory per worker; a new pod downloads its own copy while jobs wait. | New pods' first downloads push bursts past the 5-minute target, or the start-up wait expires in practice. |
 
 ## Open Questions
