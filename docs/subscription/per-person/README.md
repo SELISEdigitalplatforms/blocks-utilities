@@ -439,12 +439,30 @@ PUT /api/subscriptions/{id}/plan
 
 #### `POST /api/subscription-usage` — record usage (the only real gate)
 
-Permission `subscription-usage::manage`. Must be called **with the person's own token**: their place is
-found from who is calling, and there's no field to name someone else.
+Permission `subscription-usage::manage`. Called either **with the person's own token**, whose place is
+found from who is calling, or **with a service (client-credentials) token and the person's `userId`**
+in the body:
 
 ```json
 { "meterKey": "token", "quantity": 250, "idempotencyKey": "chat-9f2c…", "enforce": true, "metadata": { "feature": "chat" } }
 ```
+
+```json
+{ "meterKey": "token", "quantity": 250, "idempotencyKey": "chat-9f2c…", "enforce": true, "userId": "e7c85911-…" }
+```
+
+How `userId` is treated:
+
+| Caller | Outcome |
+| --- | --- |
+| Token names a user | `userId` is **ignored**; the caller's own place is spent. Nobody can spend a colleague's place. |
+| Service token, the user holds a place on a per-person plan metering the key | That place is spent, and the ledger entry is the user's. |
+| Service token, a per-person plan meters the key but the user holds no place on it | **Refused**: `404 subscription_member_seat_not_found`, nothing counted. Not charged to the organization. |
+| Service token, only the organization's plan meters the key | Recorded against the organization's plan, as without `userId`. |
+| Service token, no `userId` | Unchanged: the organization's plan. |
+
+`idempotencyKey` is still unique per subscription and meter, not per person — give each person's
+action its own key.
 
 ```json
 { "success": true, "data": {
@@ -507,7 +525,7 @@ subscription fee and, separately, the period's overage. Permission `subscription
 | Know whether *I* have a place | [`GET /api/subscriptions/mine`](#73-finding-per-person-subscriptions) | End-user app |
 | Show *my* remaining allowance | [`GET /api/subscription-usage/mine`](#77-using-and-reading-usage) | End-user app |
 | Hide or show a feature | [`GET /api/entitlements/{key}`](#78-entitlements) | End-user app |
-| Spend allowance (and stop at the limit) | [`POST /api/subscription-usage` with `enforce: true`](#77-using-and-reading-usage) | End-user app / its backend, **with the user's token** |
+| Spend allowance (and stop at the limit) | [`POST /api/subscription-usage` with `enforce: true`](#77-using-and-reading-usage) | End-user app / its backend, **with the user's token**, or a service token plus `userId` |
 
 ---
 
@@ -547,16 +565,17 @@ On sign-in / app load:
   GET /api/subscription-usage/mine     → my balances, one per meter
   GET /api/entitlements                → which features to show
 
-On each metered action (ideally from the app's backend, forwarding the user's token):
-  POST /api/subscription-usage { meterKey, quantity, idempotencyKey, enforce: true }
+On each metered action (from the app's backend, forwarding the user's token, or with its own
+service token and the user's id):
+  POST /api/subscription-usage { meterKey, quantity, idempotencyKey, enforce: true[, userId] }
     allowed: true   → do the work; show used/remaining from the response
     allowed: false  → don't; exceededSubLimits says whether it's the pace ("try again in an hour")
                       or the allowance ("you've used this month's tokens")
     subLimitExceeded: true (Throttle pace) → allowed, but warn or slow down
 ```
 
-- **Record with the person's token.** A service token has no user, so it holds no place and draws on
-  the organization's plan instead.
+- **Say whose place it is.** Forward the person's token, or send `userId` with a service token. A
+  service token with no `userId` holds no place and draws on the organization's plan instead.
 - **Use a stable `idempotencyKey`** per real-world action (e.g. the message id), so a retry isn't
   billed twice.
 - **Treat an empty `mine` as "no place"**, not as an error — and `404 subscription_not_found` from
@@ -581,7 +600,7 @@ Permissions use the resource form `blocks-utilities::<area>::<action>`.
 | `subscription::manage-invoice` | `POST /subscriptions/invoices/{id}/resend` | Finance |
 | `entitlement::read` | `GET /entitlements`, `GET /entitlements/{key}`, **`GET /subscriptions/mine`** | **Every signed-in user** |
 | `subscription-usage::read` | `GET /subscription-usage/current`, **`GET /subscription-usage/mine`**, `POST /subscription-usage/overage/preview` | Every signed-in user who sees their balance |
-| `subscription-usage::manage` | `POST /subscription-usage` | Every user whose actions are metered (or the backend acting with their token) |
+| `subscription-usage::manage` | `POST /subscription-usage` | Every user whose actions are metered (or the backend acting with their token, or a service client naming `userId`) |
 
 **Minimum bundles**
 
@@ -604,6 +623,7 @@ A resource with no permission row answers `403` for every endpoint that names it
 | `subscription_member_meter_overlap` | per person | assign | Holds a place on another live per-person plan metering the same key. Release them there first. |
 | `subscription_member_limit_reached` | per person | assign | Every fillable place is taken; the message says if a scheduled decrease is the reason. Buy more places. |
 | `subscription_member_not_assigned` | 404 | release | Not on this subscription. |
+| `subscription_member_seat_not_found` | 404 | record usage | A service token named a `userId` who holds no place on the per-person plan metering this key. Assign them first; nothing was counted. |
 | `subscription_member_seats_occupied` | 409 | decrease places | More people than the new number; release some first. |
 | `subscription_not_member_based` | 400 | members endpoints | That's the organization's own subscription. |
 | `subscription_not_live` | 409 | assign | Not active (unpaid, or ended). |
@@ -616,5 +636,4 @@ A resource with no permission row answers `403` for every endpoint that names it
 
 | Gap | Effect | Workaround |
 | --- | --- | --- |
-| **No "record on behalf of"**: usage is always recorded against the caller's own place. | A backend can't spend a named user's place with a service token. | Forward the user's token from the backend. |
 | **Discounts don't reduce overage.** The discount applies to the subscription fee only. | A 20 %-off code leaves overage at full rate. | By design so far; confirm with product if that's wanted. |
