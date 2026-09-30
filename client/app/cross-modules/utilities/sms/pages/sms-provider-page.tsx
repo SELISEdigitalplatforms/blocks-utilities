@@ -170,6 +170,12 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
   });
   const providerType = useWatch({ control: form.control, name: "providerType" });
   const spamEnabled = useWatch({ control: form.control, name: "spamFilter.enabled" });
+  const [senderNumber, senderName, excludedPrefixes] = useWatch({
+    control: form.control,
+    name: ["senderNumber", "senderName", "senderNameExcludedPrefixes"],
+  });
+  // A name with no number to fall back on fails outright for every excluded country.
+  const nameWithoutFallback = !!senderName?.trim() && !senderNumber?.trim() && excludedPrefixes.length > 0;
   const isTwilio = providerType === SmsProviderType.Twilio;
 
   useEffect(() => {
@@ -298,7 +304,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
 
               <SmsFormSection
                 title="Sender"
-                description="Who recipients see the message from. The name is used where carriers accept it, the number everywhere else."
+                description="Who recipients see the message from. Set at least one of the number or the name. The name is used where carriers accept it, the number everywhere else."
               >
                 <div className="grid gap-5 sm:grid-cols-2">
                   <TextField control={form.control} name="senderNumber" label="Sender number" placeholder="+41791234567" />
@@ -330,6 +336,12 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                           Recipients whose number starts with one of these codes see the sender number, because their
                           carriers reject names. +1 covers the US and Canada.
                         </FormDescription>
+                        {nameWithoutFallback && (
+                          <p className="text-sm text-amber-500" role="status">
+                            No sender number is set, so messages to these countries will fail. Add a sender number or
+                            remove the codes.
+                          </p>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
