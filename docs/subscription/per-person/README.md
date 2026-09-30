@@ -143,7 +143,7 @@ first**; anything their place doesn't cover falls through to the organization's 
 
 14. **Overage is summed place by place.** Each place's overage is what it used past its own allowance.
     The invoice line says so: *"usage beyond each place's own allowance (2 places: 200 included, 190
-    used between them)"* (from #619).
+    used between them)"*.
 15. **Places are the price multiplier.** Adding places charges a prorated difference now; removing
     them takes effect at renewal and isn't refunded.
 16. **Plan changes keep the scope.** A per-person subscription can only move to another per-person
@@ -152,8 +152,7 @@ first**; anything their place doesn't cover falls through to the organization's 
 **Ending**
 
 17. **Everyone is released when a subscription ends**, either at the end of the period for a
-    scheduled cancel, or at once for an immediate one. Their usage rows stop naming a holder too
-    (from #619).
+    scheduled cancel, or at once for an immediate one. Their usage rows stop naming a holder too.
 18. **Access never depends on the release landing.** Entitlement resolves only live subscriptions,
     so a place on an ended one grants nothing either way.
 
@@ -405,8 +404,8 @@ Permission `subscription::manage`. Works on a lapsed subscription.
 } }
 ```
 
-`404 subscription_member_not_assigned` when they don't hold a place. Before #619 the response carried
-`seatNumber: null` and an empty `assignedAtUtc`.
+`seatNumber` and `assignedAtUtc` describe the place just given back.
+`404 subscription_member_not_assigned` when they don't hold a place.
 
 ### 7.5 Changing places, plan and cadence
 
@@ -479,7 +478,8 @@ person).
 
 Permission `entitlement::read`. The caller's places are consulted **before** the organization's plan;
 where both declare the same key, the place's plan answers. Answering `allowed` for a per-person
-feature works. Metered `used`/`remaining` are the caller's **own place's** figures (once the entitlement fix lands; see [known gaps](#12-known-gaps)).
+feature works. Metered `used`/`remaining` are the caller's **own place's** figures, the same ones
+`GET /api/subscription-usage/mine` shows.
 
 ### 7.9 Invoices
 
@@ -490,24 +490,24 @@ subscription fee and, separately, the period's overage. Permission `subscription
 
 ## 8. Which API to call when
 
-| I want to… | Call | Who |
+| I want to… | Call (links to its reference) | Who |
 | --- | --- | --- |
-| Show which plans are per person | `GET /api/subscription-plans` → `subscriberScope === 1` | Admin UI |
-| Price a per-person signup | `POST /api/subscriptions/preview` | Admin UI |
-| Buy places | `POST /api/subscriptions`, then send the buyer to `checkoutUrl` | Admin UI |
-| Find the organization's per-person subscriptions | `GET /api/subscriptions/member-based` | Admin UI |
-| See who is on it and how much each place used | `GET /api/subscriptions/{id}/members` | Admin UI |
-| Give people places | `POST /api/subscriptions/{id}/members` | Admin UI |
-| Take someone off | `DELETE /api/subscriptions/{id}/members/{userId}` | Admin UI |
-| Buy more places / give some up | `POST …/quantities/preview`, then `PUT …/quantities` | Admin UI |
-| Undo a scheduled decrease | `DELETE …/quantities/pending` | Admin UI |
-| Upgrade, or switch monthly ↔ yearly | `POST …/plan/preview`, then `PUT …/plan` | Admin UI |
-| Undo a scheduled plan change | `DELETE …/plan/pending` | Admin UI |
-| Cancel / undo a cancel | `DELETE /api/subscriptions/{id}` / `DELETE …/cancellation` | Admin UI |
-| Know whether *I* have a place | `GET /api/subscriptions/mine` | End-user app |
-| Show *my* remaining allowance | `GET /api/subscription-usage/mine` | End-user app |
-| Hide or show a feature | `GET /api/entitlements/{key}` | End-user app |
-| Spend allowance (and stop at the limit) | `POST /api/subscription-usage` with `enforce: true` | End-user app / its backend, **with the user's token** |
+| Show which plans are per person | [`GET /api/subscription-plans` → `subscriberScope === 1`](#71-plans) | Admin UI |
+| Price a per-person signup | [`POST /api/subscriptions/preview`](#72-subscribing) | Admin UI |
+| Buy places | [`POST /api/subscriptions`, then send the buyer to `checkoutUrl`](#72-subscribing) | Admin UI |
+| Find the organization's per-person subscriptions | [`GET /api/subscriptions/member-based`](#73-finding-per-person-subscriptions) | Admin UI |
+| See who is on it and how much each place used | [`GET /api/subscriptions/{id}/members`](#74-places-and-people) | Admin UI |
+| Give people places | [`POST /api/subscriptions/{id}/members`](#74-places-and-people) | Admin UI |
+| Take someone off | [`DELETE /api/subscriptions/{id}/members/{userId}`](#74-places-and-people) | Admin UI |
+| Buy more places / give some up | [`POST …/quantities/preview`, then `PUT …/quantities`](#75-changing-places-plan-and-cadence) | Admin UI |
+| Undo a scheduled decrease | [`DELETE …/quantities/pending`](#75-changing-places-plan-and-cadence) | Admin UI |
+| Upgrade, or switch monthly ↔ yearly | [`POST …/plan/preview`, then `PUT …/plan`](#75-changing-places-plan-and-cadence) | Admin UI |
+| Undo a scheduled plan change | [`DELETE …/plan/pending`](#75-changing-places-plan-and-cadence) | Admin UI |
+| Cancel / undo a cancel | [`DELETE /api/subscriptions/{id}` / `DELETE …/cancellation`](#76-cancelling) | Admin UI |
+| Know whether *I* have a place | [`GET /api/subscriptions/mine`](#73-finding-per-person-subscriptions) | End-user app |
+| Show *my* remaining allowance | [`GET /api/subscription-usage/mine`](#77-using-and-reading-usage) | End-user app |
+| Hide or show a feature | [`GET /api/entitlements/{key}`](#78-entitlements) | End-user app |
+| Spend allowance (and stop at the limit) | [`POST /api/subscription-usage` with `enforce: true`](#77-using-and-reading-usage) | End-user app / its backend, **with the user's token** |
 
 ---
 
@@ -528,8 +528,13 @@ subscription fee and, separately, the period's overage. Permission `subscription
 
 - **Show refusals per person.** A call that assigns 3 and refuses 7 is a success; hiding the 7 sends
   the administrator looking for problems that aren't there.
+- **Put the checkout link in front of the buyer** as soon as `POST /api/subscriptions` returns it. A
+  per-person subscription isn't the organization's "current" one, so a screen built around `current`
+  has nowhere obvious to show it; while it stays `Incomplete`, `member-based` still carries the
+  `checkoutUrl` to offer again.
 - **Re-read after every change**, and when the page is refreshed. A payment can land with no action in
-  the client.
+  the client, and a plan change opens a fresh window on every place, so re-read `…/members` and the
+  usage figures as well as the subscription.
 - **Draw a place above `scheduledPlaces` as "removed on <date>"**, not as empty; assigning to it is
   refused.
 - **Carry the current number of places into a plan change.**
@@ -554,7 +559,9 @@ On each metered action (ideally from the app's backend, forwarding the user's to
   the organization's plan instead.
 - **Use a stable `idempotencyKey`** per real-world action (e.g. the message id), so a retry isn't
   billed twice.
-- **Treat an empty `mine` as "no place"**, not as an error.
+- **Treat an empty `mine` as "no place"**, not as an error — and `404 subscription_not_found` from
+  `GET /api/subscription-usage/mine` as "nothing to spend" (no place, and no organization subscription).
+  Retrying it as a failure leaves the screen showing old figures when a place is given afterwards.
 - **Don't gate on a prior read.** Two requests can both see "1 left"; only `enforce` on the recording
   decides.
 
@@ -609,7 +616,5 @@ A resource with no permission row answers `403` for every endpoint that names it
 
 | Gap | Effect | Workaround |
 | --- | --- | --- |
-| **Before the entitlement fix (branch `fix/entitlement-place-balance`)**: metered figures on `GET /api/entitlements` for a per-person meter read the subscription-wide counter, but per-person usage is counted per place. | `used`/`remaining` looked untouched (`used: 0`), though `allowed` was right. | Fixed: they now show the caller's own place. Gate with `enforce: true` on the recording either way. |
 | **No "record on behalf of"**: usage is always recorded against the caller's own place. | A backend can't spend a named user's place with a service token. | Forward the user's token from the backend. |
 | **Discounts don't reduce overage.** The discount applies to the subscription fee only. | A 20 %-off code leaves overage at full rate. | By design so far; confirm with product if that's wanted. |
-| **Before #619**: an immediate cancel released everyone but left the usage rows naming the last holder, and the release response had no place number. | Cosmetic, on ended subscriptions only. | Fixed by #619. |

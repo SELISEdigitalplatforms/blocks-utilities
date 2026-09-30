@@ -1916,21 +1916,22 @@ Content-Type: application/json
       </div>
 
       <h3 id="per-person-sequence">Integration sequence</h3>
+      <p>Each step links to its endpoint in the <a href="#api">API reference</a>.</p>
       <p><strong>Administrator console</strong></p>
       <ol>
-        <li><code>GET /api/subscription-plans</code> — offer plans with <code>subscriberScope === 1</code>.</li>
-        <li><code>POST /api/subscriptions/preview</code>, then <code>POST /api/subscriptions</code> with the counting quantity as the number of places; send the buyer to <code>checkoutUrl</code>.</li>
-        <li><code>GET /api/subscriptions/member-based</code> until the subscription is <code>Active</code> (the webhook, not the browser returning, activates it).</li>
-        <li><code>GET /api/subscriptions/{id}/members</code> to show places, holders and each place's usage.</li>
-        <li><code>POST /api/subscriptions/{id}/members</code> to assign; show <code>assigned</code> and <code>refused</code> separately. <code>DELETE …/members/{userId}</code> to release.</li>
-        <li>Places: <code>PUT …/quantities</code>. Plan or cadence: <code>PUT …/plan</code> with the <strong>current number of places</strong> in <code>quantities</code>. Cancel: <code>DELETE /api/subscriptions/{id}</code>.</li>
+        <li><a href="#api-plans-list"><code>GET /api/subscription-plans</code></a> — offer plans with <code>subscriberScope === 1</code>.</li>
+        <li><a href="#api-subscribe-preview"><code>POST /api/subscriptions/preview</code></a>, then <a href="#api-subscribe"><code>POST /api/subscriptions</code></a> with the counting quantity as the number of places; send the buyer to the returned <code>checkoutUrl</code> straight away — do not leave it for them to find.</li>
+        <li><a href="#api-member-based"><code>GET /api/subscriptions/member-based</code></a> until the subscription is <code>Active</code> (the webhook, not the browser returning, activates it). While it is <code>Incomplete</code> its <code>checkoutUrl</code> is still there to offer again.</li>
+        <li><a href="#api-members-read"><code>GET /api/subscriptions/{id}/members</code></a> to show places, holders and each place's usage.</li>
+        <li><a href="#api-members-assign"><code>POST /api/subscriptions/{id}/members</code></a> to assign; show <code>assigned</code> and <code>refused</code> separately. <a href="#api-members-release"><code>DELETE …/members/{userId}</code></a> to release.</li>
+        <li>Places: <a href="#api-quantities"><code>PUT …/quantities</code></a>. Plan or cadence: <a href="#api-plan-change"><code>PUT …/plan</code></a> with the <strong>current number of places</strong> in <code>quantities</code>. Cancel: <a href="#api-cancel"><code>DELETE /api/subscriptions/{id}</code></a>. Re-read <a href="#api-members-read"><code>…/members</code></a> after each: a plan change opens a fresh window on every place.</li>
       </ol>
       <p><strong>End-user application</strong></p>
       <ol>
-        <li><code>GET /api/subscriptions/mine</code> — the places the signed-in person holds; empty means none.</li>
-        <li><code>GET /api/subscription-usage/mine</code> — their balances, one per meter, chosen as a recording would choose.</li>
-        <li><code>GET /api/entitlements</code> — which features to show.</li>
-        <li><code>POST /api/subscription-usage</code> with <code>enforce: true</code> and a stable <code>idempotencyKey</code> on each metered action, <strong>with the person's own token</strong>: their place is found from the caller, and a service token holds no place.</li>
+        <li><a href="#api-mine"><code>GET /api/subscriptions/mine</code></a> — the places the signed-in person holds; empty means none.</li>
+        <li><a href="#api-usage-mine"><code>GET /api/subscription-usage/mine</code></a> — their balances, one per meter, chosen as a recording would choose. A <code>404 subscription_not_found</code> means nothing to spend.</li>
+        <li><a href="#api-entitlements"><code>GET /api/entitlements</code></a> — which features to show; a metered entitlement shows the person's own place's balance.</li>
+        <li><a href="#api-usage-record"><code>POST /api/subscription-usage</code></a> with <code>enforce: true</code> and a stable <code>idempotencyKey</code> on each metered action, <strong>with the person's own token</strong>: their place is found from the caller, and a service token holds no place.</li>
       </ol>
 
       <h3 id="per-person-permissions">Permissions</h3>
@@ -1938,11 +1939,11 @@ Content-Type: application/json
         <table>
           <thead><tr><th>Permission</th><th>Per-person endpoints</th><th>Give to</th></tr></thead>
           <tbody>
-            <tr><td>blocks-utilities::subscription::read</td><td class="prose"><code>GET /subscriptions/member-based</code>, <code>GET /subscriptions/{id}/members</code>, every <code>…/preview</code></td><td class="prose">Billing administrators</td></tr>
-            <tr><td>blocks-utilities::subscription::manage</td><td class="prose">subscribe, cancel, change plan or places, <code>POST /subscriptions/{id}/members</code>, <code>DELETE /subscriptions/{id}/members/{userId}</code></td><td class="prose">Administrators who fill places</td></tr>
-            <tr><td>blocks-utilities::entitlement::read</td><td class="prose"><code>GET /entitlements</code>, <code>GET /entitlements/{key}</code>, <code>GET /subscriptions/mine</code></td><td class="prose">Every signed-in user</td></tr>
-            <tr><td>blocks-utilities::subscription-usage::read</td><td class="prose"><code>GET /subscription-usage/mine</code>, <code>GET /subscription-usage/current</code></td><td class="prose">Users shown their balance</td></tr>
-            <tr><td>blocks-utilities::subscription-usage::manage</td><td class="prose"><code>POST /subscription-usage</code></td><td class="prose">Users whose actions are metered</td></tr>
+            <tr><td>blocks-utilities::subscription::read</td><td class="prose"><a href="#api-member-based"><code>GET /subscriptions/member-based</code></a>, <a href="#api-members-read"><code>GET /subscriptions/{id}/members</code></a>, every <code>…/preview</code></td><td class="prose">Billing administrators</td></tr>
+            <tr><td>blocks-utilities::subscription::manage</td><td class="prose">subscribe, cancel, change plan or places, <a href="#api-members-assign"><code>POST /subscriptions/{id}/members</code></a>, <a href="#api-members-release"><code>DELETE /subscriptions/{id}/members/{userId}</code></a></td><td class="prose">Administrators who fill places</td></tr>
+            <tr><td>blocks-utilities::entitlement::read</td><td class="prose"><a href="#api-entitlements"><code>GET /entitlements</code></a>, <code>GET /entitlements/{key}</code>, <a href="#api-mine"><code>GET /subscriptions/mine</code></a></td><td class="prose">Every signed-in user</td></tr>
+            <tr><td>blocks-utilities::subscription-usage::read</td><td class="prose"><a href="#api-usage-mine"><code>GET /subscription-usage/mine</code></a>, <a href="#api-usage-current"><code>GET /subscription-usage/current</code></a></td><td class="prose">Users shown their balance</td></tr>
+            <tr><td>blocks-utilities::subscription-usage::manage</td><td class="prose"><a href="#api-usage-record"><code>POST /subscription-usage</code></a></td><td class="prose">Users whose actions are metered</td></tr>
             <tr><td>blocks-utilities::subscription-plan::manage</td><td class="prose">create and edit plans, including <code>subscriberScope</code> and <code>countsMembers</code></td><td class="prose">Plan authors</td></tr>
           </tbody>
         </table>
@@ -2009,7 +2010,7 @@ Content-Type: application/json
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-quantities">
         <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscriptions/{subscriptionId}/quantities</span></div>
         <div class="endpoint-body">
           <h4>Body</h4>
@@ -2176,7 +2177,7 @@ Content-Type:  application/json      (on POST and PUT)</code></pre>
 
       <h3 id="api-plans">Plans</h3>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-plans-list">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-plans</span></div>
         <div class="endpoint-body">
           <p>Every plan visible to the caller's organization, each with its prices.</p>
@@ -2922,7 +2923,7 @@ POST /api/subscriptions
 
       <h3 id="api-subs">Subscriptions</h3>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-subscribe-preview">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/preview</span></div>
         <div class="endpoint-body">
           <p>
@@ -3110,7 +3111,7 @@ POST /api/subscriptions
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-subscribe">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions</span></div>
         <div class="endpoint-body">
           <p>Starts a subscription and raises the first charge.</p>
@@ -3479,7 +3480,7 @@ POST /api/subscriptions
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-plan-change">
         <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/subscriptions/{subscriptionId}/plan</span></div>
         <div class="endpoint-body">
           <h4>Body</h4>
@@ -3507,7 +3508,7 @@ POST /api/subscriptions
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-cancel">
         <div class="endpoint-head"><span class="method">DELETE</span><span class="path">/api/subscriptions/{subscriptionId}</span></div>
         <div class="endpoint-body">
           <h4>Query</h4>
@@ -3560,70 +3561,121 @@ POST /api/subscriptions
 
       <h3 id="api-members">Places &amp; members</h3>
       <p>
-        For <a href="#per-person">per-person</a> subscriptions only. Every one of these answers
-        <code>400 subscription_not_member_based</code> for the organization's own subscription.
+        For <a href="#per-person">per-person</a> subscriptions. The administrator's calls come
+        first, then the two the person themselves makes. Every one that names a subscription
+        answers <code>400 subscription_not_member_based</code> for the organization's own.
       </p>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-member-based">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/member-based</span></div>
         <div class="endpoint-body">
-          <p>The organization's per-person subscriptions, live or awaiting payment — the same shape as <a href="#api-current"><code>GET /api/subscriptions/current</code></a>, as an array. <code>current</code> never returns these; this is how an administrator finds the <code>subscriptionId</code> to manage places on. Permission <code>subscription::read</code>.</p>
-          <h4>Returns</h4>
-          <p><code>200</code> array, empty when there are none.</p>
-        </div>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/mine</span></div>
-        <div class="endpoint-body">
-          <p>The places the <strong>signed-in person</strong> holds. Needs only <code>entitlement::read</code>, so an ordinary user can call it.</p>
+          <p><strong>The organization's per-person subscriptions</strong>, live or awaiting their first payment. <a href="#api-current"><code>GET /api/subscriptions/current</code></a> answers for the organization's own subscription only and never returns these, so this is how an administrator finds the <code>subscriptionId</code> to manage places on — several, because an organization may hold more than one per-person plan.</p>
+          <h4>When to call</h4>
+          <p>To list per-person subscriptions on an administration screen; after <a href="#api-subscribe"><code>POST /api/subscriptions</code></a> for a per-person plan, until the new one reads <code>Active</code> — the provider's webhook activates it, which may land a few seconds after the buyer's browser returns; and after any change to one, to re-read it.</p>
+          <h4>Permission</h4>
+          <p><code>blocks-utilities::subscription::read</code></p>
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Parameter</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Platform console only — any other caller is scoped to their own organization and this is ignored.</td></tr>
+              </tbody>
+            </table>
+          </div>
           <h4>Sample response</h4>
           <pre><code>{
   "success": true,
   "data": [
     {
-      "subscriptionId": "1488665d-…",
+      "subscriptionId": "4cab74a5-6f32-4de0-bd5d-cb8a3acc7a86",
+      "status": "Incomplete",
       "planCode": "ai-seat",
       "planName": "AI assistant",
-      "status": "Active",
-      "seatNumber": 2,
-      "currentPeriodEndUtc": "2026-10-29T17:24:00Z",
-      "cancelAtPeriodEnd": false
+      "currencyCode": "USD",
+      "unitAmountMinor": 1000,
+      "interval": "Month",
+      "intervalCount": 1,
+      "quantities": [
+        { "itemKey": "seat", "unitLabel": "seat", "quantity": 2, "minQuantity": 1, "maxQuantity": null, "defaultQuantity": 1 }
+      ],
+      "currentPeriodStartUtc": "2026-09-29T20:39:00Z",
+      "currentPeriodEndUtc": "2026-10-29T20:39:00Z",
+      "cancelAtPeriodEnd": false,
+      "pendingQuantityChange": null,
+      "pendingPlanChange": null,
+      "recurringAmountMinor": 2162,
+      "checkoutUrl": "https://checkout.stripe.com/c/pay/cs_test_…",
+      "version": 1
     }
   ],
   "error": null,
   "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
 }</code></pre>
+          <p class="prose">Each item is the full subscription, field for field as <a href="#api-current">current</a> describes it. The ones that matter here:</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>subscriptionId</td><td class="prose">What every <code>…/members</code> call below names.</td></tr>
+                <tr><td>status</td><td class="prose"><code>Incomplete</code> until the first payment lands; places can be filled only once it is <code>Active</code> (or <code>Trialing</code> / <code>PastDue</code>).</td></tr>
+                <tr><td>checkoutUrl</td><td class="prose">Set while <code>Incomplete</code>: where the buyer pays. Show it as the way on; <code>null</code> once paid.</td></tr>
+                <tr><td>quantities</td><td class="prose">The counting quantity is the number of places bought.</td></tr>
+                <tr><td>pendingQuantityChange / pendingPlanChange</td><td class="prose">A decrease or a plan / cadence change booked for the period end. A booked change to the <strong>same plan</strong> is a cadence change — name it by its <code>interval</code>, not by the plan it is already on.</td></tr>
+                <tr><td>cancelAtPeriodEnd</td><td class="prose">A cancellation is booked; places keep working until <code>currentPeriodEndUtc</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
           <h4>Returns</h4>
-          <p><code>200</code> — an empty array means the person holds no place.</p>
+          <p><code>200</code> — an empty array when the organization holds none · <code>401</code> no or invalid token · <code>403</code> missing the permission.</p>
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-members-read">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/{subscriptionId}/members</span></div>
         <div class="endpoint-body">
-          <p>Who holds which place, how many remain, and each place's usage in its current window. Works on a lapsed subscription too. Permission <code>subscription::read</code>.</p>
+          <p><strong>Who holds which place, how many remain, and each place's usage</strong> in its current window. Works on a lapsed subscription too, so an administrator can still see who was on it.</p>
+          <h4>When to call</h4>
+          <p>To draw a subscription's places; after every assign, release, quantity or plan change; after a cancellation, to confirm every place was released.</p>
+          <h4>Permission</h4>
+          <p><code>blocks-utilities::subscription::read</code></p>
+          <h4>Path</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Parameter</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>subscriptionId</td><td class="type">string</td><td class="prose">From <a href="#api-member-based"><code>member-based</code></a>.</td></tr>
+              </tbody>
+            </table>
+          </div>
           <h4>Sample response</h4>
           <pre><code>{
   "success": true,
   "data": {
-    "subscriptionId": "1488665d-…",
+    "subscriptionId": "4cab74a5-6f32-4de0-bd5d-cb8a3acc7a86",
     "purchased": 5,
     "held": 2,
     "available": 3,
     "scheduledPlaces": null,
     "scheduledAtUtc": null,
     "seats": [
-      { "subscriptionId": "1488665d-…", "userId": "user-a", "seatNumber": 1,
-        "assignedAtUtc": "2026-09-29T18:00:00Z", "releasedAtUtc": null }
+      { "subscriptionId": "4cab74a5-…", "userId": "user-a", "seatNumber": 1,
+        "assignedAtUtc": "2026-09-29T18:00:00Z", "releasedAtUtc": null },
+      { "subscriptionId": "4cab74a5-…", "userId": "user-b", "seatNumber": 2,
+        "assignedAtUtc": "2026-09-29T18:05:00Z", "releasedAtUtc": null }
     ],
     "usage": [
       { "seatNumber": 1, "userId": "user-a", "meterKey": "token", "unitLabel": "token",
         "quantityScale": 0, "included": 100000, "used": 130, "remaining": 99870, "overage": 0,
         "periodEndUtc": "2026-10-29T17:24:00Z", "updatedAtUtc": "2026-09-29T18:03:08Z",
-        "subLimits": [ { "window": "Hour", "windowCount": 1, "rolling": false, "behaviour": "Refuse",
-                         "quantity": 1000, "used": 130, "remaining": 870, "exceeded": false,
-                         "windowStartUtc": "2026-09-29T18:00:00Z", "windowEndUtc": "2026-09-29T19:00:00Z" } ] }
+        "subLimits": [
+          { "window": "Hour", "windowCount": 1, "rolling": false, "behaviour": "Refuse",
+            "quantity": 1000, "used": 130, "remaining": 870, "exceeded": false,
+            "windowStartUtc": "2026-09-29T18:00:00Z", "windowEndUtc": "2026-09-29T19:00:00Z" }
+        ] },
+      { "seatNumber": 3, "userId": "", "meterKey": "token", "unitLabel": "token",
+        "quantityScale": 0, "included": 100000, "used": 40, "remaining": 99960, "overage": 0,
+        "periodEndUtc": "2026-10-29T17:24:00Z", "updatedAtUtc": "2026-09-29T17:50:00Z", "subLimits": [] }
     ]
   },
   "error": null,
@@ -3631,34 +3683,48 @@ POST /api/subscriptions
 }</code></pre>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
               <tbody>
-                <tr><td>purchased</td><td class="prose">Places the subscription was bought with.</td></tr>
-                <tr><td>held</td><td class="prose">Places someone is on now.</td></tr>
-                <tr><td>available</td><td class="prose">Places that can be filled today: the smaller of purchased and scheduled, less held. A snapshot, not a promise — only the assignment settles a race for the last place.</td></tr>
-                <tr><td>scheduledPlaces / scheduledAtUtc</td><td class="prose">What a decrease booked for the period end leaves, and when. Places above it cannot be filled; show them as removed, not empty.</td></tr>
-                <tr><td>usage[]</td><td class="prose">One entry per place and meter. A place used and since released stays listed with <code>userId: ""</code>; its figures include whatever earlier holders spent.</td></tr>
+                <tr><td>purchased</td><td class="type">long</td><td class="prose">Places bought: the counting quantity when priced per place, its <code>maxQuantity</code> when flat-priced.</td></tr>
+                <tr><td>held</td><td class="type">long</td><td class="prose">Places someone is on now.</td></tr>
+                <tr><td>available</td><td class="type">long</td><td class="prose">Places that can be filled today: the smaller of purchased and scheduled, less held. A snapshot, not a promise — only the assignment itself settles a race for the last place.</td></tr>
+                <tr><td>scheduledPlaces</td><td class="type">long?</td><td class="prose">What a decrease booked for the period end leaves; <code>null</code> when none is. Places above it cannot be filled — show them as <em>removed on</em> <code>scheduledAtUtc</code>, not as empty.</td></tr>
+                <tr><td>scheduledAtUtc</td><td class="type">DateTime?</td><td class="prose">When that decrease takes effect.</td></tr>
+                <tr><td>seats[]</td><td class="type">array</td><td class="prose">One per held place: <code>userId</code>, 1-based <code>seatNumber</code>, <code>assignedAtUtc</code>.</td></tr>
+                <tr><td>usage[]</td><td class="type">array</td><td class="prose">One per place and meter in its current window. <code>used</code> is the <strong>place's</strong>, including whatever earlier holders spent. A place used and since released stays listed with <code>userId: ""</code>. <code>subLimits</code> is each pace as the last recording left it; empty until one has.</td></tr>
               </tbody>
             </table>
           </div>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>400</code> <code>subscription_not_member_based</code> · <code>404</code> <code>subscription_not_found</code>.</p>
+          <p><code>200</code> · <code>400</code> <code>subscription_not_member_based</code> · <code>404</code> <code>subscription_not_found</code> (none such in this organization).</p>
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-members-assign">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/members</span></div>
         <div class="endpoint-body">
-          <p>Gives people places. People are named in the body — filling places for others is the ordinary case; the token only decides which organization's subscription may be touched. Permission <code>subscription::manage</code>.</p>
+          <p><strong>Gives people places.</strong> People are named in the body — filling places for others is the ordinary case; the token only decides which organization's subscription may be touched. Each newcomer gets the free place with the most allowance left, summed across meters, ties taking the lowest number.</p>
+          <h4>When to call</h4>
+          <p>Once the subscription is <code>Active</code>, to put people on it. Safe to re-send a whole list: anyone already on it is reported, not duplicated.</p>
+          <h4>Permission</h4>
+          <p><code>blocks-utilities::subscription::manage</code></p>
           <h4>Body</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>userIds</td><td class="type">string[]</td><td class="prose">Required, at least one. Blanks are dropped and duplicates collapsed. One name is a list of one.</td></tr>
+              </tbody>
+            </table>
+          </div>
           <pre><code>{ "userIds": [ "user-a", "user-b", "user-c" ] }</code></pre>
           <h4>Sample response</h4>
           <pre><code>{
   "success": true,
   "data": {
-    "subscriptionId": "1488665d-…",
+    "subscriptionId": "4cab74a5-6f32-4de0-bd5d-cb8a3acc7a86",
     "assigned": [
-      { "subscriptionId": "1488665d-…", "userId": "user-a", "seatNumber": 2,
+      { "subscriptionId": "4cab74a5-…", "userId": "user-a", "seatNumber": 2,
         "assignedAtUtc": "2026-09-29T18:05:00Z", "releasedAtUtc": null }
     ],
     "refused": [
@@ -3672,27 +3738,48 @@ POST /api/subscriptions
   "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
 }</code></pre>
           <p class="prose">
-            Answered <strong>per person</strong>: a batch that fills the last three places and
-            refuses seven is a success. Per-person refusals are
-            <code>subscription_member_already_assigned</code>,
-            <code>subscription_member_meter_overlap</code> and
-            <code>subscription_member_limit_reached</code> (its message says when a scheduled
-            decrease is the reason). Each newcomer gets the free place with the most allowance left.
+            Answered <strong>per person</strong>: nothing here spans documents, so a batch that fills
+            the last three places and refuses seven is a success — show <code>assigned</code> and
+            <code>refused</code> separately, never one verdict for the batch.
           </p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th><code>refused[].reasonCode</code></th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>subscription_member_already_assigned</td><td class="prose">Already on this subscription. Checked before capacity, so it is never reported as "full".</td></tr>
+                <tr><td>subscription_member_meter_overlap</td><td class="prose">Holds a place on another live per-person plan metering the same key. Release them there first.</td></tr>
+                <tr><td>subscription_member_limit_reached</td><td class="prose">Every fillable place is taken. The message says when a scheduled decrease is what closed it.</td></tr>
+              </tbody>
+            </table>
+          </div>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>400</code> <code>subscription_member_required</code>, <code>subscription_member_count_ambiguous</code>, <code>subscription_not_member_based</code> · <code>404</code> <code>subscription_not_found</code> · <code>409</code> <code>subscription_not_live</code>.</p>
+          <p><code>200</code> with <code>assigned</code> / <code>refused</code> · <code>400</code> <code>subscription_member_required</code>, <code>subscription_member_count_ambiguous</code>, <code>subscription_not_member_based</code> · <code>404</code> <code>subscription_not_found</code> · <code>409</code> <code>subscription_not_live</code> (unpaid or ended).</p>
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-members-release">
         <div class="endpoint-head"><span class="method">DELETE</span><span class="path">/api/subscriptions/{subscriptionId}/members/{userId}</span></div>
         <div class="endpoint-body">
-          <p>Takes a person off their place. The place keeps its usage for the rest of the period. Allowed on a lapsed subscription. Permission <code>subscription::manage</code>.</p>
+          <p><strong>Takes a person off their place.</strong> The place keeps what was spent in the period — its allowance belongs to the place, not the person — so whoever takes it next inherits the rest. Allowed on a lapsed subscription, so somebody who has left can still be taken off.</p>
+          <h4>When to call</h4>
+          <p>When somebody leaves, or to free a place before a decrease (a decrease that would strand people is refused with <code>subscription_member_seats_occupied</code>).</p>
+          <h4>Permission</h4>
+          <p><code>blocks-utilities::subscription::manage</code></p>
+          <h4>Path</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Parameter</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>subscriptionId</td><td class="type">string</td><td class="prose">The per-person subscription.</td></tr>
+                <tr><td>userId</td><td class="type">string</td><td class="prose">The person to take off.</td></tr>
+              </tbody>
+            </table>
+          </div>
           <h4>Sample response</h4>
           <pre><code>{
   "success": true,
   "data": {
-    "subscriptionId": "1488665d-…",
+    "subscriptionId": "4cab74a5-6f32-4de0-bd5d-cb8a3acc7a86",
     "userId": "user-a",
     "seatNumber": 2,
     "assignedAtUtc": "2026-09-29T18:05:00Z",
@@ -3701,8 +3788,60 @@ POST /api/subscriptions
   "error": null,
   "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
 }</code></pre>
+          <p class="prose"><code>seatNumber</code> and <code>assignedAtUtc</code> describe the place just given back.</p>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>404</code> <code>subscription_member_not_assigned</code> or <code>subscription_not_found</code>.</p>
+          <p><code>200</code> · <code>400</code> <code>subscription_not_member_based</code> · <code>404</code> <code>subscription_member_not_assigned</code> (they hold no place here) or <code>subscription_not_found</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint" id="api-mine">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/mine</span></div>
+        <div class="endpoint-body">
+          <p><strong>The places the signed-in person holds</strong>, each with its subscription. For the person rather than an administrator, so it needs only what checking an entitlement does.</p>
+          <h4>When to call</h4>
+          <p>When an end-user application loads, to know whether the person has a per-person plan at all and which; after they are given or lose a place.</p>
+          <h4>Permission</h4>
+          <p><code>blocks-utilities::entitlement::read</code></p>
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Parameter</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Platform console only; ignored for anyone else.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": [
+    {
+      "subscriptionId": "4cab74a5-6f32-4de0-bd5d-cb8a3acc7a86",
+      "planCode": "ai-seat",
+      "planName": "AI assistant",
+      "status": "Active",
+      "seatNumber": 2,
+      "currentPeriodEndUtc": "2026-10-29T20:39:00Z",
+      "cancelAtPeriodEnd": false
+    }
+  ],
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>subscriptionId / planCode / planName</td><td class="type">string</td><td class="prose">The per-person subscription and its plan.</td></tr>
+                <tr><td>status</td><td class="type">string</td><td class="prose">The subscription's status.</td></tr>
+                <tr><td>seatNumber</td><td class="type">int</td><td class="prose">Which place, 1-based — the one whose allowance this person spends.</td></tr>
+                <tr><td>currentPeriodEndUtc</td><td class="type">DateTime</td><td class="prose">When the current period ends.</td></tr>
+                <tr><td>cancelAtPeriodEnd</td><td class="type">bool</td><td class="prose">A cancellation is booked for that date.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Returns</h4>
+          <p><code>200</code> — an <strong>empty array means the person holds no place</strong>; treat it as an answer, not an error.</p>
         </div>
       </div>
 
@@ -3973,7 +4112,7 @@ POST /api/subscriptions
         snapshotted and rebuilt when a subscriber changes plan.
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-usage-record">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-usage</span></div>
         <div class="endpoint-body">
           <p><strong>The authoritative gate.</strong> The figures returned include this call.</p>
@@ -4032,7 +4171,7 @@ POST /api/subscriptions
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-usage-current">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-usage/current</span></div>
         <div class="endpoint-body">
           <p>Every meter's balance for the current period. Useful for a usage screen; not a gate.</p>
@@ -4042,12 +4181,58 @@ POST /api/subscriptions
         </div>
       </div>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-usage-mine">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-usage/mine</span></div>
         <div class="endpoint-body">
-          <p>What the <strong>signed-in person</strong> may spend: one item per meter, the same shape as <code>current</code>, chosen exactly as a recording chooses — their <a href="#per-person">place</a> first, the organization's plan for every meter no place of theirs covers. What it shows is what the next use draws down. Served from the counters; no <code>readMode</code>.</p>
+          <p><strong>What the signed-in person may spend</strong>: one item per meter, chosen exactly as a recording chooses — their <a href="#per-person">place</a> first, the organization's plan for every meter no place of theirs covers. So what it shows is what their next use draws down. Beside <a href="#api-usage-current"><code>current</code></a> rather than a flag on it: that one answers for the organization's own subscription and is unchanged.</p>
+          <h4>When to call</h4>
+          <p>To show a person their remaining allowance; after they record usage, or are given or lose a place. It is a read, not a gate — gate with <a href="#api-usage-record"><code>POST /api/subscription-usage</code></a> and <code>enforce</code>.</p>
+          <h4>Permission</h4>
+          <p><code>blocks-utilities::subscription-usage::read</code></p>
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Parameter</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Platform console only; ignored for anyone else. No <code>readMode</code>: served from the counters, which a place's allowance lives in.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "success": true,
+  "data": [
+    {
+      "allowed": true,
+      "userId": "",
+      "meterKey": "token",
+      "unitLabel": "token",
+      "periodKey": "M20260929T203900Z",
+      "periodStartUtc": "2026-09-29T20:39:00Z",
+      "periodEndUtc": "2026-10-29T20:39:00Z",
+      "quantityScale": 0,
+      "included": 100,
+      "used": 60,
+      "remaining": 40,
+      "overage": 0,
+      "replayed": false,
+      "subLimitExceeded": false,
+      "exceededSubLimits": [],
+      "projection": 0
+    }
+  ],
+  "error": null,
+  "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
+}</code></pre>
+          <p class="prose">
+            The item shape is the <a href="#api-usage-record">recording response</a>'s. For a meter the
+            person's place covers, <code>included</code>, <code>used</code>, <code>remaining</code> and
+            <code>overage</code> are <strong>that place's</strong> — including what an earlier holder
+            spent this period; for any other meter they are the organization's. <code>allowed</code>
+            reflects the balance, not a decision about a use.
+          </p>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>404</code> <code>subscription_not_found</code> when the person holds no place and the organization has no subscription.</p>
+          <p><code>200</code> · <code>404</code> <code>subscription_not_found</code> when the person holds no place <strong>and</strong> the organization has no subscription — nothing to spend; show it as zero, not as a failure.</p>
         </div>
       </div>
 
@@ -4117,7 +4302,7 @@ POST /api/subscriptions
 
       <h3 id="api-ent">Entitlements</h3>
 
-      <div class="endpoint">
+      <div class="endpoint" id="api-entitlements">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/entitlements</span></div>
         <div class="endpoint-body">
           <p>Everything the organization may do, in one read.</p>
