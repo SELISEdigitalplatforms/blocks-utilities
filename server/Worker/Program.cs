@@ -10,6 +10,8 @@ using Utility.DomainService.Messaging;
 using Utility.DomainService.PdfGenerator.Tooling;
 using Utility.DomainService.PdfGenerator.Utilities;
 using Utility.DomainService.PdfIngestion.Utilities;
+using Utility.DomainService.PdfSignatureValidation.Utilities;
+using Utility.DomainService.PdfSignatureValidation.Validator;
 using Utility.DomainService.TemplateEngine.Utilities;
 using SeliseBlocks.ConfigurationDriver;
 using Subscription.DomainService.Services;
@@ -20,6 +22,7 @@ using Worker;
 using Worker.Configuration;
 using Worker.Consumers.PdfGenerator;
 using Worker.Consumers.PdfIngestion;
+using Worker.Consumers.PdfSignatureValidation;
 using Worker.Consumers.Payment;
 using Worker.Consumers.Subscription;
 using Subscription.DomainService.Entities;
@@ -97,6 +100,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
             // Worker-only: the Api answers requests and serves polling, and must never resolve a
             // graph that expects qpdf, Java or Ghostscript on PATH.
             services.RegisterPdfIngestionToolchain(context.Configuration);
+            // Worker-only for the same reason: this starts the EU DSS validator process (Java), which
+            // the Api must never need. The Api only records and queues validations.
+            services.RegisterPdfSignatureValidationConsumers();
+            services.RegisterPdfSignatureValidator(context.Configuration);
             services.AddSingleton<IVault>(_ => paymentVault);
             services.RegisterPaymentDomainServices(context.Configuration);
             services.RegisterSubscriptionDomainServices(
@@ -152,6 +159,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
     var helper = MessageConfigurationHelper.GetMessageConfiguration(connectionString);
     var pdfGenerator = PdfGeneratorConstants.GetMessageConfiguration(connectionString);
     var pdfIngestion = PdfIngestionConstants.GetMessageConfiguration(connectionString);
+    var pdfSignatureValidation = PdfSignatureValidationConstants.GetMessageConfiguration(connectionString);
     var templateEngine = TemplateEngineConstants.GetMessageConfiguration(connectionString);
     var sms = SmsConstants.GetMessageConfiguration(connectionString);
 
@@ -168,6 +176,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                     ..helper.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfGenerator.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..pdfIngestion.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
+                    ..pdfSignatureValidation.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..templateEngine.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ..sms.RabbitMqConfiguration?.ConsumerSubscriptions ?? [],
                     ConsumerSubscription.BindToQueue(
@@ -190,6 +199,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..helper.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Queues ?? [],
                 ..pdfIngestion.AzureServiceBusConfiguration?.Queues ?? [],
+                ..pdfSignatureValidation.AzureServiceBusConfiguration?.Queues ?? [],
                 ..templateEngine.AzureServiceBusConfiguration?.Queues ?? [],
                 ..sms.AzureServiceBusConfiguration?.Queues ?? [],
                 PaymentConstants.PaymentWorkQueue
@@ -200,6 +210,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
                 ..helper.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfGenerator.AzureServiceBusConfiguration?.Topics ?? [],
                 ..pdfIngestion.AzureServiceBusConfiguration?.Topics ?? [],
+                ..pdfSignatureValidation.AzureServiceBusConfiguration?.Topics ?? [],
                 ..templateEngine.AzureServiceBusConfiguration?.Topics ?? [],
                 ..sms.AzureServiceBusConfiguration?.Topics ?? [],
                 PaymentConstants.LifecycleTopic,
