@@ -38,9 +38,12 @@ public sealed class ValidatePdfSignaturesConsumerTests
     private readonly Mock<IStorageDriverService> _storageDriver = new();
     private readonly List<ConsumerMessage<ValidatePdfSignaturesEvent>> _republished = [];
     private readonly FakeTimeProvider _time = new(Now);
+    private readonly PdfSignatureValidationMetrics _metrics = new();
+    private readonly MetricCapture _capture;
 
     public ValidatePdfSignaturesConsumerTests()
     {
+        _capture = new MetricCapture(_metrics.Meter);
         _validator.SetupGet(x => x.IsReady).Returns(true);
         _storageDriver
             .Setup(x => x.GetUrlForDownloadFileAsync(It.IsAny<GetFileRequest>()))
@@ -72,6 +75,7 @@ public sealed class ValidatePdfSignaturesConsumerTests
             _notifications.Object,
             _messageClient.Object,
             Options.Create(new PdfSignatureValidatorOptions()),
+            _metrics,
             _time);
     }
 
@@ -352,6 +356,55 @@ public sealed class ValidatePdfSignaturesConsumerTests
 
         Stored.Status.Should().Be(PdfIngestionStatus.Failed);
         Stored.ErrorCode.Should().Be("validation_not_queued", "with no message in flight nothing would ever pick the job up");
+    }
+
+    [Fact]
+    public async Task A_completed_job_is_counted_with_whether_every_signature_passed()
+    {
+        ValidatorReturns(PdfSignatureValidatorResult.Validated(Verdict()));
+
+        await CreateConsumer().Consume(Event());
+
+        _capture.Total("pdf_signature_validation.jobs.completed").Should().Be(1);
+        _capture.Total("pdf_signature_validation.jobs.completed", "all_passed", true).Should().Be(
+            1, "a dashboard wants to tell files that verified from files that did not");
+    }
+
+    [Fact]
+    public async Task A_failed_job_is_counted_with_its_error_code()
+    {
+        ValidatorReturns(PdfSignatureValidatorResult.TimedOut());
+
+        await CreateConsumer().Consume(Event());
+
+        _capture.Total("pdf_signature_validation.jobs.failed", "error_code", "validation_timeout").Should().Be(
+            1, "an alert on timeouts has to be able to tell them from input errors");
+        _capture.Total("pdf_signature_validation.jobs.completed").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_job_put_back_on_the_queue_is_counted_as_requeued_and_not_as_failed()
+    {
+        _validator.SetupGet(x => x.IsReady).Returns(false);
+
+        await CreateConsumer().Consume(Event());
+
+        _capture.Total("pdf_signature_validation.jobs.requeued").Should().Be(1);
+        _capture.Total("pdf_signature_validation.jobs.failed").Should().Be(0, "waiting for the validator is not a failure");
+    }
+
+    [Fact]
+    public async Task A_superseded_run_is_not_counted_as_anything()
+    {
+        _validator
+            .Setup(x => x.ValidateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback(() => _repository.Jobs["file-1"] = QueuedJob(runId: "run-2"))
+            .ReturnsAsync(PdfSignatureValidatorResult.Validated(Verdict()));
+
+        await CreateConsumer().Consume(Event(runId: "run-1"));
+
+        _capture.Total("pdf_signature_validation.jobs.completed").Should().Be(
+            0, "the run's verdict was discarded, so counting it would overstate what the validator delivered");
     }
 
     private sealed class InMemoryRepository : IPdfSignatureValidationRepository

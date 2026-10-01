@@ -1,0 +1,46 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: blocks-pdf-signature-validation
+spec:
+  groups:
+    - name: pdf-signature-validation
+      rules:
+        # Signature validation is report-only for its first consumer (the SELISE signature app never
+        # blocks a signature on it), so these are warnings: nothing here moves money or stops signing.
+        - alert: PdfSignatureValidatorUnavailable
+          expr: pdf_signature_validation_validator_ready == 0
+          # Matches PdfSignatureValidation:TrustedListWaitMinutes, the point at which queued files
+          # start failing with trust_lists_unavailable. The worker logs a Critical line at the same time.
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: The PDF signature validator is not available
+            description: "A worker's DSS validator has been down or without its EU trusted lists for 10 minutes. Validations are failing with trust_lists_unavailable until it recovers."
+        - alert: PdfSignatureTrustedListsStale
+          # The lists refresh every 24 h, so this is two missed refreshes. Validation keeps working on
+          # the lists already loaded, which is why this is slower and quieter than the alert above.
+          expr: pdf_signature_validation_trusted_lists_age_seconds > 172800
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: The EU trusted lists have not refreshed for two days
+            description: "The worker's trusted lists were last loaded more than 48 hours ago. Check outbound HTTPS to ec.europa.eu and the validator's logs; verdicts are being reached on stale trust data."
+        - alert: PdfSignatureValidatorTimingOut
+          expr: increase(pdf_signature_validation_validator_timeouts_total[30m]) >= 3
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: Files keep running past the validator's timeout
+            description: "Each timeout restarts the JVM and costs a minute or more of validation capacity. Look for what the files have in common."
+        - alert: PdfSignatureValidatorCrashing
+          expr: increase(pdf_signature_validation_validator_crashes_total[30m]) >= 3
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: The PDF signature validator process keeps dying
+            description: "The JVM exited or broke its protocol three or more times in 30 minutes. Check the worker's memory limit against PdfSignatureValidation:HeapMegabytes and the validator's logs."

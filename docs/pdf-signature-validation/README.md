@@ -135,7 +135,7 @@ from storage under that project key. No new permission.
 | Signer's CA on no trusted list and not a configured anchor | `Completed`; that signature `INDETERMINATE` / `NO_CERTIFICATE_CHAIN_FOUND`. |
 | Document carries no revocation data for the signer | `Completed`; level stops below LT, `RevocationOrigin = None` (online fetching is off by design). |
 | Several signatures, some failing | `Completed`; each reported on its own, `AllPassed = false`. |
-| A file takes longer than the per-file timeout (default **30 s**, configurable) | `Failed`, `validation_timeout`; the Java process is restarted before the next file and reloads the trusted lists from the local cache (see Runtime), not from the network. |
+| A file takes longer than the per-file timeout (default **30 s**; **60 s** for the first file a process validates after it starts, see Non-Functional Requirements; both configurable) | `Failed`, `validation_timeout`; the Java process is restarted before the next file and reloads the trusted lists from the local cache (see Runtime), not from the network. |
 | The Java process crashes | `Failed`, `validator_crashed`; restarted before the next file, reloading from the local cache as above. **No automatic retry**; the caller may re-request. |
 | Trusted-list refresh fails | Keep using the lists already loaded; log a warning. |
 | The cached lists have expired (their `NextUpdate` has passed) and a refresh has not succeeded yet | Treated as a failed refresh: keep validating with them and log a warning. `TrustedListsLoadedAt` shows how old they are. |
@@ -151,6 +151,14 @@ from storage under that project key. No new permission.
   on one worker completes within **5 minutes** — spec 009 polls every 30 s for at most ~5 minutes.
   The per-file timeout (30 s) is set so that even a file that runs to the timeout reaches a
   `Failed` result within the 1-minute target. Raising it past about 45 s breaks that target.
+  **One exception:** the first file a process validates after it starts gets **60 s**
+  (`FirstFileTimeoutSeconds`). On a quiet machine that file takes about 4.5 s against about 1.2 s
+  for later ones, because the JVM has not yet run the validation code path; under CPU contention the
+  same first file took 17 to 30 s, up to the whole 30 s limit. Timing it out would restart the JVM,
+  and the next first file would pay the same cost again, so on a contended pod it would never get
+  through. The allowance applies again to the first file of every replacement process, and only a
+  verdict ends it: a rejection such as "not a PDF" comes back without running the validation code
+  path.
   Both targets assume the trusted lists are already loaded; a new pod's first download is outside
   them.
 - **Runtime:** **one long-running JVM per worker**, started with the worker, with the trusted lists
@@ -161,13 +169,16 @@ from storage under that project key. No new permission.
   `Dockerfile.worker` and owned by `app`, as `/tmp/pdf-ingestion` is. On every start the JVM first
   loads from that directory (`offlineRefresh()`), then refreshes from the network in the background
   (`onlineRefresh()`). A JVM restarted after a timeout or crash therefore skips the download, but
-  it is **not** instant: measured in the worker image, the process takes **50–85 s** to become ready
-  from a warm cache (31 lists, ~4,800 certificates, each list's signature checked again; the range
-  is machine load, not the 512 MB heap cap), against about 2 minutes cold. The first file after
-  every start is slower still, **13–19 s** while the JVM warms up, against **2–6 s** for later
-  files. Jobs that arrive in the ready window wait as described under Edge Cases. Each timeout or
-  crash in a burst therefore costs about a minute and a half of the 5-minute budget, so avoiding
-  restarts is worth revisiting (see Deferred Decisions).
+  it is **not** instant: measured in the worker image, the process takes about **55 s** to become
+  ready from a warm cache unconstrained, about **90 s** at two CPUs, and up to about **145 s** when
+  the machine is contended (31 lists, ~4,800 certificates, each list's signature checked again; the
+  heap cap makes no difference: 57 s at 512 MB against 51 s at 1 GB), against about 2 minutes cold.
+  Jobs that arrive in the ready window wait as described under Edge Cases. Once ready, a file takes
+  about **1.2 s** (median over 100 runs at two CPUs, p95 1.8 s), and the first file after a start
+  about 4.5 s. Each timeout or crash in a burst therefore costs one to two minutes of the 5-minute
+  budget, so avoiding restarts is worth revisiting (see Deferred Decisions). Every one of these
+  numbers moves several times over with how much CPU the process actually gets: measure on the pod
+  size that will be deployed, on a machine with nothing else busy (`tools/dss/load-check.sh`).
 - **Concurrency:** one file at a time per worker; scale by worker replicas.
 - **Memory:** the JVM's heap is capped by configuration (starting point 512 MB), sized so the
   worker's existing tools keep their headroom.
@@ -190,7 +201,7 @@ from storage under that project key. No new permission.
 | Storage | Existing `PdfStorageHelper`: read only. |
 | Queue | **New queue** for validation events, alongside `blocks_pdf_ingestion_listener`. |
 | Notifications | Existing `IPdfGeneratorNotificationService`, a new event type for validation completion. |
-| Health / metrics | **New work.** The Worker has no HTTP host and no `IHealthCheck` registrations; those exist only in `Api/Program.cs`. The validator follows the Worker's in-process pattern for the PDF renderer (`FinancialDocumentRendererReadinessCheck`, `FinancialDocumentRendererHealthMonitor`, `IFinancialDocumentRendererHealth`): a health gate records whether the JVM is up and the lists are loaded, the consumer reads it (see Edge Cases), and a critical log is written when it turns unhealthy. The Api's health endpoints do not report it. Counters: completed, failed, timed out, re-queued while not ready; gauges: trusted-list age, validator ready (0/1). |
+| Health / metrics | **New work.** The Worker has no HTTP host and no `IHealthCheck` registrations; those exist only in `Api/Program.cs`, which does not report the validator. Its health is the state the supervisor already keeps (`IPdfSignatureValidator.IsReady`, `TrustedListsLoadedAt`), read by the consumer and exported as metrics. No separate gate, readiness check and monitor as for the PDF renderer: the supervisor already polls the process, so those would duplicate it. A **Critical** log is written once when the validator has been unavailable for `TrustedListWaitMinutes` (10), the point at which queued files start failing, and an Information line when it recovers. Meter `Blocks.Utility.PdfSignatureValidation`. Counters: `jobs.completed` (tag `all_passed`), `jobs.failed` (tag `error_code`), `jobs.requeued`, `validator.starts`, `validator.timeouts`, `validator.crashes`. Gauges: `validator.ready` (1/0) and `trusted_lists.age` (seconds; no value until the lists have loaded once). Alert rules are versioned in `monitoring/pdf-signature-validation-alerts.yaml`. |
 | `l3-net-signature-app` spec 009 | First consumer, report-only; this spec is its "Required blocks-utilities contract". |
 
 ## Acceptance Criteria
@@ -237,7 +248,8 @@ validated, then `INDETERMINATE` / `NO_CERTIFICATE_CHAIN_FOUND`.
 **AC-12** — Given a non-PDF file, a file that needs a password to open, or a missing file, then
 `Failed` with `input_not_pdf`, `input_password_protected` or `input_file_not_found`.
 
-**AC-13** — Given a file that takes longer than the per-file timeout, then `Failed` with
+**AC-13** — Given a file that takes longer than the per-file timeout (the first-file timeout, for
+the first file a process validates), then `Failed` with
 `validation_timeout`, and the next file is validated by a fresh Java process that loads the trusted
 lists from the local cache without any network access.
 
@@ -256,9 +268,11 @@ completion notification.
 **AC-16** — Given a `messageCoRelationId`, when a file's job completes or fails, then one
 completion notification is sent for that file; a notification failure leaves the job unchanged.
 
-**AC-17** — Given the worker is up, then the validator's health gate reports whether the JVM is up
-and the lists are loaded, a critical log is written when it turns unhealthy, and the counters and
-gauges listed under Integrations are exported.
+**AC-17** — Given the worker is up, then `validator.ready` reports whether a process is up with the
+lists loaded and `trusted_lists.age` how old they are; given the validator has been unavailable for
+`TrustedListWaitMinutes`, then one Critical log is written (and one Information line when it
+recovers); and the counters listed under Integrations are exported. A validator process that dies
+or is killed, for any reason, is logged at Error and counted once, and never stops the worker.
 
 **AC-18** — Given the trusted lists are loaded and 100 files are queued at once on one worker, then
 every result is available within 5 minutes of the first request. A single file on an idle worker has
@@ -270,9 +284,9 @@ its result within 1 minute, including a file that runs to the per-file timeout.
 |---|---|---|
 | Job retention | Same as ingestion jobs (no TTL). | Ingestion gets a TTL, or validation jobs grow beyond expectations. |
 | Keeping full DSS reports | Not kept. | An audit or support case needs the detailed report. |
-| Restarting the JVM after a timeout | Restart, and pay 50–85 s reloading the cached lists plus ~15 s for the first file. | Timeouts in practice cost bursts their 5-minute budget. Alternatives: a standby JVM, or abandoning the timed-out worker thread instead of the process. |
-| Throughput of one validator | One file at a time per worker; scale by replicas. Measured 2–6 s per warm file for a two-signature invoice, so 100 files take roughly 3.5 to 10 minutes on one worker against AC-18's 5. | The load check (AC-18) fails on realistic files. Options: more replicas for bursts, two validator processes per worker, turning off DSS's per-revision page rendering if it dominates (not yet measured), or a longer poll window in spec 009. |
-| Warming up the JVM | None: the first file after a start pays the ~15 s warm-up. | A first file ever times out on a slower pod, since every timeout restarts the JVM and the next first file pays the warm-up again. Fix: validate a small built-in PDF at start-up, before reporting ready. |
+| Restarting the JVM after a timeout | Restart, and pay about 55 to 145 s reloading the cached lists (see Runtime). | Timeouts in practice cost bursts their 5-minute budget. Alternatives: a standby JVM, or abandoning the timed-out worker thread instead of the process. |
+| Throughput of one validator | One file at a time per worker; scale by replicas. Measured with `tools/dss/load-check.sh` on a quiet machine at two CPUs: **100 files in 131 s** (median 1.2 s per file, p95 1.8 s) against AC-18's 300 s, so one validator is enough for the expected bursts. | The same check fails on the deployed pod size, or a worker shares its CPU with other busy work. Validation time depends on the CPU it gets: on a contended machine the same file took 8 to 12 s, and a 100-file burst would then take 13 to 19 minutes. Options then: a CPU request of at least two for the worker, more replicas for bursts, two validator processes per worker, or a longer poll window in spec 009. Run the check on the real pod size before relying on this. |
+| Warming up the JVM | Not warmed up; the first file after a start gets a longer timeout instead, and the start-up wait is generous. A warm-up that validated a generated PDF (self-signed, signed once and then twice) was built and dropped: it took 3 to 5 s and the first real file was no faster in the runs made, **but those runs were taken on a loaded machine, so that comparison is not reliable**. What is reliable: on a quiet machine the first real file takes about 4.5 s against about 1.2 s later, so a warm-up could save about 3 s once per process start, which does not justify its code. | The first file's cold-start cost proves much larger than that on the real pod, for example `validator.timeouts` climbing from first files. Measure on a quiet machine against a real signed file before building anything. |
 | Sharing the trusted-list cache between workers | Local directory per worker; a new pod downloads its own copy while jobs wait. | New pods' first downloads push bursts past the 5-minute target, or the start-up wait expires in practice. |
 
 ## Open Questions

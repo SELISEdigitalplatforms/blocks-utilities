@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Utility.DomainService.PdfSignatureValidation.Validator
 {
@@ -24,7 +25,15 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
 
             services.Configure<PdfSignatureValidatorOptions>(configuration.GetSection(PdfSignatureValidatorOptions.SectionName));
 
+            // The supervisor and the gauges read the clock through this. RegisterUtilityServices adds
+            // it too; TryAdd means this registration works alone and never replaces a fake a host set.
+            services.TryAddSingleton(TimeProvider.System);
+
             services.AddSingleton<IValidatorChannelFactory, ValidatorProcessChannelFactory>();
+
+            // One instance shared by the supervisor (process counters, the two gauges) and the
+            // consumer (job counters), so both report into the same meter.
+            services.AddSingleton<PdfSignatureValidationMetrics>();
 
             // One instance that is both the hosted service that keeps the process alive and the
             // IPdfSignatureValidator the consumer calls; two registrations would be two processes.
