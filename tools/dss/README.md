@@ -44,3 +44,29 @@ EU List of Trusted Lists. They come from DSS 6.5's demonstration keystore
 (`esig/dss-demonstrations`, `dss-demo-webapp/src/main/resources/keystore.p12`) and are public
 certificates only. Replace the file, and `--oj-url` if it changed, when the Official Journal
 announces new signers. The earliest current certificate expires in April 2027.
+
+## Load check
+
+`load-check.sh` is the repeatable check for AC-18 (100 files queued at once on one worker have a
+result within 5 minutes). It runs the validator's `--bench` mode in a worker image: after the trusted
+lists have loaded it validates one file N times in a row, one at a time, which is how a worker serves
+its queue, and prints the per-file timings as one JSON line followed by a pass or fail against the
+5-minute budget.
+
+```sh
+tools/dss/load-check.sh <worker-image> <signed.pdf> [count] [trusted-list-cache-dir]
+
+# what a pod with two CPUs would do
+LOAD_CHECK_DOCKER_ARGS="--cpus=2" tools/dss/load-check.sh <worker-image> <signed.pdf> 100 ./tl-cache
+```
+
+- Use a real signed file like production's. It is read, never modified or kept, and none is in the
+  repository because it may hold customer data.
+- Give it a directory of already-downloaded trusted lists (the `--cache-dir` of an earlier run) so it
+  starts from the warm cache a restarted worker has, not a two-minute download.
+- **Run it on a machine with nothing else busy.** Validation time depends on the CPU the process
+  gets, and a run beside a browser and a language server can be several times slower than the same
+  run on a quiet machine. Compare numbers only between runs made in the same conditions.
+- It measures the validator process only. Queueing, the storage download and the notification are
+  small next to a validation that takes seconds, and the same file every time is a little kinder
+  than a burst of different ones.

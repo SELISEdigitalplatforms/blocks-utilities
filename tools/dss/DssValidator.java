@@ -133,6 +133,17 @@ public final class DssValidator {
             System.exit(0);
         }
 
+        String bench = options.get("--bench");
+        if (bench != null) {
+            // Load check (tools/dss/load-check.sh): time the same file repeatedly, the way a burst of
+            // queued files arrives at one worker, and print the numbers as one JSON line.
+            if (!validator.isReady()) {
+                validator.refreshOnline();
+            }
+            OUT.println(validator.bench(bench, Integer.parseInt(options.getOrDefault("--count", "100"))));
+            System.exit(0);
+        }
+
         long refreshHours = Long.parseLong(options.getOrDefault("--refresh-hours", "24"));
         Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "tl-refresh");
@@ -165,6 +176,39 @@ public final class DssValidator {
                 default -> OUT.println(failure(id, "invalid_request", "op must be status or validate."));
             }
         }
+    }
+
+    /**
+     * Validates <code>file</code> <code>count</code> times in a row and reports how long each took.
+     * One file at a time is how a worker serves its queue, so the total is what a burst of that many
+     * files would cost on one worker once the validator is ready.
+     */
+    private ObjectNode bench(String file, int count) {
+        List<Long> millis = new ArrayList<>(count);
+        long startedAll = System.nanoTime();
+
+        for (int i = 0; i < count; i++) {
+            long started = System.nanoTime();
+            ObjectNode reply = validate("bench", file);
+            if (!reply.path("ok").asBoolean(false)) {
+                return reply;
+            }
+            millis.add((System.nanoTime() - started) / 1_000_000);
+        }
+
+        long totalMillis = (System.nanoTime() - startedAll) / 1_000_000;
+        List<Long> sorted = new ArrayList<>(millis);
+        sorted.sort(Long::compare);
+
+        ObjectNode result = JSON.createObjectNode().put("ok", true);
+        result.put("readyAfterMs", java.lang.management.ManagementFactory.getRuntimeMXBean().getUptime() - totalMillis);
+        result.put("files", count);
+        result.put("totalMs", totalMillis);
+        result.put("firstMs", millis.get(0));
+        result.put("medianMs", sorted.get(count / 2));
+        result.put("p95Ms", sorted.get(Math.min(count - 1, (int) Math.ceil(count * 0.95) - 1)));
+        result.put("maxMs", sorted.get(count - 1));
+        return result;
     }
 
     private ObjectNode status(String id) {
@@ -415,7 +459,8 @@ public final class DssValidator {
         String value = options.get(name);
         if (value == null || value.isBlank()) {
             System.err.println("USAGE: DssValidator --cache-dir <dir> --lotl-signers <pem> [--anchors <pem>]"
-                    + " [--lotl-url <url>] [--oj-url <url>] [--refresh-hours <h>] [--once <pdf>]");
+                    + " [--lotl-url <url>] [--oj-url <url>] [--refresh-hours <h>] [--once <pdf>]"
+                    + " [--bench <pdf> [--count <n>]]");
             System.exit(1);
         }
         return value;
