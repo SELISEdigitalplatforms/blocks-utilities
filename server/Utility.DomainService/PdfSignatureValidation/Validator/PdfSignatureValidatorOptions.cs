@@ -49,21 +49,23 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
 
         /// <summary>
         /// The timeout for the first file a process validates after it starts, before it has produced
-        /// a verdict. The JVM has not yet run the validation code path, so that file alone takes
-        /// 13 to 27 s (30 s on a loaded machine) against <see cref="PerFileTimeoutSeconds"/>; later
-        /// files take 2 to 6 s. Without the allowance a slow first file times out, which restarts the
-        /// process, and the next first file pays the same cost again. A synthetic warm-up document
-        /// was tried and did not remove the cost (see the spec's Deferred Decisions), so this is the
-        /// fix. Never shorter than <see cref="PerFileTimeoutSeconds"/>.
+        /// a verdict. The JVM has not yet run the validation code path, so that file is slower: about
+        /// 4.5 s against about 1.2 s for later ones on a quiet machine, but 17 to 30 s under CPU
+        /// contention, which is the whole <see cref="PerFileTimeoutSeconds"/>. Without the allowance a
+        /// slow first file times out, which restarts the process, and the next first file pays the
+        /// same cost again. A warm-up document was tried instead and is not worth its code (see the
+        /// spec's Deferred Decisions). Never shorter than <see cref="PerFileTimeoutSeconds"/>.
         /// </summary>
         public int FirstFileTimeoutSeconds { get; set; } = 60;
 
         /// <summary>
         /// The longest a freshly started JVM may take to begin answering. Much longer than a file
-        /// timeout because it covers loading the ~4,800 certificates of the cached lists, which the
-        /// spike measured at 40 to 50 s, plus headroom for a slower disk.
+        /// timeout because it covers loading the ~4,800 certificates of the cached lists, measured at
+        /// about 55 s unconstrained, 90 s at two CPUs and up to 145 s under contention. 300 s leaves
+        /// twice the worst of those. Too short a limit would kill a slow but healthy start, and since
+        /// every restart reloads the same lists it would then happen again, for ever.
         /// </summary>
-        public int StartupTimeoutSeconds { get; set; } = 180;
+        public int StartupTimeoutSeconds { get; set; } = 300;
 
         /// <summary>How often the supervisor asks the JVM whether the trusted lists have loaded.</summary>
         public int StatusPollSeconds { get; set; } = 10;

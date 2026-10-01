@@ -321,9 +321,10 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
                 Exchange exchange;
 
                 // A process that has not produced a verdict yet has not run the validation code path,
-                // so its first file pays for the JVM's cold start: measured at 13 to 27 s against a
-                // 30 s timeout, and 30 s on a loaded machine. Timing that file out would restart the
-                // process, and the next first file would pay the same again, so it gets longer.
+                // so its first file pays for the JVM's cold start: about 4.5 s on a quiet machine, but
+                // 17 to 30 s under CPU contention against a 30 s timeout. Timing that file out would
+                // restart the process, and the next first file would pay the same again, so it gets
+                // longer.
                 var timeoutSeconds = _firstVerdictServed
                     ? _options.PerFileTimeoutSeconds
                     : Math.Max(_options.FirstFileTimeoutSeconds, _options.PerFileTimeoutSeconds);
