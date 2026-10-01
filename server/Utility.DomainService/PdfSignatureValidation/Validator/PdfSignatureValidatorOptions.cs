@@ -48,6 +48,17 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
         public int PerFileTimeoutSeconds { get; set; } = 30;
 
         /// <summary>
+        /// The timeout for the first file a process validates after it starts, before it has produced
+        /// a verdict. The JVM has not yet run the validation code path, so that file alone takes
+        /// 13 to 27 s (30 s on a loaded machine) against <see cref="PerFileTimeoutSeconds"/>; later
+        /// files take 2 to 6 s. Without the allowance a slow first file times out, which restarts the
+        /// process, and the next first file pays the same cost again. A synthetic warm-up document
+        /// was tried and did not remove the cost (see the spec's Deferred Decisions), so this is the
+        /// fix. Never shorter than <see cref="PerFileTimeoutSeconds"/>.
+        /// </summary>
+        public int FirstFileTimeoutSeconds { get; set; } = 60;
+
+        /// <summary>
         /// The longest a freshly started JVM may take to begin answering. Much longer than a file
         /// timeout because it covers loading the ~4,800 certificates of the cached lists, which the
         /// spike measured at 40 to 50 s, plus headroom for a slower disk.

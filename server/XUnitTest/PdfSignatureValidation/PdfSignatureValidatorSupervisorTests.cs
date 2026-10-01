@@ -322,7 +322,12 @@ public sealed class PdfSignatureValidatorSupervisorTests
 
         await harness.Supervisor.ValidateAsync("a.pdf", CancellationToken.None);
 
-        harness.Capture.Total("pdf_signature_validation.validator.crashes").Should().Be(1);
+        // Whoever claims the death first reports it: the request, or the restart loop a moment earlier.
+        // Either way it is counted once, so wait for that rather than assuming which side it was.
+        await WaitUntilAsync(() => harness.Capture.Total("pdf_signature_validation.validator.crashes") >= 1, "the crash to be counted");
+        await Task.Delay(300);
+
+        harness.Capture.Total("pdf_signature_validation.validator.crashes").Should().Be(1, "reported once, not once per party that noticed");
         harness.Capture.Total("pdf_signature_validation.validator.timeouts").Should().Be(0);
     }
 
@@ -387,6 +392,76 @@ public sealed class PdfSignatureValidatorSupervisorTests
         harness.Capture.Total("pdf_signature_validation.validator.crashes").Should().Be(
             0, "the poll found the process already killed for the timeout, which was reported where it happened");
         harness.Logger.Entries.Count(entry => entry.Level == LogLevel.Error).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Only_the_first_file_after_a_start_gets_the_longer_timeout()
+    {
+        // Every validate answers after 1.5 s: past the 1 s per-file limit, inside the 3 s first-file one.
+        using var first = new FakeChannel();
+        first.Respond = request =>
+        {
+            if (Operation(request) != "validate")
+            {
+                return Serve(first, request);
+            }
+
+            var id = Id(request);
+            _ = Task.Delay(1500).ContinueWith(_ => first.Reply(VerdictLine(id)), TaskScheduler.Default);
+            return null;
+        };
+        await using var harness = new Harness(new FakeFactory(() => first), options =>
+        {
+            options.PerFileTimeoutSeconds = 1;
+            options.FirstFileTimeoutSeconds = 3;
+        });
+        await harness.StartAsync();
+        await WaitUntilAsync(() => harness.Supervisor.IsReady, "the validator to report ready");
+
+        var firstFile = await harness.Supervisor.ValidateAsync("a.pdf", CancellationToken.None);
+        var secondFile = await harness.Supervisor.ValidateAsync("b.pdf", CancellationToken.None);
+
+        firstFile.Outcome.Should().Be(
+            PdfSignatureValidatorOutcome.Verdict,
+            "the first file of a cold JVM is slow for reasons that say nothing about the file, and timing it out would restart the JVM for nothing");
+        secondFile.Outcome.Should().Be(
+            PdfSignatureValidatorOutcome.TimedOut, "once the JVM has produced a verdict the normal limit applies");
+    }
+
+    [Fact]
+    public async Task The_longer_timeout_applies_again_to_the_first_file_of_every_replacement_process()
+    {
+        // Without this, a first file that really is slow on a loaded pod would time out, restart the
+        // JVM, and have the next first file time out the same way, for ever.
+        static FakeChannel HangingOnValidate()
+        {
+            var channel = new FakeChannel();
+            channel.Respond = request => Operation(request) == "validate" ? null : Serve(channel, request);
+            return channel;
+        }
+
+        await using var harness = new Harness(new FakeFactory(HangingOnValidate, HangingOnValidate), options =>
+        {
+            options.PerFileTimeoutSeconds = 1;
+            options.FirstFileTimeoutSeconds = 2;
+        });
+        await harness.StartAsync();
+        await WaitUntilAsync(() => harness.Supervisor.IsReady, "the validator to report ready");
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var first = await harness.Supervisor.ValidateAsync("a.pdf", CancellationToken.None);
+        var firstTook = clock.Elapsed;
+
+        await WaitUntilAsync(() => harness.Supervisor.IsReady && harness.Factory.Started.Count == 2, "the replacement process");
+
+        clock.Restart();
+        var second = await harness.Supervisor.ValidateAsync("a.pdf", CancellationToken.None);
+
+        first.Outcome.Should().Be(PdfSignatureValidatorOutcome.TimedOut, "even the longer limit ends a file that never answers");
+        firstTook.Should().BeGreaterThan(TimeSpan.FromSeconds(1.8), "the first file waited for the first-file limit, not the per-file one");
+        second.Outcome.Should().Be(PdfSignatureValidatorOutcome.TimedOut);
+        clock.Elapsed.Should().BeGreaterThan(
+            TimeSpan.FromSeconds(1.8), "the replacement process is cold too, so its first file also gets the longer limit");
     }
 
     [Fact]

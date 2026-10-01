@@ -135,7 +135,7 @@ from storage under that project key. No new permission.
 | Signer's CA on no trusted list and not a configured anchor | `Completed`; that signature `INDETERMINATE` / `NO_CERTIFICATE_CHAIN_FOUND`. |
 | Document carries no revocation data for the signer | `Completed`; level stops below LT, `RevocationOrigin = None` (online fetching is off by design). |
 | Several signatures, some failing | `Completed`; each reported on its own, `AllPassed = false`. |
-| A file takes longer than the per-file timeout (default **30 s**, configurable) | `Failed`, `validation_timeout`; the Java process is restarted before the next file and reloads the trusted lists from the local cache (see Runtime), not from the network. |
+| A file takes longer than the per-file timeout (default **30 s**; **60 s** for the first file a process validates after it starts, see Non-Functional Requirements; both configurable) | `Failed`, `validation_timeout`; the Java process is restarted before the next file and reloads the trusted lists from the local cache (see Runtime), not from the network. |
 | The Java process crashes | `Failed`, `validator_crashed`; restarted before the next file, reloading from the local cache as above. **No automatic retry**; the caller may re-request. |
 | Trusted-list refresh fails | Keep using the lists already loaded; log a warning. |
 | The cached lists have expired (their `NextUpdate` has passed) and a refresh has not succeeded yet | Treated as a failed refresh: keep validating with them and log a warning. `TrustedListsLoadedAt` shows how old they are. |
@@ -151,6 +151,12 @@ from storage under that project key. No new permission.
   on one worker completes within **5 minutes** — spec 009 polls every 30 s for at most ~5 minutes.
   The per-file timeout (30 s) is set so that even a file that runs to the timeout reaches a
   `Failed` result within the 1-minute target. Raising it past about 45 s breaks that target.
+  **One exception:** the first file a process validates after it starts gets **60 s**
+  (`FirstFileTimeoutSeconds`), because a cold JVM takes 13 to 27 s for it (30 s on a loaded machine)
+  against 2 to 6 s for later files. Timing that file out would restart the JVM, and the next first
+  file would pay the same cost again, so on a slow pod it would never get through. The allowance
+  applies again to the first file of every replacement process, and only a verdict ends it: a
+  rejection such as "not a PDF" comes back without running the validation code path.
   Both targets assume the trusted lists are already loaded; a new pod's first download is outside
   them.
 - **Runtime:** **one long-running JVM per worker**, started with the worker, with the trusted lists
@@ -237,7 +243,8 @@ validated, then `INDETERMINATE` / `NO_CERTIFICATE_CHAIN_FOUND`.
 **AC-12** — Given a non-PDF file, a file that needs a password to open, or a missing file, then
 `Failed` with `input_not_pdf`, `input_password_protected` or `input_file_not_found`.
 
-**AC-13** — Given a file that takes longer than the per-file timeout, then `Failed` with
+**AC-13** — Given a file that takes longer than the per-file timeout (the first-file timeout, for
+the first file a process validates), then `Failed` with
 `validation_timeout`, and the next file is validated by a fresh Java process that loads the trusted
 lists from the local cache without any network access.
 
@@ -274,7 +281,7 @@ its result within 1 minute, including a file that runs to the per-file timeout.
 | Keeping full DSS reports | Not kept. | An audit or support case needs the detailed report. |
 | Restarting the JVM after a timeout | Restart, and pay 50–85 s reloading the cached lists plus ~15 s for the first file. | Timeouts in practice cost bursts their 5-minute budget. Alternatives: a standby JVM, or abandoning the timed-out worker thread instead of the process. |
 | Throughput of one validator | One file at a time per worker; scale by replicas. Measured 2–6 s per warm file for a two-signature invoice, so 100 files take roughly 3.5 to 10 minutes on one worker against AC-18's 5. | The load check (AC-18) fails on realistic files. Options: more replicas for bursts, two validator processes per worker, turning off DSS's per-revision page rendering if it dominates (not yet measured), or a longer poll window in spec 009. |
-| Warming up the JVM | None: the first file after a start pays the ~15 s warm-up. | A first file ever times out on a slower pod, since every timeout restarts the JVM and the next first file pays the warm-up again. Fix: validate a small built-in PDF at start-up, before reporting ready. |
+| Warming up the JVM | Not warmed up; the first file after a start gets a longer timeout instead. A warm-up was built and measured: validating a generated PDF (self-signed, signed once and then twice) before reporting ready took 3 to 5 s, but the first real file still took 20 to 27 s, no better than the 13 to 19 s without it, so it was dropped rather than shipped. What makes that first file slow is not yet identified; embedded images with colour profiles, timestamp and OCSP validation are the suspects, none of which a generated text-only PDF exercises. | A warm-up that measurably helps: one built from content like the real files (images with ICC profiles, a timestamped CAdES signature with `/DSS` revocation data), or the cause found and removed. Measure against a real signed file before building it. |
 | Sharing the trusted-list cache between workers | Local directory per worker; a new pod downloads its own copy while jobs wait. | New pods' first downloads push bursts past the 5-minute target, or the start-up wait expires in practice. |
 
 ## Open Questions

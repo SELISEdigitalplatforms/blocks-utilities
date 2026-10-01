@@ -60,6 +60,9 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
         // it; this makes sure it is logged and counted once.
         private int _deathReported;
 
+        // Whether the current process has produced a verdict yet; false again for every new process.
+        private volatile bool _firstVerdictServed;
+
         public PdfSignatureValidatorSupervisor(
             IOptions<PdfSignatureValidatorOptions> options,
             IValidatorChannelFactory factory,
@@ -150,6 +153,7 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
             using var channel = _factory.Start(_options);
             _channel = channel;
             Interlocked.Exchange(ref _deathReported, 0);
+            _firstVerdictServed = false;
             _metrics.ValidatorStarted();
 
             _logger.LogInformation("PdfSignatureValidatorSupervisor: DSS validator process started; waiting for it to load the trusted lists");
@@ -316,9 +320,17 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
 
                 Exchange exchange;
 
+                // A process that has not produced a verdict yet has not run the validation code path,
+                // so its first file pays for the JVM's cold start: measured at 13 to 27 s against a
+                // 30 s timeout, and 30 s on a loaded machine. Timing that file out would restart the
+                // process, and the next first file would pay the same again, so it gets longer.
+                var timeoutSeconds = _firstVerdictServed
+                    ? _options.PerFileTimeoutSeconds
+                    : Math.Max(_options.FirstFileTimeoutSeconds, _options.PerFileTimeoutSeconds);
+
                 try
                 {
-                    exchange = await ExchangeAsync(channel, "validate", path, TimeSpan.FromSeconds(_options.PerFileTimeoutSeconds), cancellationToken).ConfigureAwait(false);
+                    exchange = await ExchangeAsync(channel, "validate", path, TimeSpan.FromSeconds(timeoutSeconds), cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -336,7 +348,7 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
                         ClaimDeath();
                         _logger.LogWarning(
                             "PdfSignatureValidatorSupervisor: A file took longer than {Seconds} s; restarting the DSS validator",
-                            _options.PerFileTimeoutSeconds);
+                            timeoutSeconds);
                         _metrics.ValidatorTimedOut();
                         MarkDown(channel);
                         return PdfSignatureValidatorResult.TimedOut();
@@ -352,7 +364,16 @@ namespace Utility.DomainService.PdfSignatureValidation.Validator
                         return PdfSignatureValidatorResult.Crashed();
 
                     default:
-                        return Interpret(exchange.Reply);
+                        var result = Interpret(exchange.Reply);
+
+                        // Only a verdict counts: a rejection such as "not a PDF" comes back without
+                        // running the validation code path, so the JVM is still cold after it.
+                        if (result.Outcome == PdfSignatureValidatorOutcome.Verdict)
+                        {
+                            _firstVerdictServed = true;
+                        }
+
+                        return result;
                 }
             }
             finally
