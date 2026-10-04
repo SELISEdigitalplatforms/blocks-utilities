@@ -89,6 +89,12 @@ public sealed class SubscriptionUsageRatingProcessorTests
                 TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
+        _usage
+            .Setup(repository => repository.SummariseLedgerBySeatAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
         _billingAccounts
             .Setup(repository => repository.GetAsync(
                 TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -145,6 +151,7 @@ public sealed class SubscriptionUsageRatingProcessorTests
         screening.IncludedQuantity.Should().Be(500);
         screening.UsedQuantity.Should().Be(700);
         screening.OverageQuantity.Should().Be(200);
+        screening.PlaceCount.Should().BeNull("the organization's own allowance is one pool");
     }
 
     [Fact]
@@ -1093,6 +1100,99 @@ public sealed class SubscriptionUsageRatingProcessorTests
                 }
             ]
         }
+    };
+
+    /// <remarks>
+    /// Found testing on dev: every place counts against its own allowance, but rating keyed the
+    /// place counters by meter alone — two places on one meter threw, and no invoice was created —
+    /// and summed every place against a single place's allowance.
+    /// </remarks>
+    [Fact]
+    public async Task Places_within_their_own_allowances_owe_no_overage_whatever_their_total()
+    {
+        _due = [UserWise("sub-1")];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([PlaceCounter(1, 400), PlaceCounter(2, 400), PlaceCounter(3, 400)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.State.Should().Be(SubscriptionUsageInvoiceState.NoCharge,
+            "1,200 used across three places of 500 each is nobody over");
+        _createdInvoice.TotalAmountMinor.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Overage_is_what_each_place_went_past_its_own_allowance()
+    {
+        _due = [UserWise("sub-1")];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            // One written before the counter stored its seat: known by its id alone.
+            .ReturnsAsync([PlaceCounter(1, 700), PlaceCounter(2, 300, storedSeat: false)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        var line = _createdInvoice!.Lines.Should().ContainSingle().Subject;
+        line.OverageQuantity.Should().Be(200, "place 1 went 200 past its 500; place 2 is under its own");
+        line.PlaceCount.Should().Be(2, "the invoice says the figures are summed over places");
+        line.UsedQuantity.Should().Be(1_000);
+        line.IncludedQuantity.Should().Be(1_000);
+        _createdInvoice.TotalAmountMinor.Should().Be(2_000);
+    }
+
+    [Fact]
+    public async Task A_place_is_rated_from_the_ledger_when_its_counter_fell_behind()
+    {
+        _due = [UserWise("sub-1")];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([PlaceCounter(1, 600)]);
+        _usage
+            .Setup(repository => repository.SummariseLedgerBySeatAsync(
+                TenantId, "sub-1", "screening", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([(1, 700m, 3L)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+    }
+
+    [Fact]
+    public async Task A_period_holding_entries_that_name_no_place_is_rated_from_the_place_counters()
+    {
+        _due = [UserWise("sub-1")];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([PlaceCounter(1, 600), PlaceCounter(2, 100)]);
+        _usage
+            .Setup(repository => repository.SummariseLedgerBySeatAsync(
+                TenantId, "sub-1", "screening", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([(null, 700m, 5L), (1, 5m, 1L)]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.Lines.Single().OverageQuantity.Should().Be(100,
+            "the ledger cannot say whose the unmarked entries were, so each place's counter answers");
+    }
+
+    private static SubscriptionDetail UserWise(string id)
+    {
+        var subscription = NewSubscription(id);
+        subscription.Plan.SubscriberScope = SubscriberScope.User;
+        return subscription;
+    }
+
+    private static SubscriptionUsageCounter PlaceCounter(int seat, long balance, bool storedSeat = true) => new()
+    {
+        ItemId = SubscriptionUsageCounter.CreateId("sub-1", "screening", "M2026-08", seat),
+        MeterKey = "screening",
+        SeatNumber = storedSeat ? seat : null,
+        Balance = balance
     };
 
     private static SubscriptionUsageCounter NewCounter(string meterKey, long balance) => new()

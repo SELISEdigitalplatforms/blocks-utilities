@@ -31,5 +31,15 @@ public sealed class UsageInvoiceLine
     /// <summary>Everything used in the window, as rated. Null on lines rated before it was recorded.</summary>
     public decimal? UsedQuantity { get; set; }
 
+    /// <summary>
+    /// How many places a user-wise meter was measured across; null for the organization's own.
+    /// </summary>
+    /// <remarks>
+    /// Each place is measured against its own allowance, so the included and used figures above
+    /// are sums and the overage is not their difference. Without saying so, "beyond the 200
+    /// included (190 used)" read as a charge for usage under the allowance.
+    /// </remarks>
+    public int? PlaceCount { get; set; }
+
     public long AmountMinor { get; set; }
 }

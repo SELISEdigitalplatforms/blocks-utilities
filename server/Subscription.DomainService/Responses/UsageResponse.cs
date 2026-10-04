@@ -52,6 +52,27 @@ public sealed class UsageResponse
     public bool Replayed { get; init; }
 
     /// <summary>
+    /// Whether this use went past the meter's short-window cap, on a plan that reports rather than
+    /// refuses.
+    /// </summary>
+    /// <remarks>
+    /// False on every meter with no such cap, and on every one that refuses instead — a refusal
+    /// arrives as <c>Allowed</c> false and needs no second flag.
+    /// <para>
+    /// This is how throttling reaches the consumer. Nothing here can slow a caller down, so it
+    /// reports the pace being exceeded and the caller decides: wait, or drop to something cheaper.
+    /// </para>
+    /// </remarks>
+    public bool SubLimitExceeded { get; init; }
+
+    /// <summary>
+    /// Every limit this use went past, refusing or reporting — so a caller can say which one:
+    /// "over the five-hour pace" is a different message from "the week's cap is reached". Empty
+    /// when none was, and on every read.
+    /// </summary>
+    public List<PlanMeterSubLimitResponse> ExceededSubLimits { get; init; } = [];
+
+    /// <summary>
     /// Whether the read model describing this meter was published before this response was returned.
     /// </summary>
     /// <remarks>

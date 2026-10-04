@@ -160,6 +160,19 @@ namespace Utility.DomainService.PdfGenerator.service
             }, userId);
         }
 
+        public async Task NotifyValidatePdfSignaturesEvent(bool success, string fileId, string messageCoRelationId, string? userId, string? projectKey)
+        {
+            _logger.LogInformation("NotifyValidatePdfSignaturesEvent: Sending notification for fileId={FileId}, success={Success}", LogSanitizer.Scrub(fileId), success);
+
+            await SendUserNotificationAsync(success, messageCoRelationId, new
+            {
+                EventType = "PdfSignatureValidationCompleted",
+                FileId = fileId,
+                MessageCoRelationId = messageCoRelationId,
+                Success = success
+            }, userId);
+        }
+
         /// <summary>
         /// Sends a document-conversion notification to <c>POST /api/Notifier/Notify</c>, targeted
         /// at the requesting user rather than a push connection.

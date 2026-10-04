@@ -8,12 +8,13 @@ import { subscriptionSimulationService } from "../services/subscription-simulati
  * Keyed under "subscription-usage" so the invalidations the seat-count paths already fire
  * (use-people, use-user) refresh this too — a quantity change moves the included allowance.
  */
-export const useCurrentUsage = (organizationId?: string) => {
+export const useCurrentUsage = (organizationId?: string, enabled = true) => {
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
 
   return useQuery({
     queryKey: ["subscription-usage", tenantId, organizationId ?? null],
     queryFn: () => subscriptionSimulationService.getCurrentUsage(organizationId),
     staleTime: 5_000,
+    enabled,
   });
 };

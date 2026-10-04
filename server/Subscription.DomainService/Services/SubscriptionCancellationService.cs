@@ -42,6 +42,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private readonly ISubscriptionUsageRepository? _usage;
     private readonly IMeterAllowanceResolver? _allowances;
     private readonly ICampaignRedemptionRepository? _redemptions;
+    private readonly ISubscriptionAssignmentRepository? _assignments;
+    private readonly ISubscriptionUsageCurrentRepository? _current;
 
     public SubscriptionCancellationService(
         ISubscriptionRepository subscriptions,
@@ -58,7 +60,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         IOptionsMonitor<SubscriptionOptions>? options = null,
         ISubscriptionUsageRepository? usage = null,
         IMeterAllowanceResolver? allowances = null,
-        ICampaignRedemptionRepository? redemptions = null)
+        ICampaignRedemptionRepository? redemptions = null,
+        ISubscriptionAssignmentRepository? assignments = null,
+        ISubscriptionUsageCurrentRepository? current = null)
     {
         _subscriptions = subscriptions;
         _links = links;
@@ -75,6 +79,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         _usage = usage;
         _allowances = allowances;
         _redemptions = redemptions;
+        _assignments = assignments;
+        _current = current;
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelAsync(
@@ -677,6 +683,14 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 subscription.ItemId,
                 now,
                 cancellationToken);
+        }
+
+        if (applied)
+        {
+            // Ended now, so nothing is left to hold a place on. Only the period-end sweep released
+            // members before, which left an immediately cancelled roster listing everyone forever.
+            await SubscriptionCancellationEffectiveProcessor.ReleaseMembersAsync(
+                _assignments, _current, subscription, now, _logger, cancellationToken);
         }
 
         return applied;

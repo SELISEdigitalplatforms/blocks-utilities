@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using Payment.DomainService.Utilities;
@@ -22,6 +22,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
     private readonly ILogger<UsageProjectionPublisher> _logger;
     private readonly TimeProvider _time;
     private readonly ISubscriptionEntitlementsCurrentRepository? _entitlements;
+    private readonly ISubscriptionAssignmentRepository? _assignments;
 
     public UsageProjectionPublisher(
         ISubscriptionUsageCurrentRepository current,
@@ -35,7 +36,10 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         // Optional, like every collaborator threaded through this class: a caller or test that
         // constructs this publisher unaware the entitlements projection exists must keep compiling
         // and keep behaving as before.
-        ISubscriptionEntitlementsCurrentRepository? entitlements = null)
+        ISubscriptionEntitlementsCurrentRepository? entitlements = null,
+        // Optional too: without it a user-wise plan's place rows are repaired, but a held place
+        // nobody has used yet gets no row and none names its holder.
+        ISubscriptionAssignmentRepository? assignments = null)
     {
         _current = current;
         _usage = usage;
@@ -46,6 +50,7 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         _time = time ?? TimeProvider.System;
         _metrics = metrics ?? UsageProjectionMetrics.Shared;
         _entitlements = entitlements;
+        _assignments = assignments;
     }
 
     public async Task<UsageProjectionOutcome> PublishAsync(
@@ -55,13 +60,24 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         SubscriptionUsageCounter counter,
         decimal allowance,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? holderUserId = null,
+        IReadOnlyList<SubscriptionUsageCurrentSubLimit>? subLimits = null)
     {
         ArgumentNullException.ThrowIfNull(subscription);
         ArgumentNullException.ThrowIfNull(meter);
         ArgumentNullException.ThrowIfNull(counter);
 
         var document = Describe(subscription, meter, period, counter, allowance);
+
+        // Only a place's row names a holder; the aggregate row stays the empty sentinel every
+        // reader of it already filters on.
+        if (counter.SeatNumber is not null)
+        {
+            document.UserId = holderUserId ?? string.Empty;
+        }
+
+        document.SubLimits = subLimits is null ? null : [.. subLimits];
 
         var started = _time.GetTimestamp();
 
@@ -125,7 +141,10 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         ArgumentNullException.ThrowIfNull(subscription);
         ArgumentNullException.ThrowIfNull(meter);
 
-        if (string.IsNullOrEmpty(userId))
+        // A user-wise plan's place row is already this person's row — it carries their allowance
+        // and names them as its holder — so a second one would repeat the window under another key.
+        if (string.IsNullOrEmpty(userId) ||
+            subscription.Plan.SubscriberScope == SubscriberScope.User)
         {
             return UsageProjectionOutcome.Published;
         }
@@ -271,6 +290,15 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
+        // A user-wise plan has no subscription-wide allowance to seed. Its allowance belongs to
+        // each seat, so a zero-usage row for the subscription as a whole would advertise an
+        // included quantity nobody is able to spend — and whoever read it would see a balance that
+        // never moves however much the members actually use.
+        if (subscription.Plan.SubscriberScope == SubscriberScope.User)
+        {
+            return 0;
+        }
+
         var seeded = 0;
 
         foreach (var (meter, period) in CurrentWindows(subscription, asOfUtc))
@@ -340,7 +368,27 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
 
         var published = 0;
 
-        if (windows.Count > 0)
+        // The same reason the seed skips one: on a user-wise plan the allowance belongs to each
+        // seat, so neither a subscription-wide row nor a per-user one has an included quantity it
+        // can honestly report — both would name an allowance whose owner is somebody else. Its
+        // rows are each place's own, repaired place by place below.
+        var seated = subscription.Plan.SubscriberScope == SubscriberScope.User;
+
+        if (seated)
+        {
+            // Every row of a user-wise subscription is a place's. Recordings before the counter
+            // stored its seat wrote one under the subscription's own id instead, and per-user rows
+            // were written beside the places until they became the only row — both are removed.
+            published += (int)await _current.DeleteSeatlessRowsAsync(
+                subscription.TenantId, subscription.ItemId, cancellationToken);
+
+            if (windows.Count > 0)
+            {
+                published += await RefreshPlaceRowsAsync(subscription, windows, cancellationToken);
+            }
+        }
+
+        if (windows.Count > 0 && !seated)
         {
             // One batch for every meter, which matters here as much as on the read path: a repair
             // over a subscription with a dozen meters would otherwise be a dozen round trips.
@@ -439,6 +487,96 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
             windows.Count,
             published,
             correlationId);
+
+        return published;
+    }
+
+    /// <summary>
+    /// Re-derives each place's row for the given windows from its own counter, naming its holder.
+    /// </summary>
+    /// <remarks>
+    /// The places are those held now and those with a row already, so a place used and then
+    /// released is still repaired. A held place nobody has used yet is seeded at zero, which is
+    /// what lets a reader see every person's allowance before they first spend it. Pace figures
+    /// are left as stored: only a recording counts them.
+    /// </remarks>
+    private async Task<int> RefreshPlaceRowsAsync(
+        SubscriptionDetail subscription,
+        IReadOnlyList<(PlanMeter Meter, BillingPeriod Period)> windows,
+        CancellationToken cancellationToken)
+    {
+        var holders = _assignments is null
+            ? []
+            : await _assignments.ListActiveAsync(
+                subscription.TenantId, subscription.ItemId, cancellationToken);
+
+        var holderBySeat = holders.ToDictionary(holder => holder.SeatNumber, holder => holder.UserId);
+
+        var stored = await _current.ListBySubscriptionAsync(
+            subscription.TenantId, subscription.ItemId, cancellationToken);
+
+        var seats = holderBySeat.Keys
+            .Concat(stored
+                .Where(row => row.SeatNumber is not null)
+                .Select(row => row.SeatNumber!.Value))
+            .Distinct()
+            .ToList();
+
+        if (seats.Count == 0)
+        {
+            return 0;
+        }
+
+        var counters = await _usage.GetCountersAsync(
+            subscription.TenantId,
+            [.. windows.SelectMany(window => seats.Select(seat => SubscriptionUsageCounter.CreateId(
+                subscription.ItemId, window.Meter.MeterKey, window.Period.Key, seat)))],
+            cancellationToken);
+
+        var published = 0;
+
+        foreach (var (meter, period) in windows)
+        {
+            foreach (var seat in seats)
+            {
+                counters.TryGetValue(
+                    SubscriptionUsageCounter.CreateId(
+                        subscription.ItemId, meter.MeterKey, period.Key, seat),
+                    out var counter);
+
+                var held = holderBySeat.TryGetValue(seat, out var holder);
+
+                // Unused and unheld: nothing to say about it.
+                if (counter is null && !held)
+                {
+                    continue;
+                }
+
+                var allowance = await _allowances.EffectiveAsync(
+                    subscription, meter, period, counter, cancellationToken, seat);
+
+                var document = counter is null
+                    ? Describe(
+                        subscription, meter, period, counter: null, balance: 0, counterVersion: 0,
+                        allowance)
+                    : Describe(subscription, meter, period, counter, allowance);
+
+                document.ItemId = SubscriptionUsageCurrent.CreateId(
+                    subscription.ItemId, meter.MeterKey, period.Key, seat);
+                document.SeatNumber = seat;
+                document.UserId = holder ?? string.Empty;
+
+                // Seed-then-publish for an unused place, exactly as the subscription-wide row is:
+                // the seed creates it, the publish carries a changed allowance onto one that exists.
+                if (counter is null
+                        ? await _current.TrySeedAsync(document, cancellationToken) ||
+                          await _current.TryPublishAsync(document, cancellationToken)
+                        : await _current.TryPublishAsync(document, cancellationToken))
+                {
+                    published++;
+                }
+            }
+        }
 
         return published;
     }
@@ -642,6 +780,10 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         TenantId = row.TenantId,
         OrganizationId = row.OrganizationId,
         SubscriptionId = row.SubscriptionId,
+        // Carried across, never defaulted: the merge writes UserId unconditionally, so leaving it
+        // out would strip a per-user row of its user and a place's row of its holder.
+        UserId = row.UserId,
+        SeatNumber = row.SeatNumber,
         SubscriptionStatus = subscription.Status,
         CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
         CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
@@ -786,10 +928,12 @@ public sealed class UsageProjectionPublisher : IUsageProjectionPublisher
         ItemId = SubscriptionUsageCurrent.CreateId(
             subscription.ItemId,
             meter.MeterKey,
-            period.Key),
+            period.Key,
+            counter?.SeatNumber),
         TenantId = subscription.TenantId,
         OrganizationId = subscription.OrganizationId,
         SubscriptionId = subscription.ItemId,
+        SeatNumber = counter?.SeatNumber,
         SubscriptionStatus = subscription.Status,
         CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
         CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,

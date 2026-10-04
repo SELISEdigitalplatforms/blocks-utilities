@@ -37,6 +37,10 @@ export const useChangeQuantity = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-current"] });
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-entitlements"] });
+      // On a user-wise subscription the quantity is how many places there are, and the member
+      // card reads that count from its own query — left alone it went on saying "3 of 3" after
+      // the places had become five.
+      queryClient.invalidateQueries({ queryKey: ["subscription-simulation-members"] });
     },
   });
 };
@@ -57,6 +61,10 @@ export const useCancelPendingQuantityChange = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-current"] });
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-entitlements"] });
+      // On a user-wise subscription the quantity is how many places there are, and the member
+      // card reads that count from its own query — left alone it went on saying "3 of 3" after
+      // the places had become five.
+      queryClient.invalidateQueries({ queryKey: ["subscription-simulation-members"] });
     },
   });
 };

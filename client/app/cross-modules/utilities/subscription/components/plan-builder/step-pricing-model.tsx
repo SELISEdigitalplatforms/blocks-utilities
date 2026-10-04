@@ -32,6 +32,7 @@ import { METER_QUANTITY_MAX_SCALE, stepFor } from "../../utilities/meter-quantit
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { StepHeading } from "./step-heading";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
+import { MeterPaceFields } from "./meter-pace-fields";
 import { PlanPriceFields } from "./plan-price-fields";
 import { QuantityDiscountTiers } from "./quantity-discount-tiers";
 import { ThresholdChipInput } from "./threshold-chip-input";
@@ -66,6 +67,11 @@ export const StepPricingModel = ({
   const hasBands = (quantityItemValues ?? []).some(
     (item) => (item?.quantityDiscountTiers?.length ?? 0) > 0,
   );
+  const priceValues = useWatch({ control, name: "prices" });
+  const isUserWise = useWatch({ control, name: "subscriberScope" }) === "User";
+  const placesMode = placesModeOf(quantityItemValues, priceValues);
+  // One item needs no mark — it is the one that counts people by elimination.
+  const needsCountingMark = isUserWise && quantityItems.fields.length > 1;
 
   return (
     <div className="space-y-6">
@@ -91,9 +97,11 @@ export const StepPricingModel = ({
               // No bands until asked for: a plan that sells at one price per unit is the common
               // case, and an empty list is what tells the API to store none.
               quantityDiscountTiers: [],
+              countsMembers: false,
             })
           }
         >
+          {isUserWise ? <PlacesExplanation mode={placesMode} /> : null}
           {quantityItems.fields.map((field, index) => (
             <CardListItem key={field.id} onRemove={() => quantityItems.remove(index)}>
               <FormField
@@ -150,10 +158,31 @@ export const StepPricingModel = ({
                   )}
                 />
               </div>
+              {needsCountingMark ? (
+                <FormField
+                  control={control}
+                  name={`quantityItems.${index}.countsMembers`}
+                  render={({ field: inputField }) => (
+                    <FormItem>
+                      <div className="flex items-center gap-2">
+                        <FormControl>
+                          <Checkbox
+                            checked={inputField.value}
+                            onCheckedChange={(checked) => inputField.onChange(checked === true)}
+                          />
+                        </FormControl>
+                        <FormLabel className="!m-0 text-xs">This quantity counts people</FormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              ) : null}
               <QuantityDiscountTiers itemIndex={index} />
             </CardListItem>
           ))}
         </CardListShell>
+        {/* The "exactly one" rule is about the list, so its message sits under the list. */}
+        <FormField control={control} name="quantityItems" render={() => <FormMessage />} />
 
         {/* A plan-level decision, shown once the bands it governs exist. Hidden while no item has
             bands, because with none there is nothing for a promotion to combine with — but the
@@ -200,6 +229,7 @@ export const StepPricingModel = ({
         defaultOpen={meters.fields.length > 0}
       >
         <CardListShell
+          columns={1}
           addLabel="Add meter"
           onAdd={() =>
             meters.append({
@@ -213,6 +243,7 @@ export const StepPricingModel = ({
               overageAllowed: true,
               thresholdPercents: [],
               rateTables: [],
+              subLimits: [],
             })
           }
         >
@@ -454,6 +485,11 @@ export const StepPricingModel = ({
                   <MeterRateTableFields meterIndex={index} />
                 </FormItem>
               ) : null}
+              <MeterPaceFields
+                meterIndex={index}
+                unitLabel={meterValues?.[index]?.unitLabel}
+                quantityScale={meterValues?.[index]?.quantityScale ?? 0}
+              />
             </CardListItem>
           ))}
         </CardListShell>
@@ -549,6 +585,62 @@ export const StepPricingModel = ({
       </div>
     </div>
   );
+};
+
+/**
+ * Which number a place count comes from depends on how the plan is priced, and that is the part
+ * authors get wrong: the same quantity item means "how many were bought" on one price and "how many
+ * may be bought" on another.
+ *
+ * Only the rule that applies is shown. Both at once reads as a choice the author has to make, when
+ * it is not one — the price they have already chosen decides it, and the other half is noise they
+ * have to work out is irrelevant before they can act on the half that is not.
+ */
+const PlacesExplanation = ({ mode }: { mode: PlacesMode }) => (
+  <div className="space-y-2 rounded-md bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
+    <p>This plan is for each person, so one of these quantities has to say how many people.</p>
+
+    {mode !== "flat" ? (
+      <p>
+        <strong>Priced per unit</strong> — the quantity bought is the answer. Five bought, five
+        people. A maximum is optional.
+      </p>
+    ) : null}
+
+    {mode !== "perPlace" ? (
+      <p>
+        <strong>Priced flat</strong> — everybody pays the same, so the quantity says nothing about
+        how many people there are. <strong>Max</strong> is the only number that can, and without one
+        nobody can be given a place at all.
+      </p>
+    ) : null}
+  </div>
+);
+
+type PlacesMode = "unknown" | "perPlace" | "flat";
+
+/**
+ * How this plan's places will be counted, as far as the prices authored so far reveal.
+ *
+ * Any price not sitting on the counting quantity makes a maximum necessary, because a buyer who
+ * chooses that price is charged the same however many people they have — so the quantity they
+ * bought cannot be the number of places. Before any price exists there is nothing to go on, and
+ * both rules are shown rather than a guess.
+ */
+const placesModeOf = (
+  quantityItems: { itemKey?: string; countsMembers?: boolean }[] | undefined,
+  prices: { quantityItemKey?: string }[] | undefined,
+): PlacesMode => {
+  const items = quantityItems ?? [];
+  const counting = items.length === 1 ? items[0] : items.find((item) => item?.countsMembers);
+
+  if (!counting?.itemKey || (prices ?? []).length === 0) {
+    return "unknown";
+  }
+
+  return (prices ?? []).every((price) => price?.quantityItemKey === counting.itemKey)
+    ? "perPlace"
+    : "flat";
 };
 
 const OptionalSection = ({

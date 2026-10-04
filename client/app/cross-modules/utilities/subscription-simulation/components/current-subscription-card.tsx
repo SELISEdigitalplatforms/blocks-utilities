@@ -4,6 +4,7 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { formatPrice } from "../../subscription/utilities/subscription-format";
+import { describePendingMove } from "../utilities/plan-change-label";
 import type {
   QuantityDiscountTier,
   SimulatedSubscription,
@@ -277,7 +278,7 @@ export const CurrentSubscriptionCard = ({
         >
           <span className="flex items-center gap-1.5 text-warning-900">
             <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-            Moving to {subscription.pendingPlanChange.targetPlanName} on{" "}
+            Moving to {describePendingMove(subscription, subscription.pendingPlanChange)} on{" "}
             {formatDate(subscription.pendingPlanChange.effectiveAtUtc)} — nothing is charged until
             then, and you keep {subscription.planName} until it does.
           </span>

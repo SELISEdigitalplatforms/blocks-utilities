@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -37,6 +37,16 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         {
             await collection.Indexes.DropOneAsync(
                 SubscriptionIndexDefinitions.UsageCurrentLegacyUniqueIndexName, cancellationToken);
+        }
+        catch (MongoCommandException exception) when (exception.Code is 27 or 26)
+        {
+        }
+
+        try
+        {
+            await collection.Indexes.DropOneAsync(
+                SubscriptionIndexDefinitions.UsageCurrentPreSeatUniqueIndexName,
+                cancellationToken);
         }
         catch (MongoCommandException exception) when (exception.Code is 27 or 26)
         {
@@ -190,11 +200,11 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             { "TenantId", incoming["TenantId"] },
             { "OrganizationId", incoming["OrganizationId"] },
             { "SubscriptionId", incoming["SubscriptionId"] },
-            // Always the aggregate's own empty sentinel — this pipeline only ever writes the
-            // aggregate row, never a per-user one (ApplyUserDeltaAsync writes those). Unconditional
-            // so a document published before UserId existed picks it up on its very next publish,
-            // rather than being permanently missing it: this $set pipeline never rewrites a document
-            // wholesale, so an omitted field would otherwise never be added at all.
+            // Empty on the aggregate row, and the holder on a place's row — never a per-user row,
+            // which ApplyUserDeltaAsync writes. Unconditional so a document published before UserId
+            // existed picks it up on its very next publish, rather than being permanently missing
+            // it: this $set pipeline never rewrites a document wholesale, so an omitted field would
+            // otherwise never be added at all.
             { "UserId", incoming["UserId"] },
             { "MeterKey", incoming["MeterKey"] },
             { "PeriodKey", incoming["PeriodKey"] },
@@ -206,6 +216,26 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
             // Balance: the counter's to say.
             { "Used", When(counterIsNewer, "Used") },
             { "ExpiresAtUtc", When(counterIsNewer, "ExpiresAtUtc") },
+            // Moves with the balance it was counted beside, and only when this writer reported the
+            // paces at all: a refusal or a replay publishes a newer counter without them, and must
+            // not wipe the last figures a recording did report.
+            {
+                "SubLimits",
+                new BsonDocument("$cond", new BsonArray
+                {
+                    new BsonDocument("$and", new BsonArray
+                    {
+                        counterIsNewer,
+                        new BsonDocument("$ne", new BsonArray
+                        {
+                            new BsonDocument("$literal", incoming["SubLimits"]),
+                            BsonNull.Value
+                        })
+                    }),
+                    new BsonDocument("$literal", incoming["SubLimits"]),
+                    "$SubLimits"
+                })
+            },
 
             // Terms and status: the subscription's to say.
             { "SubscriptionStatus", When(subscriptionIsNewer, "SubscriptionStatus") },
@@ -359,7 +389,8 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         CancellationToken cancellationToken) =>
         await Current(tenantId)
             .Find(CurrentWindowFilter(tenantId, organizationId, subscriptionId, asOfUtc) &
-                  Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.UserId, string.Empty))
+                  Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.UserId, string.Empty) &
+                  AggregateSeatFilter())
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<SubscriptionUsageCurrent>> ListUserRowsAsync(
@@ -389,6 +420,22 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
         Builders<SubscriptionUsageCurrent>.Filter.And(
             Builders<SubscriptionUsageCurrent>.Filter.Exists(current => current.UserId),
             Builders<SubscriptionUsageCurrent>.Filter.Ne(current => current.UserId, string.Empty));
+
+    /// <summary>
+    /// Matches the subscription's own row and never one seat's.
+    /// </summary>
+    /// <remarks>
+    /// <c>Eq(SeatNumber, null)</c> rather than an existence check, and for once the two are the
+    /// same thing: Mongo matches a missing field against null, which is exactly what every row
+    /// written before seats existed needs. A seat's row carries a number and is excluded.
+    /// <para>
+    /// Without this, an organization asking what it had used was shown whichever member's seat row
+    /// the query happened to return — one person's spending reported as everybody's, and counted
+    /// toward the window total that decides whether the projection may answer at all.
+    /// </para>
+    /// </remarks>
+    private static FilterDefinition<SubscriptionUsageCurrent> AggregateSeatFilter() =>
+        Builders<SubscriptionUsageCurrent>.Filter.Eq(current => current.SeatNumber, null);
 
     private static FilterDefinition<SubscriptionUsageCurrent> CurrentWindowFilter(
         string tenantId,
@@ -644,6 +691,78 @@ public sealed class SubscriptionUsageCurrentRepository : ISubscriptionUsageCurre
                     current => current.SubscriptionId,
                     subscriptionId)))
             .ToListAsync(cancellationToken);
+
+    public async Task<long> DeleteSeatlessRowsAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken) =>
+        (await Current(tenantId).DeleteManyAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.TenantId, tenantId),
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SubscriptionId, subscriptionId),
+                // Matches a missing field as well as a null one, which is what a row written
+                // before seats existed has.
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SeatNumber, null)),
+            cancellationToken)).DeletedCount;
+
+    public async Task SetSeatHolderAsync(
+        string tenantId,
+        string subscriptionId,
+        int seatNumber,
+        string userId,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken) =>
+        await Current(tenantId).UpdateManyAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SubscriptionId, subscriptionId),
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SeatNumber, seatNumber),
+                Builders<SubscriptionUsageCurrent>.Filter.Gt(
+                    current => current.PeriodEndUtc, asOfUtc)),
+            Builders<SubscriptionUsageCurrent>.Update.Set(current => current.UserId, userId),
+            cancellationToken: cancellationToken);
+
+    public async Task ClearSeatHolderAsync(
+        string tenantId,
+        string subscriptionId,
+        string userId,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken) =>
+        await Current(tenantId).UpdateManyAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SubscriptionId, subscriptionId),
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.UserId, userId),
+                Builders<SubscriptionUsageCurrent>.Filter.Ne(
+                    current => current.SeatNumber, null),
+                Builders<SubscriptionUsageCurrent>.Filter.Gt(
+                    current => current.PeriodEndUtc, asOfUtc)),
+            Builders<SubscriptionUsageCurrent>.Update.Set(
+                current => current.UserId, string.Empty),
+            cancellationToken: cancellationToken);
+
+    public async Task ClearSeatHoldersAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken) =>
+        await Current(tenantId).UpdateManyAsync(
+            Builders<SubscriptionUsageCurrent>.Filter.And(
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.TenantId, tenantId),
+                Builders<SubscriptionUsageCurrent>.Filter.Eq(
+                    current => current.SubscriptionId, subscriptionId),
+                Builders<SubscriptionUsageCurrent>.Filter.Ne(
+                    current => current.SeatNumber, null),
+                Builders<SubscriptionUsageCurrent>.Filter.Ne(
+                    current => current.UserId, string.Empty)),
+            Builders<SubscriptionUsageCurrent>.Update.Set(
+                current => current.UserId, string.Empty),
+            cancellationToken: cancellationToken);
 
     public async Task<bool> TryRetireAsync(
         string tenantId,

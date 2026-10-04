@@ -404,6 +404,86 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     /// invoice was created. Callers must treat <see cref="InvoiceReadiness.Deferred"/> as "not
     /// done" — see the type's own remarks.
     /// </returns>
+    /// <summary>
+    /// A user-wise meter's usage, allowance and overage for a period, summed place by place.
+    /// </summary>
+    /// <remarks>
+    /// Each place has its own allowance, so the overage is what each one went past it — three
+    /// places spending 60 of 100 each owe nothing, where the total against one allowance billed 80.
+    /// <para>
+    /// From the ledger, as the organization's meters are, where every entry names its place. An
+    /// entry written before places were recorded names none, and the ledger cannot say whose it
+    /// was, so a period holding any is read from the place counters instead.
+    /// </para>
+    /// </remarks>
+    private async Task<(decimal Used, decimal Allowance, decimal Overage, int Places)> MeasurePlacesAsync(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        BillingPeriod period,
+        IReadOnlyList<SubscriptionUsageCounter> counters,
+        IReadOnlyDictionary<string, decimal>? frozenAllowances,
+        CancellationToken cancellationToken)
+    {
+        var placeCounters = counters
+            .Where(counter => string.Equals(counter.MeterKey, meter.MeterKey, StringComparison.Ordinal) &&
+                              SeatOf(counter) is not null)
+            .ToDictionary(counter => SeatOf(counter)!.Value);
+
+        var ledger = await _usage.SummariseLedgerBySeatAsync(
+            subscription.TenantId, subscription.ItemId, meter.MeterKey, period.Key, cancellationToken);
+        var fromLedger = !ledger.Any(entry => entry.Seat is null && entry.RecordCount > 0);
+        var ledgerBySeat = ledger
+            .Where(entry => entry.Seat is not null)
+            .ToDictionary(entry => entry.Seat!.Value);
+
+        decimal used = 0, allowance = 0, overage = 0;
+        var places = 0;
+
+        foreach (var seat in placeCounters.Keys.Union(ledgerBySeat.Keys))
+        {
+            places++;
+            var counter = placeCounters.GetValueOrDefault(seat);
+            var balance = fromLedger && ledgerBySeat.TryGetValue(seat, out var entry) && entry.RecordCount > 0
+                ? entry.Balance
+                : counter?.Balance ?? 0;
+
+            // ponytail: a cut-short window's frozen allowance is the plan's per-place figure, so a
+            // carry-forward place's own leftovers are not frozen with it. Freeze per place if a
+            // user-wise meter ever carries forward.
+            var placeAllowance = frozenAllowances is not null &&
+                                 frozenAllowances.TryGetValue(meter.MeterKey, out var frozen)
+                ? frozen
+                : await _allowances.EffectiveAsync(
+                    subscription, meter, period, counter, cancellationToken, seat);
+
+            used += balance;
+            allowance += placeAllowance;
+            overage += Math.Max(0, balance - placeAllowance);
+        }
+
+        return (used, allowance, overage, places);
+    }
+
+    /// <summary>
+    /// The place a counter belongs to, from the field or — for one written before the field was
+    /// stored — from the <c>:s{n}</c> suffix its id has always carried.
+    /// </summary>
+    private static int? SeatOf(SubscriptionUsageCounter counter)
+    {
+        if (counter.SeatNumber is { } seat)
+        {
+            return seat;
+        }
+
+        var marker = counter.ItemId.LastIndexOf(":s", StringComparison.Ordinal);
+
+        return marker >= 0 &&
+               int.TryParse(counter.ItemId.AsSpan(marker + 2), System.Globalization.NumberStyles.None,
+                   System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
     private async Task<InvoiceReadiness> EnsureInvoiceAsync(
         SubscriptionDetail subscription,
         BillingPeriod period,
@@ -423,12 +503,19 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         }
 
         var lines = new List<UsageInvoiceLine>();
-        var counters = (await _usage.ListCountersAsync(
-                subscription.TenantId,
-                subscription.ItemId,
-                periodKey,
-                cancellationToken))
+        var allCounters = await _usage.ListCountersAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            periodKey,
+            cancellationToken);
+
+        // The organization's own counters, one per meter. A user-wise subscription has one per
+        // place and meter instead — keyed by meter alone they collide, and the whole period
+        // failed to rate — so those are measured place by place in MeasurePlacesAsync.
+        var counters = allCounters
+            .Where(counter => SeatOf(counter) is null)
             .ToDictionary(counter => counter.MeterKey, StringComparer.Ordinal);
+        var seated = subscription.Plan.SubscriberScope == SubscriberScope.User;
 
         // The ledger is append-first and uniquely keyed; the counter is its fast enforcement
         // projection. A writer can crash after the ledger append but before moving that projection.
@@ -442,36 +529,49 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         foreach (var meter in subscription.Plan.Meters.Where(
                      planMeter => planMeter.ResetPolicy != MeterResetPolicy.Never))
         {
-            var counter = counters.GetValueOrDefault(meter.MeterKey);
-            var ledger = await _usage.SummariseLedgerAsync(
-                subscription.TenantId,
-                subscription.ItemId,
-                meter.MeterKey,
-                periodKey,
-                cancellationToken);
-            var balance = ledger.RecordCount > 0
-                ? ledger.Balance
-                : counter?.Balance ?? 0;
+            decimal balance;
+            decimal allowance;
+            decimal overageQuantity;
+            int? places = null;
 
-            // The window's own frozen allowance — a trial grant or a carried-forward allowance
-            // included — never the plan's bare IncludedQuantity. The same resolver the overage
-            // preview uses, so the two can never disagree about what "overage" means for this
-            // window. See UsageChargePreviewParityTests for the coverage this guarantees.
-            //
-            // For a cut-short (PendingUsagePeriod) window, frozenAllowances — captured before the
-            // cancellation/plan-change transition that cut the window short — takes priority over
-            // resolving live: the live resolver, given only the counter and a synthetic
-            // subscription carrying the *current* (post-transition) status/trial/schedule, cannot
-            // reconstruct the original terms for a window whose counter never made it to disk
-            // before the crash. A legacy PendingUsagePeriod queued before this snapshot existed
-            // carries no frozenAllowances entry, so it falls back to the live resolver exactly as
-            // before — same behavior, not a regression for documents already in flight.
-            var allowance = frozenAllowances is not null &&
-                             frozenAllowances.TryGetValue(meter.MeterKey, out var frozenAllowance)
-                ? frozenAllowance
-                : await _allowances.EffectiveAsync(
-                    subscription, meter, period, counter, cancellationToken);
-            var overageQuantity = Math.Max(0, balance - allowance);
+            if (seated)
+            {
+                (balance, allowance, overageQuantity, places) = await MeasurePlacesAsync(
+                    subscription, meter, period, allCounters, frozenAllowances, cancellationToken);
+            }
+            else
+            {
+                var counter = counters.GetValueOrDefault(meter.MeterKey);
+                var ledger = await _usage.SummariseLedgerAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    meter.MeterKey,
+                    periodKey,
+                    cancellationToken);
+                balance = ledger.RecordCount > 0
+                    ? ledger.Balance
+                    : counter?.Balance ?? 0;
+
+                // The window's own frozen allowance — a trial grant or a carried-forward allowance
+                // included — never the plan's bare IncludedQuantity. The same resolver the overage
+                // preview uses, so the two can never disagree about what "overage" means for this
+                // window. See UsageChargePreviewParityTests for the coverage this guarantees.
+                //
+                // For a cut-short (PendingUsagePeriod) window, frozenAllowances — captured before the
+                // cancellation/plan-change transition that cut the window short — takes priority over
+                // resolving live: the live resolver, given only the counter and a synthetic
+                // subscription carrying the *current* (post-transition) status/trial/schedule, cannot
+                // reconstruct the original terms for a window whose counter never made it to disk
+                // before the crash. A legacy PendingUsagePeriod queued before this snapshot existed
+                // carries no frozenAllowances entry, so it falls back to the live resolver exactly as
+                // before — same behavior, not a regression for documents already in flight.
+                allowance = frozenAllowances is not null &&
+                                 frozenAllowances.TryGetValue(meter.MeterKey, out var frozenAllowance)
+                    ? frozenAllowance
+                    : await _allowances.EffectiveAsync(
+                        subscription, meter, period, counter, cancellationToken);
+                overageQuantity = Math.Max(0, balance - allowance);
+            }
 
             UsageTierAllocationResult allocations;
 
@@ -511,6 +611,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 OverageQuantity = overageQuantity,
                 IncludedQuantity = allowance,
                 UsedQuantity = balance,
+                PlaceCount = places,
                 AmountMinor = allocations.TotalAmountMinor
             });
         }

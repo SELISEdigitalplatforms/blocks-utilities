@@ -1,3 +1,5 @@
+﻿using Subscription.DomainService.Enums;
+
 namespace Subscription.DomainService.Responses;
 
 /// <summary>
@@ -13,6 +15,18 @@ public sealed class PlanResponse
     public string PlanId { get; init; } = string.Empty;
 
     public string Code { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Who this plan is sold to — the organization, or one of its users.
+    /// </summary>
+    /// <remarks>
+    /// Carried so a caller can tell the two apart in one catalogue listing rather than asking per
+    /// plan, and so a product surface can offer "for your organization" and "for you" from the same
+    /// response. There is no server-side filter for it: a tenant's catalogue is small enough to
+    /// read whole, and a parameter threaded through the repository would buy nothing a client
+    /// cannot already do with this field.
+    /// </remarks>
+    public SubscriberScope SubscriberScope { get; init; }
 
     public string DisplayName { get; init; } = string.Empty;
 
@@ -167,6 +181,12 @@ public sealed class PlanQuantityItemResponse
     public long? MaxQuantity { get; init; }
 
     public long DefaultQuantity { get; init; }
+
+    /// <summary>
+    /// Whether this is the quantity that counts people on a user-wise plan. Returned because an
+    /// edit rewrites the whole plan: a mark the console cannot read back, it would silently drop.
+    /// </summary>
+    public bool CountsMembers { get; init; }
 }
 
 public sealed class PlanMeterResponse
@@ -202,11 +222,33 @@ public sealed class PlanMeterResponse
     public List<int> ThresholdPercents { get; init; } = [];
 
     /// <summary>
+    /// Every cap on how fast this meter may be spent. Returned because an edit rewrites the whole
+    /// plan: a limit the console cannot read back, the next edit would drop.
+    /// </summary>
+    public List<PlanMeterSubLimitResponse> SubLimits { get; init; } = [];
+
+    /// <summary>
     /// What usage past the allowance costs, per currency. Empty means overage cannot be priced
     /// — it is recorded and permitted but charged nothing, so the portal has to be able to show
     /// that a meter allowing overage has no table behind it.
     /// </summary>
     public List<PlanMeterRateTableResponse> RateTables { get; init; } = [];
+}
+
+/// <summary>One pace, with its enums as names like every other meter enum here.</summary>
+public sealed class PlanMeterSubLimitResponse
+{
+    /// <summary>"Hour", "Day" or "Week".</summary>
+    public string Window { get; init; } = string.Empty;
+
+    public int WindowCount { get; init; } = 1;
+
+    public bool Rolling { get; init; }
+
+    public decimal Quantity { get; init; }
+
+    /// <summary>"Refuse" or "Throttle".</summary>
+    public string Behaviour { get; init; } = string.Empty;
 }
 
 public sealed class PlanMeterRateTableResponse

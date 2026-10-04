@@ -17,12 +17,51 @@ namespace Subscription.DomainService.Repositories;
 public static class SubscriptionIndexDefinitions
 {
     /// <summary>
-    /// Versioned because MongoDB does not replace an existing named index when its partial
-    /// filter changes. Deploying this alongside the legacy live-only index upgrades existing
-    /// tenant databases as they are first touched.
+    /// One open subscription per organization, for the subscriptions an organization holds for
+    /// itself.
     /// </summary>
+    /// <remarks>
+    /// Versioned again because MongoDB does not replace an existing named index when its partial
+    /// filter changes, and this filter now names the scope. A user-wise subscription falls outside
+    /// it entirely: an organization holds as many of those as it buys seats for, and the one thing
+    /// that cannot happen twice is the organization subscribing for itself.
+    /// <para>
+    /// The filter can only say <c>$eq</c> on the scope -- a partial filter may not use <c>$ne</c> --
+    /// and <c>$eq</c> does not match a document that lacks the field. Every subscription written
+    /// before the scope was snapshotted must therefore be backfilled before this index is created,
+    /// or it silently covers none of them and the organization it belongs to can open a second
+    /// subscription. <see cref="SubscriptionRepository.EnsureIndexesAsync"/> runs that backfill
+    /// first, in the same method, for exactly this reason.
+    /// </para>
+    /// </remarks>
     public const string SubscriptionReservationIndexName =
+        "ux_subscription_tenant_org_scoped_reserved_v4";
+
+    /// <summary>
+    /// The organization reservation index from before it knew about scope, kept only so it can be
+    /// dropped by name.
+    /// </summary>
+    /// <remarks>
+    /// It spans every subscription regardless of scope, so while it stands an organization cannot
+    /// hold a user-wise subscription alongside its own. It is what makes seat assignment
+    /// unsellable, and the last thing removed.
+    /// </remarks>
+    public const string SubscriptionReservationLegacyIndexName =
         "ux_subscription_tenant_org_reserved_v2";
+
+    /// <summary>
+    /// A reservation index keyed on a subscriber recorded on the subscription itself, kept only so
+    /// <see cref="SubscriptionRepository.EnsureIndexesAsync"/> can drop it by name.
+    /// </summary>
+    /// <remarks>
+    /// It cannot be left in place. Who holds a seat now lives in its own collection, so every
+    /// subscription indexes the removed field as null and two user-wise subscriptions in one
+    /// organization would collide on <c>{tenant, org, null}</c> — this index would refuse exactly
+    /// the thing it was added to allow. A tenant database that never saw it has nothing to drop,
+    /// which is expected rather than an error.
+    /// </remarks>
+    public const string SubscriptionSubscriberReservationLegacyIndexName =
+        "ux_subscription_tenant_org_user_reserved_v3";
 
     public const string SubscriptionOrganizationIndexName =
         "ix_subscription_tenant_org_status";
@@ -145,17 +184,26 @@ public static class SubscriptionIndexDefinitions
             {
                 Unique = true,
                 Name = SubscriptionReservationIndexName,
-                PartialFilterExpression = new BsonDocument(
-                    nameof(SubscriptionDetail.Status),
-                    new BsonDocument(
-                        "$in",
-                        new BsonArray
-                        {
-                            (int)SubscriptionStatus.Incomplete,
-                            (int)SubscriptionStatus.Trialing,
-                            (int)SubscriptionStatus.Active,
-                            (int)SubscriptionStatus.PastDue
-                        }))
+                PartialFilterExpression = new BsonDocument
+                {
+                    {
+                        nameof(SubscriptionDetail.Status),
+                        new BsonDocument(
+                            "$in",
+                            new BsonArray
+                            {
+                                (int)SubscriptionStatus.Incomplete,
+                                (int)SubscriptionStatus.Trialing,
+                                (int)SubscriptionStatus.Active,
+                                (int)SubscriptionStatus.PastDue
+                            })
+                    },
+                    {
+                        $"{nameof(SubscriptionDetail.Plan)}." +
+                            nameof(PlanSnapshot.SubscriberScope),
+                        (int)SubscriberScope.Organization
+                    }
+                }
             }),
         new(
             Builders<SubscriptionDetail>.IndexKeys
@@ -422,7 +470,7 @@ public static class SubscriptionIndexDefinitions
     /// rather than failing to create an index that already exists under this name with different keys.
     /// </summary>
     public const string UsageCurrentUniqueIndexName =
-        "ux_usage_current_subscription_meter_period_user_v2";
+        "ux_usage_current_subscription_meter_period_user_seat_v3";
 
     /// <summary>
     /// The pre-<see cref="SubscriptionUsageCurrent.UserId"/> unique index, kept only so
@@ -437,6 +485,18 @@ public static class SubscriptionIndexDefinitions
     /// </remarks>
     public const string UsageCurrentLegacyUniqueIndexName =
         "ux_usage_current_subscription_meter_period";
+
+    /// <summary>
+    /// The pre-<see cref="SubscriptionUsageCurrent.SeatNumber"/> unique index, kept only so it can
+    /// be dropped by name.
+    /// </summary>
+    /// <remarks>
+    /// Unique on subscription, meter, period and user alone, so it rejects a second seat's row as a
+    /// duplicate of the first's — both carry no user. Left in place, a seated subscription could
+    /// publish exactly one seat and every other seat's usage would go unprojected.
+    /// </remarks>
+    public const string UsageCurrentPreSeatUniqueIndexName =
+        "ux_usage_current_subscription_meter_period_user_v2";
     public const string UsageCurrentReadIndexName =
         "ix_usage_current_org_subscription_status_period";
     public const string UsageCurrentStalenessIndexName =
@@ -477,7 +537,12 @@ public static class SubscriptionIndexDefinitions
                 .Ascending(current => current.SubscriptionId)
                 .Ascending(current => current.MeterKey)
                 .Ascending(current => current.PeriodKey)
-                .Ascending(current => current.UserId),
+                .Ascending(current => current.UserId)
+                // Added rather than replacing: a key that gains a field can only tell more rows
+                // apart, never fewer, so every row already stored stays as unique as it was and
+                // none needs migrating. An organization's own subscription has no seat, so its
+                // rows are keyed exactly as before.
+                .Ascending(current => current.SeatNumber),
             new CreateIndexOptions { Name = UsageCurrentUniqueIndexName, Unique = true }),
         new(
             Builders<SubscriptionUsageCurrent>.IndexKeys

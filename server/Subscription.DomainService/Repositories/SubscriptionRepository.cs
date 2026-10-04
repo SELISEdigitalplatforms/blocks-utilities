@@ -21,6 +21,20 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         SubscriptionStatus.PastDue
     ];
 
+    /// <summary>
+    /// The key every signup reservation index has ever been built on, superseded or current.
+    /// </summary>
+    /// <remarks>
+    /// Matched on field names alone rather than on the full key document, so a variant that
+    /// differs only in sort direction is still recognised: uniqueness does not depend on
+    /// direction, so such an index would enforce the same rule and has to be treated the same.
+    /// </remarks>
+    private static readonly string[] ReservationIndexKeyFields =
+    [
+        nameof(SubscriptionDetail.TenantId),
+        nameof(SubscriptionDetail.OrganizationId)
+    ];
+
     private readonly IDbContextProvider _dbContextProvider;
     private readonly ConcurrentDictionary<string, byte> _indexedTenants = new();
 
@@ -36,12 +50,150 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             return;
         }
 
-        await Subscriptions(tenantId).Indexes.CreateManyAsync(
+        var subscriptions = Subscriptions(tenantId);
+
+        // Three steps whose order is the whole safety of this method.
+        //
+        // The backfill first, because the reservation index's partial filter asks for an
+        // organization-wise scope and a partial filter cannot match a document that lacks the
+        // field. Built before every subscription carries it, the index would silently cover none
+        // of them.
+        //
+        // Then the new index, and only then the old one dropped. The old index is what currently
+        // guarantees one subscription per organization; dropping it first would leave a window
+        // with no such guarantee at all, and because this runs on the first touch of every tenant
+        // in every process, that window would open on every deploy and every restart.
+        await BackfillPlanSubscriberScopeAsync(subscriptions, cancellationToken);
+
+        await subscriptions.Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateSubscriptionIndexes(),
             cancellationToken);
 
+        await DropSupersededReservationIndexesAsync(subscriptions, cancellationToken);
+
         _indexedTenants.TryAdd(tenantId, 0);
     }
+
+    /// <summary>
+    /// Writes the scope onto the plan snapshot of subscriptions saved before it was carried there.
+    /// </summary>
+    /// <remarks>
+    /// Every one of them was sold on an organization-wise plan, because no other kind has ever
+    /// existed — so this records what they already are rather than deciding anything.
+    /// <para>
+    /// It has to complete on a tenant before that tenant's reservation index can be narrowed to
+    /// organization-wise subscriptions. A partial filter on
+    /// <see cref="SubscriberScope.Organization"/> does not match a document that lacks the field, so
+    /// an unmigrated subscription would fall outside the index and the organization could open a
+    /// second one. That narrowing is a later change, deliberately: while the index still spans every
+    /// subscription this is inert groundwork, and the guarantee live customers rely on is untouched.
+    /// </para>
+    /// <para>
+    /// <b>Sets one field and nothing else.</b> Not <c>Version</c>, which
+    /// <see cref="TryChangePlanAsync"/> and <see cref="TryApplyQuantityChangeAsync"/> compare-and-set
+    /// against, and not <c>LastUpdatedDateUtc</c>. Moving either here would make every plan or
+    /// quantity change in flight at the moment this ran fail its guard and report a conflict the
+    /// caller did nothing to cause.
+    /// </para>
+    /// </remarks>
+    private static async Task BackfillPlanSubscriberScopeAsync(
+        IMongoCollection<SubscriptionDetail> subscriptions,
+        CancellationToken cancellationToken) =>
+        await subscriptions.UpdateManyAsync(
+            Builders<SubscriptionDetail>.Filter.Exists(
+                subscription => subscription.Plan.SubscriberScope, false),
+            Builders<SubscriptionDetail>.Update.Set(
+                subscription => subscription.Plan.SubscriberScope,
+                SubscriberScope.Organization),
+            cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Removes signup reservation indexes that an earlier rename left behind.
+    /// </summary>
+    /// <remarks>
+    /// MongoDB cannot change a named index's partial filter in place, so widening the reservation
+    /// filter meant creating a new index under a new name. Nothing ever dropped the old one, and
+    /// the constant naming it was replaced rather than kept — so
+    /// <c>ux_subscription_tenant_org_live</c> still exists in tenant databases created before that
+    /// change while appearing nowhere in this repository. It was found on one of the three
+    /// subscription-holding tenant databases on dev.
+    /// <para>
+    /// Dropping it changes no behaviour today. It shares its key with
+    /// <see cref="SubscriptionIndexDefinitions.SubscriptionReservationIndexName"/>, whose partial
+    /// filter is a strict superset -- it additionally covers <see cref="SubscriptionStatus.Incomplete"/>
+    /// -- so every write the superseded index would reject is already rejected by the current one,
+    /// and rejected earlier, before the customer pays. What it removes is a latent hazard: the
+    /// moment the current index is replaced by one keyed on a wider subscriber, a leftover keyed on
+    /// the organization alone would go on enforcing one subscription per organization, and because
+    /// it does not cover Incomplete the conflict would surface at activation, after money had moved.
+    /// </para>
+    /// <para>
+    /// Matched by shape rather than by name on purpose. A name list only removes the names we know,
+    /// which is exactly how the one above survived; the shape cannot match the current index, which
+    /// is excluded explicitly, nor the non-unique organization read index.
+    /// </para>
+    /// <para>
+    /// <b>Called after the indexes are created, and it must stay that way.</b> What this drops now
+    /// includes the index that was enforcing one subscription per organization until a moment ago,
+    /// so running it first would leave a window with no such guarantee — on the first touch of every
+    /// tenant in every process, which is every deploy and every restart. Two concurrent signups for
+    /// one organization would both reach checkout, which is the failure that index exists to stop.
+    /// </para>
+    /// </remarks>
+    private static async Task DropSupersededReservationIndexesAsync(
+        IMongoCollection<SubscriptionDetail> subscriptions,
+        CancellationToken cancellationToken)
+    {
+        List<BsonDocument> existing;
+
+        try
+        {
+            using var cursor = await subscriptions.Indexes.ListAsync(cancellationToken);
+            existing = await cursor.ToListAsync(cancellationToken);
+        }
+        catch (MongoCommandException exception) when (exception.Code is 26)
+        {
+            // NamespaceNotFound: a tenant whose collection does not exist yet has nothing to drop,
+            // and CreateManyAsync below is what brings it into being.
+            return;
+        }
+
+        string[] supersededNames =
+        [
+            SubscriptionIndexDefinitions.SubscriptionSubscriberReservationLegacyIndexName,
+            SubscriptionIndexDefinitions.SubscriptionReservationLegacyIndexName
+        ];
+
+        var supersededByName = existing
+            .Where(index => supersededNames.Contains(index["name"].AsString));
+
+        foreach (var index in existing.Where(IsSupersededReservationIndex).Concat(supersededByName))
+        {
+            try
+            {
+                await subscriptions.Indexes.DropOneAsync(
+                    index["name"].AsString, cancellationToken);
+            }
+            catch (MongoCommandException exception) when (exception.Code is 27 or 26)
+            {
+                // IndexNotFound (27) or NamespaceNotFound (26): another host reached this tenant
+                // first. Both mean the index is gone, which is all this is trying to achieve.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether an index enforces the superseded one-subscription-per-organization reservation.
+    /// </summary>
+    /// <remarks>
+    /// Uniqueness is what makes a leftover dangerous, so a non-unique index on the same fields --
+    /// <c>ix_subscription_tenant_org_status</c>, which the renewal and listing queries read --
+    /// is deliberately left alone.
+    /// </remarks>
+    private static bool IsSupersededReservationIndex(BsonDocument index) =>
+        index.GetValue("unique", BsonBoolean.False).ToBoolean()
+        && index["name"].AsString != SubscriptionIndexDefinitions.SubscriptionReservationIndexName
+        && index["key"].AsBsonDocument.Names.SequenceEqual(ReservationIndexKeyFields);
 
     public async Task<bool> TryCreateAsync(
         SubscriptionDetail subscription,
@@ -99,8 +251,67 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         DateTime nowUtc,
         CancellationToken cancellationToken) =>
         await Subscriptions(tenantId)
-            .Find(BuildLiveFilter(tenantId, organizationId, nowUtc))
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                BuildLiveFilter(tenantId, organizationId, nowUtc),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveMemberBasedAsync(
+        string tenantId,
+        string organizationId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken) =>
+        await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                Builders<SubscriptionDetail>.Filter.Or(
+                    BuildLiveFilter(tenantId, organizationId, nowUtc),
+                    Builders<SubscriptionDetail>.Filter.And(
+                        TenantFilter(tenantId),
+                        Builders<SubscriptionDetail>.Filter.Eq(
+                            subscription => subscription.OrganizationId,
+                            organizationId),
+                        Builders<SubscriptionDetail>.Filter.Eq(
+                            subscription => subscription.Status,
+                            SubscriptionStatus.Incomplete))),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Plan.SubscriberScope,
+                    SubscriberScope.User)))
+            .SortBy(subscription => subscription.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListLiveByIdsAsync(
+        string tenantId,
+        IReadOnlyCollection<string> subscriptionIds,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(subscriptionIds);
+
+        if (subscriptionIds.Count == 0)
+        {
+            // Short-circuited rather than sent as an empty $in, which is a round trip to be told
+            // what the caller already knows. Most callers hold no seats at all.
+            return [];
+        }
+
+        return await Subscriptions(tenantId)
+            .Find(Builders<SubscriptionDetail>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionDetail>.Filter.In(
+                    subscription => subscription.ItemId,
+                    subscriptionIds),
+                Builders<SubscriptionDetail>.Filter.In(
+                    subscription => subscription.Status,
+                    LiveStatuses),
+                Builders<SubscriptionDetail>.Filter.Or(
+                    Builders<SubscriptionDetail>.Filter.Ne(
+                        subscription => subscription.CancelAtPeriodEnd,
+                        true),
+                    Builders<SubscriptionDetail>.Filter.Gt(
+                        subscription => subscription.CurrentPeriodEndUtc,
+                        nowUtc))))
+            .ToListAsync(cancellationToken);
+    }
 
     public async Task<SubscriptionDetail?> GetIncompleteAsync(
         string tenantId,
@@ -114,7 +325,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     organizationId),
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.Status,
-                    SubscriptionStatus.Incomplete)))
+                    SubscriptionStatus.Incomplete),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<SubscriptionDetail?> GetUnpaidAsync(
@@ -129,7 +341,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     organizationId),
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.Status,
-                    SubscriptionStatus.Unpaid)))
+                    SubscriptionStatus.Unpaid),
+                OrganizationScopeFilter()))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<SubscriptionDetail?> GetByOrderIdAsync(
@@ -972,6 +1185,26 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
     /// cancellation stops matching the instant its promised <c>CurrentPeriodEndUtc</c> passes
     /// <paramref name="nowUtc"/>, independent of whether the finalizing worker has run yet.
     /// </remarks>
+    /// <summary>
+    /// Narrows a lookup to the subscription an organization holds for itself.
+    /// </summary>
+    /// <remarks>
+    /// Expressed as "not user-wise" rather than "is organization-wise", and that is the whole
+    /// point. A query's <c>$ne</c> matches a document where the field is absent, so every
+    /// subscription written before the scope was snapshotted still answers here — which is every
+    /// subscription a live customer holds. <c>$eq</c> would exclude them all and an organization
+    /// would appear to have no subscription at all.
+    /// <para>
+    /// The partial filter on the reservation index cannot use this trick — a partial filter may not
+    /// use <c>$ne</c> — which is exactly why narrowing that index has to wait for the backfill and
+    /// this does not.
+    /// </para>
+    /// </remarks>
+    private static FilterDefinition<SubscriptionDetail> OrganizationScopeFilter() =>
+        Builders<SubscriptionDetail>.Filter.Ne(
+            subscription => subscription.Plan.SubscriberScope,
+            SubscriberScope.User);
+
     public static FilterDefinition<SubscriptionDetail> BuildLiveFilter(
         string tenantId,
         string organizationId,

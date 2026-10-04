@@ -368,6 +368,40 @@ namespace XUnitTest.PdfGenerator
         }
 
         [Fact]
+        public async Task NotifyValidatePdfSignaturesEvent_Sends_TheEventTypeToTheUserSuppliedExplicitly()
+        {
+            // The same channel carries ingestion and conversion results, so the payload has to say
+            // which event it is, and - as for ingestion - must not depend on ambient context.
+            BlocksContext.ClearContext();
+
+            await _service.NotifyValidatePdfSignaturesEvent(true, "file-1", "corr-1", "user-77", "p1");
+
+            _httpHelper.Verify(h => h.MakeHttpPostRequest<NotificationResponse>(
+                It.Is<object>(payload =>
+                    JsonSerializer.Serialize(payload).Contains("user-77")
+                    && JsonSerializer.Serialize(payload).Contains("PdfSignatureValidationCompleted")),
+                It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string>(),
+                It.IsAny<string>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task NotifyValidatePdfSignaturesEvent_Skips_WhenTheSuppliedUserIdIsNull()
+        {
+            BlocksContext.ClearContext();
+
+            await _service.NotifyValidatePdfSignaturesEvent(true, "file-1", "corr-1", null, "p1");
+
+            _httpHelper.Verify(h => h.MakeHttpPostRequest<NotificationResponse>(
+                It.IsAny<object>(),
+                It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string>(),
+                It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
         public async Task SendNotification_ShouldHandleExceptions_WithoutThrowing()
         {
             _httpHelper.Setup(h => h.MakeHttpPostRequest<NotificationResponse>(

@@ -16,6 +16,10 @@ export const useChangeSubscriptionPlan = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-current"] });
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-entitlements"] });
+      // An immediate change starts a new period, and a per-person subscription's places each
+      // open a fresh window with it: the Members card kept the old period's figures until reload.
+      queryClient.invalidateQueries({ queryKey: ["subscription-simulation-members"] });
+      queryClient.invalidateQueries({ queryKey: ["subscription-usage"] });
     },
   });
 };

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AlertCircle, FlaskConical, Layers, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { Button } from "@/components/ui-kits/button/button";
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui-kits/select/select";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui-kits/toaster/toast";
 import {
   ORGANIZATION_PAGE_SIZE,
   ORGANIZATION_QUERY_PARAM,
@@ -21,7 +23,10 @@ import {
 } from "../../subscription/constants/subscription.constants";
 import { SubscriptionPlanPageHeader } from "../../subscription/components/subscription-plan-page-header";
 import { useSubscriptionPlans } from "../../subscription/hooks/use-subscription-plans";
-import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
+import {
+  SUBSCRIBER_SCOPE,
+  type SubscriptionPlan,
+} from "../../subscription/models/subscription-plan.model";
 import { AdvanceRenewalDialog } from "../components/advance-renewal-dialog";
 import { AuditTrailDialog } from "../components/audit-trail-dialog";
 import { CancelSubscriptionDialog } from "../components/cancel-subscription-dialog";
@@ -30,6 +35,7 @@ import { ChangeQuantityDialog } from "../components/change-quantity-dialog";
 import { CloseUsagePeriodDialog } from "../components/close-usage-period-dialog";
 import { DataConsoleDialog } from "../components/data-console-dialog";
 import { DiscountCodeCard } from "../components/discount-code-card";
+import { MembersCard } from "../components/members-card";
 import { useCancelPendingQuantityChange } from "../hooks/use-quantity-change";
 import { useCancelPendingPlanChange } from "../hooks/use-change-subscription-plan";
 import { useWithdrawCancellation } from "../hooks/use-cancel-subscription";
@@ -43,6 +49,7 @@ import { SimulationHarnessCard } from "../components/simulation-harness-card";
 import { SubscribeDialog } from "../components/subscribe-dialog";
 import { UsageSection } from "../components/usage-section";
 import { useCurrentSimulatedSubscription } from "../hooks/use-current-simulated-subscription";
+import { useMyPlaces } from "../hooks/use-members";
 import type {
   SubscriptionSimulationActionResponse,
   SubscriptionSimulationJobRunResponse,
@@ -120,9 +127,27 @@ export const SubscriptionSimulationPage = () => {
   );
   const currentPlan = plans?.find((plan) => plan.code === currentSubscription?.planCode);
 
+  // The plans the signed-in user holds a place on — not every user-wise plan the organization
+  // holds. A plan with no place of theirs lends them neither its limits nor its entitlements, and
+  // reading one anyway gated their usage on an entitlement they did not have.
+  const { data: myPlaces } = useMyPlaces(organizationScope);
+  const memberPlans = (plans ?? []).filter((plan) =>
+    (myPlaces ?? []).some(
+      (place) => ENTITLED_STATUSES.has(place.status) && place.planCode === plan.code,
+    ),
+  );
+
+  const queryClient = useQueryClient();
+
+  // Everything the page shows, not just the plans and the current subscription: the per-person
+  // list, its rosters and the usage read too. A payment landing in Stripe changes those without
+  // any action here, and only a reload used to bring the Members card up to date.
   const refresh = () => {
     refetchPlans();
     refetchCurrent();
+    queryClient.invalidateQueries({ queryKey: ["subscription-simulation-current"] });
+    queryClient.invalidateQueries({ queryKey: ["subscription-simulation-members"] });
+    queryClient.invalidateQueries({ queryKey: ["subscription-usage"] });
   };
 
   const cancelPendingQuantity = useCancelPendingQuantityChange();
@@ -386,7 +411,11 @@ export const SubscriptionSimulationPage = () => {
                   organizationLabel={
                     plan.organizationId ? scopeLabel : "Tenant-wide"
                   }
-                  hasActiveSubscription={hasActiveSubscription}
+                  // The organization's one-subscription rule is for its own plans only. A plan
+                  // sold to each person sits beside it, as many of them as the organization wants.
+                  hasActiveSubscription={
+                    hasActiveSubscription && plan.subscriberScope !== SUBSCRIBER_SCOPE.User
+                  }
                   onSubscribe={() => setSubscribingTo(plan)}
                 />
               ))}
@@ -394,6 +423,8 @@ export const SubscriptionSimulationPage = () => {
           )}
         </div>
       </Card>
+
+      <MembersCard plans={plans} organizationId={organizationScope} />
 
       {plans?.length ? (
         <DiscountCodeCard plans={plans} organizationId={organizationScope} />
@@ -403,7 +434,13 @@ export const SubscriptionSimulationPage = () => {
         <OverageTermsSection subscription={currentSubscription} organizationId={organizationScope} />
       )}
 
-      {isEntitled && <UsageSection plan={currentPlan} organizationId={organizationScope} />}
+      {(isEntitled || memberPlans.length > 0) && (
+        <UsageSection
+          plan={isEntitled ? currentPlan : undefined}
+          memberPlans={memberPlans}
+          organizationId={organizationScope}
+        />
+      )}
 
       {currentSubscription && (
         <SimulationHarnessCard
@@ -428,9 +465,23 @@ export const SubscriptionSimulationPage = () => {
           }}
           onSubscribed={(checkoutUrl) => {
             if (checkoutUrl) {
+              const perPerson = subscribingTo.subscriberScope === SUBSCRIBER_SCOPE.User;
+
               toast({
                 title: "Checkout ready",
-                description: "Open the checkout link from the current subscription card above.",
+                description: perPerson
+                  ? "Pay to activate it. The link also stays on its card under Members."
+                  : "Open the checkout link from the current subscription card above.",
+                // A per-person subscription is listed at the foot of the page, under the whole
+                // catalogue, so the link is put in front of the subscriber instead. The
+                // organization's own sits in the card at the top, where they already are.
+                action: perPerson ? (
+                  <ToastAction altText="Open checkout" asChild>
+                    <a href={checkoutUrl} target="_blank" rel="noreferrer">
+                      Open checkout
+                    </a>
+                  </ToastAction>
+                ) : undefined,
               });
             }
           }}
@@ -461,7 +512,11 @@ export const SubscriptionSimulationPage = () => {
         <ChangePlanDialog
           subscription={currentSubscription}
           currentPlan={currentPlan}
-          plans={plans ?? []}
+          // current is always the organization's own, and a plan change cannot cross to a plan for
+          // each person — the server refuses it, so it is not offered.
+          plans={(plans ?? []).filter(
+            (plan) => (plan.subscriberScope ?? SUBSCRIBER_SCOPE.Organization) === SUBSCRIBER_SCOPE.Organization,
+          )}
           organizationId={organizationScope}
           open={isChangingPlan}
           onOpenChange={setIsChangingPlan}

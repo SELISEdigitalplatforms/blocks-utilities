@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 
 namespace Subscription.DomainService.Entities;
 
@@ -32,7 +32,32 @@ public sealed class SubscriptionUsageCounter
 
     public string PeriodKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Which seat this counts for, or null when it counts the subscription's own usage.
+    /// </summary>
+    /// <remarks>
+    /// Null on every counter written before seats existed, and on every organization-wise
+    /// subscription for as long as they exist — neither has seats, and neither changes.
+    /// </remarks>
+    public int? SeatNumber { get; set; }
+
     public decimal Balance { get; set; }
+
+    /// <summary>
+    /// What a rolling sub-limit has spent, split into the minutes it was spent in.
+    /// </summary>
+    /// <remarks>
+    /// Only ever populated on a rolling pace counter. A rolling window ends now and begins a span
+    /// before now, so a single balance cannot express it — what falls out of the span has to stop
+    /// counting, and only a per-minute split knows when that is.
+    /// <para>
+    /// Incremented one field at a time, so a recording is still the single atomic write the
+    /// period's own balance is, and the document that comes back already includes the caller's own
+    /// use. That is what keeps a rolling limit an enforcement point rather than a check two callers
+    /// can both pass.
+    /// </para>
+    /// </remarks>
+    public Dictionary<string, decimal>? Buckets { get; set; }
 
     /// <summary>
     /// How many ledger entries are reflected in the balance. Disagreement with the ledger's own
@@ -63,4 +88,26 @@ public sealed class SubscriptionUsageCounter
         string meterKey,
         string periodKey) =>
         $"{subscriptionId}:{meterKey}:{periodKey}";
+
+    /// <summary>
+    /// The counter for one seat's own window, or the subscription's own when there is no seat.
+    /// </summary>
+    /// <remarks>
+    /// A seat carries its own allowance, so it has to count separately: five seats on a plan
+    /// including ten million tokens is ten million each, and one person cannot spend what the other
+    /// four were bought.
+    /// <para>
+    /// A null seat composes exactly the three-part id above, which is what an organization's own
+    /// subscription has always used. Every counter already stored keeps its identity, so nothing
+    /// needs migrating and no balance moves.
+    /// </para>
+    /// </remarks>
+    public static string CreateId(
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        int? seatNumber) =>
+        seatNumber is { } seat
+            ? $"{CreateId(subscriptionId, meterKey, periodKey)}:s{seat}"
+            : CreateId(subscriptionId, meterKey, periodKey);
 }

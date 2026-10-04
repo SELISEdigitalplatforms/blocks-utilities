@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Entities;
@@ -57,6 +57,92 @@ public sealed class PlanMeter
 
     /// <summary>Whether usage past the included quantity is permitted and billed.</summary>
     public bool OverageAllowed { get; set; } = true;
+
+    /// <summary>
+    /// Every cap on how fast this meter may be spent. Empty when only the period's allowance
+    /// applies.
+    /// </summary>
+    /// <remarks>
+    /// Read through <see cref="EffectiveSubLimits"/>, never directly: a plan or subscription stored
+    /// before limits became a list carries its one pace in the single fields below instead.
+    /// </remarks>
+    public List<PlanMeterSubLimit> SubLimits { get; set; } = [];
+
+    /// <summary>
+    /// The limits this meter enforces — the list, or the one legacy pace when the list is empty.
+    /// </summary>
+    /// <remarks>
+    /// The single place the two storage shapes meet. Plans and subscription snapshots both hold
+    /// <see cref="PlanMeter"/>, so one fallback here keeps every document written before the list
+    /// counting exactly as it did, with nothing to migrate.
+    /// </remarks>
+    public IReadOnlyList<PlanMeterSubLimit> EffectiveSubLimits() =>
+        SubLimits.Count > 0 || SubLimitWindow is not { } window || SubLimitQuantity is not { } cap
+            ? SubLimits
+            :
+            [
+                new PlanMeterSubLimit
+                {
+                    Window = window,
+                    WindowCount = SubLimitWindowCount,
+                    Rolling = SubLimitRolling,
+                    Quantity = cap,
+                    Behaviour = SubLimitBehaviour
+                }
+            ];
+
+    /// <summary>
+    /// Legacy: the single pace a meter carried before <see cref="SubLimits"/>. Read only through
+    /// <see cref="EffectiveSubLimits"/>; nothing writes it any more.
+    /// </summary>
+    /// <remarks>
+    /// The pace a plan is sold at, as distinct from the amount. Ten million tokens a month with no
+    /// shorter cap can be spent in an afternoon, and a plan priced on the assumption they would not
+    /// be has no way to say so.
+    /// <para>
+    /// Null on every meter authored before this, which is every meter today: they cap by period
+    /// alone and go on doing exactly that.
+    /// </para>
+    /// </remarks>
+    public UsageWindow? SubLimitWindow { get; set; }
+
+    /// <summary>
+    /// How many of <see cref="SubLimitWindow"/> the limit spans. One unless the plan says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Anything above one is measured rolling, and has to be: a fixed window only tiles a day
+    /// evenly when its length divides one, so "every five hours" from midnight would leave a short
+    /// block straddling into the next day and no two days alike. See <see cref="SubLimitRolling"/>.
+    /// </remarks>
+    public int SubLimitWindowCount { get; set; } = 1;
+
+    /// <summary>
+    /// Whether the limit looks back from now rather than counting within a window on the clock.
+    /// </summary>
+    /// <remarks>
+    /// False on every meter authored before this existed, which is what keeps them counting exactly
+    /// as they did: the hour on the clock, the day, the week from Monday.
+    /// <para>
+    /// Rolling is the stricter reading and usually the intended one. A clock-aligned hourly cap
+    /// lets a whole hour's worth be spent at 09:59 and the next at 10:01; a rolling one does not,
+    /// because the first is still inside the span the second is measured against.
+    /// </para>
+    /// </remarks>
+    public bool SubLimitRolling { get; set; }
+
+    /// <summary>How much may be used within one <see cref="SubLimitWindow"/>.</summary>
+    public decimal? SubLimitQuantity { get; set; }
+
+    /// <summary>
+    /// What happens on reaching <see cref="SubLimitQuantity"/> while the period still has
+    /// allowance left.
+    /// </summary>
+    /// <remarks>
+    /// Refusing is the default because it is the safe reading of a cap: a plan that says "so much
+    /// an hour" and then allows more has not capped anything. A plan author who wants the softer
+    /// behaviour says so.
+    /// </remarks>
+    public MeterSubLimitBehaviour SubLimitBehaviour { get; set; } = MeterSubLimitBehaviour.Refuse;
 
     /// <summary>
     /// Percentages of the included quantity that raise an event when first crossed, such as

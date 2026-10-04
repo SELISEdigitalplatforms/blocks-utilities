@@ -27,6 +27,7 @@ import type { PlanPrice } from "../../models/subscription-plan.model";
 import {
   BILLING_INTERVAL_NAMES,
   ENTITLEMENT_LIMIT_KIND_NAMES,
+  USAGE_WINDOW_NAMES,
 } from "../../models/subscription-plan.model";
 import {
   buildSubscriptionPlanSchema,
@@ -153,11 +154,13 @@ const PlanBuilderWizard = ({
     trialDurationKind: draft.trialDurationKind ?? null,
     trialDurationCount: draft.trialDurationCount ?? null,
     trialRequiresPaymentMethod: draft.trialRequiresPaymentMethod ?? true,
+    subscriberScope: draft.subscriberScope ?? "Organization",
     quantityItems: (draft.quantityItems ?? []).map((item) => ({
       itemKey: item?.itemKey ?? "",
       unitLabel: item?.unitLabel ?? "",
       defaultQuantity: item?.defaultQuantity ?? 0,
       maxQuantity: item?.maxQuantity ?? null,
+      countsMembers: item?.countsMembers ?? false,
     })),
     meters: (draft.meters ?? []).map((meter) => ({
       meterKey: meter?.meterKey ?? "",
@@ -172,6 +175,17 @@ const PlanBuilderWizard = ({
         .map((table) => table?.currencyCode)
         .filter((currencyCode): currencyCode is string => Boolean(currencyCode))
         .map((currencyCode) => ({ currencyCode })),
+      // The form holds numbers; the summary reads names, as a stored plan does. A row still
+      // being typed has no quantity yet and says nothing until it does.
+      subLimits: (meter?.subLimits ?? [])
+        .filter((limit) => limit?.quantity !== undefined)
+        .map((limit) => ({
+          window: USAGE_WINDOW_NAMES[limit?.window ?? 0],
+          windowCount: limit?.count ?? 1,
+          rolling: limit?.rolling ?? false,
+          quantity: limit?.quantity ?? 0,
+          behaviour: limit?.behaviour === 1 ? ("Throttle" as const) : ("Refuse" as const),
+        })),
     })),
     entitlements: (draft.entitlements ?? []).map((entitlement) => ({
       key: entitlement?.key ?? "",

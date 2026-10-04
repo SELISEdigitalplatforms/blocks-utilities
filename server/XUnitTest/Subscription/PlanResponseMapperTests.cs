@@ -153,6 +153,73 @@ public sealed class PlanResponseMapperTests
     }
 
     /// <summary>
+    /// An edit rewrites the whole plan from what the console read back. A sub-limit the response
+    /// dropped would be silently removed by the next edit of anything else on the plan.
+    /// </summary>
+    [Fact]
+    public void A_meter_reports_every_sub_limit_so_an_edit_can_preserve_them()
+    {
+        var plan = Plan("organization-1");
+        plan.Meters[0].SubLimits =
+        [
+            new PlanMeterSubLimit
+            {
+                Window = UsageWindow.Hour, WindowCount = 5, Rolling = true, Quantity = 1_000,
+                Behaviour = MeterSubLimitBehaviour.Throttle
+            },
+            new PlanMeterSubLimit { Window = UsageWindow.Week, Quantity = 20_000 }
+        ];
+
+        var limits = _mapper.ToResponse(plan, []).Meters[0].SubLimits;
+
+        limits.Should().HaveCount(2, "an edit rewrites the plan from what it reads back");
+        limits[0].Window.Should().Be(nameof(UsageWindow.Hour));
+        limits[0].WindowCount.Should().Be(5);
+        limits[0].Rolling.Should().BeTrue();
+        limits[0].Behaviour.Should().Be(nameof(MeterSubLimitBehaviour.Throttle));
+        limits[1].Window.Should().Be(nameof(UsageWindow.Week));
+        limits[1].Quantity.Should().Be(20_000);
+        limits[1].Behaviour.Should().Be(nameof(MeterSubLimitBehaviour.Refuse));
+    }
+
+    /// <summary>
+    /// A plan stored while a meter held one pace in single fields has to read back as the list
+    /// the console now edits, or the first edit after this ships would drop its pace.
+    /// </summary>
+    [Fact]
+    public void A_meter_stored_with_the_single_legacy_pace_reads_back_as_a_list_of_one()
+    {
+        var plan = Plan("organization-1");
+        plan.Meters[0].SubLimitWindow = UsageWindow.Hour;
+        plan.Meters[0].SubLimitQuantity = 1_000;
+        plan.Meters[0].SubLimitBehaviour = MeterSubLimitBehaviour.Throttle;
+
+        var limit = _mapper.ToResponse(plan, []).Meters[0].SubLimits.Should().ContainSingle().Subject;
+
+        limit.Window.Should().Be(nameof(UsageWindow.Hour));
+        limit.Quantity.Should().Be(1_000);
+        limit.Behaviour.Should().Be(nameof(MeterSubLimitBehaviour.Throttle));
+    }
+
+    [Fact]
+    public void A_meter_with_no_sub_limit_reports_none()
+    {
+        var meter = _mapper.ToResponse(Plan("organization-1"), []).Meters[0];
+
+        meter.SubLimits.Should().BeEmpty("an uncapped meter must read back as uncapped");
+    }
+
+    /// <summary>Dropped on read, the mark is dropped on the next edit, and assignment is then refused.</summary>
+    [Fact]
+    public void A_quantity_item_reports_whether_it_counts_people()
+    {
+        var plan = Plan("organization-1");
+        plan.QuantityItems = [new PlanQuantityItem { ItemKey = "seat", UnitLabel = "seat", CountsMembers = true }];
+
+        _mapper.ToResponse(plan, []).QuantityItems[0].CountsMembers.Should().BeTrue();
+    }
+
+    /// <summary>
     /// Copied rather than shared, so a caller mutating the list it was handed cannot reach back
     /// into the stored plan.
     /// </summary>

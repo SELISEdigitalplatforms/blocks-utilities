@@ -1,5 +1,22 @@
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
-import type { PlanChangeLabel } from "../models/subscription-simulation.model";
+import { formatInterval } from "../../subscription/utilities/subscription-format";
+import type {
+  PendingPlanChange,
+  PlanChangeLabel,
+  SimulatedSubscription,
+} from "../models/subscription-simulation.model";
+
+/**
+ * What a booked change moves to: the plan, or — when only the billing changes — the new cadence.
+ * "Moving to Pro" on a subscription already on Pro read as though nothing were changing.
+ */
+export const describePendingMove = (
+  subscription: Pick<SimulatedSubscription, "planCode">,
+  pending: PendingPlanChange,
+): string =>
+  pending.targetPlanCode === subscription.planCode
+    ? `billing ${formatInterval(pending.interval, pending.intervalCount)}`
+    : pending.targetPlanName;
 
 /**
  * Labelled from product family metadata, not price — a lower amount is not necessarily a

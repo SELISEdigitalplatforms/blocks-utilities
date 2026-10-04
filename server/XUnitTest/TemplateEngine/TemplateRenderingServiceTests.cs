@@ -133,6 +133,83 @@ namespace XUnitTest.TemplateEngine
             Assert.Equal("", result);
         }
 
+        [Fact]
+        public void RenderTemplateWithJson_IteratesNestedObjectList()
+        {
+            var template = "{% for s in Signatures %}[{{ s.DisplayName }}]{% endfor %}";
+            var json = "{ \"Signatures\": [ { \"DisplayName\": \"Ada\" }, { \"DisplayName\": \"Bob\" } ] }";
+
+            var result = _service.RenderTemplateWithJson(template, json);
+
+            Assert.Equal("[Ada][Bob]", result);
+        }
+
+        [Fact]
+        public void RenderTemplateWithJson_ResolvesNestedObjectProperty()
+        {
+            var template = "{{ Owner.Name }} / {{ Owner.Address.City }}";
+            var json = "{ \"Owner\": { \"Name\": \"Ada\", \"Address\": { \"City\": \"Zurich\" } } }";
+
+            var result = _service.RenderTemplateWithJson(template, json);
+
+            Assert.Equal("Ada / Zurich", result);
+        }
+
+        [Fact]
+        public void RenderTemplateWithJson_IteratesScalarList()
+        {
+            var template = "{% for t in Tags %}{{ t }},{% endfor %}";
+            var json = "{ \"Tags\": [ \"a\", 2, true ] }";
+
+            var result = _service.RenderTemplateWithJson(template, json);
+
+            Assert.Equal("a,2,true,", result);
+        }
+
+        [Fact]
+        public void RenderTemplateWithJson_KeepsTopLevelScalarTypes()
+        {
+            // CSharpNamingConvention => PascalCase filter names
+            var template = "{{ Count | Plus: 1 }}|{% if Active %}yes{% endif %}|{{ Missing }}|{{ Created | Date: 'yyyy-MM-dd' }}";
+            var json = "{ \"Count\": 41, \"Active\": true, \"Missing\": null, \"Created\": \"2026-01-15T10:00:00Z\" }";
+
+            var result = _service.RenderTemplateWithJson(template, json);
+
+            Assert.Equal("42|yes||2026-01-15", result);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("[1, 2]")]
+        public void RenderTemplateWithJson_NonObjectJson_RendersWithEmptyData(string json)
+        {
+            var result = _service.RenderTemplateWithJson("Test{{ x }}", json);
+
+            Assert.Equal("Test", result);
+        }
+
+        [Fact]
+        public void RenderTemplateWithEntityData_ResolvesNestedMetadata()
+        {
+            var template = "{{ Doc.Title }}|{% for s in Doc.Signers %}{{ s.Order }} {{ s.Name }} {{ s.Note | Default: 'n/a' }}{% endfor %}";
+
+            var entities = new Dictionary<string, object>();
+            var metadata = new Dictionary<string, object>
+            {
+                {
+                    "Doc", new
+                    {
+                        Title = "Contract",
+                        Signers = new[] { new { Order = 1, Name = "Ada", Note = (string?)null } }
+                    }
+                }
+            };
+
+            var result = _service.RenderTemplateWithEntityData(template, entities, metadata);
+
+            Assert.Equal("Contract|1 Ada n/a", result);
+        }
+
     }
 
 }

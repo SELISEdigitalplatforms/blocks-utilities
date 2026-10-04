@@ -20,6 +20,25 @@ public sealed class PlanSnapshot
 
     public string Code { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Who the plan was sold to when this subscription bought it.
+    /// </summary>
+    /// <remarks>
+    /// Copied here like everything else in this snapshot, but for a second reason as well: the
+    /// signup reservation index needs it. One subscription per organization is the rule for
+    /// organization-wise plans only — user-wise ones are held several to an organization — so the
+    /// index's partial filter has to name the scope, and a partial filter can only read a field
+    /// that is on the document being indexed.
+    /// <para>
+    /// A subscription written before this existed has no field at all, which a filter on
+    /// <see cref="SubscriberScope.Organization"/> does <b>not</b> match — such a document would drop
+    /// out of the index and lose the uniqueness every live customer depends on. Every existing
+    /// subscription must therefore be backfilled before that filter is switched. See
+    /// <c>SubscriptionRepository.BackfillPlanSubscriberScopeAsync</c>.
+    /// </para>
+    /// </remarks>
+    public SubscriberScope SubscriberScope { get; set; } = SubscriberScope.Organization;
+
     public string DisplayName { get; set; } = string.Empty;
 
     public string? FeaturesJson { get; set; }

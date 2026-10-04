@@ -251,6 +251,100 @@ public sealed class FractionalUsageQuantityIntegrationTests
     private IMongoCollection<BsonDocument> Raw(string tenantId) =>
         _fixture.Database.GetCollection<BsonDocument>("SubscriptionUsageCounters");
 
+    /// <remarks>
+    /// Found on dev: the seat was never stored, so the counter handed back named none, and every
+    /// recording on a place published under the subscription's own id instead of the place's.
+    /// </remarks>
+    [Fact]
+    public async Task A_seats_counter_comes_back_naming_its_seat_whether_new_or_opened_before()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var fresh = SubscriptionUsageCounter.CreateId(Sub(tenantId), "storage", "M2026-09", 2);
+        var older = SubscriptionUsageCounter.CreateId(Sub(tenantId), "storage", "M2026-09", 3);
+
+        // Planted the way a build that did not store the seat wrote it.
+        await Raw(tenantId).InsertOneAsync(new BsonDocument
+        {
+            ["_id"] = older,
+            ["TenantId"] = tenantId,
+            ["OrganizationId"] = "org-1",
+            ["SubscriptionId"] = Sub(tenantId),
+            ["MeterKey"] = "storage",
+            ["PeriodKey"] = "M2026-09",
+            ["Balance"] = new BsonDecimal128(4),
+            ["AppliedRecordCount"] = new BsonInt64(4),
+            ["LimitSnapshot"] = new BsonDecimal128(500),
+            ["NotifiedThresholds"] = new BsonArray(),
+            ["PeriodStartUtc"] = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            ["PeriodEndUtc"] = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            ["ExpiresAtUtc"] = new DateTime(2027, 12, 31, 0, 0, 0, DateTimeKind.Utc),
+            ["LastUpdatedAtUtc"] = DateTime.UtcNow
+        });
+
+        var seed = Seed(tenantId, fresh);
+        seed.SeatNumber = 2;
+        (await _usage.ApplyDeltaAsync(seed, 1, CancellationToken.None)).SeatNumber.Should().Be(2);
+
+        seed = Seed(tenantId, older);
+        seed.SeatNumber = 3;
+        (await _usage.ApplyDeltaAsync(seed, 1, CancellationToken.None)).SeatNumber.Should().Be(3,
+            "a counter opened before the seat was stored gains it on its next write");
+    }
+
+    [Fact]
+    public async Task Deleting_seatless_rows_leaves_only_the_places()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var aggregate = Projection(tenantId, included: 100, used: 5, counterVersion: 1);
+        var place = Projection(tenantId, included: 100, used: 5, counterVersion: 1);
+        place.ItemId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "storage", "M2026-09", 1);
+        place.SeatNumber = 1;
+        var perUser = Projection(tenantId, included: 100, used: 5, counterVersion: 1);
+        perUser.ItemId = SubscriptionUsageCurrent.CreateId(Sub(tenantId), "storage", "M2026-09", "user-a");
+        perUser.UserId = "user-a";
+
+        foreach (var row in new[] { aggregate, place, perUser })
+        {
+            (await _current.TryPublishAsync(row, CancellationToken.None)).Should().BeTrue();
+        }
+
+        (await _current.DeleteSeatlessRowsAsync(tenantId, Sub(tenantId), CancellationToken.None))
+            .Should().Be(2);
+
+        (await _current.ListBySubscriptionAsync(tenantId, Sub(tenantId), CancellationToken.None))
+            .Should().ContainSingle().Which.ItemId.Should().Be(place.ItemId);
+    }
+
+    [Fact]
+    public async Task The_ledger_is_summarised_place_by_place_with_unmarked_entries_apart()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        async Task Append(string key, decimal delta, int? seat) =>
+            (await _usage.TryAppendRecordAsync(new SubscriptionUsageRecord
+            {
+                TenantId = tenantId,
+                OrganizationId = "org-1",
+                SubscriptionId = Sub(tenantId),
+                MeterKey = "storage",
+                PeriodKey = "M2026-09",
+                Delta = delta,
+                IdempotencyKey = key,
+                SeatNumber = seat,
+                OccurredAtUtc = new DateTime(2026, 9, 2, 0, 0, 0, DateTimeKind.Utc)
+            }, CancellationToken.None)).Should().BeTrue();
+
+        await Append("a", 3, 1);
+        await Append("b", 4.5m, 1);
+        await Append("c", 2, 2);
+        await Append("d", 7, null);
+
+        var summary = await _usage.SummariseLedgerBySeatAsync(
+            tenantId, Sub(tenantId), "storage", "M2026-09", CancellationToken.None);
+
+        summary.Should().BeEquivalentTo(new (int?, decimal, long)[] { (1, 7.5m, 2), (2, 2m, 1), (null, 7m, 1) });
+    }
+
     private static SubscriptionUsageCounter Seed(string tenantId, string counterId) => new()
     {
         ItemId = counterId,

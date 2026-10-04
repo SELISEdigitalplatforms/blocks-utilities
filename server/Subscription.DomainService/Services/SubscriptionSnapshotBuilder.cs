@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Services;
 
@@ -20,6 +20,7 @@ internal static class SubscriptionSnapshotBuilder
         {
             PlanId = plan.ItemId,
             Code = plan.Code,
+            SubscriberScope = plan.SubscriberScope,
             DisplayName = plan.DisplayName,
             FeaturesJson = plan.FeaturesJson,
             UsageInterval = plan.UsageInterval,
@@ -51,6 +52,20 @@ internal static class SubscriptionSnapshotBuilder
                     IncludedQuantity = meter.IncludedQuantity,
                     CarryForwardCap = meter.CarryForwardCap,
                     OverageAllowed = meter.OverageAllowed,
+                    // The pace is snapshotted like the amount. A plan tightened later must not
+                    // start refusing a subscriber who bought it looser.
+                    // Through EffectiveSubLimits, so a plan stored with the legacy single pace
+                    // is snapshotted as the list every subscription now carries.
+                    SubLimits = meter.EffectiveSubLimits()
+                        .Select(limit => new PlanMeterSubLimit
+                        {
+                            Window = limit.Window,
+                            WindowCount = limit.WindowCount,
+                            Rolling = limit.Rolling,
+                            Quantity = limit.Quantity,
+                            Behaviour = limit.Behaviour
+                        })
+                        .ToList(),
                     ThresholdPercents = [.. meter.ThresholdPercents],
                     RateTables = meter.RateTables
                         .Select(table => new MeterRateTable
