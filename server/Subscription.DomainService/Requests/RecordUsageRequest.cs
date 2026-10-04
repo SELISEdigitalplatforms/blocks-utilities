@@ -51,4 +51,23 @@ public sealed class RecordUsageRequest
     /// <see cref="CreateSubscriptionRequest.OrganizationId"/> for the full rule.
     /// </remarks>
     public string? OrganizationId { get; set; }
+
+    /// <summary>
+    /// The person whose place this usage spends, for a caller that is not a person itself.
+    /// </summary>
+    /// <remarks>
+    /// Read only when the token names no user — a client-credentials caller, which reports usage on
+    /// somebody's behalf and has no other way to say whose. A token that names a user is the
+    /// stronger claim and this is ignored, the same rule <see cref="OrganizationId"/> follows, so a
+    /// signed-in caller cannot spend a colleague's allowance by naming them.
+    /// <para>
+    /// A named user who holds a place on a plan sold per person that meters this key spends that
+    /// place, and the ledger entry is theirs. One who holds none is refused when such a plan exists,
+    /// rather than charged to the organization: the caller asked for this person, and billing the
+    /// shared pool instead would hide a mistyped id as a successful call. When only the
+    /// organization's own plan meters the key, the usage is the organization's, as it would be
+    /// without a user named.
+    /// </para>
+    /// </remarks>
+    public string? UserId { get; set; }
 }

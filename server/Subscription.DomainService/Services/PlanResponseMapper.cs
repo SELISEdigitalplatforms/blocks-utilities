@@ -1,4 +1,4 @@
-using Subscription.DomainService.Entities;
+﻿using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
@@ -33,6 +33,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
         {
             PlanId = plan.ItemId,
             Code = plan.Code,
+            SubscriberScope = plan.SubscriberScope,
             DisplayName = plan.DisplayName,
             Description = plan.Description,
             FamilyCode = plan.FamilyCode,
@@ -65,6 +66,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     MinQuantity = item.MinQuantity,
                     MaxQuantity = item.MaxQuantity,
                     DefaultQuantity = item.DefaultQuantity,
+                    CountsMembers = item.CountsMembers,
                     QuantityDiscountTiers = item.QuantityDiscountTiers
                         .Select(tier => new QuantityDiscountTierResponse
                         {
@@ -90,6 +92,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     IncludedQuantity = meter.IncludedQuantity,
                     OverageAllowed = meter.OverageAllowed,
                     ThresholdPercents = [.. meter.ThresholdPercents],
+                    SubLimits = [.. meter.EffectiveSubLimits().Select(DescribeSubLimit)],
                     RateTables = meter.RateTables
                         .Select(table => new PlanMeterRateTableResponse
                         {
@@ -161,4 +164,14 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                 .ToList()
         };
     }
+
+    /// <summary>One pace as a caller reads it. Also what a usage response names when one is passed.</summary>
+    public static PlanMeterSubLimitResponse DescribeSubLimit(PlanMeterSubLimit limit) => new()
+    {
+        Window = limit.Window.ToString(),
+        WindowCount = Math.Max(1, limit.WindowCount),
+        Rolling = limit.Rolling,
+        Quantity = limit.Quantity,
+        Behaviour = limit.Behaviour.ToString()
+    };
 }

@@ -423,6 +423,49 @@ public sealed class SubscriptionQuantityChangeServiceTests
             Times.Once);
     }
 
+    /// <summary>
+    /// The number an administrator acts on. Five seats cut to three with five people seated strands
+    /// two of them; saying five sent whoever read it to empty the whole subscription.
+    /// </summary>
+    [Theory]
+    [InlineData(5, 3, "2 people have to come off")]
+    [InlineData(5, 4, "1 person has to come off")]
+    public async Task A_decrease_below_the_seats_held_names_how_many_have_to_come_off(
+        long held, long target, string expected)
+    {
+        _subscription = NewSubscription(5);
+        _subscription.Plan.SubscriberScope = SubscriberScope.User;
+
+        var result = await Service(assignments: Held(held).Object)
+            .ChangeAsync("sub-1", Request(target), "corr-1", default);
+
+        result.ErrorCode.Should().Be("subscription_member_seats_occupied");
+        result.ErrorMessage.Should().StartWith(expected);
+    }
+
+    [Fact]
+    public async Task A_decrease_that_leaves_every_seated_person_a_seat_goes_ahead()
+    {
+        _subscription = NewSubscription(5);
+        _subscription.Plan.SubscriberScope = SubscriberScope.User;
+
+        var result = await Service(assignments: Held(3).Object)
+            .ChangeAsync("sub-1", Request(3), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue("three seats still hold the three people on them");
+    }
+
+    private static Mock<ISubscriptionAssignmentRepository> Held(long held)
+    {
+        var assignments = new Mock<ISubscriptionAssignmentRepository>();
+        assignments
+            .Setup(repository => repository.CountActiveAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(held);
+
+        return assignments;
+    }
+
     [Fact]
     public async Task A_decrease_quotes_the_next_renewal_at_the_smaller_quantity_and_its_band()
     {
@@ -652,9 +695,11 @@ public sealed class SubscriptionQuantityChangeServiceTests
     }
 
     private SubscriptionQuantityChangeService Service(
-        ISubscriptionWorkScheduler? scheduler = null) => new(
+        ISubscriptionWorkScheduler? scheduler = null,
+        ISubscriptionAssignmentRepository? assignments = null) => new(
         _contextResolver.Object,
         _subscriptions.Object,
+        assignments,
         _billingAccounts.Object,
         _gateway.Object,
         new SubscriptionOutboxEventFactory(),

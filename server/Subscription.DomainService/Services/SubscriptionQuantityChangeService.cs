@@ -61,6 +61,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
     private readonly ISubscriptionContextResolver _contextResolver;
     private readonly ISubscriptionRepository _subscriptions;
+    private readonly ISubscriptionAssignmentRepository? _assignments;
     private readonly IBillingAccountRepository _billingAccounts;
     private readonly ISubscriptionBillingGateway _gateway;
     private readonly ISubscriptionOutboxEventFactory _events;
@@ -73,6 +74,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     public SubscriptionQuantityChangeService(
         ISubscriptionContextResolver contextResolver,
         ISubscriptionRepository subscriptions,
+        ISubscriptionAssignmentRepository? assignments,
         IBillingAccountRepository billingAccounts,
         ISubscriptionBillingGateway gateway,
         ISubscriptionOutboxEventFactory events,
@@ -91,6 +93,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         _billingProfile = billingProfile;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
+        _assignments = assignments;
         _billingAccounts = billingAccounts;
         _gateway = gateway;
         _events = events;
@@ -388,6 +391,18 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 loaded.Value!.UserName,
                 loaded.Value!.UserEmail,
                 cancellationToken);
+        }
+
+        if (direction < 0 &&
+            await OccupiedBeyondAsync(subscription, target, cancellationToken) is { } stranded)
+        {
+            return SubscriptionOperationResult<QuantityChangeResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_member_seats_occupied",
+                stranded == 1
+                    ? "1 person has to come off before this change can take a seat away. Take them off first."
+                    : $"{stranded} people have to come off before this change can take their seats away. Take them off first.",
+                correlationId);
         }
 
         return direction < 0
@@ -869,6 +884,53 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
     /// <summary>
     /// A decrease: scheduled for the end of the paid period, never refunded.
     /// </summary>
+    /// <summary>
+    /// How many people sit on seats a decrease would remove, or null when none do.
+    /// </summary>
+    /// <remarks>
+    /// Refused rather than resolved for them. A decrease takes effect at the period end and is not
+    /// refunded, so quietly releasing whoever sits on the highest seats would take access away from
+    /// somebody the administrator never named — and they are the only one who knows which of them
+    /// should lose it.
+    /// <para>
+    /// Checked when the decrease is asked for, which is when it can still be acted on. Assignment
+    /// separately refuses to fill seats a scheduled decrease will remove, so the two cannot drift
+    /// apart between the request and the period turning over.
+    /// </para>
+    /// <para>
+    /// Answers null for anything that is not a user-wise subscription, which is every subscription
+    /// in production today: they have no seats, so a decrease has nobody to displace.
+    /// </para>
+    /// </remarks>
+    private async Task<long?> OccupiedBeyondAsync(
+        SubscriptionDetail subscription,
+        IReadOnlyList<SubscriptionQuantityItem> target,
+        CancellationToken cancellationToken)
+    {
+        if (_assignments is null ||
+            subscription.Plan.SubscriberScope != SubscriberScope.User)
+        {
+            return null;
+        }
+
+        var counting = target.Count == 1
+            ? target[0]
+            : target.SingleOrDefault(item => item.CountsMembers);
+
+        if (counting is null)
+        {
+            return null;
+        }
+
+        var held = await _assignments.CountActiveAsync(
+            subscription.TenantId, subscription.ItemId, cancellationToken);
+
+        // How many have to come off, not how many are on: going from five seats to three with
+        // five people seated strands two of them, and "5 people" sent the administrator to empty
+        // the whole subscription.
+        return held > counting.Quantity ? held - counting.Quantity : null;
+    }
+
     private async Task<SubscriptionOperationResult<QuantityChangeResponse>> DecreaseAsync(
         SubscriptionDetail subscription,
         List<SubscriptionQuantityItem> target,
@@ -978,7 +1040,9 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 ItemKey = item.ItemKey,
                 UnitLabel = item.UnitLabel,
                 Quantity = item.Quantity,
-                UnitAmountMinor = item.UnitAmountMinor
+                UnitAmountMinor = item.UnitAmountMinor,
+                CountsMembers = item.CountsMembers,
+                MaxQuantity = item.MaxQuantity
             })
             .ToList();
 

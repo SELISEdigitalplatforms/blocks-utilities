@@ -48,6 +48,42 @@ public interface ISubscriptionRepository
         DateTime nowUtc,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The organization's subscriptions to user-wise plans that are live or awaiting their first
+    /// payment, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// The other half of <see cref="GetLiveAsync"/>, which answers for the organization's own
+    /// subscription only. Several, not one: an organization may seat people on two user-wise plans
+    /// at once. An unpaid checkout is included because it is the one state a caller must still act
+    /// on — nothing else would ever show it them again. Matched with <c>$eq</c>, which is safe here
+    /// where it is not there: a user-wise subscription has always carried its scope.
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionDetail>> ListLiveMemberBasedAsync(
+        string tenantId,
+        string organizationId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Those of these subscriptions that currently grant something.
+    /// </summary>
+    /// <remarks>
+    /// The identifiers come from the seats a person holds, which is a different collection, so this
+    /// takes them rather than joining. Liveness is the same as <see cref="GetLiveAsync"/>: a
+    /// scheduled cancellation stops matching the instant <paramref name="nowUtc"/> passes its
+    /// promised period end, and a seat on a subscription that has ended grants nothing.
+    /// <para>
+    /// One query rather than a read per identifier. A person rarely holds more than a seat or two,
+    /// but this is on the path of every gated action and a round trip each would be felt.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionDetail>> ListLiveByIdsAsync(
+        string tenantId,
+        IReadOnlyCollection<string> subscriptionIds,
+        DateTime nowUtc,
+        CancellationToken cancellationToken);
+
     /// <summary>The organization's checkout that has not activated yet, if any.</summary>
     Task<SubscriptionDetail?> GetIncompleteAsync(
         string tenantId,

@@ -1,4 +1,4 @@
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Entities;
@@ -44,13 +44,35 @@ public sealed class SubscriptionUsageCurrent
     public string SubscriptionId { get; set; } = string.Empty;
 
     /// <summary>
-    /// Empty for the organization's own aggregate row — the one every existing reader already
-    /// expects, keyed by <see cref="CreateId(string, string, string)"/> exactly as before. Populated
-    /// only on the additional per-user rows keyed by
-    /// <see cref="CreateId(string, string, string, string)"/>, which track one acting user's own
-    /// contribution to the same shared pool.
+    /// Who this row belongs to. Empty on the organization's own aggregate row.
     /// </summary>
+    /// <remarks>
+    /// On an organization-wise plan it is set only on the per-user rows keyed by
+    /// <see cref="CreateId(string, string, string, string)"/>, which track one acting user's own
+    /// contribution to the shared pool.
+    /// <para>
+    /// On a user-wise plan it is the place's current holder, on the place's own row (the one
+    /// with a <see cref="SeatNumber"/>). That row is the only one such a plan has: the place
+    /// carries the allowance, so a second per-user row would repeat the same window under
+    /// another key. Set when the holder records usage and when a place is assigned, emptied when
+    /// it is released. <see cref="Used"/> is the place's, so it includes whatever an earlier
+    /// holder spent in this window — the place's allowance does not reset when its holder changes.
+    /// </para>
+    /// </remarks>
     public string UserId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Which seat this row reports, or null when it reports the subscription as a whole.
+    /// </summary>
+    /// <remarks>
+    /// A seated subscription counts each seat against its own window, so one row per subscription
+    /// could only hold whichever seat published last — neither person's usage and not the total.
+    /// <para>
+    /// Null on every row written before seats existed and on every organization-wise subscription,
+    /// which is what keeps those reading exactly as they always have.
+    /// </para>
+    /// </remarks>
+    public int? SeatNumber { get; set; }
 
     /// <summary>
     /// The subscription's status when this was published, so a reader can tell a live allowance from
@@ -120,6 +142,18 @@ public sealed class SubscriptionUsageCurrent
     public decimal Included { get; set; }
 
     public decimal Used { get; set; }
+
+    /// <summary>
+    /// Each pace limit on this meter and how much of it is spent, as of <see cref="UpdatedAtUtc"/>.
+    /// Null when no recording has reported them yet, or on a meter with no pace.
+    /// </summary>
+    /// <remarks>
+    /// Published by the recording that counted them, the only point the pace totals are known. A
+    /// fixed window's figure holds until <see cref="SubscriptionUsageCurrentSubLimit.WindowEndUtc"/>,
+    /// when it resets to zero. A rolling window's only falls as time passes, so the figure here is
+    /// an upper bound between recordings, never an understatement.
+    /// </remarks>
+    public List<SubscriptionUsageCurrentSubLimit>? SubLimits { get; set; }
 
     /// <summary>Never below zero. Copied from the authoritative result, not recomputed here.</summary>
     public decimal Remaining { get; set; }
@@ -193,7 +227,8 @@ public sealed class SubscriptionUsageCurrent
 
     /// <summary>
     /// Raised to 2 by the addition of <see cref="QuantityScale"/>, to 3 by <see cref="UserId"/>,
-    /// and to 4 by <see cref="CancelAtPeriodEnd"/> and <see cref="CurrentPeriodEndUtc"/>.
+    /// to 4 by <see cref="CancelAtPeriodEnd"/> and <see cref="CurrentPeriodEndUtc"/>, and to 5 by
+    /// <see cref="SubLimits"/> and a place's holder in <see cref="UserId"/>.
     /// </summary>
     /// <remarks>
     /// Raised rather than left alone because adding a field is invisible to both version
@@ -204,7 +239,7 @@ public sealed class SubscriptionUsageCurrent
     /// not end. The sweep treats a document below this as stale, so the ordinary cycle republishes
     /// it and no migration is needed.
     /// </remarks>
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     public static string CreateId(
         string subscriptionId,
@@ -222,4 +257,51 @@ public sealed class SubscriptionUsageCurrent
         string periodKey,
         string userId) =>
         $"{CreateId(subscriptionId, meterKey, periodKey)}:{userId}";
+
+    /// <summary>
+    /// One seat's row, or the subscription's own when there is no seat.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors how the counter it projects is addressed, so a reader comparing the two is comparing
+    /// the same window. A null seat composes the three-part identity every row already written
+    /// uses, so nothing needs migrating.
+    /// </remarks>
+    public static string CreateId(
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        int? seatNumber) =>
+        SubscriptionUsageCounter.CreateId(subscriptionId, meterKey, periodKey, seatNumber);
+}
+
+/// <summary>One pace limit's state in its current window.</summary>
+public sealed class SubscriptionUsageCurrentSubLimit
+{
+    public UsageWindow Window { get; set; }
+
+    public int WindowCount { get; set; } = 1;
+
+    public bool Rolling { get; set; }
+
+    public MeterSubLimitBehaviour Behaviour { get; set; }
+
+    /// <summary>The most this limit allows in one window.</summary>
+    public decimal Quantity { get; set; }
+
+    public decimal Used { get; set; }
+
+    /// <summary>Never below zero.</summary>
+    public decimal Remaining { get; set; }
+
+    /// <summary>Whether <see cref="Used"/> is past <see cref="Quantity"/>.</summary>
+    public bool Exceeded { get; set; }
+
+    /// <summary>
+    /// Where the window began: the clock block for a fixed window, one span before the recording
+    /// for a rolling one.
+    /// </summary>
+    public DateTime WindowStartUtc { get; set; }
+
+    /// <summary>When a fixed window resets. Null for a rolling one, which slides instead.</summary>
+    public DateTime? WindowEndUtc { get; set; }
 }

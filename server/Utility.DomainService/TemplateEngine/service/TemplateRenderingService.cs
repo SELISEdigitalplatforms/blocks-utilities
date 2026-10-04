@@ -3,6 +3,7 @@ using DotLiquid;
 using DotLiquid.NamingConventions;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Utility.DomainService.TemplateEngine.service
 {
@@ -32,8 +33,7 @@ namespace Utility.DomainService.TemplateEngine.service
 
             // Deserialize JSON to dictionary
             _logger.LogInformation("RenderTemplateWithJson: Deserializing JSON data");
-            var dataDictionary = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonString) 
-                ?? new Dictionary<string, object>();
+            var dataDictionary = ParseJsonToDictionary(jsonString);
 
             // Add security token from context
             var context = BlocksContext.GetContext();
@@ -96,8 +96,7 @@ namespace Utility.DomainService.TemplateEngine.service
             _logger.LogInformation("RenderTemplateWithEntityData: Converting to Liquid Hash");
             // Serialize and deserialize to ensure proper type handling
             var jsonString = JsonConvert.SerializeObject(dataDictionary);
-            var finalDictionary = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonString) 
-                ?? new Dictionary<string, object>();
+            var finalDictionary = ParseJsonToDictionary(jsonString);
 
             // Convert to Liquid Hash
             var hash = Hash.FromDictionary(finalDictionary);
@@ -109,6 +108,29 @@ namespace Utility.DomainService.TemplateEngine.service
             _logger.LogInformation("RenderTemplateWithEntityData: Template rendered successfully, length={Length}", result.Length);
             return result;
         }
+
+        /// <summary>
+        /// Parses JSON into plain dictionaries/lists. DotLiquid cannot read JObject/JArray,
+        /// so nested values left as JTokens render blank.
+        /// </summary>
+        private static Dictionary<string, object> ParseJsonToDictionary(string jsonString)
+        {
+            if (string.IsNullOrWhiteSpace(jsonString))
+            {
+                return new Dictionary<string, object>();
+            }
+
+            return ToPlain(JToken.Parse(jsonString)) as Dictionary<string, object>
+                ?? new Dictionary<string, object>();
+        }
+
+        private static object? ToPlain(JToken token) => token switch
+        {
+            JObject obj => obj.Properties().ToDictionary(p => p.Name, p => ToPlain(p.Value)!),
+            JArray array => array.Select(ToPlain).ToList(),
+            JValue value => value.Value,
+            _ => token.ToString()
+        };
     }
 }
 

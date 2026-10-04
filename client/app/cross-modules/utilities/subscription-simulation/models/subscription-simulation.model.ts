@@ -1,4 +1,7 @@
-import type { BillingIntervalName } from "../../subscription/models/subscription-plan.model";
+import type {
+  BillingIntervalName,
+  PlanMeterSubLimit,
+} from "../../subscription/models/subscription-plan.model";
 
 export type SubscriptionStatus =
   | "Incomplete"
@@ -609,6 +612,11 @@ export interface SubscriptionAuditEvent {
 }
 
 export interface RecordUsageResult {
+  /**
+   * Set on a per-person row of `GET /api/subscription-usage/current` — one person's own share of
+   * the organization's pool. Empty or absent on the organization's own row.
+   */
+  userId?: string;
   allowed: boolean;
   meterKey: string;
   unitLabel: string;
@@ -620,6 +628,13 @@ export interface RecordUsageResult {
   remaining: number;
   overage: number;
   replayed: boolean;
+  /**
+   * The use went past the meter's pace cap on a plan that reports rather than refuses. Set only
+   * on a recording's answer — a read never carries it. Absent from servers that predate paces.
+   */
+  subLimitExceeded?: boolean;
+  /** Every pace limit this recording went past, refusing or reporting. Empty on a read. */
+  exceededSubLimits?: PlanMeterSubLimit[];
 }
 
 /**
@@ -705,4 +720,95 @@ export interface UsageOveragePreviewResult {
   writesUsage: boolean;
   chargesPayment: boolean;
   finalChargeDependsOnActualPeriodEndUsage: boolean;
+}
+
+/** One place on a user-wise subscription, and who holds it. */
+export interface SubscriptionMember {
+  subscriptionId: string;
+  userId: string;
+  /** 1-based. Null only on a release, which says who left rather than from where. */
+  seatNumber: number | null;
+  assignedAtUtc: string;
+  releasedAtUtc: string | null;
+}
+
+/** A place the signed-in person holds, from `GET /api/subscriptions/mine`. */
+export interface HeldPlace {
+  subscriptionId: string;
+  planCode: string;
+  planName: string;
+  status: string;
+  seatNumber: number;
+  currentPeriodEndUtc: string;
+  cancelAtPeriodEnd: boolean;
+}
+
+export interface SubscriptionMembers {
+  subscriptionId: string;
+  /** How many places the subscription has — bought, or the ceiling on a flat price. */
+  purchased: number;
+  held: number;
+  /** How many can be filled today — the smaller of bought and a scheduled decrease, less held. */
+  available: number;
+  /** How many places a scheduled decrease leaves, or null/absent when none is scheduled. */
+  scheduledPlaces?: number | null;
+  /** When the scheduled decrease takes effect. */
+  scheduledAtUtc?: string | null;
+  seats: SubscriptionMember[];
+  /** Each place's usage in its current windows, one entry per place and meter. */
+  usage?: PlaceUsage[];
+}
+
+/** One pace as the last recording left it. */
+export interface PlaceSubLimit {
+  window: string;
+  windowCount: number;
+  rolling: boolean;
+  behaviour: string;
+  quantity: number;
+  used: number;
+  remaining: number;
+  exceeded: boolean;
+  windowStartUtc: string;
+  /** When a fixed window resets; null for a rolling one. */
+  windowEndUtc: string | null;
+}
+
+/** One place's usage of one meter, from the usage projection. */
+export interface PlaceUsage {
+  seatNumber: number;
+  /** Who holds the place now; empty when nobody does. */
+  userId: string;
+  meterKey: string;
+  unitLabel: string;
+  quantityScale: number;
+  included: number;
+  /** The place's, so it includes whatever an earlier holder spent in this window. */
+  used: number;
+  remaining: number;
+  overage: number;
+  periodEndUtc: string;
+  updatedAtUtc: string;
+  subLimits: PlaceSubLimit[];
+}
+
+export interface AssignMemberRequest {
+  userIds: string[];
+}
+
+export interface SubscriptionMemberRefusal {
+  userId: string;
+  /** e.g. `subscription_member_limit_reached` — the same code a single assignment would fail with. */
+  reasonCode: string;
+  reason: string;
+}
+
+/**
+ * What became of each name in one assignment call. A 200 whether or not anybody was refused: a
+ * ten-name batch that seats two and refuses eight succeeded, and says so per person.
+ */
+export interface SubscriptionMemberAssignment {
+  subscriptionId: string;
+  assigned: SubscriptionMember[];
+  refused: SubscriptionMemberRefusal[];
 }

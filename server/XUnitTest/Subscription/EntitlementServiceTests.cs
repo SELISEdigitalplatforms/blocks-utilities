@@ -21,6 +21,7 @@ public sealed class EntitlementServiceTests
     private const string OrganizationId = "org-1";
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
+    private readonly Mock<ISubscriberSubscriptionResolver> _resolver = new();
     private readonly Mock<ISubscriptionUsageRepository> _usage = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private readonly ControlledTimeProvider _time =
@@ -40,14 +41,21 @@ public sealed class EntitlementServiceTests
             .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1")));
 
-        _subscriptions
-            .Setup(repository => repository.GetLiveAsync(
-                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+
+        // The organization's own subscription and no seats, which is every subscriber today.
+        // Counted here rather than on the repository, because this is what the service now calls
+        // and what the cache is therefore saving.
+        _resolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<SubscriptionContext>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(() =>
             {
                 _reads++;
 
-                return _subscription;
+                return _subscription is null
+                    ? []
+                    : [new ResolvedSubscription(_subscription, SeatNumber: null)];
             });
 
         _usage
@@ -175,6 +183,31 @@ public sealed class EntitlementServiceTests
         entitlement.Allowed.Should().BeTrue();
         entitlement.Used.Should().Be(487);
         entitlement.Remaining.Should().Be(13);
+    }
+
+    /// <remarks>
+    /// Found writing the per-person docs: a user-wise plan counts usage per place only, and the
+    /// balance was read without the place, so every metered entitlement on one showed nothing spent.
+    /// </remarks>
+    [Fact]
+    public async Task A_place_holder_is_shown_their_places_balance()
+    {
+        _resolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<SubscriptionContext>(), It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new ResolvedSubscription(_subscription!, SeatNumber: 3)]);
+        _usage
+            .Setup(repository => repository.GetCounterAsync(
+                TenantId, It.Is<string>(id => id.EndsWith(":s3", StringComparison.Ordinal)),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionUsageCounter { Balance = 42 });
+
+        var result = await Service().GetAsync(false, null, "corr-1", CancellationToken.None);
+
+        var entitlement = result.Value!.Entitlements.Single();
+        entitlement.Used.Should().Be(42);
+        entitlement.Remaining.Should().Be(458);
     }
 
     [Fact]
@@ -467,6 +500,7 @@ public sealed class EntitlementServiceTests
 
     private EntitlementService Service() => new(
         _subscriptions.Object,
+        _resolver.Object,
         _usage.Object,
         new MeterAllowanceResolver(_usage.Object),
         _contextResolver.Object,

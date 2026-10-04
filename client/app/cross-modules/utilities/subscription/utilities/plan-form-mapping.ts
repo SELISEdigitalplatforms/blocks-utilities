@@ -4,6 +4,9 @@ import {
   ENTITLEMENT_LIMIT_KIND,
   METER_AGGREGATION,
   METER_RESET_POLICY,
+  METER_SUB_LIMIT_BEHAVIOUR,
+  SUBSCRIBER_SCOPE,
+  USAGE_WINDOW,
   type CreateSubscriptionPlanRequest,
   type PlanPrice,
   type SubscriptionPlan,
@@ -41,6 +44,9 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     minQuantity: item.minQuantity,
     maxQuantity: item.maxQuantity,
     defaultQuantity: item.defaultQuantity,
+    // Sent only where it means something, so flipping a draft back to organization-wise leaves
+    // no stray mark behind on the stored plan.
+    countsMembers: values.subscriberScope === "User" && item.countsMembers,
     // Omitted rather than sent empty: an empty array and an absent field mean the same thing to
     // the API, and sending one keeps a plan with no bands looking like a plan whose bands were
     // deleted.
@@ -75,6 +81,14 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
         unitAmountMinor: toMinorUnits(tier.unitAmount, table.currencyCode),
       })),
     })),
+    // The schema has already refused a row with no quantity, so every row here carries one.
+    subLimits: meter.subLimits.map((limit) => ({
+      window: limit.window,
+      windowCount: limit.count,
+      rolling: limit.rolling,
+      quantity: limit.quantity ?? 0,
+      behaviour: limit.behaviour,
+    })),
   })),
   entitlements: values.entitlements.map((entitlement) => ({
     key: entitlement.key.trim(),
@@ -95,6 +109,7 @@ export const toCreatePlanRequest = (
   code: values.code.trim(),
   organizationId:
     values.organizationId === TENANT_WIDE_ORGANIZATION ? undefined : values.organizationId,
+  subscriberScope: SUBSCRIBER_SCOPE[values.subscriberScope],
   ...toPlanDefinition(values),
 });
 
@@ -145,6 +160,7 @@ export const planToFormValues = (
   description: plan.description ?? "",
   featuresJson: plan.featuresJson ?? "",
   organizationId: plan.organizationId ?? TENANT_WIDE_ORGANIZATION,
+  subscriberScope: plan.subscriberScope === SUBSCRIBER_SCOPE.User ? "User" : "Organization",
   // Read from the server's normalized fields, not the legacy trialDays — a plan authored before
   // duration kinds existed still comes back with these populated (as "Days"), so this reopens
   // identically regardless of which format the plan was originally saved in.
@@ -172,6 +188,9 @@ export const planToFormValues = (
     minQuantity: item.minQuantity,
     maxQuantity: item.maxQuantity ?? undefined,
     defaultQuantity: item.defaultQuantity,
+    // Read back, not defaulted: an edit rewrites the whole plan, and a dropped mark is a plan
+    // nobody can be assigned to.
+    countsMembers: item.countsMembers ?? false,
     // Plans stored before bands existed have no field at all, and reopen with the control off
     // rather than with a row nobody authored.
     quantityDiscountTiers: (item.quantityDiscountTiers ?? []).map((tier) => ({
@@ -201,6 +220,15 @@ export const planToFormValues = (
         // authored as rather than as the integer it is stored as.
         unitAmount: toMajorUnits(tier.unitAmountMinor, table.currencyCode),
       })),
+    })),
+    // Read back in full, not defaulted: an edit rewrites the meter, and a limit the form did not
+    // reopen would be deleted by the next edit of anything else on the plan.
+    subLimits: (meter.subLimits ?? []).map((limit) => ({
+      window: USAGE_WINDOW[limit.window] ?? USAGE_WINDOW.Hour,
+      count: limit.windowCount ?? 1,
+      rolling: limit.rolling ?? false,
+      quantity: limit.quantity,
+      behaviour: METER_SUB_LIMIT_BEHAVIOUR[limit.behaviour] ?? 0,
     })),
   })),
   entitlements: plan.entitlements.map((entitlement) => ({

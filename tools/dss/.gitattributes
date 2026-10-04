@@ -1,0 +1,3 @@
+# Shell scripts must keep Unix line endings even where core.autocrlf would turn them into CRLF,
+# or bash reads the carriage return as part of the command and fails.
+*.sh text eol=lf

@@ -16,6 +16,7 @@ import {
   isWithinScale,
   METER_QUANTITY_MAX_SCALE,
 } from "../utilities/meter-quantity";
+import { MAX_PACE_LIMITS, spanHours } from "../utilities/pace-limits";
 import {
   isRepresentableInMinorUnits,
   minorUnitExponent,
@@ -109,6 +110,26 @@ const meterRateTableSchema = z
     });
   });
 
+/** A cleared number input reports "", which coerces to 0 — a value nobody typed. */
+const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (value === "" || value === null ? undefined : value), schema);
+
+/**
+ * One pace: so much per window. Hour 0, Day 1, Week 2; Refuse 0, Report only 1.
+ *
+ * The quantity is optional here only so a row being typed into is a draft rather than a crash;
+ * a row saved without one is refused at plan level.
+ */
+const subLimitSchema = z.object({
+  window: z.coerce.number().int().min(0).max(2),
+  count: z.coerce.number().int().positive("A limit spans at least one window.").default(1),
+  rolling: z.boolean().default(false),
+  quantity: blankAsUndefined(
+    z.coerce.number().positive("A limit of zero refuses everything — remove it instead.").optional(),
+  ),
+  behaviour: z.coerce.number().int().min(0).max(1).default(0),
+});
+
 const meterSchema = z.object({
   meterKey: key("meter key"),
   displayName: z.string().trim().min(1, "Enter a display name.").max(200),
@@ -130,6 +151,15 @@ const meterSchema = z.object({
   overageAllowed: z.boolean(),
   thresholdPercents: z.array(z.number().int().min(1).max(100)),
   rateTables: z.array(meterRateTableSchema),
+  /**
+   * Every cap on how fast the allowance may be spent. Empty on every meter nobody opted in, which
+   * keeps it capped by its period alone. The rules that span rows are checked at plan level,
+   * beside the meter's scale.
+   */
+  subLimits: z
+    .array(subLimitSchema)
+    .max(MAX_PACE_LIMITS, `A meter takes at most ${MAX_PACE_LIMITS} limits.`)
+    .default([]),
 });
 
 /**
@@ -156,6 +186,8 @@ const quantityItemSchema = z
     maxQuantity: z.coerce.number().int().positive().optional(),
     defaultQuantity: z.coerce.number().int().min(0),
     quantityDiscountTiers: z.array(quantityDiscountTierSchema).default([]),
+    /** Which quantity is how many people a user-wise plan seats. Ignored on any other plan. */
+    countsMembers: z.boolean().default(false),
   })
   .superRefine((item, context) => {
     if (item.maxQuantity !== undefined && item.maxQuantity < item.minQuantity) {
@@ -313,6 +345,8 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         .optional()
         .or(z.literal("")),
       organizationId: z.string().min(1, "Choose an organization."),
+      // Who holds the subscription. Organization is what every plan before this meant.
+      subscriberScope: z.enum(["Organization", "User"]).default("Organization"),
       // The console always authors through these two rather than the legacy trialDays — see the
       // cross-field checks below for what each duration kind requires.
       trialDurationKind: z.enum(["Days", "EndOfCalendarMonth", "AnniversaryMonths"]).optional(),
@@ -459,6 +493,14 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           });
         });
 
+        checkPaceLimits(meter.subLimits, holds, tooFine, (path, message) =>
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meters", index, "subLimits", ...path],
+            message,
+          }),
+        );
+
         if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
@@ -528,6 +570,10 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         }
       });
 
+      if (plan.subscriberScope === "User") {
+        checkMemberQuantity(plan, context);
+      }
+
       if (requirePrice && plan.prices.length === 0) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -565,6 +611,107 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       });
     });
 
+/**
+ * The two ways a user-wise plan can be authored so that nobody can ever be given a place on it.
+ * The first mirrors the server's own refusal; the second the server discovers only when somebody
+ * is being assigned, weeks later, by an administrator who cannot fix the plan.
+ */
+const checkMemberQuantity = (
+  plan: {
+    quantityItems: { itemKey: string; maxQuantity?: number; countsMembers: boolean }[];
+    prices: { quantityItemKey: string }[];
+  },
+  context: z.RefinementCtx,
+) => {
+  const items = plan.quantityItems;
+
+  if (items.length > 1 && items.filter((item) => item.countsMembers).length !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["quantityItems"],
+      message: "Mark exactly one quantity as the one that counts people.",
+    });
+
+    return;
+  }
+
+  // One item needs no mark; none at all is one person's plan and has nothing to derive.
+  const countingIndex = items.length === 1 ? 0 : items.findIndex((item) => item.countsMembers);
+  const counting = items[countingIndex];
+
+  if (!counting || counting.maxQuantity !== undefined) {
+    return;
+  }
+
+  // Priced per person, the quantity bought is the number of places. Priced flat, only the
+  // maximum can be — and without one there is no number at all.
+  if (plan.prices.some((price) => price.quantityItemKey !== counting.itemKey)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["quantityItems", countingIndex, "maxQuantity"],
+      message: "A flat-priced plan needs a maximum, or there is no ceiling to derive.",
+    });
+  }
+};
+
+/**
+ * The pace rules, mirroring the server's so the form catches them first. Each row on its own
+ * terms, then the two that only make sense across rows. Reported against the row an author has to
+ * change: the later of two equal lengths, the longer of two that contradict.
+ */
+const checkPaceLimits = (
+  limits: z.infer<typeof subLimitSchema>[],
+  holds: (value: number) => boolean,
+  tooFine: string,
+  report: (path: (string | number)[], message: string) => void,
+) => {
+  limits.forEach((limit, index) => {
+    if (limit.quantity === undefined) {
+      report([index, "quantity"], "Enter how much fits in this window.");
+    } else if (!holds(limit.quantity)) {
+      report([index, "quantity"], tooFine);
+    }
+
+    // A fixed window only tiles a day evenly when its length divides one. Five does not: a fixed
+    // five-hour window would leave one short block a day with nowhere consistent to start it.
+    // Rolling has no such requirement — it has no start on the clock to tile from.
+    if (!limit.rolling && limit.window === 0 && ![1, 2, 3, 4, 6, 8, 12, 24].includes(limit.count)) {
+      report(
+        [index, "count"],
+        "A fixed hourly window has to divide a day evenly — 1, 2, 3, 4, 6, 8, 12 or 24 — or mark it rolling instead.",
+      );
+    }
+  });
+
+  limits.forEach((limit, index) => {
+    const earlier = limits.slice(0, index);
+
+    // Two limits of the same length always have one making the other pointless.
+    if (earlier.some((other) => spanHours(other) === spanHours(limit))) {
+      report([index, "count"], "Another limit already covers this same length of time.");
+
+      return;
+    }
+
+    // A longer limit allowing no more than a shorter one leaves the shorter one unable to bite:
+    // 1,000 an hour beside 500 a day is 500 a day.
+    const contradicts = limits.some(
+      (other) =>
+        spanHours(other) < spanHours(limit) &&
+        limit.quantity !== undefined &&
+        other.quantity !== undefined &&
+        limit.quantity <= other.quantity,
+    );
+
+    if (contradicts) {
+      report(
+        [index, "quantity"],
+        "A longer limit has to allow more than a shorter one, or the shorter one can never apply.",
+      );
+    }
+  });
+};
+
 export const createSubscriptionPlanSchema = buildSubscriptionPlanSchema({ requirePrice: true });
 
 export type CreateSubscriptionPlanFormValues = z.infer<typeof createSubscriptionPlanSchema>;
@@ -575,6 +722,7 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   description: "",
   featuresJson: "",
   organizationId: TENANT_WIDE_ORGANIZATION,
+  subscriberScope: "Organization",
   trialDurationKind: undefined,
   trialDurationCount: undefined,
   trialRequiresPaymentMethod: true,

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FluentValidation;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
@@ -116,6 +116,66 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                 meter.RuleFor(definition => definition.UnitLabel).NotEmpty().MaximumLength(64);
                 meter.RuleFor(definition => definition.IncludedQuantity)
                     .GreaterThanOrEqualTo(0);
+                // Each pace on its own terms. A window is always present on the list form, so the
+                // half-written cap the single fields had to guard against cannot be sent at all.
+                meter.RuleForEach(definition => definition.SubLimits)
+                    .ChildRules(limit =>
+                    {
+                        limit.RuleFor(pace => pace.Window)
+                            .IsInEnum()
+                            .WithMessage("A sub-limit window is an hour, a day or a week.")
+                            .WithErrorCode("subscription_meter_sub_limit_invalid");
+
+                        limit.RuleFor(pace => pace.Quantity)
+                            .GreaterThan(0)
+                            .WithMessage(
+                                "A sub-limit of zero refuses everything. Remove it to cap by " +
+                                "period alone.")
+                            .WithErrorCode("subscription_meter_sub_limit_invalid");
+
+                        limit.RuleFor(pace => pace.WindowCount)
+                            .GreaterThan(0)
+                            .WithMessage("A sub-limit spans at least one window.")
+                            .WithErrorCode("subscription_meter_sub_limit_invalid");
+
+                        // A fixed window only tiles a day evenly when its length divides one — five
+                        // hours does not, and would leave one short block a day with nowhere
+                        // consistent to start it. Rolling has no start on the clock to tile from.
+                        limit.RuleFor(pace => pace.WindowCount)
+                            .Must(TilesADay)
+                            .When(pace => !pace.Rolling && pace.Window == UsageWindow.Hour)
+                            .WithMessage(
+                                "A fixed hourly window has to divide a day evenly — 1, 2, 3, 4, " +
+                                "6, 8, 12 or 24 — or mark it rolling instead.")
+                            .WithErrorCode("subscription_meter_sub_limit_invalid");
+                    });
+
+                meter.RuleFor(definition => definition.SubLimits)
+                    .Must(limits => limits.Count <= MaximumSubLimits)
+                    .WithMessage($"A meter takes at most {MaximumSubLimits} sub-limits.")
+                    .WithErrorCode("subscription_meter_sub_limit_invalid");
+
+                // Two limits of the same length always have one that makes the other pointless —
+                // the smaller always binds first. Compared in hours, so a day and twenty-four hours
+                // are the same limit however they were written.
+                meter.RuleFor(definition => definition.SubLimits)
+                    .Must(limits => limits
+                        .Select(SpanHours)
+                        .Distinct()
+                        .Count() == limits.Count)
+                    .WithMessage("Two sub-limits on one meter cannot cover the same length of time.")
+                    .WithErrorCode("subscription_meter_sub_limit_invalid");
+
+                // A longer limit allowing no more than a shorter one leaves the shorter one unable
+                // ever to bite: 1,000 an hour beside 500 a day is 500 a day, and the hourly figure
+                // is a promise the plan never keeps.
+                meter.RuleFor(definition => definition.SubLimits)
+                    .Must(LongerLimitsAllowMore)
+                    .WithMessage(
+                        "A longer sub-limit has to allow more than a shorter one, or the shorter " +
+                        "one can never apply.")
+                    .WithErrorCode("subscription_meter_sub_limit_invalid");
+
                 meter.RuleFor(definition => definition.QuantityScale)
                     .InclusiveBetween(0, MeterQuantity.MaxScale)
                     .WithMessage(
@@ -334,6 +394,36 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
     /// nothing to say about a quantity of 3, which cannot be bought.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Whether this many hours fit a day with none left over.
+    /// </summary>
+    /// <remarks>
+    /// The set is 1, 2, 3, 4, 6, 8, 12 and 24 — every divisor of 24 — because a fixed window that
+    /// does not divide a day leaves one short block a day, and no two days start their windows at
+    /// the same clock time. Five is the case this exists to catch: it looks like a reasonable
+    /// number and is not one that tiles.
+    /// </remarks>
+    private static bool TilesADay(int hours) => hours is 1 or 2 or 3 or 4 or 6 or 8 or 12 or 24;
+
+    private const int MaximumSubLimits = 3;
+
+    private static int SpanHours(PlanMeterSubLimitRequest limit) =>
+        Math.Max(1, limit.WindowCount) * limit.Window switch
+        {
+            UsageWindow.Day => 24,
+            UsageWindow.Week => 24 * 7,
+            _ => 1
+        };
+
+    private static bool LongerLimitsAllowMore(List<PlanMeterSubLimitRequest> limits)
+    {
+        var bySpan = limits.OrderBy(SpanHours).ToList();
+
+        return bySpan.Zip(bySpan.Skip(1))
+            .All(pair => SpanHours(pair.First) == SpanHours(pair.Second) ||
+                pair.Second.Quantity > pair.First.Quantity);
+    }
+
     private static bool BeContiguousBands(PlanQuantityItemRequest item)
     {
         var bands = item.QuantityDiscountTiers;

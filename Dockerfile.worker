@@ -43,6 +43,21 @@ RUN mkdir -p /opt/pdfbox \
     && java -cp "/opt/pdfbox/pdfbox-app.jar:/opt/pdfbox" PdfBoxNormalizeGeometry --version
 
 # -----------------------------------------------------------------------------
+# Stage: dss-build — resolves EU DSS (LGPL-2.1, shipped unmodified) and compiles
+# the signature validator against it. DSS is ~60 jars, so Maven resolves them
+# from tools/dss/pom.xml instead of one curl per jar; nothing is packaged. As
+# with pdfbox-build, only /opt/dss reaches the Alpine runtime stage.
+# -----------------------------------------------------------------------------
+FROM maven:3.9-eclipse-temurin-17 AS dss-build
+
+COPY tools/dss/pom.xml /tmp/dss-src/pom.xml
+RUN mvn -q -B -f /tmp/dss-src/pom.xml dependency:copy-dependencies -DoutputDirectory=/opt/dss/lib
+COPY tools/dss/DssValidator.java tools/dss/eu-lotl-signers.pem /tmp/dss-src/
+RUN javac -cp "/opt/dss/lib/*" -d /opt/dss /tmp/dss-src/DssValidator.java \
+    && cp /tmp/dss-src/eu-lotl-signers.pem /opt/dss/ \
+    && java -cp "/opt/dss/lib/*:/opt/dss" DssValidator --version
+
+# -----------------------------------------------------------------------------
 # Stage: runtime — ASP.NET Core runtime on Alpine (Worker targets shared
 # Microsoft.AspNetCore.App via the Worker SDK / dependencies.)
 # -----------------------------------------------------------------------------
@@ -96,15 +111,21 @@ ENV PuppeteerSharp__ExecutablePath=/usr/local/bin/chromium-browser
 
 # PDF ingestion toolchain (ported from l3-net-signature-pdfengine, ARM: it cannot be called over
 # HTTP from here, so its capability is compiled straight into this image instead). qpdf repairs
-# unreadable PDFs; openjdk17-jre-headless + the pdfbox-build stage's classes normalize page
-# geometry and flatten forms; ghostscript repairs PDF/A; bash backs the veraPDF installer, which
-# is a shell script, and its generated launcher.
+# unreadable PDFs; openjdk17-jre + the pdfbox-build stage's classes normalize page geometry and
+# flatten forms; ghostscript repairs PDF/A; bash backs the veraPDF installer, which is a shell
+# script, and its generated launcher.
+#
+# openjdk17-jre, not -headless: EU DSS renders each signed revision to detect visual changes
+# between them, and PDFBox's colour handling then loads liblcms.so, which Alpine ships only in the
+# full JRE (with libfontmanager.so and libjavajpeg.so, ~11 MB). With -headless the validator's JVM
+# dies with UnsatisfiedLinkError on the first file with an ICC-based image, instead of returning
+# a verdict. The full JRE is a superset, so the PDFBox ingestion tools are unaffected.
 ARG VERAPDF_INSTALLER_URL=https://software.verapdf.org/releases/verapdf-installer.zip
 # In-build assertions (qpdf --version, verapdf --version below) so a broken tool install fails
 # the image build rather than surfacing at runtime the first time a document needs repair.
 RUN apk add --no-cache \
         qpdf \
-        openjdk17-jre-headless \
+        openjdk17-jre \
         ghostscript \
         bash \
         unzip \
@@ -159,6 +180,7 @@ COPY --from=publish /app/publish .
 RUN test -n "$(find /app/runtimes -path '*linux-musl-*/native/libSkiaSharp.so' -print -quit)"
 
 COPY --from=pdfbox-build /opt/pdfbox /opt/pdfbox
+COPY --from=dss-build /opt/dss /opt/dss
 COPY tools/ghostscript/PDFA_def.ps /opt/pdfingestion/PDFA_def.ps
 
 # Every deployed environment runs Direct - the image carries all four binaries. Docker mode exists
@@ -179,8 +201,13 @@ ENV PdfIngestion__QpdfExecutionMode=Direct \
     PdfIngestion__GhostscriptIccProfilePath=/usr/share/color/icc/ghostscript/srgb.icc \
     PdfIngestion__TempDirectory=/tmp/pdf-ingestion
 
-RUN mkdir -p /tmp/pdf-ingestion \
-    && chown -R app:app /app /tmp/pdf-ingestion /opt/pdfbox /opt/pdfingestion
+# /tmp/dss-tl-cache holds the downloaded EU trusted lists. It outlives the validator's JVM, which
+# is restarted after every timeout or crash, so that restart reloads the lists from disk instead of
+# downloading them again. It does not outlive the container: a new pod downloads its own copy.
+# Keep it writable by app, and do not move it onto a read-only or per-process path.
+RUN mkdir -p /tmp/pdf-ingestion /tmp/dss-tl-cache \
+    && chown -R app:app /app /tmp/pdf-ingestion /tmp/dss-tl-cache /opt/pdfbox /opt/pdfingestion /opt/dss \
+    && java -cp "/opt/dss/lib/*:/opt/dss" DssValidator --version
 
 USER app
 

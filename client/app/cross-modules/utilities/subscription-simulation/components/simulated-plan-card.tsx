@@ -2,7 +2,10 @@ import { Gauge, Layers } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
-import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
+import {
+  SUBSCRIBER_SCOPE,
+  type SubscriptionPlan,
+} from "../../subscription/models/subscription-plan.model";
 import { formatPrice } from "../../subscription/utilities/subscription-format";
 
 export const SimulatedPlanCard = ({
@@ -38,6 +41,13 @@ export const SimulatedPlanCard = ({
           <Badge variant="outline" className="font-normal">
             {organizationLabel}
           </Badge>
+          {/* Said up front: subscribing to one does not become the organization's subscription —
+              it adds places people are given, beside whatever the organization already holds. */}
+          {plan.subscriberScope === SUBSCRIBER_SCOPE.User ? (
+            <Badge variant="info" className="font-normal">
+              Per person
+            </Badge>
+          ) : null}
           {plan.trialDays ? (
             <Badge variant="info" className="font-normal">
               {plan.trialDays}-day trial

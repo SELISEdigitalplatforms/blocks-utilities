@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -854,15 +854,315 @@ public sealed class UsageProjectionPublisherTests
         _time,
         entitlements: _entitlements.Object);
 
+    /// <summary>
+    /// Two members of the same subscription each get a row of their own.
+    /// </summary>
+    /// <remarks>
+    /// A seat carries its own allowance, so one row per subscription could only hold whichever seat
+    /// published last: neither person's usage, and not the total either. Whoever looked would see a
+    /// balance that jumped between two strangers' spending.
+    /// </remarks>
+    [Fact]
+    public async Task Two_seats_on_one_subscription_are_published_as_two_rows()
+    {
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 10, appliedRecordCount: 1, seatNumber: 1),
+            allowance: 100, "corr-1", CancellationToken.None);
+
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 40, appliedRecordCount: 1, seatNumber: 2),
+            allowance: 100, "corr-2", CancellationToken.None);
+
+        _published.Select(document => document.ItemId).Should().OnlyHaveUniqueItems(
+            because: "two seats sharing one document would overwrite each other, leaving the row " +
+                     "holding whichever published last");
+
+        _published.Select(document => document.SeatNumber).Should().BeEquivalentTo([1, 2],
+            because: "a reader has no way to tell whose allowance a row reports unless the row " +
+                     "says which seat it is");
+    }
+
+    /// <summary>
+    /// A subscription nobody holds a seat on publishes the row it always has.
+    /// </summary>
+    /// <remarks>
+    /// Every subscription in production is this one. A seated id shape leaking onto them would
+    /// orphan every stored row and show every organization a balance of zero.
+    /// </remarks>
+    [Fact]
+    public async Task A_seatless_counter_publishes_the_document_it_always_did()
+    {
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 10, appliedRecordCount: 1),
+            allowance: 100, "corr-1", CancellationToken.None);
+
+        var document = _published.Should().ContainSingle().Subject;
+
+        document.ItemId.Should().Be(
+            SubscriptionUsageCurrent.CreateId("sub-1", "screening", "M2026-09"),
+            because: "the three-part identity is what every row already written is keyed by");
+        document.SeatNumber.Should().BeNull();
+    }
+
+    /// <summary>
+    /// A user-wise plan has no subscription-wide allowance, so nothing advertises one.
+    /// </summary>
+    /// <remarks>
+    /// The allowance belongs to each seat. A subscription-wide row would name an included quantity
+    /// nobody is able to spend, beside a balance that stays at zero however much the members use —
+    /// and it is the organization's own read that would show it, as though that were the answer.
+    /// </remarks>
+    [Fact]
+    public async Task Seeding_a_user_wise_plan_advertises_no_allowance_for_the_subscription()
+    {
+        var seeded = await Publisher().SeedCurrentAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        seeded.Should().Be(0);
+        _seeded.Should().BeEmpty(
+            because: "an allowance shown against the subscription as a whole belongs to nobody " +
+                     "on a plan sold by the seat");
+    }
+
+    [Fact]
+    public async Task Refreshing_a_user_wise_plan_writes_no_row_for_the_subscription()
+    {
+        await Publisher().RefreshAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _seeded.Should().BeEmpty();
+        _published.Should().BeEmpty(
+            because: "a background sweep knows nothing of who holds which seat, so the only row " +
+                     "it could write is the one that is not anybody's");
+    }
+
+    /// <summary>
+    /// The organization-wise plan every subscriber in production is on, unchanged.
+    /// </summary>
+    [Fact]
+    public async Task Refreshing_an_organization_wise_plan_still_writes_its_rows()
+    {
+        await Publisher().RefreshAsync(
+            Subscription(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _seeded.Should().HaveCount(2);
+    }
+
+    /// <summary>
+    /// A row and the counter it projects must be addressed identically.
+    /// </summary>
+    /// <remarks>
+    /// The drift reconciler finds a stale row by looking its counter up under the row's own id. Two
+    /// spellings of one seat would mean that lookup never matched, so a seat's row could fall
+    /// arbitrarily far behind what its member had actually spent with nothing left to notice.
+    /// </remarks>
+    [Fact]
+    public void A_seats_row_is_addressed_exactly_as_its_counter_is()
+    {
+        SubscriptionUsageCurrent.CreateId("sub-1", "screening", "M2026-09", 2)
+            .Should().Be(SubscriptionUsageCounter.CreateId("sub-1", "screening", "M2026-09", 2));
+    }
+
+    /// <remarks>
+    /// A place's row is the only row a user-wise plan has, so it has to say whose it is — without
+    /// that, a direct reader must join to the assignments to learn who is spending it.
+    /// </remarks>
+    [Fact]
+    public async Task A_places_row_names_its_holder_and_the_aggregate_row_never_does()
+    {
+        await Publisher().PublishAsync(
+            UserWise(), Meter(), Period(), Counter(balance: 10, appliedRecordCount: 1, seatNumber: 2),
+            allowance: 100, "corr-1", CancellationToken.None, holderUserId: "user-1");
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 10, appliedRecordCount: 1),
+            allowance: 100, "corr-2", CancellationToken.None, holderUserId: "user-1");
+
+        _published[0].UserId.Should().Be("user-1");
+        _published[1].UserId.Should().BeEmpty(
+            because: "every reader of the aggregate row finds it by its empty user");
+    }
+
+    [Fact]
+    public async Task The_paces_a_recording_reports_are_published_and_none_reported_is_left_null()
+    {
+        var pace = new SubscriptionUsageCurrentSubLimit
+        {
+            Window = UsageWindow.Hour, WindowCount = 5, Quantity = 10, Used = 4, Remaining = 6
+        };
+
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 4, appliedRecordCount: 1),
+            allowance: 100, "corr-1", CancellationToken.None, subLimits: [pace]);
+        await Publisher().PublishAsync(
+            Subscription(), Meter(), Period(), Counter(balance: 4, appliedRecordCount: 2),
+            allowance: 100, "corr-2", CancellationToken.None);
+
+        _published[0].SubLimits.Should().ContainSingle().Which.Used.Should().Be(4);
+        _published[1].SubLimits.Should().BeNull(
+            because: "null is what tells the merge to keep the figures a recording last reported");
+    }
+
+    /// <remarks>
+    /// The place row already carries this person's allowance and names them, so a per-user row
+    /// beside it would report the same window twice under two keys.
+    /// </remarks>
+    [Fact]
+    public async Task A_user_wise_plan_writes_no_per_user_row_beside_its_place_row()
+    {
+        await Publisher().PublishUserDeltaAsync(
+            UserWise(), Meter(), Period(), "user-1", delta: 3, allowance: 100, "corr-1",
+            CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.ApplyUserDeltaAsync(
+                It.IsAny<SubscriptionUsageCurrent>(), It.IsAny<decimal>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <remarks>
+    /// The sweep used to skip user-wise plans entirely, so a place row that missed its publish, or
+    /// stood behind a schema change, was never repaired, and a held place nobody had used had no row.
+    /// </remarks>
+    [Fact]
+    public async Task Refreshing_a_user_wise_plan_seeds_a_held_unused_place_naming_its_holder()
+    {
+        var assignments = HeldSeats((2, "user-2"));
+
+        await PublisherWith(assignments).RefreshAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _seeded.Should().HaveCount(2, "one row per meter on the plan");
+        var seeded = _seeded.Single(row => row.MeterKey == "screening");
+        seeded.ItemId.Should().EndWith(":s2");
+        seeded.SeatNumber.Should().Be(2);
+        seeded.UserId.Should().Be("user-2");
+        seeded.Used.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Refreshing_a_user_wise_plan_republishes_a_used_place_from_its_own_counter()
+    {
+        var assignments = HeldSeats((1, "user-1"));
+        _usage
+            .Setup(repository => repository.GetCountersAsync(
+                TenantId, It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, IReadOnlyCollection<string> ids, CancellationToken _) =>
+                ids.Where(id => id.StartsWith("sub-1:screening:", StringComparison.Ordinal))
+                    .ToDictionary(
+                        id => id,
+                        id => Counter(balance: 30, appliedRecordCount: 4, itemId: id, seatNumber: 1),
+                        StringComparer.Ordinal));
+
+        await PublisherWith(assignments).RefreshAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var document = _published.Should().ContainSingle(
+            "the unused meter is seeded, and only the used one is published").Subject;
+        document.SeatNumber.Should().Be(1);
+        document.UserId.Should().Be("user-1");
+        document.Used.Should().Be(30);
+        document.CounterVersion.Should().Be(4);
+        document.SubLimits.Should().BeNull("only a recording counts the paces, so a repair keeps them");
+    }
+
+    /// <remarks>
+    /// The merge writes UserId unconditionally, so a republished stored row that did not carry it
+    /// wiped a per-user row's user and a place's holder on every subscription change.
+    /// </remarks>
+    [Fact]
+    public async Task A_stored_row_republished_on_a_subscription_change_keeps_its_user()
+    {
+        var subscription = Subscription();
+        subscription.Plan.Meters = [];
+        subscription.Version = 7;
+
+        var row = OrphanRow();
+        row.UserId = "user-1";
+        row.SeatNumber = 2;
+
+        _current
+            .Setup(repository => repository.ListBySubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<SubscriptionUsageCurrent>)[row]);
+
+        await Publisher().RefreshAsync(
+            subscription, _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        var document = _published.Should().ContainSingle().Subject;
+        document.UserId.Should().Be("user-1");
+        document.SeatNumber.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Refreshing_a_user_wise_plan_removes_its_rows_that_name_no_place()
+    {
+        await PublisherWith(HeldSeats()).RefreshAsync(
+            UserWise(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.DeleteSeatlessRowsAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Refreshing_an_organization_wise_plan_deletes_nothing()
+    {
+        await Publisher().RefreshAsync(
+            Subscription(), _time.GetUtcNow().UtcDateTime, "corr-1", CancellationToken.None);
+
+        _current.Verify(
+            repository => repository.DeleteSeatlessRowsAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "its subscription-wide and per-user rows are the ones it has");
+    }
+
+    private static Mock<ISubscriptionAssignmentRepository> HeldSeats(
+        params (int Seat, string UserId)[] seats)
+    {
+        var assignments = new Mock<ISubscriptionAssignmentRepository>();
+
+        assignments
+            .Setup(repository => repository.ListActiveAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([.. seats.Select(seat => new SubscriptionAssignment
+            {
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                SubscriptionId = "sub-1",
+                UserId = seat.UserId,
+                SeatNumber = seat.Seat
+            })]);
+
+        return assignments;
+    }
+
+    private UsageProjectionPublisher PublisherWith(Mock<ISubscriptionAssignmentRepository> assignments) =>
+        new(
+            _current.Object,
+            _usage.Object,
+            new MeterAllowanceResolver(_usage.Object),
+            _scheduler.Object,
+            new OptionsStub(),
+            NullLogger<UsageProjectionPublisher>.Instance,
+            _time,
+            entitlements: _entitlements.Object,
+            assignments: assignments.Object);
+
     private static SubscriptionUsageCounter Counter(
         long balance,
         long appliedRecordCount,
-        string? itemId = null) => new()
+        string? itemId = null,
+        int? seatNumber = null) => new()
     {
-        ItemId = itemId ?? SubscriptionUsageCounter.CreateId("sub-1", "screening", "M2026-09"),
+        ItemId = itemId ?? SubscriptionUsageCounter.CreateId(
+            "sub-1", "screening", "M2026-09", seatNumber),
         TenantId = TenantId,
         OrganizationId = OrganizationId,
         SubscriptionId = "sub-1",
+        SeatNumber = seatNumber,
         MeterKey = "screening",
         Balance = balance,
         AppliedRecordCount = appliedRecordCount,
@@ -916,6 +1216,18 @@ public sealed class UsageProjectionPublisherTests
         var terms = _publishedEntitlements.Should().ContainSingle().Subject;
         terms.CancelAtPeriodEnd.Should().BeTrue();
         terms.CurrentPeriodEndUtc.Should().Be(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    /// <summary>
+    /// The same subscription, sold by the seat.
+    /// </summary>
+    private static SubscriptionDetail UserWise()
+    {
+        var subscription = Subscription();
+
+        subscription.Plan.SubscriberScope = SubscriberScope.User;
+
+        return subscription;
     }
 
     private static SubscriptionDetail Subscription() => new()

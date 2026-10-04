@@ -1,4 +1,4 @@
-using Subscription.DomainService.Enums;
+﻿using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Requests;
 
@@ -14,6 +14,12 @@ public sealed class PlanQuantityItemRequest
     public long? MaxQuantity { get; set; }
 
     public long DefaultQuantity { get; set; } = 1;
+
+    /// <summary>
+    /// Whether this quantity is how many people may hold a seat. Required on a user-wise plan
+    /// selling more than one quantity, and exactly one item may carry it.
+    /// </summary>
+    public bool CountsMembers { get; set; }
 
     /// <summary>Volume bands, ascending, gap-free from <see cref="MinQuantity"/>. Empty for one flat price.</summary>
     public List<QuantityDiscountTierRequest> QuantityDiscountTiers { get; set; } = [];
@@ -43,6 +49,12 @@ public sealed class PlanMeterRequest
     public MeterResetPolicy ResetPolicy { get; set; } = MeterResetPolicy.Periodic;
 
     /// <summary>
+    /// Every cap on how fast this meter may be spent — the pace the plan is sold at, as distinct
+    /// from the amount. Empty for the period's allowance alone; at most three.
+    /// </summary>
+    public List<PlanMeterSubLimitRequest> SubLimits { get; set; } = [];
+
+    /// <summary>
     /// How many decimal places this meter's quantities may carry. Zero — whole units only — unless
     /// the author raises it, which is what keeps a meter counting screenings refusing half of one.
     /// </summary>
@@ -59,6 +71,23 @@ public sealed class PlanMeterRequest
     public List<int> ThresholdPercents { get; set; } = [];
 
     public List<MeterRateTableRequest> RateTables { get; set; } = [];
+}
+
+/// <summary>One pace: so much per window.</summary>
+public sealed class PlanMeterSubLimitRequest
+{
+    public UsageWindow Window { get; set; }
+
+    /// <summary>How many of <see cref="Window"/> the limit spans. One unless stated.</summary>
+    public int WindowCount { get; set; } = 1;
+
+    /// <summary>Looks back from now rather than counting within a block on the clock.</summary>
+    public bool Rolling { get; set; }
+
+    public decimal Quantity { get; set; }
+
+    /// <summary>Whether going past it refuses the use or only reports it.</summary>
+    public MeterSubLimitBehaviour Behaviour { get; set; } = MeterSubLimitBehaviour.Refuse;
 }
 
 public sealed class MeterRateTableRequest

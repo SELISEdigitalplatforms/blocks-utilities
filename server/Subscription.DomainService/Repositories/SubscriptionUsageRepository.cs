@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
@@ -55,6 +55,71 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
         }
     }
 
+    public async Task<SubscriptionUsageCounter> ApplyBucketDeltaAsync(
+        SubscriptionUsageCounter seed,
+        string bucketName,
+        decimal delta,
+        IReadOnlyCollection<string> expiredBuckets,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(seed);
+        ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
+
+        var updates = new List<UpdateDefinition<SubscriptionUsageCounter>>
+        {
+            // A dotted path into the map, which is what makes this one field's increment rather
+            // than a read, a merge and a write of the whole map.
+            Builders<SubscriptionUsageCounter>.Update.Inc($"Buckets.{bucketName}", delta),
+            Builders<SubscriptionUsageCounter>.Update.Inc(counter => counter.AppliedRecordCount, 1),
+            Builders<SubscriptionUsageCounter>.Update.Set(
+                counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.TenantId, seed.TenantId),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.OrganizationId, seed.OrganizationId),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.SubscriptionId, seed.SubscriptionId),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.MeterKey, seed.MeterKey),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.SeatNumber, seed.SeatNumber),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.PeriodKey, seed.PeriodKey),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.PeriodStartUtc, seed.PeriodStartUtc),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.PeriodEndUtc, seed.PeriodEndUtc),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.LimitSnapshot, seed.LimitSnapshot),
+            Builders<SubscriptionUsageCounter>.Update.SetOnInsert(
+                counter => counter.NotifiedThresholds, []),
+            // Pushed forward on every write, not set once: a rolling counter has no window whose
+            // end could retire it, so its life is measured from the last use it saw.
+            Builders<SubscriptionUsageCounter>.Update.Set(
+                counter => counter.ExpiresAtUtc, seed.ExpiresAtUtc)
+        };
+
+        foreach (var expired in expiredBuckets ?? [])
+        {
+            // Never the bucket being written. A name that is both expired and current can only come
+            // from a clock that moved backwards, and unsetting it would discard the use in flight.
+            if (!string.Equals(expired, bucketName, StringComparison.Ordinal))
+            {
+                updates.Add(Builders<SubscriptionUsageCounter>.Update.Unset($"Buckets.{expired}"));
+            }
+        }
+
+        return await Counters(seed.TenantId).FindOneAndUpdateAsync(
+            Builders<SubscriptionUsageCounter>.Filter.Eq(counter => counter.ItemId, seed.ItemId),
+            Builders<SubscriptionUsageCounter>.Update.Combine(updates),
+            new FindOneAndUpdateOptions<SubscriptionUsageCounter>
+            {
+                IsUpsert = true,
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+    }
+
     public async Task<SubscriptionUsageCounter> ApplyDeltaAsync(
         SubscriptionUsageCounter seed,
         decimal delta,
@@ -66,6 +131,11 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             .Inc(counter => counter.Balance, delta)
             .Inc(counter => counter.AppliedRecordCount, 1)
             .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow)
+            // Set on every write rather than on insert: it is part of the id, so rewriting it
+            // changes nothing, and a counter opened before it was stored gains it on its next use.
+            // Without it the document handed back names no seat, and whatever reads the seat from
+            // it — the projection's row id, above all — treats a place as the whole subscription.
+            .Set(counter => counter.SeatNumber, seed.SeatNumber)
             .SetOnInsert(counter => counter.TenantId, seed.TenantId)
             .SetOnInsert(counter => counter.OrganizationId, seed.OrganizationId)
             .SetOnInsert(counter => counter.SubscriptionId, seed.SubscriptionId)
@@ -224,6 +294,27 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             .ToListAsync(cancellationToken);
 
         return (records.Sum(), records.Count);
+    }
+
+    public async Task<IReadOnlyList<(int? Seat, decimal Balance, long RecordCount)>> SummariseLedgerBySeatAsync(
+        string tenantId,
+        string subscriptionId,
+        string meterKey,
+        string periodKey,
+        CancellationToken cancellationToken)
+    {
+        var records = await Records(tenantId)
+            .Find(Builders<SubscriptionUsageRecord>.Filter.And(
+                Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.TenantId, tenantId),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.SubscriptionId, subscriptionId),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.MeterKey, meterKey),
+                Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.PeriodKey, periodKey)))
+            .Project(record => new { record.SeatNumber, record.Delta })
+            .ToListAsync(cancellationToken);
+
+        return [.. records
+            .GroupBy(record => record.SeatNumber)
+            .Select(group => (group.Key, group.Sum(record => record.Delta), (long)group.Count()))];
     }
 
     public async Task<(decimal Balance, long RecordCount)> SummariseLedgerByUserAsync(

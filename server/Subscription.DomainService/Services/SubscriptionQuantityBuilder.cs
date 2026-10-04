@@ -55,6 +55,10 @@ internal static class SubscriptionQuantityBuilder
                 ItemKey = item.ItemKey,
                 UnitLabel = item.UnitLabel,
                 Quantity = quantity,
+                // Carried onto the subscription so which item counts people cannot move under
+                // somebody already seated against it.
+                CountsMembers = item.CountsMembers,
+                MaxQuantity = item.MaxQuantity,
                 // Snapshotted so a later catalogue edit cannot move what this subscriber pays.
                 UnitAmountMinor = string.Equals(
                     item.ItemKey,

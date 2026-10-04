@@ -22,6 +22,14 @@
         /// read from ambient <c>BlocksContext</c> - see <c>IngestPdfEvent.UserId</c> for why.
         /// </summary>
         Task NotifyIngestPdfEvent(bool success, string fileId, string messageCoRelationId, string? userId, string? projectKey);
+
+        /// <summary>
+        /// Notifies the requesting user that one file's signature validation finished, with the
+        /// user supplied explicitly for the reason <see cref="NotifyIngestPdfEvent"/> takes it. The
+        /// payload names its event type, because the same notification channel also carries
+        /// ingestion and conversion results and a receiver has to be able to tell them apart.
+        /// </summary>
+        Task NotifyValidatePdfSignaturesEvent(bool success, string fileId, string messageCoRelationId, string? userId, string? projectKey);
     }
 }
 

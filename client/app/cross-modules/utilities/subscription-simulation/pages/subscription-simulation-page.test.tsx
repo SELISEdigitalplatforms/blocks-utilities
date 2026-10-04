@@ -40,6 +40,9 @@ vi.mock("../services/subscription-simulation.service", async () => {
     ...actual,
     subscriptionSimulationService: {
       getEntitlements: vi.fn().mockResolvedValue({ entitlements: [] }),
+      // No user-wise subscription, so the members card stays out of these tests' way.
+      listMemberBasedSubscriptions: vi.fn().mockResolvedValue([]),
+      listMine: vi.fn().mockResolvedValue([]),
     },
   };
 });
@@ -53,6 +56,7 @@ vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
 
 vi.mock("@seliseblocks/genesis-os", () => ({
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
+  useUserStore: () => ({ userDetails: { itemId: "user-1" } }),
 }));
 
 import { SubscriptionSimulationPage } from "./subscription-simulation-page";

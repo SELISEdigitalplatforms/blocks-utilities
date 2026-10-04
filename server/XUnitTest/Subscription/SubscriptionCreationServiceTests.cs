@@ -1496,6 +1496,32 @@ public sealed class SubscriptionCreationServiceTests
             .Which.Code.Should().Be("subscription_already_active");
     }
 
+    /// <remarks>
+    /// Found testing on dev: once the organization had its own subscription, every user-wise plan
+    /// was quoted as blocked, though the create — whose unique index covers organization-wise plans
+    /// only — would have accepted it.
+    /// </remarks>
+    [Fact]
+    public async Task A_user_wise_plan_is_not_blocked_by_the_organizations_own_subscription()
+    {
+        _plan.SubscriberScope = SubscriberScope.User;
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail { ItemId = "existing" });
+        _subscriptions
+            .Setup(repository => repository.GetIncompleteAsync(
+                TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail { ItemId = "unpaid" });
+
+        var result = await Service().PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Blockers.Should().NotContain(
+            blocker => blocker.Code == "subscription_already_active");
+    }
+
     [Fact]
     public async Task An_incomplete_checkout_left_over_is_also_a_blocker()
     {
@@ -1872,6 +1898,29 @@ public sealed class SubscriptionCreationServiceTests
         _account!.ProviderOrganizationId.Should().BeNull(
             "a tenant-wide configuration's null scope is a fact worth keeping, not something to " +
             "paper over with the subscriber's own organization");
+    }
+
+    /// <remarks>
+    /// What a user-wise plan grants is decided by the seats on it, not by who bought it, so there
+    /// is nothing for creation to stamp and no caller it has to refuse. An administrator buying
+    /// seats for other people is the ordinary case rather than an error.
+    /// </remarks>
+    [Fact]
+    public async Task Buying_a_user_wise_plan_creates_a_subscription_that_grants_nobody_anything()
+    {
+        _plan.SubscriberScope = SubscriberScope.User;
+
+        var result = await Service().CreateAsync(
+            NewRequest(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", null),
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "an administrator with no seat of their own still buys the plan the seats come from");
+        _created!.Plan.SubscriberScope.Should().Be(SubscriberScope.User,
+            "the snapshot is what later tells the reservation index this is not the " +
+            "organization's own subscription");
     }
 
     private static SubscriptionContext Context() =>

@@ -11,6 +11,7 @@ using Utility.DomainService.TemplateEngine.service;
 using Utility.DomainService.Shared.Services;
 using Utility.DomainService.PdfGenerator.service;
 using Utility.DomainService.PdfIngestion.service;
+using Utility.DomainService.PdfSignatureValidation.service;
 using Utility.DomainService.MagicLink.Service;
 using Utility.DomainService.MagicLink;
 using DomainService.Storage;
@@ -95,6 +96,11 @@ namespace DomainService.Utilities
             // those binaries on PATH.
             services.TryAddSingleton<IPdfIngestionRepository, PdfIngestionRepository>();
             services.TryAddSingleton<IPdfIngestionService, PdfIngestionService>();
+
+            // PDF signature validation request/status surface, for both hosts for the same reason:
+            // the Api accepts and answers polls, the Worker's consumer writes the same records.
+            services.TryAddSingleton<IPdfSignatureValidationRepository, PdfSignatureValidationRepository>();
+            services.TryAddSingleton<IPdfSignatureValidationService, PdfSignatureValidationService>();
 
             // Magic Link Services
             services.AddSingleton<IMagicLinkService, MagicLinkService>();
