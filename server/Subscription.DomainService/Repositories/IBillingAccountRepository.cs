@@ -62,6 +62,13 @@ public interface IBillingAccountRepository
     /// time. Following the money is the recoverable choice; noticing in silence was not.
     /// </para>
     /// </remarks>
+    /// <param name="providerCustomerId">
+    /// The provider's identifier for the payer. Null for a provider that addresses the shopper by
+    /// its shopper reference alone (Adyen) and so has no separate customer: the card is still
+    /// recorded as the account's default, and the customer id is left as it was. Writing an empty
+    /// customer over the field instead would be indistinguishable, to the next reader, from a
+    /// Stripe account that never had one.
+    /// </param>
     /// <param name="providerOrganizationId">
     /// The organization whose merchant configuration took the card, which is what later charges
     /// resolve the provider under — see <see cref="Entities.BillingAccount.ProviderOrganizationId"/>.
@@ -69,7 +76,7 @@ public interface IBillingAccountRepository
     Task<SetProviderCustomerOutcome> TrySetProviderCustomerAsync(
         string tenantId,
         string billingAccountId,
-        string providerCustomerId,
+        string? providerCustomerId,
         string? defaultPaymentMethodId,
         string? providerOrganizationId,
         CancellationToken cancellationToken);

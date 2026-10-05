@@ -838,6 +838,25 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             : LinkNotPending;
 
     /// <summary>
+    /// Whether a stored card can be wired to the billing account as the one a renewal will charge.
+    /// </summary>
+    /// <remarks>
+    /// Stripe charges a card off-session through its customer, so a Stripe card with no customer id
+    /// is unusable and must not be adopted. Adyen has no separate customer — it addresses the
+    /// shopper by the shopper reference the card is already filed under — so its cards never carry
+    /// one. Requiring a customer id of every provider made adoption impossible for Adyen: a paid
+    /// checkout activated with no default card (so <c>hasPaymentMethod</c> read false next to an
+    /// active card), and a card setup could never complete, being held open until the card was
+    /// adopted, so the recovery sweep retried it indefinitely.
+    /// </remarks>
+    private static bool IsAdoptable(StoredPaymentMethod method) =>
+        method.ProviderPayerReference is { Length: > 0 } ||
+        string.Equals(
+            method.ProviderName,
+            PaymentConstants.AdyenOnlineProvider,
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Records the provider's customer from the card the charge saved.
     /// </summary>
     /// <remarks>
@@ -889,10 +908,9 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         // and the one they just used is the one a renewal should charge.
         var method = (methods ?? [])
             .OrderByDescending(candidate => candidate.CreatedAtUtc)
-            .FirstOrDefault(candidate =>
-                candidate.ProviderPayerReference is { Length: > 0 });
+            .FirstOrDefault(IsAdoptable);
 
-        if (method?.ProviderPayerReference is not { Length: > 0 } customerId)
+        if (method is null)
         {
             _logger.LogWarning(
                 "No provider customer recorded for a subscription; renewals will need one");
@@ -903,7 +921,9 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         var outcome = await _billingAccounts.TrySetProviderCustomerAsync(
             subscription.TenantId,
             subscription.BillingAccountId,
-            customerId,
+            // Null for a provider with no separate payer (Adyen): the card is still recorded as
+            // the account's default, which is what the renewal reads.
+            method.ProviderPayerReference,
             method.ItemId,
             // The scope that took the money, which is what later charges must resolve the
             // provider under. Organizations subscribe; the tenant is the merchant.
