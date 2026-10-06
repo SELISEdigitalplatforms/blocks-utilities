@@ -256,6 +256,48 @@ public sealed class RecurringPaymentInitiationServiceTests
             "recurring_payment_recovery_unavailable", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData(10, false)]
+    [InlineData(11, true)]
+    public async Task RecoverAsync_GivesUpOnceTheAttemptLimitIsPassed(int attemptsMade, bool givesUp)
+    {
+        var payment = Payment();
+        SetupMinorConvert(true);
+        var claimed = Payment();
+        claimed.InitiationAttemptCount = attemptsMade;
+        _payments.Setup(p => p.TryClaimInitiationAsync("tenant", payment.ItemId, It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(claimed);
+        _providers.Setup(p => p.GetAsync("tenant", It.IsAny<string>(), "provider", It.IsAny<Func<Task<PaymentProvider?>>>()))
+            .ReturnsAsync((PaymentProvider?)null);
+
+        await CreateService().RecoverAsync(payment, CancellationToken.None);
+
+        // Past the limit it fails for exhaustion; within it, it carries on and (with no provider
+        // here) fails for that reason instead -- proving the limit is where the behaviour changes.
+        _stateTransitions.Verify(s => s.CompleteFailureAsync(
+            claimed, It.IsAny<string>(), It.IsAny<PaymentFailureKind>(),
+            "recurring_payment_recovery_exhausted", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            givesUp ? Times.Once() : Times.Never());
+    }
+
+    [Fact]
+    public async Task InitiateAsync_AnUnknownOutcomeIsRetriedAfterTheBackoffForAttemptsMade()
+    {
+        SetupCharge(StoredPaymentChargeOutcome.OutcomeUnknown);
+        var payment = Payment();
+        payment.InitiationAttemptCount = 4;
+        var before = DateTimeOffset.UtcNow;
+
+        await InitiateAsync(payment);
+
+        // Four attempts made: 30s doubled three times, not the flat 30s it used to be.
+        _workDispatcher.Verify(d => d.TryDispatchAsync(
+            "tenant",
+            true,
+            It.Is<DateTimeOffset?>(at => at >= before.AddSeconds(239) && at <= before.AddSeconds(245)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private void SetupMinorConvert(bool ok) =>
         _minorUnits.Setup(m => m.TryConvert(It.IsAny<decimal>(), It.IsAny<string>(), out It.Ref<long>.IsAny))
             .Callback(new TryConvertCallback((decimal _, string _, out long value) => value = 1000))
