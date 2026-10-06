@@ -11,6 +11,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
@@ -105,6 +106,27 @@ public sealed class SubscriptionActivationProcessorTests
         _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Incomplete);
         _transition.NewStatus.Should().Be(SubscriptionStatus.Active);
         _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionActivated);
+    }
+
+    /// <remarks>
+    /// The refresh is what seeds the zero-usage rows; without it a direct reader of the projection
+    /// sees no meter at all until the first use or the next backfill pass.
+    /// </remarks>
+    [Fact]
+    public async Task Activation_publishes_the_usage_projection_so_meters_are_visible_before_any_usage()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        var projections = new Mock<IUsageProjectionReconciler>();
+
+        await Processor(usageProjections: projections.Object)
+            .ProcessDueAsync(TenantId, CancellationToken.None);
+
+        projections.Verify(
+            reconciler => reconciler.RefreshSubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a just-activated subscription must advertise its meters and allowances");
     }
 
     [Fact]
@@ -1010,7 +1032,8 @@ public sealed class SubscriptionActivationProcessorTests
 
     private SubscriptionActivationProcessor Processor(
         SubscriptionOptions? options = null,
-        ISubscriptionPaymentReconciler? reconciler = null) => new(
+        ISubscriptionPaymentReconciler? reconciler = null,
+        IUsageProjectionReconciler? usageProjections = null) => new(
         _links.Object,
         _subscriptions.Object,
         _accounts.Object,
@@ -1023,7 +1046,8 @@ public sealed class SubscriptionActivationProcessorTests
         audit: _audit.Object,
         renewals: _renewals.Object,
         documents: _documents.Object,
-        reconciler: reconciler);
+        reconciler: reconciler,
+        usageProjections: usageProjections);
 
     /// <summary>
     /// The reported bug: a paid signup sat Incomplete for 128 seconds.
