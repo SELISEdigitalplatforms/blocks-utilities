@@ -7,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
@@ -668,6 +669,30 @@ public sealed class SubscriptionMemberServiceTests
                 TenantId, SubscriptionId, seat, "user-b", It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    /// <remarks>
+    /// Found on dev: a place nobody had recorded on had no usage row, so naming its holder updated
+    /// nothing and the new member's allowance stayed invisible until their first use.
+    /// </remarks>
+    [Fact]
+    public async Task Assigning_schedules_a_projection_refresh_that_seeds_the_new_place()
+    {
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+
+        await new SubscriptionMemberService(
+            _subscriptions.Object, _assignments.Object, _contextResolver.Object,
+            new EntitlementSnapshotCache(new OptionsStub(), _time), _time, scheduler: scheduler.Object)
+            .AssignAsync(
+                SubscriptionId, new AssignMemberRequest { UserIds = ["user-b"] },
+                "corr-1", CancellationToken.None);
+
+        scheduler.Verify(
+            work => work.ScheduleUsageProjectionRefreshAsync(
+                TenantId, It.IsAny<string>(), SubscriptionId, "corr-1",
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "renaming the holder only touches a row that exists; the refresh is what creates one");
     }
 
     /// <remarks>Found on dev: the answer said place null, assigned 0001-01-01.</remarks>
