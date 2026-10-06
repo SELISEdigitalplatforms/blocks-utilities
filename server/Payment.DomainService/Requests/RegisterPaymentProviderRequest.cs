@@ -57,6 +57,9 @@ public sealed class RegisterPaymentProviderRequest
 
     public bool ManualCapture { get; set; }
 
+    /// <inheritdoc cref="UpdatePaymentProviderRequest.CaptureDelayHours"/>
+    public int? CaptureDelayHours { get; set; }
+
     public int MaxRefundDays { get; set; }
 
     public string? StoreId { get; set; }

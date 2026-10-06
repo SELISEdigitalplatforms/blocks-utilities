@@ -30,6 +30,27 @@ public sealed class PaymentProviderConfigurationServiceTests
             error.PropertyName == nameof(request.Version));
     }
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData(0, true)]
+    [InlineData(168, true)]
+    [InlineData(-1, false)]
+    [InlineData(169, false)]
+    public async Task A_capture_delay_must_be_within_adyens_range(int? hours, bool valid)
+    {
+        var validator = new UpdatePaymentProviderRequestValidator(new CheckoutUrlPolicy());
+
+        var result = await validator.ValidateAsync(new UpdatePaymentProviderRequest
+        {
+            Version = 1,
+            FrontendResultUrl = "https://app.example.com/payment-result",
+            CaptureDelayHours = hours
+        });
+
+        result.Errors.Any(error => error.PropertyName == nameof(UpdatePaymentProviderRequest.CaptureDelayHours))
+            .Should().Be(!valid);
+    }
+
     private const string TenantId = "tenant-1";
 
     private readonly Mock<IPaymentRepository> _repository = new();
@@ -72,6 +93,7 @@ public sealed class PaymentProviderConfigurationServiceTests
                     "https://client.example/new-result",
                     "CH",
                     true,
+                    0,
                     90,
                     "store-1",
                     false,
@@ -89,6 +111,7 @@ public sealed class PaymentProviderConfigurationServiceTests
                     "https://client.example/new-result",
                 CountryCode = "ch",
                 ManualCapture = true,
+                CaptureDelayHours = 0,
                 MaxRefundDays = 90,
                 StoreId = "store-1",
                 IsEnabled = false
@@ -96,6 +119,7 @@ public sealed class PaymentProviderConfigurationServiceTests
             "corr",
             CancellationToken.None);
 
+        // The delay reaches the repository: the setup above only matches a 0.
         result.IsSuccess.Should().BeTrue();
         result.Provider!.Version.Should().Be(6);
         // Every organization's entry, because a tenant-level configuration is cached under
@@ -129,6 +153,7 @@ public sealed class PaymentProviderConfigurationServiceTests
                     It.IsAny<string>(),
                     It.IsAny<string?>(),
                     It.IsAny<bool>(),
+                    It.IsAny<int?>(),
                     It.IsAny<int>(),
                     It.IsAny<string?>(),
                     It.IsAny<bool>(),

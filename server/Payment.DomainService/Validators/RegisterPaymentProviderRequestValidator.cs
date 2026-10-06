@@ -68,6 +68,9 @@ public sealed class RegisterPaymentProviderRequestValidator :
         RuleFor(x => x.CountryCode).Length(2).When(x => !string.IsNullOrWhiteSpace(x.CountryCode));
         RuleFor(x => x.StoreId).MaximumLength(200);
         RuleFor(x => x.MaxRefundDays).InclusiveBetween(0, 3_650);
+        RuleFor(x => x.CaptureDelayHours)
+            .InclusiveBetween(0, 168)
+            .When(x => x.CaptureDelayHours.HasValue);
 
         // A base URL is only needed when the provider has no fixed host; when one is supplied
         // it must satisfy that provider's own endpoint policy.

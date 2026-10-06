@@ -399,7 +399,8 @@ public sealed class SubscriptionPaymentProviderReadinessServiceTests
 
         public Task<PaymentProvider?> TryUpdateProviderConfigurationAsync(
             string tenantId, string providerItemId, long expectedVersion, string frontendResultUrl,
-            string? countryCode, bool manualCapture, int maxRefundDays, string? storeId,
+            string? countryCode, bool manualCapture, int? captureDelayHours,
+            int maxRefundDays, string? storeId,
             bool isEnabled, string? paymentMethodConfigurationId,
             string[]? checkoutPaymentMethodTypes, CancellationToken cancellationToken) =>
             throw new NotSupportedException();

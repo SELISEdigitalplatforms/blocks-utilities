@@ -116,6 +116,7 @@ public sealed class PaymentProviderConfigurationService :
                     request.FrontendResultUrl,
                     Normalize(request.CountryCode)?.ToUpperInvariant(),
                     request.ManualCapture,
+                    request.CaptureDelayHours,
                     request.MaxRefundDays,
                     Normalize(request.StoreId),
                     request.IsEnabled,

@@ -231,6 +231,7 @@ public sealed class PaymentProviderRegistrationService : IPaymentProviderRegistr
             FrontendResultUrl = request.FrontendResultUrl,
             CountryCode = request.CountryCode,
             ManualCapture = request.ManualCapture,
+            CaptureDelayHours = request.CaptureDelayHours,
             MaxRefundDays = request.MaxRefundDays,
             StoreId = request.StoreId,
             IsEnabled = true,

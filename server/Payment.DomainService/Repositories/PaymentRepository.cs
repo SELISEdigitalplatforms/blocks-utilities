@@ -806,6 +806,7 @@ public sealed class PaymentRepository : IPaymentRepository
         string frontendResultUrl,
         string? countryCode,
         bool manualCapture,
+        int? captureDelayHours,
         int maxRefundDays,
         string? storeId,
         bool isEnabled,
@@ -823,6 +824,7 @@ public sealed class PaymentRepository : IPaymentRepository
                 frontendResultUrl)
             .Set(provider => provider.CountryCode, countryCode)
             .Set(provider => provider.ManualCapture, manualCapture)
+            .Set(provider => provider.CaptureDelayHours, captureDelayHours)
             .Set(provider => provider.MaxRefundDays, maxRefundDays)
             .Set(provider => provider.StoreId, storeId)
             .Set(provider => provider.IsEnabled, isEnabled)

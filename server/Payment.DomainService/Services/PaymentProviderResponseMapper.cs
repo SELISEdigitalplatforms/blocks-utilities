@@ -22,6 +22,7 @@ public sealed class PaymentProviderResponseMapper :
             FrontendResultUrl = provider.FrontendResultUrl,
             CountryCode = provider.CountryCode,
             ManualCapture = provider.ManualCapture,
+            CaptureDelayHours = provider.CaptureDelayHours,
             MaxRefundDays = provider.MaxRefundDays,
             StoreId = provider.StoreId,
             IsEnabled = provider.IsEnabled,

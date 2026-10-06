@@ -228,6 +228,13 @@ Content-Type: application/json
 }
 ```
 
+`captureDelayHours` (0–168, optional) says how long the provider waits before
+capturing. Set it to `0` for an **Adyen** merchant account on automatic
+(immediate) capture: Adyen sends no `CAPTURE` notification in that case, so
+without it a payment stays `AUTHORIZED` forever and its invoice is never issued.
+Leave it out when unknown, or set a positive value for delayed capture. The
+update replaces the whole configuration, so send the current value each time.
+
 `ProviderName` and `MerchantId` are identity fields and are rejected by this
 endpoint. `ApiBaseUrl` and `ReturnUrl` are also outside its configuration
 contract. A version mismatch returns `409`; reload the provider and reapply
