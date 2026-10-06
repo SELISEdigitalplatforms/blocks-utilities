@@ -307,6 +307,7 @@ public sealed class PaymentRepositoryIntegrationTests
                 "https://client.example/first",
                 "CH",
                 false,
+                null,
                 90,
                 null,
                 true,
@@ -321,6 +322,7 @@ public sealed class PaymentRepositoryIntegrationTests
                 "https://client.example/second",
                 "CH",
                 false,
+                null,
                 90,
                 null,
                 true,
@@ -339,6 +341,33 @@ public sealed class PaymentRepositoryIntegrationTests
         stored.FrontendResultUrl.Should().BeOneOf(
             "https://client.example/first",
             "https://client.example/second");
+    }
+
+    [Fact]
+    public async Task Provider_configuration_update_persists_the_capture_delay()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var provider = new PaymentProvider
+        {
+            ItemId = Guid.NewGuid().ToString(),
+            Version = 1,
+            TenantId = tenantId,
+            ProviderName = "ADYEN-ONLINE",
+            MerchantId = "merchant-1",
+            ApiBaseUrl = "https://checkout-test.adyen.com/v72",
+            FrontendResultUrl = "https://client.example/original",
+            IsEnabled = true
+        };
+        await _fixture.Collection<PaymentProvider>("PaymentProviders")
+            .InsertOneAsync(provider);
+
+        await _repository.TryUpdateProviderConfigurationAsync(
+            tenantId, provider.ItemId, 1, "https://client.example/new", "CH",
+            false, 0, 90, null, true, null, null, CancellationToken.None);
+
+        var stored = await _repository.GetProviderByIdAsync(
+            tenantId, provider.ItemId, CancellationToken.None);
+        stored!.CaptureDelayHours.Should().Be(0);
     }
 
     [Fact]

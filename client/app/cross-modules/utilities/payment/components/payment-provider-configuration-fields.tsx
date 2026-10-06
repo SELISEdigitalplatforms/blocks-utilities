@@ -20,6 +20,7 @@ interface ProviderConfigurationFields {
   frontendResultUrl: string;
   countryCode: string;
   manualCapture: boolean;
+  captureDelayHours: string;
   maxRefundDays: number;
   storeId?: string;
   isEnabled?: boolean;
@@ -198,6 +199,38 @@ export const PaymentProviderConfigurationFields = ({
           </FormItem>
         )}
       />
+
+      {providerName === "ADYEN-ONLINE" && (
+        <FormField
+          control={form.control}
+          name="captureDelayHours"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Capture delay (hours)</FormLabel>
+              <FormControl>
+                <Input
+                  name={field.name}
+                  ref={field.ref}
+                  value={field.value ?? ""}
+                  type="number"
+                  min="0"
+                  max="168"
+                  step="1"
+                  placeholder="Not set"
+                  onBlur={field.onBlur}
+                  onChange={(event) => field.onChange(event.target.value)}
+                />
+              </FormControl>
+              <FormDescription>
+                Enter 0 when the Adyen merchant account captures immediately. Adyen then sends
+                no capture notification, so without this a payment stays authorized and no
+                invoice is issued. Leave blank if unsure.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      )}
 
       {providerName === "STRIPE" && (
         <div className="space-y-5 rounded-xl border p-4 sm:col-span-2">

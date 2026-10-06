@@ -18,6 +18,14 @@ public sealed class UpdatePaymentProviderRequest
 
     public bool ManualCapture { get; set; }
 
+    /// <summary>
+    /// Hours the provider waits before capturing an authorised payment. <c>0</c> says the
+    /// account captures immediately, which is the only way a provider that sends no capture
+    /// notification of its own (Adyen on automatic capture) can be told the funds were taken.
+    /// Omit when unknown: the payment then stays authorised until a capture event arrives.
+    /// </summary>
+    public int? CaptureDelayHours { get; set; }
+
     public int MaxRefundDays { get; set; }
 
     public string? StoreId { get; set; }

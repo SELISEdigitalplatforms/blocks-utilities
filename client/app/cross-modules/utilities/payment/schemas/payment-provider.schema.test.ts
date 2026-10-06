@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createRotatePaymentProviderSchema,
+  parseCaptureDelayHours,
   registerPaymentProviderSchema,
   updatePaymentProviderSchema,
 } from "./payment-provider.schema";
@@ -9,6 +10,35 @@ const hmac =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 describe("payment provider schemas", () => {
+  it.each([
+    ["", true],
+    ["0", true],
+    ["168", true],
+    ["169", false],
+    ["-1", false],
+    ["1.5", false],
+    ["abc", false],
+  ])("checks the capture delay %j on update (valid: %s)", (value, valid) => {
+    const result = updatePaymentProviderSchema.safeParse({
+      frontendResultUrl: "https://app.example/payment/result",
+      countryCode: "CH",
+      manualCapture: false,
+      captureDelayHours: value,
+      maxRefundDays: 90,
+      isEnabled: true,
+    });
+
+    expect(result.success).toBe(valid);
+  });
+
+  it("reads a blank capture delay as unset and 0 as a real value", () => {
+    expect(parseCaptureDelayHours("")).toBeUndefined();
+    expect(parseCaptureDelayHours("  ")).toBeUndefined();
+    expect(parseCaptureDelayHours(undefined)).toBeUndefined();
+    expect(parseCaptureDelayHours("0")).toBe(0);
+    expect(parseCaptureDelayHours("24")).toBe(24);
+  });
+
   it("accepts an Adyen registration with correctly shaped HMAC keys", () => {
     const result = registerPaymentProviderSchema.safeParse({
       providerName: "ADYEN-ONLINE",
