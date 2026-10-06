@@ -59,7 +59,11 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
                 : provider.CaptureDelayHours,
             AdditionalData = new ProviderAdditionalData
             {
-                ManualCapture = provider.ManualCapture
+                // One or the other, never both: Adyen refuses a session carrying captureDelayHours and a
+                // manualCapture field together. A delay is only sent when capture is not manual.
+                ManualCapture = provider.ManualCapture || provider.CaptureDelayHours is null
+                    ? provider.ManualCapture
+                    : null
             },
             Metadata = new ProviderMetadata
             {
