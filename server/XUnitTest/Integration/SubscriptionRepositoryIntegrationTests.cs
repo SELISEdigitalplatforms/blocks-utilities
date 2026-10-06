@@ -722,6 +722,66 @@ public sealed class SubscriptionRepositoryIntegrationTests
             "the card a renewal presents must be the one the latest charge actually saved");
     }
 
+    /// <summary>
+    /// A provider with no separate customer (Adyen) still gets its card recorded as the default.
+    /// </summary>
+    /// <remarks>
+    /// Adyen addresses the shopper by the shopper reference alone, so there is no customer id to
+    /// write. The default card is the whole point: it is what a renewal charges and what
+    /// <c>hasPaymentMethod</c> reports. And the absent customer must not be written as an empty
+    /// value over one the account already holds.
+    /// </remarks>
+    [Fact]
+    public async Task A_card_with_no_provider_customer_is_still_recorded_as_the_default()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var account = await _accounts.GetOrCreateAndReconcileAsync(
+            NewAccount(tenantId, "org-11"),
+            CancellationToken.None);
+
+        (await _accounts.TrySetProviderCustomerAsync(
+                tenantId, account.ItemId, null, "pm_adyen", "default",
+                CancellationToken.None))
+            .Should().Be(SetProviderCustomerOutcome.Recorded);
+
+        var stored = await _accounts.GetAsync(tenantId, account.ItemId, CancellationToken.None);
+        stored!.DefaultPaymentMethodId.Should().Be("pm_adyen");
+        stored.ProviderCustomerId.Should().BeNullOrEmpty("there is no customer to record");
+
+        // The same card again changes nothing, and says so.
+        (await _accounts.TrySetProviderCustomerAsync(
+                tenantId, account.ItemId, null, "pm_adyen", "default",
+                CancellationToken.None))
+            .Should().Be(SetProviderCustomerOutcome.Unchanged);
+
+        // A different card is a change worth reporting.
+        (await _accounts.TrySetProviderCustomerAsync(
+                tenantId, account.ItemId, null, "pm_adyen_2", "default",
+                CancellationToken.None))
+            .Should().Be(SetProviderCustomerOutcome.Recorded);
+    }
+
+    [Fact]
+    public async Task Recording_a_card_with_no_customer_does_not_erase_the_customer_already_held()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        var account = await _accounts.GetOrCreateAndReconcileAsync(
+            NewAccount(tenantId, "org-12"),
+            CancellationToken.None);
+
+        await _accounts.TrySetProviderCustomerAsync(
+            tenantId, account.ItemId, "cus_kept", "pm_1", "default", CancellationToken.None);
+
+        await _accounts.TrySetProviderCustomerAsync(
+            tenantId, account.ItemId, null, "pm_2", "default", CancellationToken.None);
+
+        var stored = await _accounts.GetAsync(tenantId, account.ItemId, CancellationToken.None);
+        stored!.ProviderCustomerId.Should().Be("cus_kept");
+        stored.DefaultPaymentMethodId.Should().Be("pm_2");
+    }
+
     [Fact]
     public async Task Recording_against_an_account_that_is_not_there_says_so()
     {

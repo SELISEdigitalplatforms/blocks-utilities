@@ -6,10 +6,12 @@ using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using XUnitTest.Payment;
@@ -104,6 +106,27 @@ public sealed class SubscriptionActivationProcessorTests
         _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Incomplete);
         _transition.NewStatus.Should().Be(SubscriptionStatus.Active);
         _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionActivated);
+    }
+
+    /// <remarks>
+    /// The refresh is what seeds the zero-usage rows; without it a direct reader of the projection
+    /// sees no meter at all until the first use or the next backfill pass.
+    /// </remarks>
+    [Fact]
+    public async Task Activation_publishes_the_usage_projection_so_meters_are_visible_before_any_usage()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        var projections = new Mock<IUsageProjectionReconciler>();
+
+        await Processor(usageProjections: projections.Object)
+            .ProcessDueAsync(TenantId, CancellationToken.None);
+
+        projections.Verify(
+            reconciler => reconciler.RefreshSubscriptionAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a just-activated subscription must advertise its meters and allowances");
     }
 
     [Fact]
@@ -482,10 +505,11 @@ public sealed class SubscriptionActivationProcessorTests
     /// let the processor adopt a stranger's card while every test still read green.
     /// </remarks>
     private void GivenSavedCard(
-        string customerId = "cus_123",
+        string? customerId = "cus_123",
         string methodId = "method-1",
         string shopperReference = "shopper-1",
-        string organizationId = OrganizationId) =>
+        string organizationId = OrganizationId,
+        string? providerName = null) =>
         _storedMethods
             .Setup(repository => repository.ListActiveAsync(
                 TenantId,
@@ -499,6 +523,7 @@ public sealed class SubscriptionActivationProcessorTests
                 {
                     ItemId = methodId,
                     ProviderPayerReference = customerId,
+                    ProviderName = providerName ?? string.Empty,
                     CreatedAtUtc = DateTime.UtcNow
                 }
             ]);
@@ -716,6 +741,89 @@ public sealed class SubscriptionActivationProcessorTests
     }
 
     /// <summary>
+    /// An Adyen card carries no customer id, and that must not stop it being adopted.
+    /// </summary>
+    /// <remarks>
+    /// The regression this pins. Adoption demanded a provider customer id of every card, but only
+    /// Stripe has one: Adyen addresses the shopper by the shopper reference the card is filed
+    /// under, so its stored methods never carry a payer reference. Every Adyen card was therefore
+    /// refused. On a paid checkout the subscription activated anyway with no default card, so the
+    /// subscription read <c>hasPaymentMethod: false</c> beside an ACTIVE card; on a card setup the
+    /// activation is held until the card is adopted, so it never completed and the sweep retried it
+    /// indefinitely.
+    /// </remarks>
+    [Fact]
+    public async Task An_adyen_card_setup_completes_and_records_the_card_without_a_customer()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard(customerId: null, providerName: PaymentConstants.AdyenOnlineProvider);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1, "the card was adopted, so nothing holds the activation open");
+        _accounts.Verify(
+            repository => repository.TrySetProviderCustomerAsync(
+                TenantId,
+                "acct-1",
+                (string?)null,
+                "method-1",
+                MerchantOrganizationId,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the default card is what every renewal and the response's hasPaymentMethod read");
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+    }
+
+    [Fact]
+    public async Task An_adyen_card_from_a_paid_checkout_is_recorded_as_the_default()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard(customerId: null, providerName: PaymentConstants.AdyenOnlineProvider);
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _accounts.Verify(
+            repository => repository.TrySetProviderCustomerAsync(
+                TenantId,
+                "acct-1",
+                (string?)null,
+                "method-1",
+                MerchantOrganizationId,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// A Stripe card with no customer id is still refused: Stripe cannot charge it off-session.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the rule. Letting Adyen through must not loosen Stripe, where adopting a
+    /// card with no customer would report a payment method on file that no renewal can charge.
+    /// </remarks>
+    [Theory]
+    [InlineData(PaymentConstants.StripeProvider)]
+    [InlineData("")]
+    public async Task A_card_with_no_customer_is_not_adopted_unless_its_provider_has_none(
+        string providerName)
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard(customerId: null, providerName: providerName);
+
+        var settled = await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(0);
+        _accounts.Verify(
+            repository => repository.TrySetProviderCustomerAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _transition.Should().BeNull("a setup is held open until its card is attached");
+    }
+
+    /// <summary>
     /// A card that cannot be adopted leaves the link pending rather than settling it away.
     /// </summary>
     /// <remarks>
@@ -924,7 +1032,8 @@ public sealed class SubscriptionActivationProcessorTests
 
     private SubscriptionActivationProcessor Processor(
         SubscriptionOptions? options = null,
-        ISubscriptionPaymentReconciler? reconciler = null) => new(
+        ISubscriptionPaymentReconciler? reconciler = null,
+        IUsageProjectionReconciler? usageProjections = null) => new(
         _links.Object,
         _subscriptions.Object,
         _accounts.Object,
@@ -937,7 +1046,8 @@ public sealed class SubscriptionActivationProcessorTests
         audit: _audit.Object,
         renewals: _renewals.Object,
         documents: _documents.Object,
-        reconciler: reconciler);
+        reconciler: reconciler,
+        usageProjections: usageProjections);
 
     /// <summary>
     /// The reported bug: a paid signup sat Incomplete for 128 seconds.

@@ -32,6 +32,8 @@ public sealed class PaymentProviderResponse
 
     public bool ManualCapture { get; init; }
 
+    public int? CaptureDelayHours { get; init; }
+
     public int MaxRefundDays { get; init; }
 
     public string? StoreId { get; init; }

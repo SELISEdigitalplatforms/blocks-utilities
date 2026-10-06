@@ -45,6 +45,7 @@ public interface IPaymentRepository
         string frontendResultUrl,
         string? countryCode,
         bool manualCapture,
+        int? captureDelayHours,
         int maxRefundDays,
         string? storeId,
         bool isEnabled,

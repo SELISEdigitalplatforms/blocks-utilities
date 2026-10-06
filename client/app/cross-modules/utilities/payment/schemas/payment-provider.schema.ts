@@ -32,6 +32,18 @@ const providerConfigurationShape = {
       "Use a two-letter ISO country code.",
     ),
   manualCapture: z.boolean(),
+  // Held as text so "left blank" (unknown) and "0" (captures at once) stay distinct; a number
+  // input cannot tell them apart once emptied. Converted by parseCaptureDelayHours on submit.
+  captureDelayHours: z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        value.length === 0 ||
+        (/^\d+$/.test(value) && Number(value) <= 168),
+      "Use a whole number of hours from 0 to 168.",
+    )
+    .default(""),
   maxRefundDays: z.coerce
     .number()
     .int("Use a whole number.")
@@ -61,7 +73,13 @@ const providerConfigurationShape = {
     .or(z.literal("")),
 };
 
-const isAdyenHmac = (value: string) => /^[0-9A-Fa-f]{64}$/.test(value);
+/** The form's text value as the request field: blank means "not set", so it is left out. */
+export const parseCaptureDelayHours = (value: string | undefined) =>
+  value === undefined || value.trim().length === 0
+    ? undefined
+    : Number(value);
+
+const isAdyenHmac =(value: string) => /^[0-9A-Fa-f]{64}$/.test(value);
 
 export const registerPaymentProviderSchema = z
   .object({

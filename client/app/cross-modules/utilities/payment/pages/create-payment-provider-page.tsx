@@ -38,6 +38,7 @@ import { PaymentWebhookEndpointsCard } from "../components/payment-webhook-endpo
 import { useRegisterPaymentProvider } from "../hooks/use-register-payment-provider";
 import type { RegisterPaymentProviderRequest } from "../models/payment-provider.model";
 import {
+  parseCaptureDelayHours,
   providerDisplayName,
   registerPaymentProviderSchema,
   type RegisterPaymentProviderFormValues,
@@ -93,6 +94,7 @@ export const CreatePaymentProviderPage = () => {
       apiBaseUrl: ADYEN_TEST_API_BASE_URL,
       countryCode: "",
       manualCapture: false,
+      captureDelayHours: "",
       maxRefundDays: 365,
       storeId: "",
       checkoutPaymentMethodTypes: [],
@@ -134,6 +136,7 @@ export const CreatePaymentProviderPage = () => {
       frontendResultUrl: values.frontendResultUrl.trim(),
       countryCode: normalizeOptional(values.countryCode)?.toUpperCase(),
       manualCapture: values.manualCapture,
+      captureDelayHours: parseCaptureDelayHours(values.captureDelayHours),
       maxRefundDays: values.maxRefundDays,
       storeId: normalizeOptional(values.storeId),
       apiKey: values.apiKey.trim(),

@@ -304,7 +304,7 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
     public async Task<SetProviderCustomerOutcome> TrySetProviderCustomerAsync(
         string tenantId,
         string billingAccountId,
-        string providerCustomerId,
+        string? providerCustomerId,
         string? defaultPaymentMethodId,
         string? providerOrganizationId,
         CancellationToken cancellationToken)
@@ -330,10 +330,18 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
             return SetProviderCustomerOutcome.AccountMissing;
         }
 
+        var hasCustomer = !string.IsNullOrWhiteSpace(providerCustomerId);
+
         var update = Builders<BillingAccount>.Update
-            .Set(account => account.ProviderCustomerId, providerCustomerId)
             .Set(account => account.LastUpdatedDateUtc, DateTime.UtcNow)
             .Inc(account => account.Version, 1);
+
+        // Only when there is one. A provider with no separate payer (Adyen) has none to record, and
+        // overwriting the field with an empty value would erase what an account might already hold.
+        if (hasCustomer)
+        {
+            update = update.Set(account => account.ProviderCustomerId, providerCustomerId);
+        }
 
         if (!string.IsNullOrWhiteSpace(defaultPaymentMethodId))
         {
@@ -358,6 +366,17 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
         // an account already naming this customer but carrying a stale card is still a change
         // worth making, and one naming a different customer is worth saying out loud even when
         // every other field happened to match.
+        if (!hasCustomer)
+        {
+            // Nothing about a customer changed, so the only thing worth reporting is the card.
+            return string.Equals(
+                existing.DefaultPaymentMethodId,
+                defaultPaymentMethodId,
+                StringComparison.Ordinal)
+                ? SetProviderCustomerOutcome.Unchanged
+                : SetProviderCustomerOutcome.Recorded;
+        }
+
         if (string.IsNullOrWhiteSpace(existing.ProviderCustomerId))
         {
             return SetProviderCustomerOutcome.Recorded;
