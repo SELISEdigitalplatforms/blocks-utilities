@@ -104,6 +104,33 @@ public sealed class StoredPaymentChargeProviderGatewayTests
     }
 
     [Theory]
+    [InlineData(500)]
+    [InlineData(422)]
+    public async Task Charge_maps_a_merchant_configuration_error_to_rejected_not_to_a_retry(int status)
+    {
+        // The exact answer Adyen gave in production: HTTP 500, but a setup problem, not an outage.
+        var result = await Charge(HttpReturning(
+            null,
+            "HTTP request failed with status code " + status + ". Error: {\"status\":" + status +
+            ",\"errorCode\":\"905_1\",\"message\":\"Could not find an acquirer account for the " +
+            "provided txvariant (visa), currency (CHF), and action (AUTH).\"," +
+            "\"errorType\":\"configuration\",\"pspReference\":\"M9ZXTJ3F4Z828DV5\"}"));
+
+        result.Outcome.Should().Be(StoredPaymentChargeOutcome.Rejected);
+        result.SafeErrorCode.Should().Be("905_1");
+    }
+
+    [Fact]
+    public async Task Charge_still_treats_an_unclassified_server_error_as_unknown()
+    {
+        var result = await Charge(HttpReturning(
+            null,
+            "Error: {\"status\":500,\"errorCode\":\"905\",\"errorType\":\"internal\"}"));
+
+        result.Outcome.Should().Be(StoredPaymentChargeOutcome.OutcomeUnknown);
+    }
+
+    [Theory]
     [InlineData("circuit breaker open")]
     [InlineData("service unavailable")]
     public async Task Charge_maps_transient_package_error_to_unavailable(string error)

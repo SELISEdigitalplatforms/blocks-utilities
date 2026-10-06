@@ -103,7 +103,7 @@ public sealed class RecurringPaymentInitiationService :
                 cancellationToken);
 
             await ScheduleRecoveryAsync(
-                payment.TenantId,
+                payment,
                 cancellationToken);
 
             return PaymentOperationResult.Failure(
@@ -243,6 +243,33 @@ public sealed class RecurringPaymentInitiationService :
             return;
         }
 
+        // The claim counts this attempt, so the limit is on attempts made, this one included. The
+        // charge keeps one idempotency key throughout, so stopping here cannot double-charge; what
+        // it prevents is a charge the provider keeps failing being retried for ever.
+        if (claimed.InitiationAttemptCount >
+            Math.Clamp(
+                _options.CurrentValue.PaymentRecoveryMaxAttempts,
+                1,
+                50))
+        {
+            _logger.LogError(
+                "Recurring payment recovery gave up after repeated attempts PaymentIdHash={PaymentIdHash} TenantId={TenantId} Attempts={Attempts}",
+                PaymentLogValue.Hash(claimed.ItemId),
+                PaymentLogValue.Id(claimed.TenantId),
+                claimed.InitiationAttemptCount);
+
+            await FailAsync(
+                claimed,
+                leaseId,
+                PaymentFailureKind.ProviderFailure,
+                "recurring_payment_recovery_exhausted",
+                "The recurring payment could not be completed after repeated attempts.",
+                claimed.CorrelationId,
+                cancellationToken);
+
+            return;
+        }
+
         var provider = await _providers.GetAsync(
             claimed.TenantId,
             claimed.OrganizationId,
@@ -368,7 +395,7 @@ public sealed class RecurringPaymentInitiationService :
             cancellationToken);
 
         await ScheduleRecoveryAsync(
-            payment.TenantId,
+            payment,
             cancellationToken);
 
         return PaymentOperationResult.Failure(
@@ -403,13 +430,15 @@ public sealed class RecurringPaymentInitiationService :
             cancellationToken);
 
     private Task<bool> ScheduleRecoveryAsync(
-        string tenantId,
+        PaymentDetail payment,
         CancellationToken cancellationToken) =>
         _workDispatcher.TryDispatchAsync(
-            tenantId,
+            payment.TenantId,
             includeRecovery: true,
             scheduledAtUtc:
-                DateTimeOffset.UtcNow.AddSeconds(30),
+                DateTimeOffset.UtcNow.Add(
+                    PaymentRecoveryBackoff.DelayFor(
+                        payment.InitiationAttemptCount)),
             cancellationToken: cancellationToken);
 
     private static PaymentOperationResult Conflict(
