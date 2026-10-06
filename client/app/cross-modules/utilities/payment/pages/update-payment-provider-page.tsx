@@ -20,6 +20,7 @@ import { usePaymentProviders } from "../hooks/use-payment-providers";
 import { useUpdatePaymentProvider } from "../hooks/use-update-payment-provider";
 import type { UpdatePaymentProviderRequest } from "../models/payment-provider.model";
 import {
+  parseCaptureDelayHours,
   providerDisplayName,
   updatePaymentProviderSchema,
   type UpdatePaymentProviderFormValues,
@@ -57,6 +58,7 @@ export const UpdatePaymentProviderPage = () => {
       frontendResultUrl: "",
       countryCode: "",
       manualCapture: false,
+      captureDelayHours: "",
       maxRefundDays: 0,
       storeId: "",
       isEnabled: true,
@@ -74,6 +76,7 @@ export const UpdatePaymentProviderPage = () => {
       frontendResultUrl: provider.frontendResultUrl ?? "",
       countryCode: provider.countryCode ?? "",
       manualCapture: provider.manualCapture,
+      captureDelayHours: provider.captureDelayHours?.toString() ?? "",
       maxRefundDays: provider.maxRefundDays,
       storeId: provider.storeId ?? "",
       isEnabled: provider.isEnabled,
@@ -134,6 +137,9 @@ export const UpdatePaymentProviderPage = () => {
       frontendResultUrl: values.frontendResultUrl.trim(),
       countryCode: normalizeOptional(values.countryCode)?.toUpperCase(),
       manualCapture: values.manualCapture,
+      // Always sent, hidden or not: the update replaces the whole configuration, so leaving it
+      // out would clear a delay this form is not showing (it is Adyen-only).
+      captureDelayHours: parseCaptureDelayHours(values.captureDelayHours),
       maxRefundDays: values.maxRefundDays,
       storeId: normalizeOptional(values.storeId),
       isEnabled: values.isEnabled,

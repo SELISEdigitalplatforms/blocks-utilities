@@ -5,6 +5,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Services;
@@ -27,6 +28,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
     private readonly ISubscriptionUsageRepository? _usage;
     private readonly IMeterAllowanceResolver? _allowances;
     private readonly ISubscriptionUsageCurrentRepository? _current;
+    private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
 
     public SubscriptionMemberService(
@@ -40,7 +42,10 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         ISubscriptionUsageRepository? usage = null,
         IMeterAllowanceResolver? allowances = null,
         // Optional: without it a place's usage row keeps naming whoever last recorded on it.
-        ISubscriptionUsageCurrentRepository? current = null)
+        ISubscriptionUsageCurrentRepository? current = null,
+        // Optional: without it a newly held place has no usage row until its first recording or
+        // the next backfill pass.
+        ISubscriptionWorkScheduler? scheduler = null)
     {
         _subscriptions = subscriptions;
         _assignments = assignments;
@@ -49,6 +54,7 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         _usage = usage;
         _allowances = allowances;
         _current = current;
+        _scheduler = scheduler;
         _time = time ?? TimeProvider.System;
     }
 
@@ -198,6 +204,19 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             // What these people may do has changed, and every subscriber in the organization
             // caches the organization's own subscription alongside their own places.
             _cache.Invalidate(context.TenantId, subscription.OrganizationId);
+
+            // SetSeatHolderAsync above only renames a row that exists, and a place nobody has
+            // recorded on yet has none. The refresh seeds every held place at zero, so the new
+            // holder's allowance is readable before they first spend it.
+            if (_scheduler is not null)
+            {
+                await _scheduler.ScheduleUsageProjectionRefreshAsync(
+                    context.TenantId,
+                    subscription.OrganizationId,
+                    subscription.ItemId,
+                    correlationId,
+                    cancellationToken);
+            }
         }
 
         return SubscriptionOperationResult<SubscriptionMemberAssignmentResponse>.Success(

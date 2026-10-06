@@ -31,6 +31,11 @@ public sealed class UpdatePaymentProviderRequestValidator :
         RuleFor(request => request.MaxRefundDays)
             .InclusiveBetween(0, 3_650);
 
+        // Adyen's own ceiling for a capture delay is seven days.
+        RuleFor(request => request.CaptureDelayHours)
+            .InclusiveBetween(0, 168)
+            .When(request => request.CaptureDelayHours.HasValue);
+
         RuleFor(request => request.StoreId)
             .MaximumLength(200);
 

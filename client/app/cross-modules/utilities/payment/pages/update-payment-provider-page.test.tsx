@@ -231,8 +231,76 @@ describe("UpdatePaymentProviderPage", () => {
    * The payment method selection. Stripe's own concept, so the block is absent for Adyen — which
    * is what the factory above registers by default.
    */
+  describe("capture delay", () => {
+    const sentDelay = async () => {
+      await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled());
+      return mutateAsyncMock.mock.calls[0][0].request.captureDelayHours;
+    };
+
+    it("should be offered for Adyen and prefilled from the stored provider", () => {
+      providersState = {
+        data: [provider({ captureDelayHours: 0 })],
+        isLoading: false,
+        isError: false,
+      };
+      renderPage();
+
+      expect(
+        (screen.getByLabelText(/Capture delay/) as HTMLInputElement).value,
+      ).toBe("0");
+    });
+
+    it("should send 0 as a value, not as an absent field", async () => {
+      renderPage();
+      fireEvent.change(screen.getByLabelText(/Capture delay/), {
+        target: { value: "0" },
+      });
+
+      save();
+
+      expect(await sentDelay()).toBe(0);
+    });
+
+    it("should leave it out when blank", async () => {
+      renderPage();
+
+      save();
+
+      expect(await sentDelay()).toBeUndefined();
+    });
+
+    it("should refuse more than a week", async () => {
+      renderPage();
+      fireEvent.change(screen.getByLabelText(/Capture delay/), {
+        target: { value: "169" },
+      });
+
+      save();
+
+      expect(
+        await screen.findByText(/whole number of hours from 0 to 168/),
+      ).toBeTruthy();
+      expect(mutateAsyncMock).not.toHaveBeenCalled();
+    });
+
+    it("should be hidden for Stripe, yet kept across an unrelated edit", async () => {
+      providersState = {
+        data: [provider({ providerName: "STRIPE", captureDelayHours: 24 })],
+        isLoading: false,
+        isError: false,
+      };
+      renderPage();
+
+      expect(screen.queryByLabelText(/Capture delay/)).toBeNull();
+
+      save();
+
+      expect(await sentDelay()).toBe(24);
+    });
+  });
+
   describe("checkout payment methods", () => {
-    const stripe = (overrides: Partial<PaymentProvider> = {}) =>
+    const stripe =(overrides: Partial<PaymentProvider> = {}) =>
       provider({ providerName: "STRIPE", ...overrides });
 
     const showStripe = (overrides: Partial<PaymentProvider> = {}) => {

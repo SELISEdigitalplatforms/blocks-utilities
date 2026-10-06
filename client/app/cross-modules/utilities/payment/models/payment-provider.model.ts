@@ -17,6 +17,8 @@ export interface PaymentProvider {
   frontendResultUrl: string | null;
   countryCode: string | null;
   manualCapture: boolean;
+  /** Hours the provider waits before capturing; 0 is an account that captures at once. */
+  captureDelayHours?: number | null;
   maxRefundDays: number;
   storeId: string | null;
   isEnabled: boolean;
@@ -40,6 +42,8 @@ export interface RegisterPaymentProviderRequest {
   apiBaseUrl?: string;
   countryCode?: string;
   manualCapture: boolean;
+  /** Hours the provider waits before capturing; 0 is an account that captures at once. */
+  captureDelayHours?: number;
   maxRefundDays: number;
   storeId?: string;
   paymentMethodConfigurationId?: string;
@@ -91,6 +95,8 @@ export interface UpdatePaymentProviderRequest {
   frontendResultUrl: string;
   countryCode?: string;
   manualCapture: boolean;
+  /** Hours the provider waits before capturing; 0 is an account that captures at once. */
+  captureDelayHours?: number;
   maxRefundDays: number;
   storeId?: string;
   isEnabled: boolean;
