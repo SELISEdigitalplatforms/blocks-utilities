@@ -3530,7 +3530,7 @@ POST /api/subscriptions
             <code>immediately=true</code> does against a schedule already in place.
           </p>
           <h4>Returns</h4>
-          <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code> — the subscription had already reached <code>Canceled</code> or <code>IncompleteExpired</code> before this request, which is different from a cancellation already being scheduled: that case is the idempotent <code>200</code> above, not a conflict. · <code>409</code> <code>subscription_transition_conflict</code> — the subscription changed underneath a genuinely concurrent, different write; safe to retry.</p>
+          <p><code>200</code> · <code>404</code> · <code>409</code> <code>subscription_already_ended</code> — the subscription had already reached <code>Canceled</code> or <code>IncompleteExpired</code> before this request, which is different from a cancellation already being scheduled: that case is the idempotent <code>200</code> above, not a conflict. · <code>409</code> <code>subscription_transition_conflict</code> — the subscription changed underneath a genuinely concurrent, different write; safe to retry. · <code>409</code> <code>subscription_settlement_pending</code> — a plan or quantity change on this subscription is still waiting for its charge to be confirmed; retrying immediately returns the same answer, so retry once that change has settled.</p>
           <h4>Example: scheduled cancellation</h4>
           <pre><code>{
   "status": "Active",
