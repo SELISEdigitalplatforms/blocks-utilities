@@ -69,6 +69,29 @@ public sealed class AdyenInitiationRequestFactoryTests
         Create(provider).CaptureMode.Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData(false, 0, false, true)]    // delay sent, manualCapture omitted
+    [InlineData(false, 5, false, true)]
+    [InlineData(false, null, true, false)] // no delay: manualCapture false, as before
+    [InlineData(true, null, true, false)]  // manual: manualCapture true, no delay
+    [InlineData(true, 5, true, false)]
+    public void The_body_sent_to_adyen_never_carries_both_capture_fields(
+        bool manualCapture, int? delay, bool expectManualField, bool expectDelayField)
+    {
+        var provider = Provider();
+        provider.ManualCapture = manualCapture;
+        provider.CaptureDelayHours = delay;
+
+        // Through the stored envelope and out as the HTTP body, as the session client sends it.
+        var body = System.Text.Json.JsonSerializer.Serialize(
+            AdyenInitiationRequestFactory.ReadSession(Create(provider)));
+
+        body.Contains("\"manualCapture\"").Should().Be(expectManualField, body);
+        body.Contains("\"captureDelayHours\"").Should().Be(
+            delay is not null && !manualCapture, body);
+        (expectManualField && expectDelayField).Should().BeFalse();
+    }
+
     [Fact]
     public void Manual_capture_suppresses_the_delay_sent_to_the_provider()
     {

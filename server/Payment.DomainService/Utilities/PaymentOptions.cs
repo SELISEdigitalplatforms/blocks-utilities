@@ -97,6 +97,12 @@ public sealed class PaymentOptions
     public int MaximumCapturesPerPayment { get; set; } = 100;
     public int CaptureRecoveryMaxAttempts { get; set; } = 10;
     /// <summary>
+    /// How many times a recurring charge whose provider outcome is unknown is tried before it is
+    /// failed. Without a limit, a charge the provider keeps answering with an error is retried for
+    /// ever, and every retry is more payment work competing with everyone else's.
+    /// </summary>
+    public int PaymentRecoveryMaxAttempts { get; set; } = 10;
+    /// <summary>
     /// This service's own public HTTPS base, used to build the checkout return URL a provider
     /// sends the shopper back to. Derived rather than accepted from callers, because a
     /// caller-supplied return URL would let a request redirect the payment flow elsewhere.

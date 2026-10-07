@@ -11,6 +11,52 @@ internal static class ProviderRejectionParser
     {
         errorCode = string.Empty;
 
+        if (!TryParse(packageError, out var payload) ||
+            payload.Status is not (>= 400 and < 500) ||
+            !string.Equals(
+                payload.ErrorType,
+                "validation",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        errorCode = SanitizeErrorCode(payload.ErrorCode);
+        return !string.IsNullOrWhiteSpace(errorCode);
+    }
+
+    /// <summary>
+    /// A provider's "this merchant account is not set up for that" answer, such as Adyen's
+    /// <c>905_1</c> (no acquirer for the card brand and currency).
+    /// </summary>
+    /// <remarks>
+    /// Adyen sends these as HTTP 500, which reads as an outage. It is not one: the same request
+    /// fails the same way until someone changes the account, so retrying only repeats it. Kept
+    /// apart from <see cref="TryGetValidationErrorCode"/> because that one is deliberately limited
+    /// to 4xx, and widening it would change how every other caller reads a 5xx.
+    /// </remarks>
+    public static bool TryGetConfigurationErrorCode(string? packageError, out string errorCode)
+    {
+        errorCode = string.Empty;
+
+        if (!TryParse(packageError, out var payload) ||
+            payload.Status is not (>= 400 and < 600) ||
+            !string.Equals(
+                payload.ErrorType,
+                "configuration",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        errorCode = SanitizeErrorCode(payload.ErrorCode);
+        return !string.IsNullOrWhiteSpace(errorCode);
+    }
+
+    private static bool TryParse(string? packageError, out ProviderHttpError payload)
+    {
+        payload = null!;
+
         if (string.IsNullOrWhiteSpace(packageError) ||
             packageError.Length > MaximumErrorLength)
         {
@@ -27,20 +73,16 @@ internal static class ProviderRejectionParser
 
         try
         {
-            var payload = JsonSerializer.Deserialize<ProviderHttpError>(
+            var parsed = JsonSerializer.Deserialize<ProviderHttpError>(
                 packageError[jsonStart..(jsonEnd + 1)]);
 
-            if (payload?.Status is not (>= 400 and < 500) ||
-                !string.Equals(
-                    payload.ErrorType,
-                    "validation",
-                    StringComparison.OrdinalIgnoreCase))
+            if (parsed is null)
             {
                 return false;
             }
 
-            errorCode = SanitizeErrorCode(payload.ErrorCode);
-            return !string.IsNullOrWhiteSpace(errorCode);
+            payload = parsed;
+            return true;
         }
         catch (JsonException)
         {

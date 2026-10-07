@@ -51,6 +51,33 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
                 correlationId));
     }
 
+    public PaymentContextResolution ResolveForAccount(
+        string payerId,
+        string? organizationId,
+        string correlationId)
+    {
+        // The tenant only: the worker establishes no user, and an admin's identity is not who pays.
+        var tenantId = Present(BlocksContext.GetContext()?.TenantId);
+
+        if (tenantId is not null && Present(payerId) is { } payer)
+        {
+            return new PaymentContextResolution(
+                new PaymentExecutionContext(tenantId, "account:" + payer, Present(organizationId))
+                {
+                    ChargesOnBehalfOfAccount = true
+                },
+                null);
+        }
+
+        return new PaymentContextResolution(
+            null,
+            PaymentOperationResult.Failure(
+                PaymentFailureKind.Unauthenticated,
+                "payment_context_missing",
+                "Authenticated tenant context is unavailable.",
+                correlationId));
+    }
+
     private static string? Present(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
 

@@ -153,13 +153,13 @@ public sealed class SubscriptionCancellationServiceTests
 
     /// <summary>
     /// What the caller actually sees when the guard above fires: not a silent no-op, and not the
-    /// idempotent-duplicate success path — a genuine conflict, because nothing about this
-    /// subscription actually moved. Worth pinning down for the case that matters most: a
-    /// reservation stranded by a dying process, which widens this window from the length of one
-    /// card charge to however long it sits waiting for the recovery sweep to resolve it.
+    /// idempotent-duplicate success path — a conflict, because nothing about this subscription
+    /// actually moved. Named apart from a race, because it is not one: a reservation stranded by a
+    /// dying process keeps refusing every retry until the recovery sweep resolves it, and a caller
+    /// told only "it changed, retry" retries straight into the same answer.
     /// </summary>
     [Fact]
-    public async Task A_cancellation_blocked_by_an_in_flight_settlement_is_reported_as_a_conflict()
+    public async Task A_cancellation_blocked_by_an_in_flight_settlement_is_reported_as_a_pending_settlement()
     {
         _subscription!.SettlementReservation = new SettlementReservation
         {
@@ -178,7 +178,25 @@ public sealed class SubscriptionCancellationServiceTests
 
         result.IsSuccess.Should().BeFalse();
         result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
-        result.ErrorCode.Should().Be("subscription_transition_conflict");
+        result.ErrorCode.Should().Be("subscription_settlement_pending",
+            "a generic transition conflict reads as 'retry now', which fails the same way until " +
+            "the plan or quantity charge holding this subscription settles");
+    }
+
+    [Fact]
+    public async Task A_lost_cancellation_with_no_settlement_held_is_still_a_transition_conflict()
+    {
+        _subscriptions
+            .Setup(repository => repository.TryTransitionAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionTransition>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await Service().CancelAsync(
+            "sub-1", immediately: false, null, null, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_transition_conflict",
+            "only a held reservation is a pending settlement; any other lost write is a real race " +
+            "that a retry can win");
     }
 
     [Fact]

@@ -275,14 +275,59 @@ public sealed class PaymentWebhookIntakeServiceTests
         outcome.Should().Be(WebhookIntakeOutcome.Malformed);
     }
 
+    /// <summary>
+    /// The Adyen merchant account is shared, so Adyen delivers other systems' events here too.
+    /// Rejecting one reads as a failed delivery, and Adyen retries it indefinitely: in production
+    /// that was about 5,100 rejected deliveries a day.
+    /// </summary>
     [Fact]
-    public async Task Standard_webhook_unresolvable_reference_returns_malformed()
+    public async Task An_event_with_a_reference_this_service_did_not_issue_is_acknowledged_and_dropped()
     {
         var fixture = new Fixture();
         var item = fixture.CreateStandardItem(TenantId);
         item.MerchantReference = "not-a-routing-reference";
+        // Signed, as every real Adyen event is; unsigned it is refused by the parser before
+        // routing is ever reached, and the test would not exercise the branch it is for.
+        fixture.SignStandard(item);
+
         var outcome = await fixture.RunStandard(item);
-        outcome.Should().Be(WebhookIntakeOutcome.Malformed);
+
+        outcome.Should().Be(WebhookIntakeOutcome.Accepted,
+            "another system's event on the shared account must not be retried at us for ever");
+        fixture.Inbox.Verify(repository => repository.StoreAsync(
+                It.IsAny<PaymentWebhookInbox>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.WorkDispatcher.Verify(dispatcher => dispatcher.TryDispatchAsync(
+                It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<DateTimeOffset?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// Adyen batches events, and a batch can mix another system's event with one of ours.
+    /// Rejecting the whole delivery for the foreign one would also lose our own confirmation.
+    /// </summary>
+    [Fact]
+    public async Task A_foreign_event_in_a_batch_does_not_stop_our_own_event_being_stored()
+    {
+        var fixture = new Fixture();
+        var foreign = fixture.CreateStandardItem(TenantId);
+        foreign.MerchantReference = "another-systems-reference";
+        fixture.SignStandard(foreign);
+        var ours = fixture.CreateStandardItem(TenantId);
+        fixture.SignStandard(ours);
+        fixture.ArrangeProvider(TenantId);
+        fixture.ArrangePayment(TenantId, ours.MerchantReference!);
+
+        var outcome = await fixture.RunStandard([foreign, ours]);
+
+        outcome.Should().Be(WebhookIntakeOutcome.Accepted);
+        fixture.Inbox.Verify(repository => repository.StoreAsync(
+                It.Is<PaymentWebhookInbox>(webhook =>
+                    webhook.MerchantReference == ours.MerchantReference),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "our payment confirmation must still land, or the payment never completes");
     }
 
     [Fact]
@@ -766,13 +811,19 @@ public sealed class PaymentWebhookIntakeServiceTests
     }
 
     [Fact]
-    public async Task Token_webhook_unresolvable_shopper_returns_malformed()
+    public async Task Token_webhook_for_a_shopper_this_service_did_not_issue_is_acknowledged()
     {
         var fixture = new Fixture();
         var body = fixture.BuildTokenBody(
             "recurring.token.created", MerchantAccount, "unknown-shopper", "token-1");
+
         var outcome = await fixture.RunToken(body, fixture.SignToken(body));
-        outcome.Should().Be(WebhookIntakeOutcome.Malformed);
+
+        outcome.Should().Be(WebhookIntakeOutcome.Accepted,
+            "another system's shopper on the shared account must not be retried at us for ever");
+        fixture.Inbox.Verify(repository => repository.StoreAsync(
+                It.IsAny<PaymentWebhookInbox>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
