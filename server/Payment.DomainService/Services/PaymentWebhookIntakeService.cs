@@ -213,7 +213,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                     webhookEvent.RoutingReference,
                     out tenantId))
             {
-                return Reject(index, webhookEvent, "shopper_reference_route_invalid");
+                return AcknowledgeUnroutable(index, webhookEvent, "shopper_reference_route_invalid");
             }
         }
         else
@@ -222,7 +222,7 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                     webhookEvent.RoutingReference,
                     out var resolved))
             {
-                return Reject(index, webhookEvent, "merchant_reference_route_invalid");
+                return AcknowledgeUnroutable(index, webhookEvent, "merchant_reference_route_invalid");
             }
 
             route = resolved;
@@ -512,18 +512,29 @@ public sealed class PaymentWebhookIntakeService : IPaymentWebhookIntakeService
                 providerName,
                 cancellationToken));
 
-    private (WebhookIntakeOutcome, AdmittedWebhook?) Reject(
+    /// <summary>
+    /// Acknowledges an event whose reference this service did not issue, and drops it.
+    /// </summary>
+    /// <remarks>
+    /// The Adyen merchant account is shared with other systems, and Adyen sends every event on
+    /// the account to every webhook registered on it. An event that is not ours is therefore
+    /// routine, not malformed: rejecting it reads to Adyen as a failed delivery, which it retries
+    /// indefinitely (about 5,100 a day in production). Nothing is stored and nothing is acted on,
+    /// so the signature is not verified, for the same reason as an ignored event: verifying needs
+    /// a tenant this event cannot name.
+    /// </remarks>
+    private (WebhookIntakeOutcome, AdmittedWebhook?) AcknowledgeUnroutable(
         int index,
         ParsedWebhookEvent webhookEvent,
         string reason)
     {
-        _logger.LogWarning(
-            "Webhook event rejected Index={Index} Reason={Reason} EventCode={EventCode}",
+        _logger.LogInformation(
+            "Webhook event acknowledged without action Index={Index} Reason={Reason} EventCode={EventCode}",
             index,
             reason,
             PaymentLogValue.Label(webhookEvent.EventCode));
 
-        return (WebhookIntakeOutcome.Malformed, null);
+        return (WebhookIntakeOutcome.Accepted, null);
     }
 
     private (WebhookIntakeOutcome, AdmittedWebhook?) RejectUnauthorized(
