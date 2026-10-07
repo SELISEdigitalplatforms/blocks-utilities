@@ -2,9 +2,13 @@ using System.Net;
 using System.Text;
 using Blocks.Genesis;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Outbox;
+using Payment.DomainService.Scheduling;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Utility.DomainService.Shared.Services;
 using Worker;
@@ -335,12 +339,56 @@ public sealed class HttpHelperServicesTests
 }
 
 /// <summary>
-/// The reconciliation safety net is currently a no-op loop: the periodic work
-/// is commented out upstream. The test pins that it starts and stops cleanly so
-/// the host is never blocked by it.
+/// The direct reconciliation sweep is the safety net that finds payment work nothing dispatched:
+/// stored webhooks, recoveries and outbox events. These tests pin that it starts and stops
+/// cleanly, and that one tenant it cannot reach never stops it reaching the rest. When that
+/// broke, every tenant after the bad one was silently left with nothing to recover its payments.
 /// </summary>
 public sealed class PaymentReconciliationBackgroundServiceTests
 {
+    [Fact]
+    public async Task A_tenant_with_no_database_or_a_failure_does_not_stop_the_tenants_after_it_being_swept()
+    {
+        var recovery = new Mock<IPaymentRecoveryProcessor>();
+        recovery
+            .Setup(x => x.RecoverStaleAsync("tenant-without-database", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException(
+                "Could not initialize database for tenant",
+                new KeyNotFoundException("Database information is missing for tenant")));
+        recovery
+            .Setup(x => x.RecoverStaleAsync("tenant-that-fails", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("provider timed out"));
+
+        var services = new ServiceCollection()
+            .AddSingleton(recovery.Object)
+            .AddSingleton(Mock.Of<IPaymentTenantContextScopeFactory>())
+            .AddSingleton(Mock.Of<IPaymentCaptureRecoveryProcessor>())
+            .AddSingleton(Mock.Of<IPaymentRefundRecoveryProcessor>())
+            .AddSingleton(Mock.Of<IPaymentWebhookProcessor>())
+            .AddSingleton(Mock.Of<IStoredPaymentMethodRemovalRecoveryProcessor>())
+            .AddSingleton(Mock.Of<IPaymentMethodSetupExpiryProcessor>())
+            .AddSingleton(Mock.Of<IPaymentOutboxProcessor>())
+            .AddSingleton(Mock.Of<IPaymentRefundOutboxProcessor>())
+            .BuildServiceProvider();
+        var tenants = new Mock<IPaymentWorkTenantSource>();
+        tenants
+            .Setup(x => x.ListTenantIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["tenant-without-database", "tenant-that-fails", "healthy-tenant"]);
+        using var service = new PaymentReconciliationBackgroundService(
+            services,
+            Mock.Of<IOptionsMonitor<PaymentOptions>>(x => x.CurrentValue == new PaymentOptions()),
+            NullLogger<PaymentReconciliationBackgroundService>.Instance);
+
+        var pass = () => service.ReconcilePassAsync(tenants.Object, CancellationToken.None);
+
+        await pass.Should().NotThrowAsync(
+            "a tenant the sweep cannot reach is skipped, not a reason to abandon the pass");
+        recovery.Verify(
+            x => x.RecoverStaleAsync("healthy-tenant", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a tenant ordered after an unreachable one must still have its payments recovered");
+    }
+
     [Fact]
     public async Task The_reconciliation_service_starts_and_stops_without_faulting()
     {
