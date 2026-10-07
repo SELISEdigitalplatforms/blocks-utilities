@@ -216,6 +216,49 @@ public sealed class RecurringPaymentPreflightServiceTests
         result.ShopperReference.Should().Be("shopper-ref");
     }
 
+    [Fact]
+    public async Task ExecuteAsync_AccountCharge_UsesTheCardsOwnShopperReference()
+    {
+        // The admin adding a seat, or the worker renewing, is not the shopper who saved the card.
+        SetupConvert(true);
+        SetupRateLimit(Allowed());
+        SetupProvider(EnabledProvider());
+        var method = ActiveMethod();
+        method.ShopperReference = "saved-by-another-admin";
+        SetupStoredMethod(method);
+
+        var result = await CreateService().ExecuteAsync(
+            Request(), Guid.NewGuid().ToString(),
+            _context with { ChargesOnBehalfOfAccount = true }, "corr", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("the account already vouched for the card it named");
+        result.ShopperReference.Should().Be(
+            "saved-by-another-admin",
+            "Adyen only charges a token under the shopper reference it was stored with");
+        _shopperReferences.Verify(
+            s => s.TryCreate(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), out It.Ref<string>.IsAny),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AccountChargeOnACardWithNoShopperReference_ReturnsNotFound()
+    {
+        SetupConvert(true);
+        SetupRateLimit(Allowed());
+        SetupProvider(EnabledProvider());
+        var method = ActiveMethod();
+        method.ShopperReference = string.Empty;
+        SetupStoredMethod(method);
+
+        var result = await CreateService().ExecuteAsync(
+            Request(), Guid.NewGuid().ToString(),
+            _context with { ChargesOnBehalfOfAccount = true }, "corr", CancellationToken.None);
+
+        result.Failure!.ErrorCode.Should().Be(
+            "stored_payment_method_not_found",
+            "a card no shopper owns must not become chargeable just because nobody is signed in");
+    }
+
     private delegate void TryCreateCallback(string tenantId, string actorId, string key, out string reference);
     private delegate void TryConvertCallback(decimal amount, string currency, out long value);
 }

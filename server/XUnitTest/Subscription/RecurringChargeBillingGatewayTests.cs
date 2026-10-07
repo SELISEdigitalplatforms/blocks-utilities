@@ -73,12 +73,14 @@ public sealed class RecurringChargeBillingGatewayTests
     {
         CreateRecurringPaymentRequest? captured = null;
         _recurringPayments
-            .Setup(service => service.CreateRecurringPaymentAsync(
+            .Setup(service => service.CreateAccountRecurringPaymentAsync(
                 It.IsAny<CreateRecurringPaymentRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((CreateRecurringPaymentRequest request, string _, string _, CancellationToken _) =>
+            .Callback((CreateRecurringPaymentRequest request, string _, string? _, string _, string _, CancellationToken _) =>
                 captured = request)
             .ReturnsAsync(PaymentOperationResult.Success(
                 new PaymentResponse { PaymentDetailId = "payment-1" }, "corr-1"));
@@ -105,16 +107,45 @@ public sealed class RecurringChargeBillingGatewayTests
     }
 
     [Fact]
+    public async Task An_Adyen_charge_is_made_on_the_subscribers_behalf_under_the_merchants_provider()
+    {
+        // Charged as the signed-in caller, a worker renewal or settlement replay had no shopper at all
+        // and an admin adding a seat was not the shopper who saved the card, so neither could pay.
+        _recurringPayments
+            .Setup(service => service.CreateAccountRecurringPaymentAsync(
+                It.IsAny<CreateRecurringPaymentRequest>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse { PaymentDetailId = "payment-1" }, "corr-1"));
+
+        await Gateway().ChargeAsync(Request(), "idem-1", "corr-1", CancellationToken.None);
+
+        _recurringPayments.Verify(
+            service => service.CreateAccountRecurringPaymentAsync(
+                It.IsAny<CreateRecurringPaymentRequest>(), "org-subscriber", "org-1",
+                "idem-1", "corr-1", It.IsAny<CancellationToken>()),
+            Times.Once);
+        _recurringPayments.Verify(
+            service => service.CreateRecurringPaymentAsync(
+                It.IsAny<CreateRecurringPaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the caller-bound path matches no subscription card from the worker");
+    }
+
+    [Fact]
     public async Task An_untaxed_Adyen_charge_records_no_tax_mode_rather_than_a_default_one()
     {
         CreateRecurringPaymentRequest? captured = null;
         _recurringPayments
-            .Setup(service => service.CreateRecurringPaymentAsync(
+            .Setup(service => service.CreateAccountRecurringPaymentAsync(
                 It.IsAny<CreateRecurringPaymentRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((CreateRecurringPaymentRequest request, string _, string _, CancellationToken _) =>
+            .Callback((CreateRecurringPaymentRequest request, string _, string? _, string _, string _, CancellationToken _) =>
                 captured = request)
             .ReturnsAsync(PaymentOperationResult.Success(
                 new PaymentResponse { PaymentDetailId = "payment-1" }, "corr-1"));
@@ -134,12 +165,14 @@ public sealed class RecurringChargeBillingGatewayTests
     {
         CreateRecurringPaymentRequest? captured = null;
         _recurringPayments
-            .Setup(service => service.CreateRecurringPaymentAsync(
+            .Setup(service => service.CreateAccountRecurringPaymentAsync(
                 It.IsAny<CreateRecurringPaymentRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .Callback((CreateRecurringPaymentRequest request, string _, string _, CancellationToken _) =>
+            .Callback((CreateRecurringPaymentRequest request, string _, string? _, string _, string _, CancellationToken _) =>
                 captured = request)
             .ReturnsAsync(PaymentOperationResult.Success(
                 new PaymentResponse { PaymentDetailId = "payment-1" }, "corr-1"));

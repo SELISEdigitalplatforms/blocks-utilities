@@ -29,4 +29,22 @@ public sealed record PaymentExecutionContext(
     string? OrganizationId,
     string? UserId = null,
     string? UserName = null,
-    string? Email = null);
+    string? Email = null)
+{
+    /// <summary>
+    /// The charge is made for an account by trusted in-process code, not by a person at a keyboard.
+    /// </summary>
+    /// <remarks>
+    /// A subscription charge has no shopper of its own: it runs from the worker, or from whichever
+    /// admin happened to add a seat, neither of whom is the person who saved the card. Deriving the
+    /// shopper reference from <see cref="ActorId"/> there matched nobody's card, so a renewal or a
+    /// settlement replay could never pay. The caller has already resolved the card from the account
+    /// that owns it, so the card's own shopper reference is used — which is also the only value the
+    /// provider accepts for a token it issued under it.
+    /// <para>
+    /// Only ever set by <see cref="IPaymentExecutionContextResolver.ResolveForAccount"/>, never from
+    /// a request body: a caller able to set it could charge any card in the tenant.
+    /// </para>
+    /// </remarks>
+    public bool ChargesOnBehalfOfAccount { get; init; }
+}

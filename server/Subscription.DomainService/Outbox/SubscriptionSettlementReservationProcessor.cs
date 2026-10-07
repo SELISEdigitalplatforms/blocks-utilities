@@ -20,11 +20,13 @@ namespace Subscription.DomainService.Outbox;
 /// the half that acts on one: it establishes what the provider actually did and finishes the job
 /// the original request could not.
 /// <para>
-/// Absence of a payment record is never taken as proof that no money moved — a request that timed
-/// out may have been collected and never answered. Where the record is missing, the charge is
-/// replayed under the reservation's own idempotency key, which either returns the charge already
-/// raised or raises the one that never was. Only an answer that states the money did not move
-/// releases the reservation.
+/// Whether a missing payment record proves no money moved depends on the gateway. The recurring
+/// charge path (Adyen and every other non-Stripe provider) writes its record under the charge key
+/// before it contacts the provider, so once the grace window has passed, no record means the
+/// provider was never asked and the reservation is released. A Stripe invoice is recorded only after
+/// it settles, so there a missing record proves nothing and the charge is replayed under the
+/// reservation's own idempotency key, which either returns the charge already raised or raises the
+/// one that never was.
 /// </para>
 /// </remarks>
 public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSettlementReservationProcessor
@@ -155,9 +157,22 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
 
         if (payment is null)
         {
-            // No record, which is not the same as no charge. Ask the provider by replaying under
-            // the reservation's key rather than assuming.
-            return await ReplayAsync(subscription, reservation, cancellationToken);
+            // A Stripe invoice is recorded only once paid, so its missing record is not the same
+            // as no charge: ask the provider by replaying under the reservation's key.
+            if (string.Equals(
+                    reservation.ProviderName,
+                    PaymentConstants.StripeProvider,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return await ReplayAsync(subscription, reservation, cancellationToken);
+            }
+
+            // The recurring charge path records the payment before it calls the provider, and the
+            // grace window has passed, so nothing reached the provider. Replaying here used to be
+            // the only way out, and it never worked from the worker — it left the reservation, and
+            // with it cancellation and renewal, blocked forever.
+            return await ReleaseAsync(
+                subscription, reservation, "no charge was ever recorded", cancellationToken);
         }
 
         if (TerminalFailureStatuses.Contains(payment.PaymentStatus))
