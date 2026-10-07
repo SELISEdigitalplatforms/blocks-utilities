@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="XUnitTest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Utility.DomainService\Utility.DomainService.csproj" />
     <ProjectReference Include="..\Payment.DomainService\Payment.DomainService.csproj" />
     <ProjectReference Include="..\Subscription.DomainService\Subscription.DomainService.csproj" />

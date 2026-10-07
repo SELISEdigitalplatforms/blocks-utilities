@@ -48,16 +48,9 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
 
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            // The tenant being reconciled when the pass failed, so the failure is logged under it.
-            string? currentTenantId = null;
-
             try
             {
-                foreach (var tenantId in await _tenants.ListTenantIdsAsync(stoppingToken))
-                {
-                    currentTenantId = tenantId;
-                    await ReconcileTenantAsync(tenantId, stoppingToken);
-                }
+                await ReconcilePassAsync(_tenants, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -65,10 +58,42 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
             }
             catch (Exception exception)
             {
-                _logger.LogError(
-                    exception,
-                    "Payment reconciliation pass failed and will retry TenantId={TenantId}",
-                    PaymentLogValue.Id(currentTenantId));
+                // Only the roster read lands here now; a tenant's failure is handled per tenant.
+                _logger.LogError(exception, "Payment reconciliation pass failed and will retry");
+            }
+        }
+    }
+
+    /// <summary>One pass over the tenant roster. Internal so a test can run a pass without the timer.</summary>
+    internal async Task ReconcilePassAsync(IPaymentWorkTenantSource tenants, CancellationToken stoppingToken)
+    {
+        foreach (var tenantId in await tenants.ListTenantIdsAsync(stoppingToken))
+        {
+            try
+            {
+                await ReconcileTenantAsync(tenantId, stoppingToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One tenant's failure ends that tenant's pass, never the sweep. The roster is
+                // discovered rather than curated, so it contains tenants with no database here;
+                // letting that escape aborted every pass at the first such tenant, and every
+                // tenant ordered after it was never swept (seen in production on 2026-10-07,
+                // where the queue had been the only thing reaching them). Same rule as the
+                // subscription sweep: an unprovisioned tenant gets one line, anything else its trace.
+                if (exception.GetBaseException() is KeyNotFoundException)
+                {
+                    _logger.LogWarning(
+                        "Payment reconciliation skipped a tenant with no database TenantId={TenantId}",
+                        PaymentLogValue.Id(tenantId));
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "Payment reconciliation skipped a tenant after an error TenantId={TenantId}",
+                        PaymentLogValue.Id(tenantId));
+                }
             }
         }
     }
