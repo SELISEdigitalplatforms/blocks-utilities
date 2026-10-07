@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Outbox;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Services;
@@ -50,6 +51,63 @@ public sealed class PaymentRecoveryProcessorTests
         processed.Should().Be(2);
         service.Verify(s => s.RecoverAsync(
             It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData(2, 10, false)]     // 60s backoff, updated 10s ago: not due yet
+    [InlineData(2, 70, true)]      // 60s backoff, updated 70s ago: due
+    [InlineData(1, 31, true)]      // first retry waits 30s
+    public async Task A_recurring_charge_with_an_unknown_outcome_waits_out_its_backoff(
+        int attempts, int secondsSinceUpdate, bool retried)
+    {
+        var repository = new Mock<IPaymentRepository>();
+        repository.Setup(r => r.GetStaleInitiationsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<PaymentDetail>
+            {
+                new()
+                {
+                    ItemId = "payment-1",
+                    TenantId = TenantId,
+                    PaymentFlow = PaymentFlows.RecurringCharge,
+                    PaymentStatus = PaymentStatuses.InitiationUnknown,
+                    InitiationAttemptCount = attempts,
+                    LastUpdatedDateUtc = DateTime.UtcNow.AddSeconds(-secondsSinceUpdate)
+                }
+            });
+        var service = new Mock<IPaymentService>();
+
+        await Create(repository, service).RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        service.Verify(s => s.RecoverAsync(
+            It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()),
+            retried ? Times.Once() : Times.Never());
+    }
+
+    [Fact]
+    public async Task Another_flows_unknown_payment_is_not_held_to_the_recurring_backoff()
+    {
+        var repository = new Mock<IPaymentRepository>();
+        repository.Setup(r => r.GetStaleInitiationsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<PaymentDetail>
+            {
+                new()
+                {
+                    ItemId = "payment-1",
+                    TenantId = TenantId,
+                    PaymentFlow = PaymentFlows.HostedCheckout,
+                    PaymentStatus = PaymentStatuses.InitiationUnknown,
+                    InitiationAttemptCount = 5,
+                    LastUpdatedDateUtc = DateTime.UtcNow
+                }
+            });
+        var service = new Mock<IPaymentService>();
+
+        await Create(repository, service).RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        service.Verify(s => s.RecoverAsync(
+            It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

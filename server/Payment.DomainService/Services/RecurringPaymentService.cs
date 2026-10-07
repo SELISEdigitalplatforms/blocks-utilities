@@ -31,15 +31,45 @@ public sealed class RecurringPaymentService :
         _initiation = initiation;
     }
 
-    public async Task<PaymentOperationResult>
+    public Task<PaymentOperationResult>
         CreateRecurringPaymentAsync(
             CreateRecurringPaymentRequest request,
             string idempotencyKey,
             string correlationId,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken) =>
+        CreateAsync(
+            request,
+            _contextResolver.Resolve(correlationId),
+            idempotencyKey,
+            correlationId,
+            cancellationToken);
+
+    public Task<PaymentOperationResult>
+        CreateAccountRecurringPaymentAsync(
+            CreateRecurringPaymentRequest request,
+            string payerId,
+            string? merchantOrganizationId,
+            string idempotencyKey,
+            string correlationId,
+            CancellationToken cancellationToken) =>
+        CreateAsync(
+            request,
+            _contextResolver.ResolveForAccount(
+                payerId,
+                merchantOrganizationId,
+                correlationId),
+            idempotencyKey,
+            correlationId,
+            cancellationToken);
+
+    private async Task<PaymentOperationResult> CreateAsync(
+        CreateRecurringPaymentRequest request,
+        PaymentContextResolution contextResolution,
+        string idempotencyKey,
+        string correlationId,
+        CancellationToken cancellationToken)
     {
-        var contextResolution =
-            _contextResolver.Resolve(correlationId);
+        ArgumentNullException.ThrowIfNull(request);
 
         if (!contextResolution.IsSuccess)
         {

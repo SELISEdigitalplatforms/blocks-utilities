@@ -149,11 +149,15 @@ public sealed class RecurringPaymentPreflightService :
                 rateLimit);
         }
 
-        if (!_shopperReferences.TryCreate(
+        // An account charge takes the card's own reference below, once the card is loaded.
+        var shopperReference = string.Empty;
+
+        if (!context.ChargesOnBehalfOfAccount &&
+            !_shopperReferences.TryCreate(
                 context.TenantId,
                 context.ActorId,
                 provider.ShopperReferenceHmacKey ?? string.Empty,
-                out var shopperReference))
+                out shopperReference))
         {
             return Failed(
                 PaymentOperationResult.Failure(
@@ -170,7 +174,14 @@ public sealed class RecurringPaymentPreflightService :
                 request.StoredPaymentMethodId,
                 cancellationToken);
 
+        if (context.ChargesOnBehalfOfAccount &&
+            !string.IsNullOrWhiteSpace(storedPaymentMethod?.ShopperReference))
+        {
+            shopperReference = storedPaymentMethod.ShopperReference;
+        }
+
         if (storedPaymentMethod == null ||
+            string.IsNullOrWhiteSpace(shopperReference) ||
             !FixedTimeEquals(
                 storedPaymentMethod.ShopperReference,
                 shopperReference))

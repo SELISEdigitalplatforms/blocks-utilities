@@ -457,6 +457,20 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 correlationId);
         }
 
+        // Not a race but a hold: the transition refuses to land on a plan or quantity change whose
+        // charge is still unconfirmed, and keeps refusing until the reservation sweep resolves it.
+        // Reported apart from a real conflict so a caller stops retrying straight away into the
+        // same answer.
+        if (latest?.SettlementReservation is not null)
+        {
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_settlement_pending",
+                "A payment for a plan or quantity change on this subscription is still being " +
+                "confirmed. Try cancelling again once it settles.",
+                correlationId);
+        }
+
         return Failure(
             PaymentFailureKind.Conflict,
             "subscription_transition_conflict",

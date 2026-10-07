@@ -118,6 +118,23 @@ public sealed class CheckoutApiStoredPaymentChargeProviderGateway :
                     SafeErrorCode: safeErrorCode);
             }
 
+            // A merchant-account setup problem, not an outage. Treated as a rejection so the
+            // payment fails once and visibly, instead of being retried against an account that
+            // will keep refusing it.
+            if (ProviderRejectionParser.TryGetConfigurationErrorCode(
+                    error,
+                    out var configurationErrorCode))
+            {
+                _logger.LogWarning(
+                    "Stored payment charge refused by the provider's merchant configuration Provider={Provider} ProviderErrorCode={ProviderErrorCode}",
+                    PaymentLogValue.Label(provider.ProviderName),
+                    configurationErrorCode);
+
+                return new StoredPaymentChargeProviderResult(
+                    StoredPaymentChargeOutcome.Rejected,
+                    SafeErrorCode: configurationErrorCode);
+            }
+
             _logger.LogWarning(
                 "Stored payment charge returned no usable response Provider={Provider} HasPackageError={HasPackageError}",
                 PaymentLogValue.Label(provider.ProviderName),

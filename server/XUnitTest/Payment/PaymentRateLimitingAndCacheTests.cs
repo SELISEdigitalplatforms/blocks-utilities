@@ -99,6 +99,31 @@ public sealed class PaymentRateLimitingAndCacheTests
         }
     }
 
+    /// <summary>
+    /// The worker establishes a tenant and nobody else. Charged as a caller, every background
+    /// subscription charge failed here before it reached the provider; charged for the account, it
+    /// needs only the tenant.
+    /// </summary>
+    [Fact]
+    public void Resolver_resolves_an_account_charge_from_the_workers_tenant_only_context()
+    {
+        using (new PaymentTenantContextScopeFactory().Establish("tenant-1"))
+        {
+            new PaymentExecutionContextResolver().Resolve("corr-4").IsSuccess.Should().BeFalse(
+                "this is the failure that stranded settlement reservations");
+
+            var resolution = new PaymentExecutionContextResolver()
+                .ResolveForAccount("org-subscriber", "org-merchant", "corr-4");
+
+            resolution.IsSuccess.Should().BeTrue("a subscription charge must work from the worker");
+            resolution.Context!.TenantId.Should().Be("tenant-1");
+            resolution.Context.ActorId.Should().Be("account:org-subscriber");
+            resolution.Context.OrganizationId.Should().Be(
+                "org-merchant", "the provider is configured under the merchant, not the caller");
+            resolution.Context.ChargesOnBehalfOfAccount.Should().BeTrue();
+        }
+    }
+
     [Fact]
     public void Resolver_returns_failure_when_tenant_context_missing()
     {
