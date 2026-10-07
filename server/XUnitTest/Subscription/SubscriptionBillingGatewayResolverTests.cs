@@ -56,8 +56,9 @@ public sealed class SubscriptionBillingGatewayResolverTests
         // Reaching StripeInvoiceBillingGateway's own provider resolution (and getting nothing
         // back, since it was stubbed to null) is the proof it was the one actually called.
         recurring.Verify(
-            service => service.CreateRecurringPaymentAsync(
+            service => service.CreateAccountRecurringPaymentAsync(
                 It.IsAny<CreateRecurringPaymentRequest>(),
+                It.IsAny<string>(), It.IsAny<string?>(),
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -67,8 +68,9 @@ public sealed class SubscriptionBillingGatewayResolverTests
     {
         var recurring = new Mock<IRecurringPaymentService>();
         recurring
-            .Setup(service => service.CreateRecurringPaymentAsync(
+            .Setup(service => service.CreateAccountRecurringPaymentAsync(
                 It.IsAny<CreateRecurringPaymentRequest>(),
+                It.IsAny<string>(), It.IsAny<string?>(),
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(PaymentOperationResult.Failure(
                 PaymentFailureKind.Unavailable,
@@ -104,8 +106,9 @@ public sealed class SubscriptionBillingGatewayResolverTests
             CancellationToken.None);
 
         recurring.Verify(
-            service => service.CreateRecurringPaymentAsync(
+            service => service.CreateAccountRecurringPaymentAsync(
                 It.IsAny<CreateRecurringPaymentRequest>(),
+                It.IsAny<string>(), It.IsAny<string?>(),
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Once);
         stripeInvoices.VerifyNoOtherCalls();

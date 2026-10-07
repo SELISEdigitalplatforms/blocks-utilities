@@ -5,6 +5,7 @@ using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
@@ -179,8 +180,8 @@ public sealed class SubscriptionSettlementReservationProcessorTests
     [Fact]
     public async Task No_payment_record_is_resolved_by_replaying_the_charge_not_by_assuming()
     {
-        // A request that timed out may have been collected and never answered, so the absence of a
-        // record proves nothing. The replay carries the reservation's own key, so a provider that
+        // A Stripe invoice is recorded only once paid, and a request that timed out may have been
+        // collected and never answered, so the absence of a record proves nothing. The replay carries the reservation's own key, so a provider that
         // already collected answers with that charge rather than raising a second one.
         var resolved = await Processor().RecoverStaleAsync(TenantId, default);
 
@@ -203,6 +204,32 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                 It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), "pay-2",
                 It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task An_adyen_reservation_with_no_payment_record_is_given_back_without_charging()
+    {
+        // The recurring charge path writes its payment under the charge key before it calls the
+        // provider, so past the grace window a missing record means Adyen was never asked.
+        // Replaying instead ran from the worker with no shopper to charge as, failed on every pass,
+        // and left the subscriber unable to cancel or renew.
+        _subscription.SettlementReservation!.ProviderName = PaymentConstants.AdyenOnlineProvider;
+
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(1, "a reservation nothing was charged for must not block the subscription");
+        _subscriptions.Verify(
+            repository => repository.TryReleaseSettlementAsync(
+                TenantId, "sub-1", ReservationId, It.IsAny<CancellationToken>()),
+            Times.Once,
+            "otherwise cancellation and renewal stay refused for good");
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "charging now would bill the subscriber for a change the request already gave up on");
+        VerifyNeverPromoted();
     }
 
     [Fact]

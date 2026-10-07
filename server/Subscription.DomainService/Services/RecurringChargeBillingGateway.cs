@@ -52,7 +52,9 @@ public sealed class RecurringChargeBillingGateway : ISubscriptionBillingGateway
                 correlationId);
         }
 
-        var result = await _recurringPayments.CreateRecurringPaymentAsync(
+        // On the account's behalf rather than the caller's: the card came from the billing account,
+        // and neither the worker nor whichever admin added a seat is the shopper who saved it.
+        var result = await _recurringPayments.CreateAccountRecurringPaymentAsync(
             new CreateRecurringPaymentRequest
             {
                 ProviderName = request.ProviderName,
@@ -86,6 +88,10 @@ public sealed class RecurringChargeBillingGateway : ISubscriptionBillingGateway
                     Settlement = request.Settlement
                 }
             },
+            request.SubscriberOrganizationId ?? request.OrganizationId,
+            // The merchant's scope, as the Stripe gateway resolves it — not the caller's, which is
+            // empty in the worker.
+            request.OrganizationId,
             idempotencyKey,
             correlationId,
             cancellationToken);
