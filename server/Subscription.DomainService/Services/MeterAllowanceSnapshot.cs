@@ -49,6 +49,11 @@ public static class MeterAllowanceSnapshot
                 subscription.ItemId,
                 period.Key,
                 cancellationToken))
+            // Only the subscription-wide counter. A user-wise meter keeps one counter per place
+            // under the same MeterKey, and rating already reads this snapshot as the plan's
+            // per-place figure (MeasurePlacesAsync) -- keying those in too threw on the second
+            // place and failed every cancellation, renewal and plan change that captured it.
+            .Where(counter => Outbox.SubscriptionUsageRatingProcessor.SeatOf(counter) is null)
             .ToDictionary(counter => counter.MeterKey, StringComparer.Ordinal);
 
         var snapshot = new Dictionary<string, decimal>(StringComparer.Ordinal);
