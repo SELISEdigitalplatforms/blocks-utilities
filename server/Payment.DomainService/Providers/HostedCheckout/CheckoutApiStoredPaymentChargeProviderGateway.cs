@@ -1,4 +1,5 @@
-using Blocks.Genesis;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
@@ -9,22 +10,34 @@ using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Providers.HostedCheckout;
 
+/// <summary>
+/// Charges a stored Adyen card off-session through the Checkout API's <c>/payments</c>.
+/// </summary>
+/// <remarks>
+/// Sent on a plain <see cref="HttpClient"/>, not through the platform's <c>IHttpService</c>. That
+/// service retries every 5xx up to three times, and Adyen answers a merchant-configuration refusal
+/// (<c>905_1</c>, no acquirer for the card and currency) with HTTP 500: the same POST went out four
+/// times, adding six to eleven seconds to a payer's request, and could never succeed. A single
+/// attempt is enough here because nothing is lost by stopping: an answer that is not a clear accept
+/// or refusal is recorded as unknown and settled by the recovery sweep under the same idempotency
+/// key, which is the retry this charge actually needs.
+/// </remarks>
 public sealed class CheckoutApiStoredPaymentChargeProviderGateway :
     IStoredPaymentChargeProviderGateway
 {
-    private readonly IHttpService _httpService;
+    private readonly IHttpClientFactory _httpClients;
     private readonly AdyenEndpointPolicy _endpointPolicy;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<CheckoutApiStoredPaymentChargeProviderGateway>
         _logger;
 
     public CheckoutApiStoredPaymentChargeProviderGateway(
-        IHttpService httpService,
+        IHttpClientFactory httpClients,
         AdyenEndpointPolicy endpointPolicy,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<CheckoutApiStoredPaymentChargeProviderGateway> logger)
     {
-        _httpService = httpService;
+        _httpClients = httpClients;
         _endpointPolicy = endpointPolicy;
         _options = options;
         _logger = logger;
@@ -53,29 +66,16 @@ public sealed class CheckoutApiStoredPaymentChargeProviderGateway :
             provider.ApiBaseUrl.EndsWith('/')
                 ? provider.ApiBaseUrl
                 : provider.ApiBaseUrl + "/");
-        var requestUrl = new Uri(baseUri, "payments").AbsoluteUri;
-        var headers = new Dictionary<string, string>(
-            StringComparer.OrdinalIgnoreCase)
-        {
-            ["x-api-key"] = provider.ApiKey,
-            ["idempotency-key"] = idempotencyKey
-        };
+        var requestUrl = new Uri(baseUri, "payments");
 
         try
         {
-            var (response, error) =
-                await _httpService.SendRequest<
-                    StoredPaymentChargeResponse>(
-                    HttpMethod.Post,
-                    requestUrl,
-                    request,
-                    "application/json",
-                    headers,
-                    cancellationToken,
-                    Math.Clamp(
-                        _options.CurrentValue.ProviderTimeoutSeconds,
-                        1,
-                        60));
+            var (response, error) = await SendAsync(
+                requestUrl,
+                request,
+                provider.ApiKey,
+                idempotencyKey,
+                cancellationToken);
 
             if (response is
                 {
@@ -132,7 +132,8 @@ public sealed class CheckoutApiStoredPaymentChargeProviderGateway :
 
                 return new StoredPaymentChargeProviderResult(
                     StoredPaymentChargeOutcome.Rejected,
-                    SafeErrorCode: configurationErrorCode);
+                    SafeErrorCode: configurationErrorCode,
+                    MerchantConfiguration: true);
             }
 
             _logger.LogWarning(
@@ -167,10 +168,53 @@ public sealed class CheckoutApiStoredPaymentChargeProviderGateway :
         }
     }
 
+    /// <summary>
+    /// One POST, answered as the platform's <c>IHttpService</c> answers it: the parsed body on
+    /// success, otherwise the raw error body, which <see cref="ProviderRejectionParser"/> reads.
+    /// </summary>
+    private async Task<(StoredPaymentChargeResponse? Response, string Error)> SendAsync(
+        Uri requestUrl,
+        StoredPaymentChargeRequest request,
+        string apiKey,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        using var client = _httpClients.CreateClient(
+            nameof(CheckoutApiStoredPaymentChargeProviderGateway));
+        // A timeout surfaces as a cancellation the caller did not ask for, which ChargeAsync
+        // records as Timeout - an unknown outcome the recovery sweep settles.
+        client.Timeout = TimeSpan.FromSeconds(
+            Math.Clamp(_options.CurrentValue.ProviderTimeoutSeconds, 1, 60));
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, requestUrl)
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(request),
+                Encoding.UTF8,
+                "application/json")
+        };
+        message.Headers.TryAddWithoutValidation("x-api-key", apiKey);
+        message.Headers.TryAddWithoutValidation("idempotency-key", idempotencyKey);
+
+        using var response = await client.SendAsync(message, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return (null, body);
+        }
+
+        try
+        {
+            return (JsonSerializer.Deserialize<StoredPaymentChargeResponse>(body), string.Empty);
+        }
+        catch (JsonException)
+        {
+            return (null, "Error deserializing response");
+        }
+    }
+
     private static bool IsUnavailable(string? error) =>
-        error?.Contains(
-            "circuit",
-            StringComparison.OrdinalIgnoreCase) == true ||
         error?.Contains(
             "unavailable",
             StringComparison.OrdinalIgnoreCase) == true;

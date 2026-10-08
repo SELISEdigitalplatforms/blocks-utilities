@@ -6,6 +6,13 @@ public static class PaymentConstants
     public const string StripeProvider = "STRIPE";
 
     /// <summary>
+    /// A stored-card charge the provider refused because of the merchant's own setup (Adyen's
+    /// <c>905_1</c>), not the card. Read by the subscription module to answer the payer honestly.
+    /// </summary>
+    public const string RecurringPaymentMerchantConfigurationErrorCode =
+        "recurring_payment_merchant_configuration";
+
+    /// <summary>
     /// Adyen's recurring model for a shopper-present token later charged on a fixed, merchant-set
     /// schedule with nobody present -- a subscription renewal, specifically -- as distinct from
     /// <see cref="AdyenCardOnFileRecurringModel"/>. See

@@ -357,6 +357,32 @@ public sealed class SubscriptionQuantityChangeServiceTests
             "seats must never be granted by a charge that failed");
     }
 
+    [Fact]
+    public async Task A_merchant_configuration_refusal_is_not_reported_as_a_declined_card()
+    {
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Callback(() => _calls.Add("charge"))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.ProviderRejected,
+                global::Payment.DomainService.Utilities.PaymentConstants
+                    .RecurringPaymentMerchantConfigurationErrorCode,
+                "The payment provider is not set up to take this payment.",
+                "corr-1"));
+
+        var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
+
+        result.ErrorCode.Should().Be(
+            "subscription_quantity_charge_provider_misconfigured",
+            "telling the payer their card declined sends them to try another card against a " +
+            "merchant account that refuses every one");
+        _calls.Should().Equal(
+            ["reserve", "charge", "release"],
+            "nothing was charged, so the reservation is released and the quantity is unchanged");
+    }
+
     [Theory]
     [InlineData(PaymentFailureKind.Timeout)]
     [InlineData(PaymentFailureKind.Unavailable)]

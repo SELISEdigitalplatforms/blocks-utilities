@@ -766,6 +766,7 @@ class SubscriptionSimulationService {
 const QUANTITY_ERROR_CODES = [
   "subscription_quantity_charge_unresolved",
   "subscription_quantity_charge_failed",
+  "subscription_quantity_charge_provider_misconfigured",
   "subscription_quantity_change_in_flight",
   "subscription_cancellation_scheduled",
   "subscription_version_conflict",
