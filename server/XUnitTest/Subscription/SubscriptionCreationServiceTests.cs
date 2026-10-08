@@ -97,6 +97,49 @@ public sealed class SubscriptionCreationServiceTests
         _created!.CurrencyCode.Should().Be("CHF");
     }
 
+    [Fact]
+    public async Task The_tenant_is_put_on_the_sweep_roster_before_its_subscription_exists()
+    {
+        var order = new List<string>();
+        var roster = new Mock<ISubscriptionTenantRoster>();
+        roster
+            .Setup(r => r.RecordAsync(TenantId, It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("roster"))
+            .Returns(Task.CompletedTask);
+        _subscriptions
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("subscription"))
+            .ReturnsAsync(true);
+
+        var result = await ServiceWithRoster(roster.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        order.Should().Equal(["roster", "subscription"],
+            "the repair sweep visits only rostered tenants, so a subscription written first could " +
+            "be one no sweep ever repairs");
+    }
+
+    [Fact]
+    public async Task A_subscribe_whose_tenant_cannot_be_rostered_writes_no_subscription()
+    {
+        var roster = new Mock<ISubscriptionTenantRoster>();
+        roster
+            .Setup(r => r.RecordAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("root database unreachable"));
+
+        var act = () => ServiceWithRoster(roster.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        await act.Should().ThrowAsync<TimeoutException>();
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "refusing is free only while nothing has been written");
+    }
+
     /// <summary>
     /// Copied onto the subscription like every other term, so a later edit to the catalogue
     /// cannot rewrite what this subscriber was asked for at signup — and so checkout can decide
@@ -1606,6 +1649,17 @@ public sealed class SubscriptionCreationServiceTests
         NullLogger<SubscriptionCreationService>.Instance,
         _time,
         billingProfile: _billingProfile.Object);
+
+    private SubscriptionCreationService ServiceWithRoster(ISubscriptionTenantRoster roster) => new(
+        _catalogue.Object,
+        _subscriptions.Object,
+        _discounts.Object,
+        _accounts.Object,
+        new CreateSubscriptionRequestValidator(),
+        NullLogger<SubscriptionCreationService>.Instance,
+        _time,
+        billingProfile: _billingProfile.Object,
+        roster: roster);
 
     /// <summary>
     /// The same service, but with a merchant profile and readiness gate wired in -- the shape a

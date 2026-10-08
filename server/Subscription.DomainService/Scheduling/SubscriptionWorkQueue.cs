@@ -9,7 +9,7 @@ namespace Subscription.DomainService.Scheduling;
 /// </summary>
 /// <remarks>
 /// Addressed by connection string and database name directly, the same door
-/// <c>RootDatabaseTenantSource</c> uses: background work has no ambient tenant to resolve from, and
+/// <c>SubscriptionTenantRoster</c> uses: background work has no ambient tenant to resolve from, and
 /// the whole point of this collection is to be readable across every tenant at once.
 /// </remarks>
 public sealed class SubscriptionWorkQueue : ISubscriptionWorkQueue
