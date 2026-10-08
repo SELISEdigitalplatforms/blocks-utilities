@@ -414,6 +414,10 @@ const explain = (code: string, error: unknown): string => {
       return "An earlier change is still being settled with the payment provider. Try again in a few minutes.";
     case "subscription_quantity_charge_failed":
       return "The saved card declined the charge. Nothing changed: the quantity is exactly as it was.";
+    // Not the card: the merchant's payment provider refused it. Another card fails the same way,
+    // so the payer is told who has to act instead of being sent to change cards.
+    case "subscription_quantity_charge_provider_misconfigured":
+      return "The payment provider is not set up to take this charge. Your card was not declined and was not charged. Nothing changed: contact support.";
     case "subscription_quantity_charge_unresolved":
       return "The payment provider did not answer, so whether the charge went through is not yet known. Do not try again — reload in a few minutes and the outcome will be settled by then.";
     case "subscription_payment_method_missing":

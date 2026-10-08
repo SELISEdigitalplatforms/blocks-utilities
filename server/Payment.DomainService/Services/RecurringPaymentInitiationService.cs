@@ -367,6 +367,25 @@ public sealed class RecurringPaymentInitiationService :
                 correlationId);
         }
 
+        if (providerResult is
+            {
+                Outcome: StoredPaymentChargeOutcome.Rejected,
+                MerchantConfiguration: true
+            })
+        {
+            // Still a settled refusal - nothing was charged - but named apart from a decline, so
+            // nobody upstream tells the payer to try another card for a fault in the merchant's
+            // own provider setup.
+            return await FailAsync(
+                payment,
+                leaseId,
+                PaymentFailureKind.ProviderRejected,
+                PaymentConstants.RecurringPaymentMerchantConfigurationErrorCode,
+                "The payment provider is not set up to take this payment.",
+                correlationId,
+                cancellationToken);
+        }
+
         if (providerResult.Outcome ==
             StoredPaymentChargeOutcome.Rejected)
         {

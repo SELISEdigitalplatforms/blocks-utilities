@@ -440,6 +440,34 @@ describe("ChangeQuantityDialog", () => {
     );
   });
 
+  // Adyen's 905_1 used to be reported as a decline, sending payers to try card after card against
+  // a merchant account that refuses every one of them.
+  it("does not blame the card when the payment provider is misconfigured", async () => {
+    previewQuantityChange.mockResolvedValue(increaseQuote);
+    changeQuantity.mockRejectedValue(
+      new SubscriptionOperationError(
+        "Misconfigured.",
+        "subscription_quantity_charge_provider_misconfigured",
+        422,
+      ),
+    );
+
+    renderDialog();
+    setQuantity("5");
+    click(/^Preview$/);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Confirm and pay/ })).not.toBeDisabled(),
+    );
+
+    click(/Confirm and pay/);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Your card was not declined/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/declined the charge/)).not.toBeInTheDocument();
+  });
+
   /**
    * A generic conflict here would send somebody to retry, when the fix is a different action:
    * taking people off the places the decrease would remove.

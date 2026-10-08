@@ -181,6 +181,23 @@ public sealed class RecurringPaymentInitiationServiceTests
     }
 
     [Fact]
+    public async Task A_merchant_configuration_refusal_fails_under_its_own_code_not_as_a_decline()
+    {
+        _gateway.Setup(g => g.ChargeAsync(It.IsAny<PaymentProvider>(), It.IsAny<StoredPaymentChargeRequest>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredPaymentChargeProviderResult(
+                StoredPaymentChargeOutcome.Rejected, SafeErrorCode: "905_1", MerchantConfiguration: true));
+
+        var result = await InitiateAsync(Payment());
+
+        result.FailureKind.Should().Be(
+            PaymentFailureKind.ProviderRejected,
+            because: "nothing was charged, so the caller may release what it reserved");
+        result.ErrorCode.Should().Be(
+            PaymentConstants.RecurringPaymentMerchantConfigurationErrorCode,
+            because: "a decline code sends the payer to try another card, which fails the same way");
+    }
+
+    [Fact]
     public async Task InitiateAsync_ChargeUnavailable_MarksUnknownAndReturnsUnavailable()
     {
         SetupCharge(StoredPaymentChargeOutcome.Unavailable);

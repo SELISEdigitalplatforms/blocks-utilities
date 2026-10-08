@@ -8,6 +8,20 @@ public sealed class StoredPaymentChargeRequest
     [JsonPropertyName("merchantAccount")]
     public string MerchantAccount { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The Adyen store the merchant account's payment methods are configured under, the same one
+    /// the hosted checkout names.
+    /// </summary>
+    /// <remarks>
+    /// Without it Adyen looks for an acquirer at merchant-account level only. An account set up per
+    /// store has none there, so every off-session charge failed with <c>905_1</c> ("Could not find
+    /// an acquirer account") while the shopper-present checkout for the same card succeeded.
+    /// Omitted when the provider has no store, leaving that request body unchanged.
+    /// </remarks>
+    [JsonPropertyName("store")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Store { get; init; }
+
     [JsonPropertyName("amount")]
     public ProviderAmount Amount { get; init; } = new();
 
