@@ -40,8 +40,10 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         ISubscriptionBillingProfileGuard? billingProfile = null,
         ICampaignRedemptionRepository? redemptions = null,
         ISubscriptionMerchantProfileService? merchantProfile = null,
-        ISubscriptionPaymentProviderReadinessService? readiness = null)
+        ISubscriptionPaymentProviderReadinessService? readiness = null,
+        ISubscriptionTenantRoster? roster = null)
     {
+        _roster = roster;
         _catalogue = catalogue;
         _subscriptions = subscriptions;
         _discounts = discounts;
@@ -71,6 +73,12 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// for a real host wires this alongside it.
     /// </summary>
     private readonly ISubscriptionPaymentProviderReadinessService? _readiness;
+
+    /// <summary>
+    /// Optional so existing callers compile unchanged. Absent, the tenant is not recorded and the
+    /// repair sweep can still find it through the work queue -- but only while it has a row there.
+    /// </summary>
+    private readonly ISubscriptionTenantRoster? _roster;
 
     /// <summary>
     /// Optional the way <see cref="_scheduler"/> and <see cref="_billingProfile"/> are: a great
@@ -157,6 +165,15 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         var subscription = built.Result.Value!;
+
+        // Before the subscription exists, never after: the repair sweep visits only rostered
+        // tenants, so a subscription persisted for a tenant this failed to record would be one no
+        // sweep ever repairs. Failing here refuses the subscribe while nothing has been written;
+        // recording a tenant whose create then fails costs only an extra tenant on the roster.
+        if (_roster is not null)
+        {
+            await _roster.RecordAsync(context.TenantId, cancellationToken);
+        }
 
         if (!await _subscriptions.TryCreateAsync(subscription, cancellationToken))
         {

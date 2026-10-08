@@ -1680,10 +1680,27 @@ executes it; the queue drainer is the only thing that runs subscription backgrou
 
 ### Which tenants the sweep covers
 
-Discovered, not configured. `SubscriptionTenantDirectory` reads the platform's own tenant
-registry — the `Tenants` collection in the root database, reached by connection string and
-database name rather than by ambient tenant, which is what makes it readable from background work
-that has no request to resolve one from.
+Discovered, not configured. `SubscriptionTenantDirectory` reads the **subscription tenant
+roster** — the `SubscriptionTenants` collection in the root database, reached by connection string
+and database name rather than by ambient tenant, which is what makes it readable from background
+work that has no request to resolve one from.
+
+The roster holds every tenant that has ever created a subscription, and nothing else:
+
+- **Creation records the tenant before the subscription exists** (`ISubscriptionTenantRoster`). A
+  failure there refuses the subscribe while nothing has been written, so no subscription can exist
+  for a tenant the sweep does not visit. Each process writes a given tenant once.
+- **Tenants that subscribed before the roster existed are backfilled once per environment.** The
+  first roster read walks the platform `Tenants` registry, records every tenant that has a
+  subscription, then writes a `$backfill-complete` marker so the walk never runs again. A tenant
+  with no database is skipped; any other failure leaves the marker unwritten and the walk retries.
+- **It is not derived from `SubscriptionBackgroundWork`.** A live subscription need not have a
+  pending row there — an unannounced renewal is exactly what the sweep exists to find, and
+  completed rows are purged — so a queue-derived roster would drop the tenants the sweep is for.
+
+This replaced walking the whole registry every pass: on prod that was 3,104 tenants for 8 with
+subscription work (2026-10-08), about a thousand of them without a database, each costing an
+error and a warning per pass.
 
 The roster is asked for on **every pass** and cached for `TenantRefreshSeconds`. It is never
 captured at startup: projects are created at any time and can subscribe immediately, so a list
