@@ -424,9 +424,9 @@ public sealed class EntitlementService : IEntitlementService
         // opening period is still running. Evaluated against the clock on every call rather than
         // read off a stored flag, the same way SubscriptionLiveness.IsEffectivelyLive above already
         // is -- so the plan's ordinary limit resumes the instant CurrentPeriodEndUtc passes, with
-        // nothing that has to run at exactly that moment for it to happen. CurrentPeriodEndUtc is
-        // the campaign's own opening-period boundary here: a monthly, calendar-aligned price's
-        // first period already ends there by construction, so no separate boundary needs storing.
+        // nothing that has to run at exactly that moment for it to happen. FreeOpeningPeriod also
+        // checks the running period is still the one the code was redeemed in, since the discount
+        // outlives its free month and CurrentPeriodEndUtc moves on at every renewal.
         if (subscription.Discount is
             {
                 Campaign:
@@ -436,7 +436,7 @@ public sealed class EntitlementService : IEntitlementService
                 }
             } &&
             string.Equals(campaignOverride.EntitlementKey, entitlement.Key, StringComparison.Ordinal) &&
-            now < subscription.CurrentPeriodEndUtc)
+            FreeOpeningPeriod.IsInForce(subscription, now))
         {
             return campaignOverride.Limit;
         }

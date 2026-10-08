@@ -88,35 +88,29 @@ public sealed class SubscriptionPlanChangeServiceCampaignTests
         _time = new ControlledTimeProvider(
             new DateTimeOffset(_subscription.CurrentPeriodEndUtc.AddSeconds(1)));
 
-        _subscriptions
-            .Setup(repository => repository.TryChangePlanAsync(
-                TenantId, "sub-1", It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<PlanSnapshot>(),
-                It.IsAny<PriceSnapshot>(), It.IsAny<List<SubscriptionQuantityItem>>(),
-                It.IsAny<SubscriptionPlanSchedule>(), It.IsAny<PendingUsagePeriod>(),
-                It.IsAny<long>(), It.IsAny<string?>(), It.IsAny<SubscriptionOutboxEvent>(),
-                It.IsAny<CancellationToken>(), It.IsAny<SubscriptionDocumentSource?>()))
-            .ReturnsAsync(true);
-        _subscriptions
-            .Setup(repository => repository.TryReserveSettlementAsync(
-                TenantId, "sub-1", It.IsAny<int>(), It.IsAny<SettlementReservation>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-        _billingAccounts
-            .Setup(repository => repository.GetAsync(TenantId, "acct-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BillingAccount
-            {
-                ItemId = "acct-1", ProviderName = "STRIPE", DefaultPaymentMethodId = "pm-1",
-                ProviderCustomerId = "cus_123"
-            });
-        _gateway
-            .Setup(gateway => gateway.ChargeAsync(
-                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(SubscriptionOperationResult<string>.Success("in_1", "corr-1"));
+        AllowTheChangeToSettle();
 
         var result = await Service().ChangePlanAsync(
             "sub-1", Request(), "corr-1", CancellationToken.None);
 
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_plan_change_is_allowed_in_a_paid_month_after_the_free_opening_period_renewed()
+    {
+        // The prod shape: redeemed in the free opening stub, then renewed into a paid month that
+        // has not ended yet. The campaign discount is still attached and now < CurrentPeriodEndUtc,
+        // which is exactly what the old inline check locked on -- forever, one month at a time.
+        _subscription.Discount!.RedeemedAtUtc = new DateTime(2026, 7, 23, 9, 49, 0, DateTimeKind.Utc);
+        AllowTheChangeToSettle();
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().NotBe(
+            "subscription_promotion_change_locked",
+            "a subscriber who has paid for a month after their free one must be able to change plan");
         result.IsSuccess.Should().BeTrue();
     }
 
@@ -161,6 +155,16 @@ public sealed class SubscriptionPlanChangeServiceCampaignTests
         {
             Code = "launch25", Kind = DiscountKind.Percent, PercentBasisPoints = 2_500
         };
+        AllowTheChangeToSettle();
+
+        var result = await Service().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    private void AllowTheChangeToSettle()
+    {
         _subscriptions
             .Setup(repository => repository.TryChangePlanAsync(
                 TenantId, "sub-1", It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<PlanSnapshot>(),
@@ -186,11 +190,6 @@ public sealed class SubscriptionPlanChangeServiceCampaignTests
                 It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(SubscriptionOperationResult<string>.Success("in_1", "corr-1"));
-
-        var result = await Service().ChangePlanAsync(
-            "sub-1", Request(), "corr-1", CancellationToken.None);
-
-        result.IsSuccess.Should().BeTrue();
     }
 
     private SubscriptionPlanChangeService Service() => new(

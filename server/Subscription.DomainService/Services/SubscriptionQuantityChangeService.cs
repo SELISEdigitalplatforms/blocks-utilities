@@ -254,8 +254,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // clock check the entitlement override reads elsewhere; nothing has to run at that moment
         // to lift it. Preview is not locked.
         var promotionChangeLocked =
-            subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
-            _time.GetUtcNow().UtcDateTime < subscription.CurrentPeriodEndUtc;
+            FreeOpeningPeriod.IsInForce(subscription, _time.GetUtcNow().UtcDateTime);
 
         if (!preview && promotionChangeLocked)
         {
@@ -1119,8 +1118,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             });
         }
 
-        if (subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
-            now < subscription.CurrentPeriodEndUtc)
+        if (FreeOpeningPeriod.IsInForce(subscription, now))
         {
             blockers.Add(new SubscriptionPreviewBlockerResponse
             {

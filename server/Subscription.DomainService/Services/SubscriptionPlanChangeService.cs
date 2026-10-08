@@ -559,8 +559,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // moment to lift it. Preview is not locked: showing what a change would cost is not
         // committing to one.
         var promotionChangeLocked =
-            subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
-            _time.GetUtcNow().UtcDateTime < subscription.CurrentPeriodEndUtc;
+            FreeOpeningPeriod.IsInForce(subscription, _time.GetUtcNow().UtcDateTime);
 
         if (!preview && promotionChangeLocked)
         {
