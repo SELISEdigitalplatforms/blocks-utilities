@@ -18,8 +18,8 @@ namespace Worker.Consumers.PdfGenerator
             IPdfEngineProvider engineProvider,
             IPdfGeneratorRepository repository,
             IPdfGeneratorNotificationService notificationService,
-            ITemplateEngineService templateEngineService)
-            : base(logger, storageHelper, engineProvider, repository, notificationService, templateEngineService)
+            TemplateRenderingService templateRenderingService)
+            : base(logger, storageHelper, engineProvider, repository, notificationService, templateRenderingService)
         {
         }
 
@@ -54,7 +54,6 @@ namespace Worker.Consumers.PdfGenerator
         protected override string GetOutputFileName(CreateFromHtmlUsingTECommand command) => command.OutputPdfFileName;
         protected override string GetTemplateFileId(CreateFromHtmlUsingTECommand command) => command.TemplateFileId;
         protected override List<PdfMetaData>? GetMetaDataList(CreateFromHtmlUsingTECommand command) => command.MetaDataList;
-        protected override string GetFileNameExtension(CreateFromHtmlUsingTECommand command) => ".html"; // Hardcoded for non-bulk
         protected override double GetHeaderHeight(CreateFromHtmlUsingTECommand command) => command.HeaderHeight;
         protected override double GetFooterHeight(CreateFromHtmlUsingTECommand command) => command.FooterHeight;
         protected override bool GetIsPageNumberEnabled(CreateFromHtmlUsingTECommand command) => command.IsPageNumberEnabled;
