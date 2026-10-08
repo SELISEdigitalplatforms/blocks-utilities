@@ -2069,6 +2069,10 @@ Content-Type: application/json
             <code>422</code> <code>subscription_quantity_charge_failed</code> — the payment method
             declined. One code for every decline, whatever word the acquirer used; the provider's own
             reason is logged, not returned ·
+            <code>422</code> <code>subscription_quantity_charge_provider_misconfigured</code> — the
+            merchant's payment provider account refused the charge (for example Adyen
+            <code>905_1</code>, no acquirer for the card and currency). Not a decline: another card
+            fails the same way until the provider setup is fixed ·
             <code>502</code>/<code>503</code>/<code>504</code>
             <code>subscription_quantity_charge_unresolved</code> — the charge went unanswered and is
             held for reconciliation. Neither a success nor a decline; see the callout above.
@@ -4784,6 +4788,7 @@ POST /api/subscriptions
             <tr><td>subscription_pending_quantity_change_not_found</td><td class="prose">There is no scheduled decrease to cancel.</td></tr>
             <tr><td>subscription_quantity_change_in_flight</td><td class="prose">An increase has reserved units and is still settling. Blocks a second quantity change and a plan change. Re-read and offer it again.</td></tr>
             <tr><td>subscription_quantity_charge_failed</td><td class="prose">The card declined the additional units. Nothing was charged and nothing changed.</td></tr>
+            <tr><td>subscription_quantity_charge_provider_misconfigured</td><td class="prose">The merchant's payment provider account refused the charge, not the card. Nothing was charged and nothing changed; asking for another card will not help.</td></tr>
             <tr><td>subscription_quantity_charge_unresolved</td><td class="prose">The charge went unanswered, so whether the money moved is unknown. Not a decline: the reservation is held and reconciliation settles it. Never retry straight into this.</td></tr>
             <tr><td>subscription_plan_change_charge_unresolved</td><td class="prose">The same, for a paid plan change.</td></tr>
             <tr><td>subscription_quantity_discount_tiers_invalid</td><td class="prose">Authoring: bands have a gap, an overlap, or more than one open end.</td></tr>

@@ -254,8 +254,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // clock check the entitlement override reads elsewhere; nothing has to run at that moment
         // to lift it. Preview is not locked.
         var promotionChangeLocked =
-            subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
-            _time.GetUtcNow().UtcDateTime < subscription.CurrentPeriodEndUtc;
+            FreeOpeningPeriod.IsInForce(subscription, _time.GetUtcNow().UtcDateTime);
 
         if (!preview && promotionChangeLocked)
         {
@@ -632,6 +631,22 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             }
 
             await ReleaseAsync(subscription, reservation, cancellationToken);
+
+            // The merchant's provider account refused it, not the card. Telling the payer their
+            // card declined sends them to try another one, which fails the same way; this needs
+            // the merchant to fix their provider setup.
+            if (string.Equals(
+                    charge.ErrorCode,
+                    PaymentConstants.RecurringPaymentMerchantConfigurationErrorCode,
+                    StringComparison.Ordinal))
+            {
+                return Failure(
+                    PaymentFailureKind.ProviderRejected,
+                    "subscription_quantity_charge_provider_misconfigured",
+                    "The payment provider is not set up to take this charge. The card was not " +
+                    "declined, and another card will not help.",
+                    correlationId);
+            }
 
             // A stable code rather than the provider's own. A client renders one message for a
             // declined increase; whichever acquirer word came back belongs in the log, above.
@@ -1119,8 +1134,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             });
         }
 
-        if (subscription.Discount is { Campaign.Kind: CampaignKind.FreeOpeningCalendarPeriod } &&
-            now < subscription.CurrentPeriodEndUtc)
+        if (FreeOpeningPeriod.IsInForce(subscription, now))
         {
             blockers.Add(new SubscriptionPreviewBlockerResponse
             {

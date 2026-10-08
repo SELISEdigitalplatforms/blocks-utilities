@@ -1005,6 +1005,96 @@ public sealed class SubscriptionCancellationServiceTests
             TenantId, "sub-1", claim.PeriodKey, "usage-1", It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>
+    /// The prod shape: a user-wise plan keeps one counter per place under the same meter key.
+    /// Capturing the allowance snapshot keyed them by meter and threw on the second place, so the
+    /// immediate cancel 500'd after reserving its closure.
+    /// </summary>
+    [Fact]
+    public async Task An_immediate_cancellation_of_a_user_wise_plan_with_several_places_is_applied()
+    {
+        _subscription!.Plan.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "ai-credits", IncludedQuantity = 500,
+                ResetPolicy = MeterResetPolicy.Periodic, OverageAllowed = true
+            }
+        ];
+        var usage = new Mock<ISubscriptionUsageRepository>();
+        usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new SubscriptionUsageCounter { ItemId = "sub-1:ai-credits:P:s1", MeterKey = "ai-credits", SeatNumber = 1 },
+                new SubscriptionUsageCounter { ItemId = "sub-1:ai-credits:P:s2", MeterKey = "ai-credits", SeatNumber = 2 }
+            ]);
+
+        var result = await ServiceWithUsage(usage.Object).CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            "a subscription with more than one seat must still be cancellable immediately");
+        _transition!.OutgoingUsagePeriod!.MeterAllowances!["ai-credits"].Should().Be(500,
+            "rating reads the frozen figure as the plan's per-place allowance");
+    }
+
+    [Fact]
+    public async Task A_failure_after_reserving_the_closure_gives_the_reservation_back()
+    {
+        var usage = new Mock<ISubscriptionUsageRepository>();
+        usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("storage down"));
+
+        var act = () => ServiceWithUsage(usage.Object).CancelAsync(
+            "sub-1", immediately: true, null, null, "corr-1", CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        _closures.Verify(
+            closures => closures.TryReleaseReservationAsync(
+                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a reservation left held refuses every later immediate cancel as a transition conflict");
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// The prod shape: an immediate cancel's boundary comes from the clock with sub-millisecond
+    /// ticks, which the operation id keeps and Mongo's stored EffectiveEndUtc does not.
+    /// </summary>
+    [Fact]
+    public async Task A_stale_reservation_whose_stored_boundary_lost_its_sub_millisecond_ticks_is_still_recovered()
+    {
+        var boundary = new DateTime(2026, 10, 7, 5, 35, 0, 868, DateTimeKind.Utc).AddTicks(8411);
+        var closure = NewStaleClosure(boundary);
+        closure.EffectiveEndUtc = new DateTime(
+            boundary.Ticks / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond, DateTimeKind.Utc);
+        var scheduled = NewSubscription();
+        scheduled.CancelAtPeriodEnd = true;
+        scheduled.CurrentPeriodEndUtc = new DateTime(2026, 11, 5, 12, 59, 0, DateTimeKind.Utc);
+
+        _closures.Setup(repository => repository.ListStaleReservationsAsync(
+                TenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([closure]);
+        _subscriptions.Setup(repository => repository.GetByIdAsync(
+                TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(scheduled);
+
+        await Service().ReconcileStaleClosuresAsync(TenantId, CancellationToken.None);
+
+        _closures.Verify(repository => repository.TryReleaseReservationAsync(
+            TenantId, "sub-1", closure.PeriodKey, closure.CloseOperationId!,
+            It.IsAny<CancellationToken>()), Times.Once,
+            "a reservation the sweep cannot recognise stays held forever and blocks every immediate cancel");
+    }
+
     private static UsagePeriodClosure NewStaleClosure(DateTime boundary) => new()
     {
         ItemId = "sub-1:M20260801T000000Z",

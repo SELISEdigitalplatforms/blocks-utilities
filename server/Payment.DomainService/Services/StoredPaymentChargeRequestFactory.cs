@@ -23,6 +23,7 @@ public sealed class StoredPaymentChargeRequestFactory :
         return new StoredPaymentChargeRequest
         {
             MerchantAccount = provider.MerchantId,
+            Store = string.IsNullOrWhiteSpace(provider.StoreId) ? null : provider.StoreId,
             Amount = new ProviderAmount
             {
                 Value = minorUnits,
