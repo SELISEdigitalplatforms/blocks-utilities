@@ -1,11 +1,6 @@
 using System.Text.Json;
-using Blocks.Genesis;
 using FluentAssertions;
 using FluentValidation.TestHelper;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using Moq;
-using Payment.DomainService.Providers.Adyen;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Models.StoredPayment;
@@ -105,9 +100,50 @@ public sealed class RecurringPaymentContractTests
     }
 
     [Fact]
+    public void Request_factory_names_the_providers_store_so_adyen_finds_its_acquirer()
+    {
+        var request = new StoredPaymentChargeRequestFactory().Create(
+            new PaymentDetail { CurrencyCode = "CHF", TenantId = "tenant-1" },
+            new PaymentProvider { MerchantId = "merchant", StoreId = "store-1" },
+            new StoredPaymentMethod(),
+            "provider-reference",
+            "provider-token",
+            2999);
+
+        request.Store.Should().Be("store-1");
+        JsonDocument.Parse(JsonSerializer.Serialize(request))
+            .RootElement.GetProperty("store").GetString()
+            .Should().Be(
+                "store-1",
+                because: "without the store Adyen looks only at merchant-account level, finds no " +
+                         "acquirer, and refuses every renewal and seat increase with 905_1");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Request_factory_sends_no_store_when_the_provider_has_none(string? storeId)
+    {
+        var request = new StoredPaymentChargeRequestFactory().Create(
+            new PaymentDetail { CurrencyCode = "CHF", TenantId = "tenant-1" },
+            new PaymentProvider { MerchantId = "merchant", StoreId = storeId },
+            new StoredPaymentMethod(),
+            "provider-reference",
+            "provider-token",
+            2999);
+
+        JsonDocument.Parse(JsonSerializer.Serialize(request))
+            .RootElement.TryGetProperty("store", out _)
+            .Should().BeFalse(
+                because: "an account without stores must keep sending the body it always has; " +
+                         "a blank store is an unknown store to Adyen");
+    }
+
+    [Fact]
     public async Task Provider_gateway_uses_payments_endpoint_and_idempotency()
     {
-        var response = new StoredPaymentChargeResponse
+        var http = StubAdyenHttp.Json(new StoredPaymentChargeResponse
         {
             PspReference = "psp-reference",
             MerchantReference = "provider-reference",
@@ -117,70 +153,40 @@ public sealed class RecurringPaymentContractTests
                 Value = 1250,
                 Currency = "EUR"
             }
-        };
-        var http = new Mock<IHttpService>(
-            MockBehavior.Strict);
-        using var source = new CancellationTokenSource();
+        });
 
-        http.Setup(service =>
-                service.SendRequest<
-                    StoredPaymentChargeResponse>(
-                    HttpMethod.Post,
-                    "https://checkout-test.adyen.com/v72/payments",
-                    It.IsAny<object>(),
-                    "application/json",
-                    It.Is<Dictionary<string, string>>(
-                        headers =>
-                            headers["x-api-key"] ==
-                            "secret" &&
-                            headers["idempotency-key"] ==
-                            "idempotency-key"),
-                    source.Token,
-                    15))
-            .ReturnsAsync((response, string.Empty));
-
-        var result = await CreateGateway(http.Object)
+        var result = await StoredPaymentChargeProviderGatewayTests.Gateway(http)
             .ChargeAsync(
                 Provider(),
                 ChargeRequest(),
                 "idempotency-key",
-                source.Token);
+                CancellationToken.None);
 
         result.Outcome.Should().Be(
             StoredPaymentChargeOutcome.Accepted);
         result.PspReference.Should().Be("psp-reference");
-        http.VerifyAll();
+
+        var sent = http.Requests.Should().ContainSingle().Subject;
+        sent.Url.Should().Be("https://checkout-test.adyen.com/v72/payments");
+        sent.Headers["x-api-key"].Should().Be("secret");
+        sent.Headers["idempotency-key"].Should().Be("idempotency-key");
     }
 
     [Fact]
     public async Task Provider_gateway_rejects_mismatched_response()
     {
-        var http = new Mock<IHttpService>();
+        var http = StubAdyenHttp.Json(new StoredPaymentChargeResponse
+        {
+            PspReference = "psp-reference",
+            MerchantReference = "wrong-reference",
+            Amount = new ProviderAmount
+            {
+                Value = 1250,
+                Currency = "EUR"
+            }
+        });
 
-        http.Setup(service =>
-                service.SendRequest<
-                    StoredPaymentChargeResponse>(
-                    It.IsAny<HttpMethod>(),
-                    It.IsAny<string>(),
-                    It.IsAny<object>(),
-                    It.IsAny<string>(),
-                    It.IsAny<Dictionary<string, string>>(),
-                    It.IsAny<CancellationToken>(),
-                    It.IsAny<int?>()))
-            .ReturnsAsync((
-                new StoredPaymentChargeResponse
-                {
-                    PspReference = "psp-reference",
-                    MerchantReference = "wrong-reference",
-                    Amount = new ProviderAmount
-                    {
-                        Value = 1250,
-                        Currency = "EUR"
-                    }
-                },
-                string.Empty));
-
-        var result = await CreateGateway(http.Object)
+        var result = await StoredPaymentChargeProviderGatewayTests.Gateway(http)
             .ChargeAsync(
                 Provider(),
                 ChargeRequest(),
@@ -189,26 +195,6 @@ public sealed class RecurringPaymentContractTests
 
         result.Outcome.Should().Be(
             StoredPaymentChargeOutcome.OutcomeUnknown);
-    }
-
-    private static CheckoutApiStoredPaymentChargeProviderGateway
-        CreateGateway(IHttpService httpService)
-    {
-        var options =
-            new Mock<IOptionsMonitor<PaymentOptions>>();
-        options.SetupGet(monitor => monitor.CurrentValue)
-            .Returns(new PaymentOptions
-            {
-                ProviderTimeoutSeconds = 15
-            });
-
-        return new CheckoutApiStoredPaymentChargeProviderGateway(
-            httpService,
-            new AdyenEndpointPolicy(),
-            options.Object,
-            NullLogger<
-                CheckoutApiStoredPaymentChargeProviderGateway>
-                .Instance);
     }
 
     private static PaymentProvider Provider() => new()

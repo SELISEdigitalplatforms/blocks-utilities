@@ -605,6 +605,26 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             return false;
         }
 
+        PendingUsagePeriod? outgoingUsagePeriod = null;
+
+        if (closure is { Reserved: true } held)
+        {
+            // Built before the write rather than inside it, so a failure here can give the
+            // reservation back. Nothing has been written yet; left held, it refused every later
+            // immediate cancel of this subscription as a transition conflict.
+            try
+            {
+                outgoingUsagePeriod = await OutgoingUsagePeriodOfAsync(subscription, now, cancellationToken);
+            }
+            catch
+            {
+                await _closures!.TryReleaseReservationAsync(
+                    subscription.TenantId, subscription.ItemId, held.PeriodKey,
+                    held.CloseOperationId, CancellationToken.None);
+                throw;
+            }
+        }
+
         var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
@@ -631,9 +651,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // here rather than left to be forgotten, the same way a plan change detaches its
                 // own outgoing window atomically with the schedule swap.
                 ClearNextUsageBillingAt = true,
-                OutgoingUsagePeriod = closure is { Reserved: true }
-                    ? await OutgoingUsagePeriodOfAsync(subscription, now, cancellationToken)
-                    : null,
+                OutgoingUsagePeriod = outgoingUsagePeriod,
                 Event = _events.CreateCancellation(
                     subscription,
                     SubscriptionConstants.SubscriptionCanceled,
@@ -832,12 +850,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var expectedOperationId =
-            closure.EffectiveEndUtc is { } effectiveEndUtc
-                ? $"cancellation-close:{closure.SubscriptionId}:{effectiveEndUtc.Ticks}"
-                : null;
-
-        if (expectedOperationId is null || closure.CloseOperationId != expectedOperationId)
+        if (!IsCancellationReservation(closure))
         {
             _logger.LogWarning(
                 "A stale usage closure reservation does not have the shape a cancellation " +
@@ -922,6 +935,29 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             PaymentLogValue.Label(subscription.Status.ToString()));
 
         return false;
+    }
+
+    /// <summary>
+    /// Whether a reservation has the one shape a cancellation writes:
+    /// <c>cancellation-close:{subscriptionId}:{effectiveEndUtcTicks}</c> for its own boundary.
+    /// </summary>
+    /// <remarks>
+    /// Compared to the millisecond. The id carries the boundary's full 100ns ticks, but Mongo
+    /// stores <see cref="UsagePeriodClosure.EffectiveEndUtc"/> to the millisecond, so an
+    /// immediate cancel's boundary (taken from the clock) never matched exactly once read back,
+    /// and this sweep left every one it found reserved for good.
+    /// </remarks>
+    private static bool IsCancellationReservation(UsagePeriodClosure closure)
+    {
+        var prefix = $"cancellation-close:{closure.SubscriptionId}:";
+
+        return closure.EffectiveEndUtc is { } effectiveEndUtc &&
+               closure.CloseOperationId is { } operationId &&
+               operationId.StartsWith(prefix, StringComparison.Ordinal) &&
+               long.TryParse(operationId.AsSpan(prefix.Length), System.Globalization.NumberStyles.None,
+                   System.Globalization.CultureInfo.InvariantCulture, out var ticks) &&
+               ticks / TimeSpan.TicksPerMillisecond ==
+                   effectiveEndUtc.Ticks / TimeSpan.TicksPerMillisecond;
     }
 
     /// <summary>
