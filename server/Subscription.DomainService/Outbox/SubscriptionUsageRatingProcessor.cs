@@ -468,7 +468,7 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     /// The place a counter belongs to, from the field or — for one written before the field was
     /// stored — from the <c>:s{n}</c> suffix its id has always carried.
     /// </summary>
-    private static int? SeatOf(SubscriptionUsageCounter counter)
+    internal static int? SeatOf(SubscriptionUsageCounter counter)
     {
         if (counter.SeatNumber is { } seat)
         {
