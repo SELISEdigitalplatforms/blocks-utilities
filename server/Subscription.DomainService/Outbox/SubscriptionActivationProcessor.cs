@@ -61,6 +61,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private readonly ISubscriptionRenewalService? _renewals;
     private readonly IUsageProjectionReconciler? _usageProjections;
     private readonly ISubscriptionPaymentReconciler? _reconciler;
+    private readonly ITrialUsageRepository? _trialUsages;
 
     public SubscriptionActivationProcessor(
         ISubscriptionPaymentLinkRepository links,
@@ -82,8 +83,10 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         // Optional for the same reason, and absent entirely for a provider this cannot observe
         // (see StripeCheckoutReconciliationService's own remarks): a missing reconciler must
         // never turn into a decision this class could not otherwise make on its own.
-        ISubscriptionPaymentReconciler? reconciler = null)
+        ISubscriptionPaymentReconciler? reconciler = null,
+        ITrialUsageRepository? trialUsages = null)
     {
+        _trialUsages = trialUsages;
         _links = links;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -742,6 +745,13 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 subscription.ItemId,
                 _time.GetUtcNow().UtcDateTime,
                 cancellationToken);
+        }
+
+        // After the transition commits, for the same reason the redemption above is.
+        if (target == SubscriptionStatus.Trialing)
+        {
+            await _trialUsages.MarkTrialStartedAsync(
+                subscription, _time.GetUtcNow().UtcDateTime, cancellationToken);
         }
 
         if (_usageProjections is not null)

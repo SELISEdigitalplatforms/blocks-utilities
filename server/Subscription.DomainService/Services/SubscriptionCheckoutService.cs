@@ -57,8 +57,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // Optional for the same reason documents already is: an existing caller or test that
         // constructs this service unaware the usage projection exists must keep compiling and
         // keep behaving as before.
-        IUsageProjectionReconciler? usageProjections = null)
+        IUsageProjectionReconciler? usageProjections = null,
+        ITrialUsageRepository? trialUsages = null)
     {
+        _trialUsages = trialUsages;
         _creation = creation;
         _subscriptions = subscriptions;
         _links = links;
@@ -81,6 +83,9 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// without announcing its document is one the repair sweep has to find, not one that failed.
     /// </summary>
     private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
+
+    /// <summary>Optional so existing callers compile unchanged. See <see cref="TrialUsage"/>.</summary>
+    private readonly ITrialUsageRepository? _trialUsages;
 
     /// <summary>
     /// Optional for the same reason. Missing it means a free or card-free-trial subscription
@@ -1107,6 +1112,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         }
 
         subscription.Status = target;
+
+        if (target == SubscriptionStatus.Trialing)
+        {
+            await _trialUsages.MarkTrialStartedAsync(
+                subscription, _time.GetUtcNow().UtcDateTime, cancellationToken);
+        }
 
         if (target == SubscriptionStatus.Trialing && _documents is not null)
         {

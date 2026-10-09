@@ -69,6 +69,8 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
         return new SubscriptionResponse
         {
             SubscriptionId = subscription.ItemId,
+            PurchasedByUserId = subscription.PurchasedBy?.UserId,
+            PurchasedByName = subscription.PurchasedBy?.Name,
             Status = subscription.Status.ToString(),
             PlanCode = subscription.Plan.Code,
             PlanName = subscription.Plan.DisplayName,

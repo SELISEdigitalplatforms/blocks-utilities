@@ -103,6 +103,13 @@ public sealed class SubscriptionPreviewResponse
     public DateTime? TrialEndsAtUtc { get; init; }
 
     /// <summary>
+    /// The plan has a trial, but this subscriber has already had it — so this quote, and the
+    /// signup it previews, start paid. The organization for an organization-wise plan, the buyer
+    /// for a user-wise one. Always false for a plan without a trial.
+    /// </summary>
+    public bool TrialAlreadyUsed { get; init; }
+
+    /// <summary>
     /// Whether confirming this preview will ask for a card even though nothing is due now.
     /// </summary>
     public bool RequiresCardSetup { get; init; }

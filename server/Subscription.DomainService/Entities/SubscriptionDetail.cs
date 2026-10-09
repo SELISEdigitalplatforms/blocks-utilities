@@ -26,6 +26,18 @@ public sealed class SubscriptionDetail
     /// <summary>The subscribing organization. Always present: entitlement without one is meaningless.</summary>
     public string OrganizationId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The person who bought the subscription, as their identity provider named them at signup.
+    /// </summary>
+    /// <remarks>
+    /// Written once at creation and never changed — not by a plan change, not by whoever renews or
+    /// cancels later. Null when no person signed up (an API key, or the console acting for an
+    /// organization) and on every subscription created before this existed. A user-wise plan's
+    /// one-trial rule keys on <see cref="FinancialDocumentPerson.UserId"/> here; see
+    /// <see cref="TrialUsage"/>.
+    /// </remarks>
+    public FinancialDocumentPerson? PurchasedBy { get; set; }
+
     public string BillingAccountId { get; set; } = string.Empty;
 
     public SubscriptionStatus Status { get; set; } =

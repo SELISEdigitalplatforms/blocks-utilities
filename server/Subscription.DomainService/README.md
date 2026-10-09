@@ -605,6 +605,40 @@ This holds the same way regardless of which `TrialDurationKind` produced `Trial.
   the trial only decided *when* the first charge happens, not which calendar boundaries the price
   itself renews on.
 
+### One trial per plan
+
+A subscriber gets each plan's trial once. Cancelling and signing up again does not buy a second
+one: the new signup has no trial, so it is an ordinary paid signup — the schedule anchors on now and
+checkout takes the opening charge. Trialing one plan never blocks the trial of another.
+
+| Plan scope | Whose trial it is |
+|---|---|
+| `Organization` | the organization |
+| `User` | the person who bought it (`SubscriptionDetail.PurchasedBy`), not the people seated on it |
+
+A plan is identified by its `Code`, so editing a plan does not hand out fresh trials. A user-wise
+signup with no user behind it (an API key, or the console acting for an organization) is not
+limited.
+
+The rule lives in the `SubscriptionTrialUsages` ledger (`TrialUsage`), enforced by a partial unique
+index on tenant, scope, subject and plan code rather than by a read before a write:
+
+- **Claimed** at signup, right after the subscription is stored. Two signups racing for the same
+  trial are settled here, before either collects a card; the loser is refused with
+  `subscription_trial_already_used`, its subscription is expired, and a retry is quoted without the
+  trial.
+- **Used** when the subscription reaches `Trialing` — on the card-free path in checkout and on the
+  card-setup path in the activation processor. Changing plan mid-trial marks the new plan as trialed
+  too. Permanent.
+- **Released** when a later signup finds the claim's subscription ended without ever starting
+  (`ActivatedAtUtc` unset and no longer `Incomplete`), or cannot find it at all. Released lazily,
+  at the next signup, instead of on every path that can end a signup, so a crash on one of those
+  paths cannot lock the subscriber out. A claim with no ledger row behind it — a crash between
+  storing the subscription and claiming its trial — is written as Used when the trial starts.
+
+The purchase preview reports `trialAlreadyUsed: true` when the plan has a trial this subscriber has
+already had. Subscriptions created before the ledger existed are not backfilled.
+
 ### Plan changes
 
 Moving onto a calendar-aligned price installs that price's boundaries there and then, not at some

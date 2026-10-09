@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Info, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
@@ -316,6 +316,15 @@ export const SubscribeDialog = ({
 
           {quote ? (
             <div className="space-y-2 rounded-md border p-3 text-sm" data-testid="subscribe-quote">
+              {quote.trialAlreadyUsed ? (
+                <p
+                  className="flex items-start gap-1.5 text-xs text-muted-foreground"
+                  data-testid="subscribe-trial-used-notice"
+                >
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>You have already used this plan&apos;s free trial, so this subscription starts paid.</span>
+                </p>
+              ) : null}
               <div className="flex items-center justify-between">
                 <p className="font-medium">
                   {quote.totalDueNowMinor > 0 ? "Due now" : "Nothing due now"}

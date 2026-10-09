@@ -1327,6 +1327,14 @@ stateDiagram-v2
         No trial: the subscription goes <code>Incomplete → Active</code> on the first payment.
         With one: <code>Incomplete → Trialing → Active</code>, and <code>trialEndsAtUtc</code> is set.
       </p>
+      <p>
+        A subscriber gets each plan's trial <strong>once</strong>: the organization for an
+        organization-wise plan, the buyer for a user-wise one. Signing up again after cancelling
+        quotes and creates the plan <em>without</em> its trial, as an ordinary paid signup, and the
+        preview says so with <code>trialAlreadyUsed: true</code>. Two signups racing for the same
+        trial lose with <code>409 subscription_trial_already_used</code>; ask again and the quote
+        comes back without the trial.
+      </p>
 
       <h3>2 · Card required, or genuinely free</h3>
       <p>
@@ -2991,6 +2999,7 @@ POST /api/subscriptions
       "totalMinor": 15675
     },
     "trialEndsAtUtc": null,
+    "trialAlreadyUsed": false,
     "requiresCardSetup": false,
     "pendingAnnualPeriod": null,
     "blockers": [],
