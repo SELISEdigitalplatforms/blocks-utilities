@@ -50,17 +50,20 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly SubscriptionWorkMetrics _metrics;
     private readonly ILogger<SubscriptionReconciliationBackgroundService> _logger;
+    private readonly UnprovisionedTenants _unprovisioned;
 
     public SubscriptionReconciliationBackgroundService(
         IServiceScopeFactory scopeFactory,
         IOptionsMonitor<SubscriptionOptions> options,
         SubscriptionWorkMetrics metrics,
-        ILogger<SubscriptionReconciliationBackgroundService> logger)
+        ILogger<SubscriptionReconciliationBackgroundService> logger,
+        TimeProvider? time = null)
     {
         _scopeFactory = scopeFactory;
         _options = options;
         _metrics = metrics;
         _logger = logger;
+        _unprovisioned = new UnprovisionedTenants(time ?? TimeProvider.System);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -117,9 +120,15 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
                 return;
             }
 
+            if (_unprovisioned.ShouldSkip(tenantId))
+            {
+                continue;
+            }
+
             try
             {
                 await SweepTenantAsync(tenantId, stoppingToken);
+                _unprovisioned.Forget(tenantId);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -128,15 +137,19 @@ public sealed class SubscriptionReconciliationBackgroundService : BackgroundServ
                 // reach — one never provisioned a database, one mid-migration. Letting that
                 // escape would abort the loop at whatever position the bad tenant happens to
                 // occupy and silently stop billing every tenant ordered after it.
-                // An unprovisioned tenant is the expected half of that, and it repeats every
-                // pass for every such tenant — a stack trace per tenant per tick buries the
-                // failures worth reading, so it gets one line and anything else keeps its trace.
+                // An unprovisioned tenant is the expected half of that. It gets one line when first
+                // found and is then left alone until its recheck (see UnprovisionedTenants);
+                // anything else keeps its trace, every time.
                 if (exception.GetBaseException() is KeyNotFoundException)
                 {
-                    _logger.LogWarning(
-                        "Subscription reconciliation skipped a tenant with no database " +
-                        "TenantId={TenantId}",
-                        PaymentLogValue.Id(tenantId));
+                    if (_unprovisioned.Remember(tenantId))
+                    {
+                        _logger.LogWarning(
+                            "Subscription reconciliation skipped a tenant with no database and " +
+                            "will recheck it every {RecheckMinutes} minutes TenantId={TenantId}",
+                            UnprovisionedTenants.RecheckAfter.TotalMinutes,
+                            PaymentLogValue.Id(tenantId));
+                    }
                 }
                 else
                 {

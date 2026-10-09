@@ -14,19 +14,22 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
     private readonly ILogger<PaymentReconciliationBackgroundService> _logger;
     private readonly PaymentSchedulerMode? _mode;
     private readonly IPaymentWorkTenantSource? _tenants;
+    private readonly UnprovisionedTenants _unprovisioned;
 
     public PaymentReconciliationBackgroundService(
         IServiceProvider services,
         IOptionsMonitor<PaymentOptions> options,
         ILogger<PaymentReconciliationBackgroundService> logger,
         PaymentSchedulerMode? mode = null,
-        IPaymentWorkTenantSource? tenants = null)
+        IPaymentWorkTenantSource? tenants = null,
+        TimeProvider? time = null)
     {
         _services = services;
         _options = options;
         _logger = logger;
         _mode = mode;
         _tenants = tenants;
+        _unprovisioned = new UnprovisionedTenants(time ?? TimeProvider.System);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -69,9 +72,15 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
     {
         foreach (var tenantId in await tenants.ListTenantIdsAsync(stoppingToken))
         {
+            if (_unprovisioned.ShouldSkip(tenantId))
+            {
+                continue;
+            }
+
             try
             {
                 await ReconcileTenantAsync(tenantId, stoppingToken);
+                _unprovisioned.Forget(tenantId);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -80,12 +89,18 @@ public sealed class PaymentReconciliationBackgroundService : BackgroundService
                 // letting that escape aborted every pass at the first such tenant, and every
                 // tenant ordered after it was never swept (seen in production on 2026-10-07,
                 // where the queue had been the only thing reaching them). Same rule as the
-                // subscription sweep: an unprovisioned tenant gets one line, anything else its trace.
+                // subscription sweep: an unprovisioned tenant gets one line when first found and
+                // is left alone until its recheck, anything else its trace every time.
                 if (exception.GetBaseException() is KeyNotFoundException)
                 {
-                    _logger.LogWarning(
-                        "Payment reconciliation skipped a tenant with no database TenantId={TenantId}",
-                        PaymentLogValue.Id(tenantId));
+                    if (_unprovisioned.Remember(tenantId))
+                    {
+                        _logger.LogWarning(
+                            "Payment reconciliation skipped a tenant with no database and will " +
+                            "recheck it every {RecheckMinutes} minutes TenantId={TenantId}",
+                            UnprovisionedTenants.RecheckAfter.TotalMinutes,
+                            PaymentLogValue.Id(tenantId));
+                    }
                 }
                 else
                 {
