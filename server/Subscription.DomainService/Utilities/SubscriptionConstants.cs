@@ -29,6 +29,17 @@ public static class SubscriptionConstants
     public const string CreditNoteMailPurpose = "subscription_credit_note";
     public const string DefaultMailLanguage = "en-US";
 
+    /// <summary>
+    /// One purpose per change the billing contact is told about, for the same reason the documents
+    /// have one each: a tenant words "you now have ten seats" and "your subscription has ended"
+    /// differently, and the mail module picks the template by purpose alone.
+    /// </summary>
+    public const string QuantityChangedMailPurpose = "subscription_quantity_changed";
+    public const string PlanChangedMailPurpose = "subscription_plan_changed";
+    public const string CancellationRequestedMailPurpose = "subscription_cancellation_requested";
+    public const string CanceledMailPurpose = "subscription_canceled";
+    public const string CancellationWithdrawnMailPurpose = "subscription_cancellation_withdrawn";
+
     public const string SubscriptionCreated = "SubscriptionCreated";
     public const string SubscriptionTrialStarted =
         "SubscriptionTrialStarted";
@@ -51,6 +62,24 @@ public static class SubscriptionConstants
     public const string SubscriptionQuantityChanged = "SubscriptionQuantityChanged";
     public const string UsageRated = "UsageRated";
     public const string UsageRatingFailed = "UsageRatingFailed";
+
+    /// <summary>
+    /// The lifecycle events that become a notification email, and the purpose each is sent under.
+    /// </summary>
+    /// <remarks>
+    /// Also the set whose outbox payload is cleared once published: these payloads carry who made
+    /// the change and the reason they gave, and the outbox entry outlives the mail by years because
+    /// its deduplication key must.
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<string, string> NotificationMailPurposes =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [SubscriptionQuantityChanged] = QuantityChangedMailPurpose,
+            [SubscriptionPlanChanged] = PlanChangedMailPurpose,
+            [SubscriptionCancellationRequested] = CancellationRequestedMailPurpose,
+            [SubscriptionCanceled] = CanceledMailPurpose,
+            [SubscriptionCancellationWithdrawn] = CancellationWithdrawnMailPurpose
+        };
 
     /// <summary>
     /// Prefix for the order id a subscription's charges carry. Derived from the subscription id

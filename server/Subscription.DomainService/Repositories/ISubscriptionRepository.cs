@@ -1,4 +1,4 @@
-﻿using Subscription.DomainService.Entities;
+using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Repositories;
@@ -494,12 +494,18 @@ public interface ISubscriptionRepository
         int limit,
         CancellationToken cancellationToken);
 
+    /// <param name="clearPayload">
+    /// Empties the published event's payload, keeping its deduplication key. For events whose
+    /// payload names people — see <c>SubscriptionConstants.NotificationMailPurposes</c> — and which
+    /// would otherwise keep those names on the subscription for as long as the key must live.
+    /// </param>
     Task MarkEventPublishedAsync(
         string tenantId,
         string subscriptionId,
         string eventId,
         string leaseId,
         DateTime publishedAtUtc,
+        bool clearPayload,
         CancellationToken cancellationToken);
 
     Task MarkEventFailedAsync(

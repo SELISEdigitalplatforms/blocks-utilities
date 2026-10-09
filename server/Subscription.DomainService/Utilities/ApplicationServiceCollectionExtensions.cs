@@ -1,4 +1,4 @@
-﻿using FluentValidation;
+using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -341,6 +341,9 @@ public static class ApplicationServiceCollectionExtensions
         // Singleton to match the repository it wraps, and because it holds no per-request state.
         services.AddSingleton<IMailDeliveryReporter, MailDeliveryReporter>();
         services.AddScoped<IUsageThresholdEmailService, UsageThresholdEmailService>();
+        services.AddScoped<
+            ISubscriptionNotificationEmailService,
+            SubscriptionNotificationEmailService>();
         services.AddScoped<
             ISubscriptionActivationProcessor,
             SubscriptionActivationProcessor>();

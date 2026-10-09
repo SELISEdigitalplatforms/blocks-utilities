@@ -24,18 +24,30 @@ public interface ISubscriptionOutboxEventFactory
         int attemptNumber,
         string correlationId);
 
+    /// <summary>Raised when a purchased quantity actually moves.</summary>
+    /// <param name="previousQuantities">
+    /// What the subscription held before the change. Passed rather than read off
+    /// <paramref name="subscription"/>, because a renewal repaints its in-memory copy with the new
+    /// quantities before pricing, and by then the copy no longer remembers the old ones.
+    /// </param>
+    /// <param name="quantities">What it holds once the write lands.</param>
+    /// <param name="actorName">Who asked; for a change carried out later, who scheduled it.</param>
+    SubscriptionOutboxEvent CreateQuantityChanged(
+        SubscriptionDetail subscription,
+        IReadOnlyList<SubscriptionQuantityItem> previousQuantities,
+        IReadOnlyList<SubscriptionQuantityItem> quantities,
+        string? actorName,
+        string correlationId);
+
     /// <summary>
     /// A plan change. <paramref name="subscription"/>'s own <c>Plan.Code</c> must already be the
     /// new one — this only needs told what it changed <em>from</em>.
     /// </summary>
-    /// <summary>Raised when a purchased quantity actually moves.</summary>
-    SubscriptionOutboxEvent CreateQuantityChanged(
-        SubscriptionDetail subscription,
-        string correlationId);
-
     SubscriptionOutboxEvent CreatePlanChanged(
         SubscriptionDetail subscription,
         string previousPlanCode,
+        string? previousPlanName,
+        string? actorName,
         string correlationId);
 
     /// <summary>
@@ -53,11 +65,15 @@ public interface ISubscriptionOutboxEventFactory
     /// immediate cancellation. Null for a withdrawal, which restores a subscription that is no
     /// longer stopping at all.
     /// </param>
+    /// <param name="reason">What the canceller gave as their reason, if anything.</param>
+    /// <param name="actorName">Who asked; for a cancellation taking effect later, who requested it.</param>
     SubscriptionOutboxEvent CreateCancellation(
         SubscriptionDetail subscription,
         string eventType,
         bool cancelAtPeriodEnd,
         DateTime? effectiveAtUtc,
+        string? reason,
+        string? actorName,
         string correlationId);
 
     /// <summary>A usage invoice's terminal outcome — charged, or abandoned after every retry.</summary>

@@ -61,6 +61,12 @@ public sealed class PendingPlanChange
     public string? RequestedByUserId { get; set; }
 
     /// <summary>
+    /// Who asked, by name, so the email sent when renewal carries this out can say so. Null on
+    /// every change scheduled before notification emails existed.
+    /// </summary>
+    public string? RequestedByName { get; set; }
+
+    /// <summary>
     /// The subscription version this was requested against, kept for the audit trail rather than
     /// for enforcement — the renewal applies whatever is pending when it runs.
     /// </summary>
