@@ -5,21 +5,17 @@ import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { PlanBuilder } from "../components/plan-builder/plan-builder";
-import { PlanPricesEditor } from "../components/plan-prices-editor";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useArchiveSubscriptionPrice } from "../hooks/use-archive-subscription-price";
 import { useCreateSubscriptionPrice } from "../hooks/use-create-subscription-price";
 import { useOrganizationScope, withOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionPlan } from "../hooks/use-subscription-plan";
 import { useUpdateSubscriptionPlan } from "../hooks/use-update-subscription-plan";
-import { useUpdateSubscriptionPlanMeterRates } from "../hooks/use-update-subscription-plan-meter-rates";
 import { useUpdateSubscriptionPriceDiscount } from "../hooks/use-update-subscription-price-discount";
 import { useUpdateSubscriptionPriceTax } from "../hooks/use-update-subscription-price-tax";
 import { toBasisPoints, type TaxMode } from "../utilities/subscription-tax";
 import type { AutomaticDiscountCombination } from "../utilities/subscription-discount";
-import type { MeterRateTable } from "../models/subscription-plan.model";
 import { planToFormValues, toUpdatePlanRequest } from "../utilities/plan-form-mapping";
-import { createPricesInTurn } from "../utilities/create-price-request";
 import { submitPlanWithPrices } from "../utilities/submit-plan-with-prices";
 
 export const EditSubscriptionPlanPage = () => {
@@ -37,7 +33,6 @@ export const EditSubscriptionPlanPage = () => {
   const { mutateAsync: archivePrice } = useArchiveSubscriptionPrice();
   const { mutateAsync: updatePriceTax } = useUpdateSubscriptionPriceTax();
   const { mutateAsync: updatePriceDiscount } = useUpdateSubscriptionPriceDiscount();
-  const { mutateAsync: updateMeterRates } = useUpdateSubscriptionPlanMeterRates();
   const [retiringPriceId, setRetiringPriceId] = useState<string | null>(null);
 
   const detailPath = withOrganizationScope(
@@ -81,8 +76,7 @@ export const EditSubscriptionPlanPage = () => {
     );
   }
 
-  // Hoisted out of the JSX because both branches below need them: the plan's own terms close once
-  // somebody subscribes, and its prices do not.
+  // Hoisted out of the JSX to keep the builder's props readable.
   const retirePrice = async (priceId: string) => {
     setRetiringPriceId(priceId);
 
@@ -148,30 +142,9 @@ export const EditSubscriptionPlanPage = () => {
     });
   };
 
-  const updateMeterOverageRates = async (meterKey: string, rateTables: MeterRateTable[]) => {
-    await updateMeterRates({
-      planId: plan.planId,
-      meterKey,
-      request: {
-        organizationId: plan.organizationId ?? undefined,
-        rateTables,
-      },
-    });
-    toast({
-      variant: "success",
-      title: "Overage rates saved",
-      description:
-        "New subscriptions and future renewals use them; everyone already subscribed keeps their snapshot.",
-    });
-  };
-
   /**
-   * An archived plan is closed to everything this page does.
-   *
-   * Checked before the subscribed branch below, because the two are not alternatives: an archived
-   * plan usually *has* subscribers, and that branch exists to let a live plan be repriced — which
-   * is exactly what an archived plan may no longer do. Every submission it offered would be
-   * refused by the server.
+   * An archived plan is closed to everything this page does. Every submission the builder offered
+   * would be refused by the server.
    *
    * Reached by typing or bookmarking the URL, since no link points here for an archived plan any
    * more. Answered with an explanation and a way back rather than a redirect, so somebody who
@@ -198,53 +171,22 @@ export const EditSubscriptionPlanPage = () => {
   }
 
   /**
-   * A subscribed plan: its terms are closed and the server would refuse an update, but a price is
-   * something new to sell rather than a change to something already sold. This is the only way to
-   * reprice a live plan — add the new price, retire the old one — so it must not be a dead end.
+   * A subscribed plan is edited like any other: each save is the plan's next version. Existing
+   * subscribers bill from the snapshot they took at signup, so the edit reaches only whoever
+   * subscribes next — the author needs to be told that before saving, not after.
    */
-  if (plan.hasSubscribers) {
-    return (
-      <PlanPricesEditor
-        plan={plan}
-        backTo={detailPath}
-        isSubmitting={isPricing}
-        retiringPriceId={retiringPriceId}
-        onRetirePrice={retirePrice}
-        onUpdatePriceTax={updatePriceTaxRate}
-        onUpdatePriceDiscount={updateAutomaticDiscount}
-        onUpdateMeterRates={updateMeterOverageRates}
-        onSubmit={async (values) => {
-          const failures = await createPricesInTurn({
-            prices: values.prices,
-            planId: plan.planId,
-            organizationId: plan.organizationId ?? undefined,
-            createPrice,
-          });
-
-          if (failures.length > 0) {
-            // Thrown rather than toasted, so the form keeps what was typed and the reason lands in
-            // the editor's own error region. Whatever did land stays landed.
-            throw new Error(failures.join(" "));
-          }
-
-          toast({
-            variant: "success",
-            title: values.prices.length === 1 ? "Price added" : "Prices added",
-            description: "Subscribers can now check out on it.",
-          });
-
-          navigate(detailPath);
-        }}
-      />
-    );
-  }
+  // No version number: meter-rate changes and archiving also move it on, so "creates v3" could be
+  // wrong by the time the save lands.
+  const editDescription = plan.hasSubscribers
+    ? "Saving creates a new version for new subscribers. Everyone already subscribed keeps the terms and price they bought."
+    : "Rewrites what this plan sells. Nothing is saved until you confirm at the end.";
 
   return (
     <PlanBuilder
       mode="edit"
       defaultValues={defaultValues}
       title={`Edit ${plan.displayName}`}
-      description="Rewrites what this plan sells. Nothing is saved until you confirm at the end."
+      description={editDescription}
       backTo={detailPath}
       submitLabel="Save changes"
       submittingLabel="Saving…"

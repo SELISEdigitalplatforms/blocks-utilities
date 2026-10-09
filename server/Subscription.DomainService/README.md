@@ -171,21 +171,32 @@ would have a client refuse a quantity the subscription is already sitting on.
 rest of that type exists: two surfaces describing the same quantities differently is how a client
 comes to enforce one rule on the read and another on the write.
 
-## Editing a plan ends when the first subscriber arrives
+## Editing a plan makes a new version; subscribers keep theirs
 
-`PUT /subscription-plans/{planId}` rewrites what a plan sells. It refuses with
-`subscription_plan_in_use` as soon as anything has subscribed, in any status — cancelled included.
+`PUT /subscription-plans/{planId}` rewrites what a plan sells, whether or not anything has
+subscribed. Each write moves `Version` on (v1 → v2 → …).
 
 That falls straight out of the snapshot rule above. An edit reaches the catalogue and nothing
-else, so a plan that was sold would leave the catalogue saying one thing while every live
-subscription bills from its own copy of something older; a cancelled subscription's past invoices
-were computed from those terms too. Create a new plan and migrate instead — that is what
-`ChangePlanAsync` is for.
+else: whoever subscribes next gets the new version, and every existing subscription — cancelled
+ones and their past invoices included — keeps billing from the copy it took at signup, with
+`plan.planVersion` saying which version that was. A subscriber moves onto a newer version only
+through `ChangePlanAsync`, which re-snapshots. There is no bulk "move everyone to the latest
+version" yet; that would be a deliberate, separate operation.
+
+Before any write moves the version on — an edit, a meter-rate change, or archiving — the version
+being replaced is copied, read-only, into `SubscriptionPlanVersions`. The id is
+`{planId}:{version}`, so a retried or raced copy of the same version is refused by the key and the
+first one stands. The copy is taken before the compare-and-set, never after: a crash between the
+two then leaves a record of a version that did exist rather than a version that vanished.
+`GET /subscription-plans/{planId}/versions` lists them newest first; the current version is the
+plan itself. Versions replaced before this history existed are not recoverable.
+
+Prices are separate documents with their own versions and are not copied into the plan's history.
 
 The code and the organization come from the stored plan, never the request: a code is what
 configuration points at, and a scope change would move the plan out from under whoever can see it.
-Prices are separate documents and are untouched. Reads return `hasSubscribers` so a caller can say
-why editing is closed before offering it.
+Reads still return `hasSubscribers`, so a caller can warn that an edit will not reach existing
+subscribers.
 
 `PlanDefinitionRequestValidator` holds every rule about a plan's contents, and both creating and
 editing include it — an edit that could store what a create would have refused is a hole, and one

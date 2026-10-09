@@ -962,16 +962,23 @@ public sealed class PlanCatalogueServiceTests
     }
 
     /// <summary>
-    /// The reason editing is closed at all: subscribing copies the plan's terms onto the
-    /// subscription and bills from that copy, so an edit cannot reach anyone already on it.
+    /// Subscribing copies the plan's terms onto the subscription and bills from that copy, so an
+    /// edit to a sold plan is the next version for new subscribers and reaches nobody already on
+    /// it. Refusing it forced a whole new plan just to fix a mistyped entitlement.
     /// </summary>
     [Fact]
-    public async Task A_plan_that_has_been_subscribed_to_is_refused()
+    public async Task A_plan_that_has_been_subscribed_to_can_still_be_edited()
     {
         StorePlan(StoredPlan());
         _subscriptions
             .Setup(repository => repository.AnySubscriberAsync(
                 TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, int, Plan, CancellationToken>(
+                (_, _, _, plan, _) => _updated = plan)
             .ReturnsAsync(true);
 
         var result = await Service().UpdatePlanAsync(
@@ -980,12 +987,113 @@ public sealed class PlanCatalogueServiceTests
             "corr-1",
             CancellationToken.None);
 
-        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
-        result.ErrorCode.Should().Be("subscription_plan_in_use");
-        _catalogue.Verify(
-            repository => repository.TryUpdatePlanAsync(
+        result.IsSuccess.Should().BeTrue(
+            "existing subscribers bill from their own snapshot, so the edit cannot reprice them");
+        _updated!.Entitlements[0].Limit.Should().Be(500);
+    }
+
+    /// <summary>
+    /// The replaced version is kept before the write that replaces it. The other order would let
+    /// a crash between the two erase a version some subscriber is still billed from.
+    /// </summary>
+    [Fact]
+    public async Task An_edit_keeps_the_version_it_replaces_before_writing_the_next()
+    {
+        var stored = StoredPlan();
+        StorePlan(stored);
+        var calls = new List<string>();
+        Plan? recorded = null;
+        _catalogue
+            .Setup(repository => repository.RecordPlanVersionAsync(
+                It.IsAny<Plan>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback<Plan, DateTime, CancellationToken>((plan, _, _) =>
+            {
+                recorded = plan;
+                calls.Add("record");
+            })
+            .Returns(Task.CompletedTask);
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
-                It.IsAny<Plan>(), It.IsAny<CancellationToken>()),
+                It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .Callback(() => calls.Add("update"))
+            .ReturnsAsync(true);
+
+        await Service().UpdatePlanAsync("plan-1", EditedPlan(), "corr-1", CancellationToken.None);
+
+        calls.Should().Equal(["record", "update"],
+            "recording after the write would lose the old version on a crash in between");
+        recorded.Should().BeSameAs(stored,
+            "the history must hold the version as it was read, not the edit being applied");
+    }
+
+    [Fact]
+    public async Task Archiving_keeps_the_active_version_it_ends()
+    {
+        var stored = ActivePlan();
+        StorePlan(stored);
+        _catalogue
+            .Setup(repository => repository.TryArchivePlanAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await Service().ArchivePlanAsync("plan-1", null, "corr-1", CancellationToken.None);
+
+        _catalogue.Verify(
+            repository => repository.RecordPlanVersionAsync(
+                stored, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "archiving moves the version on, and a gap in the history would have nothing to explain it");
+    }
+
+    [Fact]
+    public async Task A_plans_history_lists_its_superseded_versions_newest_first()
+    {
+        StorePlan(StoredPlan());
+        var v1 = StoredPlan();
+        v1.DisplayName = "Professional (launch)";
+        _catalogue
+            .Setup(repository => repository.ListPlanVersionsAsync(
+                TenantId, "plan-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new PlanVersionRecord
+                {
+                    ItemId = PlanVersionRecord.IdOf("plan-1", 1),
+                    TenantId = TenantId,
+                    PlanId = "plan-1",
+                    Version = 1,
+                    SupersededAtUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+                    Plan = v1
+                }
+            ]);
+
+        var result = await Service().ListPlanVersionsAsync(
+            "plan-1", null, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().ContainSingle();
+        result.Value![0].Version.Should().Be(1);
+        result.Value[0].Plan.DisplayName.Should().Be("Professional (launch)",
+            "a support question about what v1 sold is answered from this, not from today's plan");
+    }
+
+    [Fact]
+    public async Task Another_organizations_plan_history_reads_as_missing()
+    {
+        var stored = StoredPlan();
+        stored.OrganizationId = "somebody-else";
+        StorePlan(stored);
+
+        var result = await Service().ListPlanVersionsAsync(
+            "plan-1", null, "corr-1", CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound,
+            "a plan's history must not reveal a plan its organization cannot see");
+        _catalogue.Verify(
+            repository => repository.ListPlanVersionsAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 

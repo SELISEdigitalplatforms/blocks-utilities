@@ -16,11 +16,11 @@ public interface IPlanCatalogueService
     /// Rewrites what a plan sells, leaving its code, scope and prices where they are.
     /// </summary>
     /// <remarks>
-    /// Refused with <c>subscription_plan_in_use</c> once anything has subscribed. Subscribing
-    /// copies the plan's terms onto the subscription and bills from that copy, so editing a plan
-    /// that was sold cannot reach the people already on it — it would leave the catalogue saying
-    /// one thing and every live subscription another. A plan nobody has bought has no such
-    /// history, which is the only case this allows.
+    /// Allowed whether or not anything has subscribed, and each edit is a new version. Subscribing
+    /// copies the plan's terms onto the subscription and bills from that copy, so an edit reaches
+    /// whoever subscribes next and nobody already on the plan — they stay on the version they
+    /// bought until a plan change re-snapshots them. The version replaced is kept, read-only;
+    /// see <see cref="ListPlanVersionsAsync"/>.
     /// </remarks>
     Task<SubscriptionOperationResult<PlanResponse>> UpdatePlanAsync(
         string planId,
@@ -146,6 +146,20 @@ public interface IPlanCatalogueService
         string? familyCode = null);
 
     Task<SubscriptionOperationResult<PlanResponse>> GetPlanAsync(
+        string planId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every version a plan has moved on from, newest first, each exactly as it stood.
+    /// </summary>
+    /// <remarks>
+    /// The current version is not in the list — <see cref="GetPlanAsync"/> answers that. A plan
+    /// that has never been written since it was created has an empty history. Versions replaced
+    /// before history was kept are not recoverable and are simply absent.
+    /// </remarks>
+    Task<SubscriptionOperationResult<IReadOnlyList<PlanVersionResponse>>> ListPlanVersionsAsync(
         string planId,
         string? organizationId,
         string correlationId,
