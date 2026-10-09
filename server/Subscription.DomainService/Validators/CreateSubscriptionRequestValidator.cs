@@ -40,5 +40,10 @@ public sealed class CreateSubscriptionRequestValidator
         RuleFor(request => request.BillingEmail)
             .EmailAddress()
             .When(request => !string.IsNullOrWhiteSpace(request.BillingEmail));
+
+        RuleFor(request => request.BillingLanguage)
+            .Must(MailLanguage.IsWellFormed)
+            .WithMessage("The billing language must be a language tag such as en-US.")
+            .When(request => !string.IsNullOrWhiteSpace(request.BillingLanguage));
     }
 }

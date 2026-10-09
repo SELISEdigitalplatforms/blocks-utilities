@@ -44,6 +44,12 @@ public sealed class SubscriptionBillingProfile
 
     public string BillingContactEmail { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The language the billing contact's notification emails are asked for in. Read when each
+    /// email is sent, so a change applies to the next one. Null means <c>en-US</c>.
+    /// </summary>
+    public string? BillingContactLanguage { get; set; }
+
     public BillingAddress? Address { get; set; }
 
     /// <summary>

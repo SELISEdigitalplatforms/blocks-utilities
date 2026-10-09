@@ -430,7 +430,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             TimeZoneId = request.TimeZoneId,
             OrganizationId = request.OrganizationId,
             BillingEmail = request.BillingEmail,
-            BillingName = request.BillingName
+            BillingName = request.BillingName,
+            BillingLanguage = request.BillingLanguage
         };
 
         var standard = await PreviewAsync(
@@ -700,7 +701,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     ProviderOrganizationId = providerOrganizationId,
                     ProviderId = providerId,
                     BillingEmail = contact.Email,
-                    BillingName = contact.Name
+                    BillingName = contact.Name,
+                    Language = Trimmed(request.BillingLanguage)
                 },
                 cancellationToken);
 

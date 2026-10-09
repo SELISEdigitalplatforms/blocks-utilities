@@ -20,6 +20,9 @@ public sealed class UpdateBillingProfileRequest
 
     public string BillingContactEmail { get; set; } = string.Empty;
 
+    /// <summary>A BCP-47 tag such as <c>de-CH</c>; absent means <c>en-US</c>.</summary>
+    public string? BillingContactLanguage { get; set; }
+
     public BillingAddressRequest? Address { get; set; }
 
     public string? TaxRegistrationId { get; set; }

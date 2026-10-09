@@ -29,6 +29,7 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
     private readonly ILogger<SubscriptionNotificationEmailService> _logger;
     private readonly IMailDeliveryReporter? _mailReports;
     private readonly ISubscriptionAssignmentRepository? _assignments;
+    private readonly ISubscriptionBillingProfileRepository? _profiles;
 
     public SubscriptionNotificationEmailService(
         ISubscriptionRepository subscriptions,
@@ -38,7 +39,9 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         IMailDeliveryReporter? mailReports = null,
         // Optional only for hosts that never seat anyone. Absent, no member email is sent: the
         // seat could not be checked, and an unchecked one may be a seat that was never written.
-        ISubscriptionAssignmentRepository? assignments = null)
+        ISubscriptionAssignmentRepository? assignments = null,
+        // Optional: absent, the billing contact is mailed in the account's language, else en-US.
+        ISubscriptionBillingProfileRepository? profiles = null)
     {
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -47,6 +50,7 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         // Optional for the same reason as on the usage-threshold path: absent, nothing is recorded.
         _mailReports = mailReports;
         _assignments = assignments;
+        _profiles = profiles;
     }
 
     public async Task SendAsync(
@@ -112,11 +116,18 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         var subject = new Dictionary<string, string>(body);
         subject.Remove(CancellationReasonKey);
 
+        // Read now rather than copied when the subscription was made: the profile is the one place
+        // an administrator can change it, and a change should reach the very next email.
+        var profile = _profiles is null
+            ? null
+            : await _profiles.GetAsync(
+                lifecycleEvent.TenantId, subscription.OrganizationId, cancellationToken);
+
         await QueueAsync(
             lifecycleEvent,
             account.BillingEmail,
             purpose,
-            SubscriptionConstants.DefaultMailLanguage,
+            MailLanguage.FirstOf(profile?.BillingContactLanguage, account.Language),
             subject,
             body,
             cancellationToken);
@@ -184,9 +195,7 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             lifecycleEvent,
             lifecycleEvent.MemberEmail,
             purpose,
-            string.IsNullOrWhiteSpace(lifecycleEvent.MemberLanguage)
-                ? SubscriptionConstants.DefaultMailLanguage
-                : lifecycleEvent.MemberLanguage,
+            MailLanguage.FirstOf(lifecycleEvent.MemberLanguage),
             new Dictionary<string, string>(context),
             context,
             cancellationToken);

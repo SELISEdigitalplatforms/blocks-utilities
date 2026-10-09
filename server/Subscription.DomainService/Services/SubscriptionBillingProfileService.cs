@@ -94,6 +94,7 @@ public sealed class SubscriptionBillingProfileService : ISubscriptionBillingProf
                 DisplayName = Trimmed(request.DisplayName),
                 BillingContactName = request.BillingContactName.Trim(),
                 BillingContactEmail = request.BillingContactEmail.Trim().ToLowerInvariant(),
+                BillingContactLanguage = Trimmed(request.BillingContactLanguage),
                 // An address whose every line is blank is stored as no address, so a document does
                 // not render an empty block that looks like missing data.
                 Address = address is not null && !address.IsEmpty() ? address : null,
@@ -134,6 +135,7 @@ public sealed class SubscriptionBillingProfileService : ISubscriptionBillingProf
             DisplayName = profile?.DisplayName,
             BillingContactName = profile?.BillingContactName ?? string.Empty,
             BillingContactEmail = profile?.BillingContactEmail ?? string.Empty,
+            BillingContactLanguage = profile?.BillingContactLanguage,
             Address = profile?.Address is { } address
                 ? new BillingAddressResponse
                 {

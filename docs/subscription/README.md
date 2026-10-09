@@ -9,6 +9,7 @@ means, start here.
 | [plan-authoring/](plan-authoring/) | You are building a plan and need to know what every option means, when to pick each alternative, and how to prove you picked right. |
 | [lifecycle/](lifecycle/) | You need the whole journey — signup, trial, renewal, upgrade, overage, decline, cancellation — and what the subscriber sees at each step. |
 | [per-person/](per-person/) | A plan is sold to **each person** rather than the organization: places, members, per-place allowances, every endpoint with its payload, and the permissions to grant. |
+| [notifications/](notifications/) | You are writing the tenant's email templates for seat, plan, cancellation and member changes, and need each purpose, its recipient and its placeholders. |
 | [tracing/](tracing/) | A customer has reported a problem and you need to find out what actually happened to their subscription. |
 
 For how any of it is *implemented*, the authority is
