@@ -86,6 +86,28 @@ public sealed class SubscriptionLifecycleEvent
     /// </summary>
     public string? ActorName { get; set; }
 
+    /// <summary>
+    /// Set on member events: the seat this is about. What the mail checks before sending, because
+    /// the event is written before the seat and only the seat says whether it really changed.
+    /// </summary>
+    public string? AssignmentId { get; set; }
+
+    /// <summary>Set on member events: who was given or lost the seat.</summary>
+    public string? MemberUserId { get; set; }
+
+    /// <summary>
+    /// Set on member events, from IAM at the time of the change. Absent when IAM could not say,
+    /// in which case the seat still changed and nobody is mailed.
+    /// </summary>
+    public string? MemberEmail { get; set; }
+
+    public string? MemberDisplayName { get; set; }
+
+    public string? MemberLanguage { get; set; }
+
+    /// <summary>Set on member events: the organization's name as IAM gave it.</summary>
+    public string? OrganizationName { get; set; }
+
     public string CorrelationId { get; set; } = string.Empty;
 
     public DateTime OccurredAtUtc { get; set; }

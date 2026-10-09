@@ -1,7 +1,9 @@
-﻿using System.Globalization;
+using System.Collections.Concurrent;
+using System.Globalization;
 using Payment.DomainService.Enums;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
+using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
@@ -29,7 +31,15 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
     private readonly IMeterAllowanceResolver? _allowances;
     private readonly ISubscriptionUsageCurrentRepository? _current;
     private readonly ISubscriptionWorkScheduler? _scheduler;
+    private readonly ISubscriptionOutboxEventFactory? _events;
+    private readonly IMemberDirectory? _directory;
     private readonly TimeProvider _time;
+
+    /// <summary>
+    /// How many IAM lookups run at once for one batch. Enough that a ten-name list does not wait
+    /// for ten round trips in a row; few enough that one administrator cannot flood IAM.
+    /// </summary>
+    private const int MemberLookupParallelism = 4;
 
     public SubscriptionMemberService(
         ISubscriptionRepository subscriptions,
@@ -45,7 +55,10 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         ISubscriptionUsageCurrentRepository? current = null,
         // Optional: without it a newly held place has no usage row until its first recording or
         // the next backfill pass.
-        ISubscriptionWorkScheduler? scheduler = null)
+        ISubscriptionWorkScheduler? scheduler = null,
+        // Optional together: without them seats still change, and nobody is emailed about it.
+        ISubscriptionOutboxEventFactory? events = null,
+        IMemberDirectory? directory = null)
     {
         _subscriptions = subscriptions;
         _assignments = assignments;
@@ -55,6 +68,8 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
         _allowances = allowances;
         _current = current;
         _scheduler = scheduler;
+        _events = events;
+        _directory = directory;
         _time = time ?? TimeProvider.System;
     }
 
@@ -131,6 +146,12 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
             .Select(assignment => assignment.UserId)
             .ToHashSet(StringComparer.Ordinal);
 
+        // Asked before any seat is written, because each seat's email event is written before
+        // its seat. Skips only the people already known to be seated; anyone refused later costs
+        // one wasted lookup and gets no mail, since the mail checks the seat before sending.
+        var notice = await MemberNoticeAsync(
+            subscription, named.Where(userId => !seated.Contains(userId)), cancellationToken);
+
         foreach (var userId in named)
         {
             // Checked before the capacity, not after. Somebody already on a full subscription is
@@ -176,6 +197,13 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 AssignedByUserId = context.UserId,
                 CorrelationId = correlationId
             };
+
+            // Announced before the seat is written, so a process that dies between the two writes
+            // can only leave an announcement with no seat (which the mail drops on checking) and
+            // never a seat nobody was told about.
+            await AnnounceAsync(
+                subscription, SubscriptionConstants.SubscriptionMemberAssigned, assignment,
+                notice, context.ActorName, correlationId, cancellationToken);
 
             var outcome = await _assignments.TryAssignAsync(assignment, cancellationToken);
 
@@ -227,6 +255,90 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
                 Refused = refused
             },
             correlationId);
+    }
+
+    /// <summary>What the member emails need to know, looked up once per call.</summary>
+    private sealed record MemberNotice(
+        IReadOnlyDictionary<string, MemberContact> Contacts,
+        string? OrganizationName);
+
+    /// <summary>
+    /// The people named and their organization, from IAM, while the caller's token is in hand.
+    /// </summary>
+    /// <remarks>
+    /// Never fails the call: a person IAM cannot describe is simply absent from the map, and their
+    /// seat changes all the same.
+    /// </remarks>
+    private async Task<MemberNotice?> MemberNoticeAsync(
+        SubscriptionDetail subscription,
+        IEnumerable<string> userIds,
+        CancellationToken cancellationToken)
+    {
+        if (_events is null || _directory is null)
+        {
+            return null;
+        }
+
+        var contacts = new ConcurrentDictionary<string, MemberContact>(StringComparer.Ordinal);
+        var directory = _directory;
+
+        await Parallel.ForEachAsync(
+            userIds,
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = MemberLookupParallelism,
+                CancellationToken = cancellationToken
+            },
+            async (userId, token) =>
+            {
+                if (await directory.FindUserAsync(userId, token) is { } contact)
+                {
+                    contacts[userId] = contact;
+                }
+            });
+
+        return new MemberNotice(
+            contacts,
+            await directory.FindOrganizationNameAsync(subscription.OrganizationId, cancellationToken));
+    }
+
+    /// <summary>
+    /// Appends the email event for one seat to the subscription's outbox.
+    /// </summary>
+    /// <remarks>
+    /// Not wrapped: a failure here happens before the seat is written, so the caller is told and
+    /// can retry, rather than holding a seat change nobody will ever be told about. A retry
+    /// appends nothing new for the same seat, because the event is keyed on it.
+    /// </remarks>
+    private async Task AnnounceAsync(
+        SubscriptionDetail subscription,
+        string eventType,
+        SubscriptionAssignment assignment,
+        MemberNotice? notice,
+        string? actorName,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_events is null || notice is null)
+        {
+            return;
+        }
+
+        var outboxEvent = _events.CreateMemberChanged(
+            subscription,
+            eventType,
+            assignment,
+            notice.Contacts.GetValueOrDefault(assignment.UserId),
+            notice.OrganizationName,
+            actorName,
+            correlationId);
+
+        if (await _subscriptions.TryAppendEventAsync(
+                subscription.TenantId, subscription.ItemId, outboxEvent, cancellationToken) &&
+            _scheduler is not null)
+        {
+            await _scheduler.ScheduleOutboxPublicationAsync(subscription, outboxEvent, cancellationToken);
+        }
     }
 
     /// <summary>
@@ -356,6 +468,18 @@ public sealed class SubscriptionMemberService : ISubscriptionMemberService
 
         var (context, subscription) = resolved.Value;
         var releasedAtUtc = _time.GetUtcNow().UtcDateTime;
+
+        // The seat about to be closed, read first so its email can be announced before the close
+        // for the same reason as on assignment. Nothing held means nothing to announce, and the
+        // release below reports that.
+        if (await _assignments.GetActiveAsync(
+                context.TenantId, subscription.ItemId, userId, cancellationToken) is { } holding)
+        {
+            await AnnounceAsync(
+                subscription, SubscriptionConstants.SubscriptionMemberReleased, holding,
+                await MemberNoticeAsync(subscription, [userId], cancellationToken),
+                context.ActorName, correlationId, cancellationToken);
+        }
 
         var released = await _assignments.TryReleaseAsync(
             context.TenantId, subscription.ItemId, userId, releasedAtUtc, cancellationToken);
