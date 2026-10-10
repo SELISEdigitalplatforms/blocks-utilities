@@ -238,6 +238,13 @@ public sealed class SubscriptionDetail
 
     public string? CancellationReason { get; set; }
 
+    /// <summary>
+    /// Who asked for the cancellation, by name, so the email sent when it takes effect at the
+    /// period end — written by the worker, which has no caller — can still say who it was.
+    /// Cleared with the reason when a cancellation is withdrawn.
+    /// </summary>
+    public string? CancellationRequestedByName { get; set; }
+
     public List<SubscriptionOutboxEvent> OutboxEvents { get; set; } = [];
 
     /// <summary>

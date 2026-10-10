@@ -218,10 +218,11 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             ? await ApplyAsync(
                 r.Subscription, r.NewPlan, r.NewPrice, r.Quantities, r.NewSchedule,
                 r.Subscription.CreditBalanceMinor, null, null, correlationId, cancellationToken,
-                initiatedByUserId: r.RequestedByUserId)
+                initiatedByUserId: r.RequestedByUserId,
+                initiatedByName: r.RequestedByName)
             : await ChargeAndApplyAsync(
                 r.Subscription, r.NewPlan, r.NewPrice, r.Quantities, r.NewSchedule, r.Now,
-                r.RequestedByUserId, correlationId, cancellationToken);
+                r.RequestedByUserId, r.RequestedByName, correlationId, cancellationToken);
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelPendingPlanChangeAsync(
@@ -685,7 +686,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         return SubscriptionOperationResult<PlanChangeResolution>.Success(
             new PlanChangeResolution(
                 subscription, newPlan, newPrice, quantities, newSchedule, now,
-                context.UserId, blockers),
+                context.UserId, context.ActorName, blockers),
             correlationId);
     }
 
@@ -731,6 +732,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         SubscriptionPlanSchedule newSchedule,
         DateTime now,
         string? requestedByUserId,
+        string? requestedByName,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -760,12 +762,13 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             {
                 return await ScheduleAsync(
                     subscription, newPlan, newPrice, quantities, now,
-                    requestedByUserId, correlationId, cancellationToken);
+                    requestedByUserId, requestedByName, correlationId, cancellationToken);
             }
 
             return await ChargeAndApplyOpeningStubUpgradeAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule, prepaidAnnual,
-                stubUpgrade, now, requestedByUserId, correlationId, cancellationToken);
+                stubUpgrade, now, requestedByUserId, requestedByName, correlationId,
+                cancellationToken);
         }
 
         var outcome = SubscriptionProrationCalculator.Calculate(
@@ -792,7 +795,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         {
             return await ScheduleAsync(
                 subscription, newPlan, newPrice, quantities, now,
-                requestedByUserId, correlationId, cancellationToken);
+                requestedByUserId, requestedByName, correlationId, cancellationToken);
         }
 
         // Only an unpaid stub reaches this any more: a prepaid one was intercepted above, whether
@@ -828,7 +831,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             return await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule,
                 outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
-                SettlementCharge.BreakdownOf(outcome), requestedByUserId);
+                SettlementCharge.BreakdownOf(outcome), requestedByUserId,
+                initiatedByName: requestedByName);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -868,6 +872,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             // Carried so the invoice can say who asked for the change, and so a settlement recovered
             // by the sweep names the same person the caller would have.
             RequestedByUserId = requestedByUserId,
+            RequestedByName = requestedByName,
             BillingAccountId = subscription.BillingAccountId,
             ProviderName = account.ProviderName,
             ProviderOrganizationId = account.ProviderOrganizationId,
@@ -945,7 +950,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             subscription, newPlan, newPrice, quantities, newSchedule,
             outcome.NewCreditBalanceMinor, charge.Value, reservation.ReservationId,
             correlationId, cancellationToken,
-            reservation.Settlement, requestedByUserId);
+            reservation.Settlement, requestedByUserId,
+            initiatedByName: requestedByName);
     }
 
     /// <summary>
@@ -973,6 +979,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         OpeningStubUpgradeOutcome stubUpgrade,
         DateTime now,
         string? requestedByUserId,
+        string? requestedByName,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -1013,7 +1020,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             return await ApplyAsync(
                 subscription, newPlan, newPrice, quantities, compositeSchedule,
                 stubUpgrade.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
-                SettlementCharge.BreakdownOf(stubUpgrade), requestedByUserId, replacementAnnual);
+                SettlementCharge.BreakdownOf(stubUpgrade), requestedByUserId, replacementAnnual,
+                initiatedByName: requestedByName);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -1048,6 +1056,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             ChargeAmountMinor = stubUpgrade.ChargeMinor,
             Settlement = SettlementCharge.BreakdownOf(stubUpgrade),
             RequestedByUserId = requestedByUserId,
+            RequestedByName = requestedByName,
             BillingAccountId = subscription.BillingAccountId,
             ProviderName = account.ProviderName,
             ProviderOrganizationId = account.ProviderOrganizationId,
@@ -1121,7 +1130,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             correlationId, cancellationToken,
             reservation.Settlement, requestedByUserId,
             // Exactly what the recovery sweep would install for this same reservation and payment.
-            reservation.PlanChange!.ReplacementPendingAnnualPeriod!.SettledBy(charge.Value));
+            reservation.PlanChange!.ReplacementPendingAnnualPeriod!.SettledBy(charge.Value),
+            initiatedByName: requestedByName);
     }
 
 
@@ -1168,6 +1178,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         List<SubscriptionQuantityItem> quantities,
         DateTime now,
         string? requestedByUserId,
+        string? requestedByName,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -1200,6 +1211,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             RequestedAtUtc = now,
             EffectiveAtUtc = effectiveAtUtc,
             RequestedByUserId = requestedByUserId,
+            RequestedByName = requestedByName,
             ExpectedVersion = subscription.Version
         };
 
@@ -1261,9 +1273,11 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         CancellationToken cancellationToken,
         SubscriptionSettlementBreakdown? settlement = null,
         string? initiatedByUserId = null,
-        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null,
+        string? initiatedByName = null)
     {
         var previousPlanCode = subscription.Plan.Code;
+        var previousPlanName = subscription.Plan.DisplayName;
         var expectedVersion = subscription.Version;
         var outgoingUsagePeriod = await SnapshotOutgoingUsagePeriodAsync(
             subscription, correlationId, cancellationToken);
@@ -1297,6 +1311,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         var outboxEvent = _events.CreatePlanChanged(
             subscription,
             previousPlanCode,
+            previousPlanName,
+            initiatedByName,
             correlationId);
         var applied = await _subscriptions.TryChangePlanAsync(
             subscription.TenantId,
@@ -1734,5 +1750,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         SubscriptionPlanSchedule NewSchedule,
         DateTime Now,
         string? RequestedByUserId,
+        string? RequestedByName,
         List<SubscriptionPreviewBlockerResponse> Blockers);
 }

@@ -23,4 +23,20 @@ public sealed record SubscriptionContext(
     string ActorId,
     string? UserId,
     string? UserName = null,
-    string? UserEmail = null);
+    string? UserEmail = null)
+{
+    /// <summary>
+    /// How a notification email names the caller: their name, else their address, else nobody.
+    /// </summary>
+    /// <remarks>
+    /// Stored on a scheduled change at the moment it is asked for, because the worker that carries
+    /// it out weeks later has no caller of its own to ask.
+    /// </remarks>
+    public string? ActorName => ActorNameOf(UserName, UserEmail);
+
+    /// <summary>The rule behind <see cref="ActorName"/>, for callers holding the two values apart.</summary>
+    public static string? ActorNameOf(string? userName, string? userEmail) =>
+        !string.IsNullOrWhiteSpace(userName) ? userName.Trim()
+        : !string.IsNullOrWhiteSpace(userEmail) ? userEmail.Trim()
+        : null;
+}

@@ -64,7 +64,41 @@ public sealed class SubscriptionLifecycleEvent
     /// <summary>The dunning attempt this event resulted from, 1-based.</summary>
     public int? AttemptNumber { get; set; }
 
+    /// <summary>Set on a plan-change event: the name of <see cref="PreviousPlanCode"/>.</summary>
+    /// <remarks>
+    /// Carried rather than looked up when the mail is sent, because the plan may have been renamed
+    /// by then and the customer moved off the plan as it was called on the day.
+    /// </remarks>
+    public string? PreviousPlanName { get; set; }
+
+    /// <summary>The plan's display name, for the notification emails.</summary>
+    public string? PlanName { get; set; }
+
+    /// <summary>Set on a quantity-change event: every item whose quantity moved.</summary>
+    public List<LifecycleQuantityChange>? QuantityChanges { get; set; }
+
+    /// <summary>Set on cancellation events: the reason the canceller gave, if any.</summary>
+    public string? CancellationReason { get; set; }
+
+    /// <summary>
+    /// Who asked for the change, by name, for the notification emails. For a change the worker
+    /// carried out later, the person who scheduled it.
+    /// </summary>
+    public string? ActorName { get; set; }
+
     public string CorrelationId { get; set; } = string.Empty;
 
     public DateTime OccurredAtUtc { get; set; }
+}
+
+/// <summary>One quantity item as it stood before and after a change.</summary>
+public sealed class LifecycleQuantityChange
+{
+    public string ItemKey { get; set; } = string.Empty;
+
+    public string UnitLabel { get; set; } = string.Empty;
+
+    public long PreviousQuantity { get; set; }
+
+    public long Quantity { get; set; }
 }

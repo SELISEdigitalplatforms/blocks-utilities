@@ -170,6 +170,9 @@ public sealed class SubscriptionCancellationEffectiveProcessor : ISubscriptionCa
                     SubscriptionConstants.SubscriptionCanceled,
                     cancelAtPeriodEnd: false,
                     effectiveAtUtc,
+                    subscription.CancellationReason,
+                    // Nobody is calling: whoever scheduled it is who the email names.
+                    subscription.CancellationRequestedByName,
                     subscription.CorrelationId)
             },
             cancellationToken);

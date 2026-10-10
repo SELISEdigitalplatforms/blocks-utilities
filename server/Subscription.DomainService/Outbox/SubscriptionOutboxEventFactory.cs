@@ -95,9 +95,18 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
     /// </summary>
     public SubscriptionOutboxEvent CreateQuantityChanged(
         SubscriptionDetail subscription,
+        IReadOnlyList<SubscriptionQuantityItem> previousQuantities,
+        IReadOnlyList<SubscriptionQuantityItem> quantities,
+        string? actorName,
         string correlationId)
     {
         ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(previousQuantities);
+        ArgumentNullException.ThrowIfNull(quantities);
+
+        var payload = NewPayload(subscription, Utilities.SubscriptionConstants.SubscriptionQuantityChanged);
+        payload.QuantityChanges = QuantityChanges(previousQuantities, quantities);
+        payload.ActorName = actorName;
 
         return Build(
             subscription,
@@ -105,7 +114,7 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             // Version is unique per mutation, so it is free scoping — a quantity change has no
             // period key or attempt number the way a renewal does.
             $"{subscription.ItemId}:{Utilities.SubscriptionConstants.SubscriptionQuantityChanged}:{subscription.Version}",
-            NewPayload(subscription, Utilities.SubscriptionConstants.SubscriptionQuantityChanged),
+            payload,
             correlationId,
             null);
     }
@@ -113,12 +122,16 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
     public SubscriptionOutboxEvent CreatePlanChanged(
         SubscriptionDetail subscription,
         string previousPlanCode,
+        string? previousPlanName,
+        string? actorName,
         string correlationId)
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
         var payload = NewPayload(subscription, Utilities.SubscriptionConstants.SubscriptionPlanChanged);
         payload.PreviousPlanCode = previousPlanCode;
+        payload.PreviousPlanName = previousPlanName;
+        payload.ActorName = actorName;
 
         return Build(
             subscription,
@@ -158,6 +171,8 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
         string eventType,
         bool cancelAtPeriodEnd,
         DateTime? effectiveAtUtc,
+        string? reason,
+        string? actorName,
         string correlationId)
     {
         ArgumentNullException.ThrowIfNull(subscription);
@@ -165,6 +180,8 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
         var payload = NewPayload(subscription, eventType);
         payload.CancelAtPeriodEnd = cancelAtPeriodEnd;
         payload.CurrentPeriodEndUtc = effectiveAtUtc;
+        payload.CancellationReason = reason;
+        payload.ActorName = actorName;
 
         return Build(
             subscription,
@@ -206,6 +223,7 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
         OrganizationId = subscription.OrganizationId,
         SubscriptionId = subscription.ItemId,
         PlanCode = subscription.Plan.Code,
+        PlanName = subscription.Plan.DisplayName,
         Status = subscription.Status.ToString(),
         // Read off the subscription, which is right for every event whose payload is built from a
         // subscription already carrying the change it describes. A cancellation's is not — see
@@ -214,4 +232,48 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
         CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
         OccurredAtUtc = DateTime.UtcNow
     };
+
+    /// <summary>
+    /// Every item whose quantity differs between what the subscription held and what it now holds.
+    /// </summary>
+    /// <remarks>
+    /// Keyed by item rather than compared by position, because the two lists come from different
+    /// writers and nothing promises they are in the same order. An item on only one side counts
+    /// from or to zero.
+    /// </remarks>
+    private static List<LifecycleQuantityChange> QuantityChanges(
+        IReadOnlyList<SubscriptionQuantityItem> before,
+        IReadOnlyList<SubscriptionQuantityItem> after)
+    {
+        var previous = before.ToDictionary(item => item.ItemKey, StringComparer.Ordinal);
+        var changes = new List<LifecycleQuantityChange>();
+
+        foreach (var item in after)
+        {
+            var was = previous.Remove(item.ItemKey, out var old) ? old.Quantity : 0;
+
+            if (was != item.Quantity)
+            {
+                changes.Add(new LifecycleQuantityChange
+                {
+                    ItemKey = item.ItemKey,
+                    UnitLabel = item.UnitLabel,
+                    PreviousQuantity = was,
+                    Quantity = item.Quantity
+                });
+            }
+        }
+
+        changes.AddRange(previous.Values
+            .Where(item => item.Quantity != 0)
+            .Select(item => new LifecycleQuantityChange
+            {
+                ItemKey = item.ItemKey,
+                UnitLabel = item.UnitLabel,
+                PreviousQuantity = item.Quantity,
+                Quantity = 0
+            }));
+
+        return changes;
+    }
 }

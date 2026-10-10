@@ -407,6 +407,9 @@ public sealed class OpeningStubUpgradeRecoveryIntegrationTests
                 Plan = new PlanSnapshot { Code = "scale" },
                 Price = new PriceSnapshot { CurrencyCode = "CHF" }
             },
+            [],
+            [],
+            null,
             "corr-1");
 
     /// <summary>

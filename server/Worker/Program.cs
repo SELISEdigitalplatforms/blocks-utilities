@@ -86,7 +86,7 @@ IHostBuilder CreateHostBuilder(string[] args) =>
                 PaymentWorkCommandConsumer>();
             services.AddSingleton<
                 IConsumer<SubscriptionLifecycleEvent>,
-                UsageThresholdReachedConsumer>();
+                SubscriptionLifecycleMailConsumer>();
             services.AddSingleton<
                 IConsumer<PaymentLifecycleEvent>,
                 PaymentLifecycleEventConsumer>();

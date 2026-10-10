@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using FluentValidation;
 using Microsoft.Extensions.Logging;
 using Payment.DomainService.Entities;
@@ -217,6 +217,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         var subscription = loaded.Value!.Subscription;
         var requestedByUserId = loaded.Value!.UserId;
+        var requestedByName = SubscriptionContext.ActorNameOf(
+            loaded.Value!.UserName, loaded.Value!.UserEmail);
 
         if (!EligibleStatuses.Contains(subscription.Status))
         {
@@ -406,9 +408,11 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
 
         return direction < 0
             ? await DecreaseAsync(
-                subscription, target, requestedByUserId, preview, now, correlationId, cancellationToken)
+                subscription, target, requestedByUserId, requestedByName, preview, now, correlationId,
+                cancellationToken)
             : await IncreaseAsync(
-                subscription, target, requestedByUserId, preview, now, correlationId, cancellationToken);
+                subscription, target, requestedByUserId, requestedByName, preview, now, correlationId,
+                cancellationToken);
     }
 
     /// <summary>
@@ -428,6 +432,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         SubscriptionDetail subscription,
         List<SubscriptionQuantityItem> target,
         string? requestedByUserId,
+        string? requestedByName,
         bool preview,
         DateTime now,
         string correlationId,
@@ -528,7 +533,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 // costs nothing, and banking value for it is a refund with another name.
                 Math.Min(subscription.CreditBalanceMinor, newCreditBalanceMinor),
                 now,
-                requestedByUserId,
+                requestedByName,
                 settlementBreakdown,
                 correlationId,
                 cancellationToken,
@@ -568,6 +573,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             StoredPaymentMethodId = account.DefaultPaymentMethodId,
             ReservedAtUtc = now,
             RequestedByUserId = requestedByUserId,
+            RequestedByName = requestedByName,
             CorrelationId = correlationId,
             ReservedAtVersion = subscription.Version
         };
@@ -693,13 +699,14 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         List<SubscriptionQuantityItem> target,
         long newCreditBalanceMinor,
         DateTime now,
-        string? requestedByUserId,
+        string? requestedByName,
         SubscriptionSettlementBreakdown? settlement,
         string correlationId,
         CancellationToken cancellationToken,
         PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
     {
-        var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
+        var outboxEvent = _events.CreateQuantityChanged(
+            subscription, subscription.QuantityItems, target, requestedByName, correlationId);
 
         // No credit note, because no credit is banked. An increase reaching a cheaper volume band
         // used to hand the difference back as credit; it now applies at zero and leaves the balance
@@ -816,7 +823,12 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var outboxEvent = _events.CreateQuantityChanged(subscription, correlationId);
+        var outboxEvent = _events.CreateQuantityChanged(
+            subscription,
+            subscription.QuantityItems,
+            reservation.QuantityChange!.RequestedQuantities,
+            reservation.RequestedByName,
+            correlationId);
 
         // Stamped with the payment that settled it, exactly as the recovery sweep stamps it — see
         // PendingAnnualPeriod.SettledBy.
@@ -950,6 +962,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         SubscriptionDetail subscription,
         List<SubscriptionQuantityItem> target,
         string? requestedByUserId,
+        string? requestedByName,
         bool preview,
         DateTime now,
         string correlationId,
@@ -961,6 +974,7 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             RequestedAtUtc = now,
             EffectiveAtUtc = PaidThrough(subscription),
             RequestedByUserId = requestedByUserId,
+            RequestedByName = requestedByName,
             ExpectedVersion = subscription.Version
         };
 

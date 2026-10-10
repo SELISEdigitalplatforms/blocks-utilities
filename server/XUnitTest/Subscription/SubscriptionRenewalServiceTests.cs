@@ -667,6 +667,52 @@ public sealed class SubscriptionRenewalServiceTests
         _transition.ClearPendingQuantityChange.Should().BeFalse();
     }
 
+    /// <summary>
+    /// A decrease carried out by the renewal is announced in the renewal's own write.
+    /// </summary>
+    /// <remarks>
+    /// Guards against the billing contact never hearing that their seats went down: the renewal
+    /// used to emit only <c>SubscriptionRenewed</c>, so the quantity-changed email for a scheduled
+    /// decrease could never be sent.
+    /// </remarks>
+    [Fact]
+    public async Task A_renewal_carrying_out_a_scheduled_decrease_announces_it_from_the_old_quantity()
+    {
+        var subscription = WithScheduledDecrease();
+        subscription.PendingQuantityChange!.RequestedByName = "Grace Hopper";
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        var changed = _transition!.AdditionalEvents.Should().ContainSingle(
+            "the decrease is news of its own, written with the renewal that applies it").Subject;
+        changed.EventType.Should().Be(SubscriptionConstants.SubscriptionQuantityChanged);
+
+        var payload = Payload(changed);
+        payload.QuantityChanges.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new LifecycleQuantityChange
+            {
+                ItemKey = "user", UnitLabel = "user", PreviousQuantity = 5, Quantity = 4
+            },
+            "the renewal repaints its copy before pricing, and the email must still say what the " +
+            "seats went down from");
+        payload.ActorName.Should().Be("Grace Hopper",
+            "the worker has no caller, so the email names whoever scheduled the decrease");
+    }
+
+    [Fact]
+    public async Task An_ordinary_renewal_announces_nothing_but_the_renewal()
+    {
+        await Service().RenewAsync(NewSubscription(SubscriptionStatus.Active), CancellationToken.None);
+
+        _transition!.AdditionalEvents.Should().BeEmpty(
+            "a renewal that changes nothing must not tell the billing contact that something changed");
+    }
+
+    private static SubscriptionLifecycleEvent Payload(SubscriptionOutboxEvent outboxEvent) =>
+        System.Text.Json.JsonSerializer.Deserialize<SubscriptionLifecycleEvent>(
+            outboxEvent.Payload,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
     /// <summary>Five users on a 5% band, with a decrease to four waiting for the period to end.</summary>
     private static SubscriptionDetail WithScheduledDecrease()
     {
@@ -1109,6 +1155,33 @@ public sealed class SubscriptionRenewalServiceTests
         _transition.ClearPendingPlanChange.Should().BeTrue();
         _transition.FeeSchedule.Should().NotBeNull();
         _transition.UsageSchedule.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// A plan change installed by the renewal is announced in the renewal's own write, from the plan
+    /// being left to the plan arrived at.
+    /// </summary>
+    [Fact]
+    public async Task A_renewal_installing_a_scheduled_plan_change_announces_it_from_the_old_plan()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+        subscription.PendingPlanChange = ScheduledChange(subscription.CurrentPeriodEndUtc);
+        subscription.PendingPlanChange.RequestedByName = "Grace Hopper";
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        var changed = _transition!.AdditionalEvents.Should().ContainSingle().Subject;
+        changed.EventType.Should().Be(SubscriptionConstants.SubscriptionPlanChanged);
+
+        var payload = Payload(changed);
+        payload.PlanCode.Should().Be("premium");
+        payload.PlanName.Should().Be("Premium");
+        payload.PreviousPlanCode.Should().Be("professional",
+            "the renewal repaints its copy with the new plan before pricing, and an email reading " +
+            "'moved from Premium to Premium' tells the customer nothing");
+        payload.PreviousPlanName.Should().Be("Professional");
+        payload.ActorName.Should().Be("Grace Hopper");
     }
 
     /// <summary>
