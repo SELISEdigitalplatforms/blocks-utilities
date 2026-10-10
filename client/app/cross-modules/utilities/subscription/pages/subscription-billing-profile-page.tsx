@@ -13,6 +13,12 @@ import type { SubscriptionBillingProfile } from "../models/subscription-billing.
 import { describeMissingProfileFields } from "../utilities/financial-document-format";
 
 /**
+ * Suggestions only. The tag has to match a language the tenant has written its email templates in,
+ * and the mail module has no fallback between languages, so any well-formed tag is accepted.
+ */
+const commonLanguageTags = ["en-US", "en-GB", "de-CH", "de-DE", "fr-CH", "fr-FR", "it-CH"];
+
+/**
  * The loaded profile's identity, so the form can tell "this is the same profile I am editing" from
  * "a different one arrived".
  *
@@ -27,6 +33,7 @@ interface ProfileForm {
   displayName: string;
   billingContactName: string;
   billingContactEmail: string;
+  billingContactLanguage: string;
   line1: string;
   line2: string;
   city: string;
@@ -41,6 +48,7 @@ const emptyForm: ProfileForm = {
   displayName: "",
   billingContactName: "",
   billingContactEmail: "",
+  billingContactLanguage: "",
   line1: "",
   line2: "",
   city: "",
@@ -55,6 +63,7 @@ const toForm = (profile: SubscriptionBillingProfile): ProfileForm => ({
   displayName: profile.displayName ?? "",
   billingContactName: profile.billingContactName ?? "",
   billingContactEmail: profile.billingContactEmail ?? "",
+  billingContactLanguage: profile.billingContactLanguage ?? "",
   line1: profile.address?.line1 ?? "",
   line2: profile.address?.line2 ?? "",
   city: profile.address?.city ?? "",
@@ -102,6 +111,7 @@ export const SubscriptionBillingProfilePage = () => {
         displayName: form.displayName.trim() || null,
         billingContactName: form.billingContactName.trim(),
         billingContactEmail: form.billingContactEmail.trim(),
+        billingContactLanguage: form.billingContactLanguage.trim() || null,
         // Sent as an object even when every line is blank; the server stores that as no address, so
         // clearing the fields here actually clears it rather than leaving the old one in place.
         address: {
@@ -266,6 +276,28 @@ export const SubscriptionBillingProfilePage = () => {
             />
             <p className="text-xs text-muted-foreground">
               Where invoices, trial invoices and credit notes are emailed.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="billingContactLanguage">Email language</Label>
+            <Input
+              id="billingContactLanguage"
+              list="billingContactLanguageOptions"
+              value={form.billingContactLanguage}
+              onChange={(event) => set("billingContactLanguage")(event.target.value)}
+              maxLength={35}
+              placeholder="en-US"
+            />
+            <datalist id="billingContactLanguageOptions">
+              {commonLanguageTags.map((tag) => (
+                <option key={tag} value={tag} />
+              ))}
+            </datalist>
+            <p className="text-xs text-muted-foreground">
+              The language subscription change and cancellation emails are sent in. Use a language
+              your email templates exist in — a language with no template means no email. Empty
+              means en-US.
             </p>
           </div>
         </div>

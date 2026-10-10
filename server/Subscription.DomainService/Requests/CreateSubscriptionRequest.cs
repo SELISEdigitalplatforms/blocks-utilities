@@ -36,6 +36,12 @@ public sealed class CreateSubscriptionRequest
     public string? BillingEmail { get; set; }
 
     public string? BillingName { get; set; }
+
+    /// <summary>
+    /// The language the billing contact's notification emails are asked for in, as a BCP-47 tag.
+    /// Absent means the billing profile's, else <c>en-US</c>.
+    /// </summary>
+    public string? BillingLanguage { get; set; }
 }
 
 public sealed class SubscriptionQuantityRequest

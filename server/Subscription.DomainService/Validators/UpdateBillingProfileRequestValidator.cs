@@ -1,5 +1,6 @@
 using FluentValidation;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Utilities;
 
 namespace Subscription.DomainService.Validators;
 
@@ -13,6 +14,10 @@ public sealed class UpdateBillingProfileRequestValidator :
         RuleFor(request => request.BillingContactName).NotEmpty().MaximumLength(200);
         RuleFor(request => request.BillingContactEmail).NotEmpty().EmailAddress().MaximumLength(320);
         RuleFor(request => request.TaxRegistrationId).MaximumLength(64);
+        RuleFor(request => request.BillingContactLanguage)
+            .Must(MailLanguage.IsWellFormed)
+            .WithMessage("The billing contact language must be a language tag such as en-US.")
+            .When(request => !string.IsNullOrWhiteSpace(request.BillingContactLanguage));
 
         // Bounded, not validated for shape. Every jurisdiction spells an address differently and a
         // pattern invented here would refuse a legitimate one; the country code is the single field

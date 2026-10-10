@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -17,6 +17,7 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
     // and Mongo would refuse it outright rather than write something surprising.
     private const string BillingEmailField = nameof(BillingAccount.BillingEmail);
     private const string BillingNameField = nameof(BillingAccount.BillingName);
+    private const string LanguageField = nameof(BillingAccount.Language);
     private const string LastUpdatedField = nameof(BillingAccount.LastUpdatedDateUtc);
     private const string VersionField = nameof(BillingAccount.Version);
 
@@ -257,6 +258,11 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
         if (!string.IsNullOrWhiteSpace(account.BillingName))
         {
             reconciled[BillingNameField] = account.BillingName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(account.Language))
+        {
+            reconciled[LanguageField] = account.Language;
         }
 
         if (reconciled.ElementCount == 0)

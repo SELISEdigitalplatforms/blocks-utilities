@@ -32,6 +32,7 @@ public sealed class SubscriptionNotificationEmailServiceTests
     private readonly Mock<IMessageClient> _messages = new();
     private readonly Mock<IMailDeliveryReporter> _reports = new();
     private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
+    private readonly Mock<ISubscriptionBillingProfileRepository> _profiles = new();
     private readonly List<MailDeliveryReportRequest> _recorded = [];
     private ConsumerMessage<SendMail>? _queued;
 
@@ -298,13 +299,56 @@ public sealed class SubscriptionNotificationEmailServiceTests
         return lifecycleEvent;
     }
 
+    [Fact]
+    public async Task The_billing_contact_is_mailed_in_the_profiles_language_set_after_subscribing()
+    {
+        Account(language: "fr-CH");
+        _profiles
+            .Setup(repository => repository.GetAsync("tenant-1", "organization-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionBillingProfile { BillingContactLanguage = "de-CH" });
+
+        await Service().SendAsync(Event(SubscriptionConstants.SubscriptionCanceled), CancellationToken.None);
+
+        _queued!.Payload.Language.Should().Be("de-CH",
+            "the profile is where an administrator changes it, and the change must reach the next email");
+    }
+
+    [Fact]
+    public async Task Without_a_profile_language_the_one_given_at_subscribing_is_used()
+    {
+        Account(language: "fr-CH");
+
+        await Service().SendAsync(Event(SubscriptionConstants.SubscriptionCanceled), CancellationToken.None);
+
+        _queued!.Payload.Language.Should().Be("fr-CH");
+    }
+
+    [Fact]
+    public async Task With_no_language_anywhere_the_mail_is_asked_for_in_en_us()
+    {
+        await Service().SendAsync(Event(SubscriptionConstants.SubscriptionCanceled), CancellationToken.None);
+
+        _queued!.Payload.Language.Should().Be("en-US");
+    }
+
+    private void Account(string? language) =>
+        _accounts
+            .Setup(repository => repository.GetAsync("tenant-1", "account-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                BillingEmail = "billing@example.com",
+                BillingName = "Ada Lovelace",
+                Language = language
+            });
+
     private SubscriptionNotificationEmailService Service() => new(
         _subscriptions.Object,
         _accounts.Object,
         _messages.Object,
         NullLogger<SubscriptionNotificationEmailService>.Instance,
         _reports.Object,
-        _assignments.Object);
+        _assignments.Object,
+        _profiles.Object);
 
     private static SubscriptionDetail Subscription(string timeZoneId = "Europe/Zurich") => new()
     {

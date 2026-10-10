@@ -202,6 +202,63 @@ public sealed class SubscriptionBillingProfileTests
         result.ValidationErrors.Should().NotBeEmpty();
     }
 
+    /// <summary>
+    /// The language the billing contact's emails go out in (spec 001, AC-17 and AC-20).
+    /// </summary>
+    [Fact]
+    public async Task The_billing_contact_language_is_stored_and_echoed_back()
+    {
+        SubscriptionBillingProfile? written = null;
+        _profiles
+            .Setup(profiles => profiles.UpsertAsync(
+                It.IsAny<SubscriptionBillingProfile>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionBillingProfile profile, CancellationToken _) =>
+            {
+                written = profile;
+
+                return profile;
+            });
+
+        var result = await Service().UpdateAsync(
+            new UpdateBillingProfileRequest
+            {
+                LegalName = "Northwind Trading AG",
+                BillingContactName = "Ada Byron",
+                BillingContactEmail = "ada@northwind.example",
+                BillingContactLanguage = " de-CH "
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        written!.BillingContactLanguage.Should().Be("de-CH",
+            "the mail module matches templates on the exact tag, padding included");
+        result.Value!.BillingContactLanguage.Should().Be("de-CH",
+            "the console shows the language back so an administrator can see what was saved");
+    }
+
+    [Theory]
+    [InlineData("not a tag")]
+    [InlineData("english")]
+    [InlineData("en_US")]
+    public async Task A_language_that_is_not_a_language_tag_is_refused(string language)
+    {
+        var result = await Service().UpdateAsync(
+            new UpdateBillingProfileRequest
+            {
+                LegalName = "Northwind Trading AG",
+                BillingContactName = "Ada Byron",
+                BillingContactEmail = "ada@northwind.example",
+                BillingContactLanguage = language
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse(
+            "no template is ever written for a malformed tag, so every email would silently vanish");
+        result.ValidationErrors.Should().ContainKey(nameof(UpdateBillingProfileRequest.BillingContactLanguage));
+    }
+
     [Fact]
     public async Task The_guard_names_the_fields_a_money_moving_change_still_needs()
     {

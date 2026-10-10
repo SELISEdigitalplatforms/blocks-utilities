@@ -42,6 +42,7 @@ public sealed class SubscriptionBillingProfileRepository : ISubscriptionBillingP
             .Set(item => item.DisplayName, profile.DisplayName)
             .Set(item => item.BillingContactName, profile.BillingContactName)
             .Set(item => item.BillingContactEmail, profile.BillingContactEmail)
+            .Set(item => item.BillingContactLanguage, profile.BillingContactLanguage)
             .Set(item => item.Address, profile.Address)
             .Set(item => item.TaxRegistrationId, profile.TaxRegistrationId)
             .Set(item => item.LastUpdatedDateUtc, now)
