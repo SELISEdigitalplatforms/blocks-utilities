@@ -14,6 +14,7 @@ namespace Subscription.DomainService.Repositories;
 internal static class SubscriptionCollections
 {
     public const string Plans = "SubscriptionPlans";
+    public const string PlanVersions = "SubscriptionPlanVersions";
     public const string Prices = "SubscriptionPrices";
     public const string Discounts = "SubscriptionDiscounts";
     public const string BillingAccounts = "SubscriptionBillingAccounts";

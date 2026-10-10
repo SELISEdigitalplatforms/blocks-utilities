@@ -188,15 +188,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             return archivedRefusal;
         }
 
-        if (await _subscriptions.AnySubscriberAsync(context.TenantId, plan.ItemId, cancellationToken))
-        {
-            return SubscriptionOperationResult<PlanResponse>.Failure(
-                PaymentFailureKind.Conflict,
-                "subscription_plan_in_use",
-                "This plan has been subscribed to, so its terms can no longer be changed. " +
-                "Create a new plan instead and move subscribers to it.",
-                correlationId);
-        }
+        // Allowed with subscribers on it. Each of them bills from the snapshot copied at signup, so
+        // this edit becomes the next version for whoever subscribes next and reaches nobody
+        // already on the plan. The version being replaced is kept first, read-only.
 
         // The plan's own identity survives: only what it sells is rewritten. Code and
         // organization come from the stored plan rather than the request, which cannot name them.
@@ -204,6 +198,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         edited.Code = plan.Code;
         edited.OrganizationId = plan.OrganizationId;
         edited.SubscriberScope = plan.SubscriberScope;
+
+        await _catalogue.RecordPlanVersionAsync(plan, DateTime.UtcNow, cancellationToken);
 
         // Guarded by the version just read: a second edit landing in between moves it on, and
         // this one is refused rather than overwriting what it never saw.
@@ -296,6 +292,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
 
             return NotFound(correlationId);
         }
+
+        // Archiving moves the version on like any other write, so the active version it ends is
+        // kept too; otherwise the history would skip a number with nothing to say why.
+        await _catalogue.RecordPlanVersionAsync(plan, DateTime.UtcNow, cancellationToken);
 
         if (!await _catalogue.TryArchivePlanAsync(
                 context.TenantId,
@@ -961,6 +961,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             })
             .ToList();
 
+        await _catalogue.RecordPlanVersionAsync(plan, DateTime.UtcNow, cancellationToken);
+
         if (!await _catalogue.TryUpdatePlanMeterRatesAsync(
                 context.TenantId,
                 plan.ItemId,
@@ -1098,6 +1100,54 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 predecessorDisplayName: predecessorName,
                 successorPlanId: successor?.ItemId,
                 successorDisplayName: successor?.DisplayName),
+            correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<IReadOnlyList<PlanVersionResponse>>> ListPlanVersionsAsync(
+        string planId,
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<IReadOnlyList<PlanVersionResponse>>(correlationId);
+        }
+
+        var context = resolution.Context!;
+
+        // Visibility is the live plan's: a version is never visible to anyone the plan itself
+        // is not, and scope cannot change across versions.
+        var plan = await _catalogue.GetPlanAsync(context.TenantId, planId, cancellationToken);
+
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return SubscriptionOperationResult<IReadOnlyList<PlanVersionResponse>>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_plan_not_found",
+                "The plan does not exist.",
+                correlationId);
+        }
+
+        var records = await _catalogue.ListPlanVersionsAsync(
+            context.TenantId,
+            plan.ItemId,
+            cancellationToken);
+
+        return SubscriptionOperationResult<IReadOnlyList<PlanVersionResponse>>.Success(
+            records
+                .Select(record => new PlanVersionResponse
+                {
+                    Version = record.Version,
+                    SupersededAtUtc = record.SupersededAtUtc,
+                    Plan = _mapper.ToResponse(record.Plan, [])
+                })
+                .ToList(),
             correlationId);
     }
 

@@ -89,6 +89,27 @@ public interface ISubscriptionCatalogueRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Keeps <paramref name="current"/> as the read-only record of its version, before a write
+    /// replaces it.
+    /// </summary>
+    /// <remarks>
+    /// Called ahead of the compare-and-set rather than after, so a crash in between leaves a
+    /// record of a version that did exist instead of a version that vanished. If the write then
+    /// loses a race, the record is still true — the plan was at that version — and whichever
+    /// caller copied it first stands; a second copy of the same version is not an error.
+    /// </remarks>
+    Task RecordPlanVersionAsync(
+        Plan current,
+        DateTime supersededAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>Every superseded version of a plan, newest first. The current one is not here.</summary>
+    Task<IReadOnlyList<PlanVersionRecord>> ListPlanVersionsAsync(
+        string tenantId,
+        string planId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Rewrites one meter's rate tables, compare-and-set on the plan's version.
     /// </summary>
     /// <remarks>

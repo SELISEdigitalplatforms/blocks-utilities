@@ -83,11 +83,7 @@ describe("EditSubscriptionPlanPage on an archived plan", () => {
     expect(screen.queryByRole("button", { name: /Add another price/i })).not.toBeInTheDocument();
   });
 
-  /**
-   * Checked before the subscribed branch, and this is why: an archived plan usually has
-   * subscribers, and that branch exists to let a live plan be repriced — the one thing an
-   * archived plan may no longer do. Ordered the other way, this page would offer to add a price.
-   */
+  /** An archived plan usually has subscribers, and being subscribed must not reopen it. */
   it("refuses even when it also has subscribers", () => {
     renderPage(plan({ status: "Archived", hasSubscribers: true }));
 
@@ -95,5 +91,24 @@ describe("EditSubscriptionPlanPage on an archived plan", () => {
       screen.getByRole("heading", { name: /Archived plans cannot be changed/i }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add another price/i })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A subscribed plan opens in the full editor. The author has to be told before saving that the
+ * edit is a new version and nobody already subscribed is repriced — otherwise the first worry is
+ * that saving changes what existing customers pay.
+ */
+describe("EditSubscriptionPlanPage on a subscribed plan", () => {
+  it("says existing subscribers keep what they bought", () => {
+    renderPage(plan({ hasSubscribers: true }));
+
+    expect(screen.getByText(/keeps the terms and price they bought/i)).toBeInTheDocument();
+  });
+
+  it("does not say so for a plan nobody has bought", () => {
+    renderPage(plan({ hasSubscribers: false }));
+
+    expect(screen.queryByText(/keeps the terms and price they bought/i)).not.toBeInTheDocument();
   });
 });
