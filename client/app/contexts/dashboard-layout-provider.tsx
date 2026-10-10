@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useState } from "react";
 import { useLocation } from "react-router";
 import useIsMobile from "@/hooks/use-is-mobile";
 
@@ -47,53 +47,90 @@ export function DashboardLayoutProvider({
 }) {
   const isMobile = useIsMobile();
   const { pathname } = useLocation();
-  const isMountedRef = useRef(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(isOpen);
-  const [isSidebarSubMenuOpen, setIsSidebarSubMenuOpen] = useState(isSubMenuOpen);
-  const [subMenuId, setSubMenuId] = useState<string | null>(null);
+  // Where the sidebar starts: a persisted desktop choice wins, mobile always starts closed,
+  // and without persistence it simply follows the viewport.
+  const readInitialOpen = (): boolean => {
+    if (persist) {
+      if (isMobile) return false;
+      const stored = localStorage.getItem(storageKey);
+      return stored !== null ? (JSON.parse(stored) as boolean) : isOpen;
+    }
+    return !isMobile;
+  };
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(readInitialOpen);
+  // The stored choice is read the first time persistence is on, and only then.
+  const [hasReadStoredOpen, setHasReadStoredOpen] = useState(persist);
+
+  const [isSidebarSubMenuOpen, setIsSidebarSubMenuOpen] = useState(() => {
+    let open = isSubMenuOpen;
+    // On a services route the submenu opens on desktop...
+    if (!isMobile && pathname.startsWith("/services")) open = true;
+    // ...unless the sidebar itself is open, which takes its place.
+    if ((isOpen || isSidebarOpen) && !isMobile) open = false;
+    return open;
+  });
+  const [subMenuId, setSubMenuId] = useState<string | null>(() =>
+    localStorage.getItem("subMenuId"),
+  );
   const [servicesSearchTerm, setServicesSearchTerm] = useState("");
 
-  useEffect(() => {
-    if (persist && !isMountedRef.current) {
-      isMountedRef.current = true;
+  // React to viewport, route, persistence and sidebar changes while rendering, so the
+  // adjusted state is in place before anything is painted. The rules are applied in the
+  // same order the provider has always used.
+  const [prevInputs, setPrevInputs] = useState({
+    isMobile,
+    pathname,
+    persist,
+    isSidebarOpen,
+  });
+  if (
+    prevInputs.isMobile !== isMobile ||
+    prevInputs.pathname !== pathname ||
+    prevInputs.persist !== persist ||
+    prevInputs.isSidebarOpen !== isSidebarOpen
+  ) {
+    const viewportChanged = prevInputs.isMobile !== isMobile;
+    const persistChanged = prevInputs.persist !== persist;
+    setPrevInputs({ isMobile, pathname, persist, isSidebarOpen });
+
+    let nextOpen = isSidebarOpen;
+    if (persist && !hasReadStoredOpen) {
+      setHasReadStoredOpen(true);
       if (!isMobile) {
         const stored = localStorage.getItem(storageKey);
-        if (stored !== null) {
-          setIsSidebarOpen(JSON.parse(stored) as boolean);
-          return;
-        }
+        if (stored !== null) nextOpen = JSON.parse(stored) as boolean;
       } else {
-        setIsSidebarOpen(false);
+        nextOpen = false;
       }
     }
-  }, [isMobile, persist, storageKey]);
-
-  useEffect(() => {
-    if (!persist) {
-      setIsSidebarOpen(!isMobile);
-    } else if (isMobile) {
-      setIsSidebarOpen(false);
+    if (viewportChanged || persistChanged) {
+      if (!persist) {
+        nextOpen = !isMobile;
+      } else if (isMobile) {
+        nextOpen = false;
+      }
     }
-  }, [isMobile, persist]);
+    if (nextOpen !== isSidebarOpen) setIsSidebarOpen(nextOpen);
 
-  useEffect(() => {
-    const menuId = localStorage.getItem("subMenuId");
-    if (menuId !== null) {
-      setSubMenuId(menuId);
+    let nextSubMenuOpen = isSidebarSubMenuOpen;
+    if (
+      (viewportChanged || prevInputs.pathname !== pathname) &&
+      !isMobile &&
+      pathname.startsWith("/services")
+    ) {
+      nextSubMenuOpen = true;
     }
-  }, []);
-
-  useEffect(() => {
-    if (!isMobile && pathname.startsWith("/services")) {
-      setIsSidebarSubMenuOpen(true);
+    if (
+      (viewportChanged || prevInputs.isSidebarOpen !== isSidebarOpen) &&
+      isSidebarOpen &&
+      !isMobile
+    ) {
+      nextSubMenuOpen = false;
     }
-  }, [pathname, isMobile]);
-
-  useEffect(() => {
-    if (isSidebarOpen && !isMobile) {
-      setIsSidebarSubMenuOpen(false);
+    if (nextSubMenuOpen !== isSidebarSubMenuOpen) {
+      setIsSidebarSubMenuOpen(nextSubMenuOpen);
     }
-  }, [isSidebarOpen, isMobile]);
+  }
 
   const toggleSidebar = useCallback(() => {
     setIsSidebarOpen((prev) => {

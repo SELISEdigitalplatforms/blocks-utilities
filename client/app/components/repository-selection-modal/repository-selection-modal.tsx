@@ -60,12 +60,12 @@ export const RepositorySelectionModal = ({
   const [showAccessModal, setShowAccessModal] = useState(false);
   const [isLoadingRevoke, setIsLoadingRevoke] = useState(false);
 
-  // Custom debounce implementation
-  const debouncedSetSearch = useRef(
+  // Custom debounce implementation, created once for the component's lifetime.
+  const [debouncedSetSearch] = useState(() =>
     debounce((value: string) => {
       setDebouncedSearchTerm(value);
     }, 500),
-  ).current;
+  );
 
   useEffect(() => {
     debouncedSetSearch(searchTerm);
@@ -74,12 +74,14 @@ export const RepositorySelectionModal = ({
     };
   }, [searchTerm, debouncedSetSearch]);
 
-  // Reset pagination when debounced search term changes
-  useEffect(() => {
+  // Reset pagination when the debounced search term changes (adjusted while rendering).
+  const [prevDebouncedSearchTerm, setPrevDebouncedSearchTerm] = useState(debouncedSearchTerm);
+  if (prevDebouncedSearchTerm !== debouncedSearchTerm) {
+    setPrevDebouncedSearchTerm(debouncedSearchTerm);
     setCurrentPage(0);
     setAllRepositories([]);
     setHasMoreData(true);
-  }, [debouncedSearchTerm]);
+  }
 
   const itemsPerPage = 10;
 
@@ -95,8 +97,8 @@ export const RepositorySelectionModal = ({
     itemsPerPage,
   );
 
-  // Update accumulated repositories when new data arrives
-  useEffect(() => {
+  // Merges the current page of results into the accumulated list.
+  function applyRepositoriesPage() {
     // Early return if no data
     if (!repositories?.data) {
       return;
@@ -140,7 +142,19 @@ export const RepositorySelectionModal = ({
       }
       setHasMoreData(false);
     }
-  }, [repositories, currentPage, itemsPerPage]);
+  }
+
+  // Update accumulated repositories when new data (or a new page) arrives, adjusted while
+  // rendering rather than in an effect. The sentinel makes the first render apply any data
+  // that is already cached, as the mount-time effect did.
+  const [syncedRepos, setSyncedRepos] = useState<{
+    repositories: typeof repositories | null;
+    currentPage: number;
+  }>({ repositories: null, currentPage: -1 });
+  if (syncedRepos.repositories !== repositories || syncedRepos.currentPage !== currentPage) {
+    setSyncedRepos({ repositories, currentPage });
+    applyRepositoriesPage();
+  }
 
   // Scroll handler for infinite scrolling
   const handleScroll = useCallback(
@@ -169,25 +183,24 @@ export const RepositorySelectionModal = ({
     }
   }, []);
 
-  useEffect(() => {
+  // Opening or closing the modal resets pagination and search (adjusted while rendering).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (!open) {
       // On close: clear state
       setIsPopoverOpen(false);
       setAllRepositories([]);
-      setCurrentPage(0);
-      setHasMoreData(true);
-      setSearchTerm("");
-      setDebouncedSearchTerm("");
-    } else {
-      // On open: reset pagination/search state and invalidate cache
-      setCurrentPage(0);
-      setHasMoreData(true);
-      setSearchTerm("");
-      setDebouncedSearchTerm("");
-
-      // Invalidate cache immediately
-      queryClient.invalidateQueries({ queryKey: ["github-repos"] });
     }
+    setCurrentPage(0);
+    setHasMoreData(true);
+    setSearchTerm("");
+    setDebouncedSearchTerm("");
+  }
+
+  // On open, invalidate the cache so the list is fetched fresh.
+  useEffect(() => {
+    if (open) queryClient.invalidateQueries({ queryKey: ["github-repos"] });
   }, [open, queryClient]);
 
   const handleSearchChange = useCallback(
