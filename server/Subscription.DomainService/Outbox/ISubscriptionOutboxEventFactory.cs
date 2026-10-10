@@ -76,6 +76,17 @@ public interface ISubscriptionOutboxEventFactory
         string? actorName,
         string correlationId);
 
+    /// <summary>A person given or losing a seat, for the email that tells them.</summary>
+    /// <param name="member">From IAM, or null when IAM could not say — the event still records the change.</param>
+    SubscriptionOutboxEvent CreateMemberChanged(
+        SubscriptionDetail subscription,
+        string eventType,
+        SubscriptionAssignment assignment,
+        Services.MemberContact? member,
+        string? organizationName,
+        string? actorName,
+        string correlationId);
+
     /// <summary>A usage invoice's terminal outcome — charged, or abandoned after every retry.</summary>
     SubscriptionOutboxEvent CreateUsageRatingOutcome(
         SubscriptionDetail subscription,

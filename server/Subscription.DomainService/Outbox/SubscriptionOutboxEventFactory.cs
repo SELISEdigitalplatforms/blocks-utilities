@@ -144,6 +144,39 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreateMemberChanged(
+        SubscriptionDetail subscription,
+        string eventType,
+        SubscriptionAssignment assignment,
+        Services.MemberContact? member,
+        string? organizationName,
+        string? actorName,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(assignment);
+
+        var payload = NewPayload(subscription, eventType);
+        payload.AssignmentId = assignment.ItemId;
+        payload.MemberUserId = assignment.UserId;
+        payload.MemberEmail = member?.Email;
+        payload.MemberDisplayName = member?.DisplayName;
+        payload.MemberLanguage = member?.Language;
+        payload.OrganizationName = organizationName;
+        payload.ActorName = actorName;
+
+        return Build(
+            subscription,
+            eventType,
+            // Keyed on the seat, not the subscription version: seats are not written through the
+            // subscription, so its version does not move with them. A retry of the same request
+            // for the same seat therefore appends nothing new.
+            $"{assignment.ItemId}:{eventType}",
+            payload,
+            correlationId,
+            null);
+    }
+
     public SubscriptionOutboxEvent CreateUsageRatingOutcome(
         SubscriptionDetail subscription,
         string eventType,

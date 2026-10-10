@@ -40,6 +40,10 @@ public static class SubscriptionConstants
     public const string CanceledMailPurpose = "subscription_canceled";
     public const string CancellationWithdrawnMailPurpose = "subscription_cancellation_withdrawn";
 
+    /// <summary>Sent to the person given or losing a seat, rather than to the billing contact.</summary>
+    public const string MemberAssignedMailPurpose = "subscription_member_assigned";
+    public const string MemberRemovedMailPurpose = "subscription_member_removed";
+
     public const string SubscriptionCreated = "SubscriptionCreated";
     public const string SubscriptionTrialStarted =
         "SubscriptionTrialStarted";
@@ -60,6 +64,10 @@ public static class SubscriptionConstants
     public const string SubscriptionPlanChanged = "SubscriptionPlanChanged";
 
     public const string SubscriptionQuantityChanged = "SubscriptionQuantityChanged";
+
+    /// <summary>A person was given, or lost, a seat on a user-wise subscription.</summary>
+    public const string SubscriptionMemberAssigned = "SubscriptionMemberAssigned";
+    public const string SubscriptionMemberReleased = "SubscriptionMemberReleased";
     public const string UsageRated = "UsageRated";
     public const string UsageRatingFailed = "UsageRatingFailed";
 
@@ -78,7 +86,9 @@ public static class SubscriptionConstants
             [SubscriptionPlanChanged] = PlanChangedMailPurpose,
             [SubscriptionCancellationRequested] = CancellationRequestedMailPurpose,
             [SubscriptionCanceled] = CanceledMailPurpose,
-            [SubscriptionCancellationWithdrawn] = CancellationWithdrawnMailPurpose
+            [SubscriptionCancellationWithdrawn] = CancellationWithdrawnMailPurpose,
+            [SubscriptionMemberAssigned] = MemberAssignedMailPurpose,
+            [SubscriptionMemberReleased] = MemberRemovedMailPurpose
         };
 
     /// <summary>
