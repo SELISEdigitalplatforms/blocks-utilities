@@ -425,6 +425,29 @@ describe("SubscribeDialog", () => {
     });
   });
 
+  it("says why a plan's trial is missing when it was already used", async () => {
+    previewSubscription.mockResolvedValue({ ...quote, trialAlreadyUsed: true });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-trial-used-notice")).toHaveTextContent(
+        /already used this plan's free trial/,
+      );
+    });
+  });
+
+  it("says nothing about a trial when none was used", async () => {
+    previewSubscription.mockResolvedValue(quote);
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument());
+    expect(screen.queryByTestId("subscribe-trial-used-notice")).not.toBeInTheDocument();
+  });
+
   it("explains a campaign discount and when standard pricing resumes", async () => {
     previewSubscription.mockResolvedValue({
       ...quote,

@@ -58,6 +58,9 @@ internal static class SubscriptionCollections
     public const string UsagePeriodClaims = "SubscriptionUsagePeriodClaims";
     public const string CampaignRedemptions = "SubscriptionCampaignRedemptions";
 
+    /// <summary>Who has claimed which plan's trial. See <see cref="Entities.TrialUsage"/>.</summary>
+    public const string TrialUsages = "SubscriptionTrialUsages";
+
     /// <summary>
     /// Who holds which seat on a subscription. Its own collection rather than a field, because a
     /// subscription can carry many seats and they are assigned and released independently of

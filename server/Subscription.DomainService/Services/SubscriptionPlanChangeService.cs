@@ -71,6 +71,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     private readonly IMeterAllowanceResolver? _allowances;
     private readonly IOptionsMonitor<SubscriptionOptions>? _options;
 
+    /// <summary>Optional so existing callers compile unchanged. See <see cref="TrialUsage"/>.</summary>
+    private readonly ITrialUsageRepository? _trialUsages;
+
     public SubscriptionPlanChangeService(
         ISubscriptionContextResolver contextResolver,
         ISubscriptionRepository subscriptions,
@@ -89,8 +92,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         ISubscriptionUsageRepository? usage = null,
         IMeterAllowanceResolver? allowances = null,
         ISubscriptionAuditTrail? audit = null,
-        IOptionsMonitor<SubscriptionOptions>? options = null)
+        IOptionsMonitor<SubscriptionOptions>? options = null,
+        ITrialUsageRepository? trialUsages = null)
     {
+        _trialUsages = trialUsages;
         _audit = audit;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -1316,6 +1321,16 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 "subscription_plan_change_conflict",
                 "The subscription changed while this plan change was being applied.",
                 correlationId);
+        }
+
+        // A trial carried onto another plan has trialed that plan too, so the subscriber cannot
+        // come back later for a fresh trial of the plan they already ran it on.
+        if (subscription.Status == SubscriptionStatus.Trialing &&
+            _trialUsages is not null &&
+            TrialUsage.For(subscription, newPlan.SubscriberScope, newPlan.Code, _time.GetUtcNow().UtcDateTime)
+                is { } usage)
+        {
+            await _trialUsages.MarkUsedAsync(usage, usage.ClaimedAtUtc, cancellationToken);
         }
 
         if (_scheduler is not null)

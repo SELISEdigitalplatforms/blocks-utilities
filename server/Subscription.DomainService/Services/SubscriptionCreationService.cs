@@ -41,9 +41,11 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         ICampaignRedemptionRepository? redemptions = null,
         ISubscriptionMerchantProfileService? merchantProfile = null,
         ISubscriptionPaymentProviderReadinessService? readiness = null,
-        ISubscriptionTenantRoster? roster = null)
+        ISubscriptionTenantRoster? roster = null,
+        ITrialUsageRepository? trialUsages = null)
     {
         _roster = roster;
+        _trialUsages = trialUsages;
         _catalogue = catalogue;
         _subscriptions = subscriptions;
         _discounts = discounts;
@@ -79,6 +81,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// repair sweep can still find it through the work queue -- but only while it has a row there.
     /// </summary>
     private readonly ISubscriptionTenantRoster? _roster;
+
+    /// <summary>
+    /// Optional so existing callers compile unchanged. Absent, the one-trial-per-plan rule is simply
+    /// not enforced — every signup gets the plan's trial, which is what every subscription created
+    /// before the rule existed got. Every real host wires it.
+    /// </summary>
+    private readonly ITrialUsageRepository? _trialUsages;
 
     /// <summary>
     /// Optional the way <see cref="_scheduler"/> and <see cref="_billingProfile"/> are: a great
@@ -197,6 +206,25 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 PaymentFailureKind.Conflict,
                 "subscription_already_active",
                 "This organization already has a live subscription.",
+                correlationId);
+        }
+
+        // Before the campaign, so a lost race is refused before anything else is claimed. A campaign
+        // refused after this leaves the trial claim behind a subscription that never started, which
+        // the next signup's TrialAlreadyClaimedAsync gives back.
+        if (subscription.Trial is not null &&
+            _trialUsages is not null &&
+            TrialUsage.For(subscription, plan.SubscriberScope, plan.Code, _time.GetUtcNow().UtcDateTime)
+                is { } claim &&
+            !await _trialUsages.TryReserveAsync(claim, cancellationToken))
+        {
+            // A second signup for the same trial got here first, between this one's eligibility
+            // check and its insert. Asking again quotes the plan without its trial.
+            await ExpireUnreservableAsync(subscription, cancellationToken);
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_trial_already_used",
+                "This plan's trial has already been used. Subscribe again to continue without it.",
                 correlationId);
         }
 
@@ -332,7 +360,12 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         return SubscriptionOperationResult<SubscriptionPreviewResponse>.Success(
-            BuildPreviewResponse(subscription, built.StubCharge, blockers, request.TimeZoneId),
+            BuildPreviewResponse(
+                subscription,
+                built.StubCharge,
+                blockers,
+                request.TimeZoneId,
+                trialAlreadyUsed: TrialDurationNormalizer.HasTrial(plan) && subscription.Trial is null),
             correlationId);
     }
 
@@ -562,8 +595,12 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         // Resolve the trial once for both the frozen subscription terms and the fee schedule.
-        // This keeps preview and creation on the exact same boundary.
-        var trial = BuildTrial(plan, now, timeZone);
+        // This keeps preview and creation on the exact same boundary. A subscriber who has already
+        // had this plan's trial gets none, and from here on is an ordinary paid signup: no trial
+        // means the schedule anchors on now and checkout takes the opening charge.
+        var trial = await TrialAlreadyClaimedAsync(context, plan, preview, now, cancellationToken)
+            ? null
+            : BuildTrial(plan, now, timeZone);
 
         // A calendar-aligned price anchors on the first of the month rather than on this instant;
         // every later boundary then derives from that anchor exactly as an anniversary one does.
@@ -984,6 +1021,73 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             : SubscriptionOperationResult<SubscriptionDetail>.Success(existing, correlationId);
     }
 
+    /// <summary>
+    /// Whether this subscriber has already had, or is in the middle of claiming, this plan's trial.
+    /// </summary>
+    /// <remarks>
+    /// A claim still at Claimed is only as good as the signup behind it. One whose signup ended
+    /// without ever starting is given back here, lazily, rather than by every path that can end a
+    /// signup — a crash on any of those paths would otherwise lock the subscriber out for good.
+    /// A preview only reads, as everywhere else in this service.
+    /// </remarks>
+    private async Task<bool> TrialAlreadyClaimedAsync(
+        SubscriptionContext context,
+        Plan plan,
+        bool preview,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (_trialUsages is null ||
+            !TrialDurationNormalizer.HasTrial(plan) ||
+            TrialUsage.SubjectOf(plan.SubscriberScope, context.OrganizationId, context.UserId)
+                is not { } subjectId)
+        {
+            return false;
+        }
+
+        var claim = await _trialUsages.FindActiveAsync(
+            context.TenantId, plan.SubscriberScope, subjectId, plan.Code, cancellationToken);
+
+        if (claim is null)
+        {
+            return false;
+        }
+
+        if (claim.State == TrialUsageState.Used)
+        {
+            return true;
+        }
+
+        var holder = await _subscriptions.GetByIdAsync(
+            context.TenantId, claim.SubscriptionId, cancellationToken);
+
+        if (ReservationStillHolds(holder))
+        {
+            return true;
+        }
+
+        if (!preview)
+        {
+            await _trialUsages.ReleaseAsync(context.TenantId, claim.ItemId, now, cancellationToken);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a trial claim still at Claimed should keep blocking a new signup, judged from the
+    /// subscription that made it — null when that subscription cannot be found.
+    /// </summary>
+    /// <remarks>
+    /// Blocks while that signup can still start its trial, and once it has started — even if the
+    /// subscription has since ended, since ActivatedAtUtc is never cleared. A signup that ended
+    /// without starting, or one that cannot be found, gives the trial back: refusing a trial over a
+    /// record nobody can see would lock the subscriber out with no way to recover.
+    /// </remarks>
+    public static bool ReservationStillHolds(SubscriptionDetail? holder) =>
+        holder is not null &&
+        (holder.Status == SubscriptionStatus.Incomplete || holder.ActivatedAtUtc is not null);
+
     private async Task ExpireUnreservableAsync(
         SubscriptionDetail subscription, CancellationToken cancellationToken) =>
         await _subscriptions.TryTransitionAsync(
@@ -1063,6 +1167,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             ItemId = subscriptionId,
             TenantId = context.TenantId,
             OrganizationId = context.OrganizationId,
+            PurchasedBy = SubscriptionDocumentSourceFactory.ActorOf(
+                context.UserId, context.UserName, context.UserEmail),
             BillingAccountId = account.ItemId,
             Status = SubscriptionStatus.Incomplete,
             CurrencyCode = price.CurrencyCode,
@@ -1516,7 +1622,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         SubscriptionDetail subscription,
         PeriodCharge? stubCharge,
         List<SubscriptionPreviewBlockerResponse> blockers,
-        string timeZoneId)
+        string timeZoneId,
+        bool trialAlreadyUsed)
     {
         var annual = subscription.PendingAnnualPeriod;
         var annualBundled = annual is { CollectedWithCheckout: true };
@@ -1621,6 +1728,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                 TotalMinor = nextChargeTotalMinor
             },
             TrialEndsAtUtc = subscription.Trial?.EndsAtUtc,
+            TrialAlreadyUsed = trialAlreadyUsed,
             RequiresCardSetup = SubscriptionAmountCalculator.RequiresCardSetup(subscription),
             PendingAnnualPeriod = annual is null
                 ? null

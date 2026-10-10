@@ -96,6 +96,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ICampaignRedemptionRepository,
             CampaignRedemptionRepository>();
+        services.AddSingleton<ITrialUsageRepository, TrialUsageRepository>();
         services.AddSingleton<
             ISubscriptionAssignmentRepository,
             SubscriptionAssignmentRepository>();
