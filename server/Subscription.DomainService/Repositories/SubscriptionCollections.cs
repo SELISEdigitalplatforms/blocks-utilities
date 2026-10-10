@@ -14,6 +14,7 @@ namespace Subscription.DomainService.Repositories;
 internal static class SubscriptionCollections
 {
     public const string Plans = "SubscriptionPlans";
+    public const string PlanVersions = "SubscriptionPlanVersions";
     public const string Prices = "SubscriptionPrices";
     public const string Discounts = "SubscriptionDiscounts";
     public const string BillingAccounts = "SubscriptionBillingAccounts";
@@ -56,6 +57,9 @@ internal static class SubscriptionCollections
     public const string UsagePeriodClosures = "SubscriptionUsagePeriodClosures";
     public const string UsagePeriodClaims = "SubscriptionUsagePeriodClaims";
     public const string CampaignRedemptions = "SubscriptionCampaignRedemptions";
+
+    /// <summary>Who has claimed which plan's trial. See <see cref="Entities.TrialUsage"/>.</summary>
+    public const string TrialUsages = "SubscriptionTrialUsages";
 
     /// <summary>
     /// Who holds which seat on a subscription. Its own collection rather than a field, because a

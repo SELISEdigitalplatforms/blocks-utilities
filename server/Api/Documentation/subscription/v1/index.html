@@ -1327,6 +1327,14 @@ stateDiagram-v2
         No trial: the subscription goes <code>Incomplete → Active</code> on the first payment.
         With one: <code>Incomplete → Trialing → Active</code>, and <code>trialEndsAtUtc</code> is set.
       </p>
+      <p>
+        A subscriber gets each plan's trial <strong>once</strong>: the organization for an
+        organization-wise plan, the buyer for a user-wise one. Signing up again after cancelling
+        quotes and creates the plan <em>without</em> its trial, as an ordinary paid signup, and the
+        preview says so with <code>trialAlreadyUsed: true</code>. Two signups racing for the same
+        trial lose with <code>409 subscription_trial_already_used</code>; ask again and the quote
+        comes back without the trial.
+      </p>
 
       <h3>2 · Card required, or genuinely free</h3>
       <p>
@@ -2991,6 +2999,7 @@ POST /api/subscriptions
       "totalMinor": 15675
     },
     "trialEndsAtUtc": null,
+    "trialAlreadyUsed": false,
     "requiresCardSetup": false,
     "pendingAnnualPeriod": null,
     "blockers": [],
@@ -3135,7 +3144,8 @@ POST /api/subscriptions
   "timeZoneId": "Europe/Zurich",  // IANA; decides when periods turn over
   "discountCode": null,
   "billingEmail": "maya@example.com",  // optional; defaults to the billing profile
-  "billingName": "Maya Keller"         // optional; defaults to the billing profile
+  "billingName": "Maya Keller",        // optional; defaults to the billing profile
+  "billingLanguage": "de-CH"           // optional; BCP-47; the profile's language wins
 }</code></pre>
           <p class="prose">
             <code>billingEmail</code> and <code>billingName</code> address the billing account&#39;s
@@ -3145,6 +3155,12 @@ POST /api/subscriptions
             optional, and each falls back on its own to the profile&#39;s billing contact: send them
             only if you keep your own record of the customer. A caller that sends an address and no
             name keeps the profile&#39;s name.
+          </p>
+          <p class="prose">
+            <code>billingLanguage</code> is the language the billing contact&#39;s seat, plan and
+            cancellation emails are requested in. The billing profile&#39;s
+            <code>billingContactLanguage</code>, read when each email is sent, takes precedence over
+            it; with neither, <code>en-US</code>. A malformed tag is refused with <code>400</code>.
           </p>
           <p class="prose">
             They are not a way to satisfy the profile requirement. A paid subscription is still
@@ -3878,6 +3894,7 @@ POST /api/subscriptions
     "displayName": "Northwind",
     "billingContactName": "Ada Byron",
     "billingContactEmail": "ada@northwind.example",
+    "billingContactLanguage": "de-CH",
     "address": {
       "line1": "1 Bahnhofstrasse",
       "city": "Zurich",
@@ -3908,6 +3925,7 @@ POST /api/subscriptions
                 <tr><td>displayName</td><td class="type">string?</td><td class="prose">What it calls itself in a product surface, when that differs. Falls back to the legal name.</td></tr>
                 <tr><td>billingContactName</td><td class="type">string</td><td class="prose"><strong>Required.</strong></td></tr>
                 <tr><td>billingContactEmail</td><td class="type">string</td><td class="prose"><strong>Required.</strong> Where documents are emailed. Lower-cased on write.</td></tr>
+                <tr><td>billingContactLanguage</td><td class="type">string?</td><td class="prose">BCP-47 tag (<code>de-CH</code>) the billing contact&#39;s seat, plan and cancellation emails are sent in, from the next email on. The mail module matches templates on the exact tag with no fallback, so use a language your templates exist in. Absent means <code>en-US</code>.</td></tr>
                 <tr><td>address</td><td class="type">object?</td><td class="prose"><code>line1</code>, <code>line2</code>, <code>city</code>, <code>region</code>, <code>postalCode</code>, <code>countryCode</code> (ISO 3166-1 alpha-2). Optional; an address whose every line is blank is stored as no address.</td></tr>
                 <tr><td>taxRegistrationId</td><td class="type">string?</td><td class="prose">Held exactly as typed. Every jurisdiction spells these differently and a normalisation invented here would print something the subscriber's accountant does not recognise.</td></tr>
                 <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Console only.</td></tr>

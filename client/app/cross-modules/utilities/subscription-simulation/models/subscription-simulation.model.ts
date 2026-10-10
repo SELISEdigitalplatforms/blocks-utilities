@@ -399,6 +399,8 @@ export interface SubscriptionPurchasePreview {
   nextCharge: SubscriptionPreviewNextCharge;
   /** Set only for a subscription that opens on a trial. */
   trialEndsAtUtc: string | null;
+  /** The plan has a trial this subscriber already had, so this signup starts paid. */
+  trialAlreadyUsed?: boolean;
   /** Whether confirming will ask for a card even though nothing is due now. */
   requiresCardSetup: boolean;
   pendingAnnualPeriod: SubscriptionPreviewAnnualPeriod | null;

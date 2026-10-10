@@ -97,6 +97,49 @@ public sealed class SubscriptionCreationServiceTests
         _created!.CurrencyCode.Should().Be("CHF");
     }
 
+    [Fact]
+    public async Task The_tenant_is_put_on_the_sweep_roster_before_its_subscription_exists()
+    {
+        var order = new List<string>();
+        var roster = new Mock<ISubscriptionTenantRoster>();
+        roster
+            .Setup(r => r.RecordAsync(TenantId, It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("roster"))
+            .Returns(Task.CompletedTask);
+        _subscriptions
+            .Setup(repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("subscription"))
+            .ReturnsAsync(true);
+
+        var result = await ServiceWithRoster(roster.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        order.Should().Equal(["roster", "subscription"],
+            "the repair sweep visits only rostered tenants, so a subscription written first could " +
+            "be one no sweep ever repairs");
+    }
+
+    [Fact]
+    public async Task A_subscribe_whose_tenant_cannot_be_rostered_writes_no_subscription()
+    {
+        var roster = new Mock<ISubscriptionTenantRoster>();
+        roster
+            .Setup(r => r.RecordAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("root database unreachable"));
+
+        var act = () => ServiceWithRoster(roster.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        await act.Should().ThrowAsync<TimeoutException>();
+        _subscriptions.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "refusing is free only while nothing has been written");
+    }
+
     /// <summary>
     /// Copied onto the subscription like every other term, so a later edit to the catalogue
     /// cannot rewrite what this subscriber was asked for at signup — and so checkout can decide
@@ -1607,6 +1650,17 @@ public sealed class SubscriptionCreationServiceTests
         _time,
         billingProfile: _billingProfile.Object);
 
+    private SubscriptionCreationService ServiceWithRoster(ISubscriptionTenantRoster roster) => new(
+        _catalogue.Object,
+        _subscriptions.Object,
+        _discounts.Object,
+        _accounts.Object,
+        new CreateSubscriptionRequestValidator(),
+        NullLogger<SubscriptionCreationService>.Instance,
+        _time,
+        billingProfile: _billingProfile.Object,
+        roster: roster);
+
     /// <summary>
     /// The same service, but with a merchant profile and readiness gate wired in -- the shape a
     /// real host actually registers. Every other test in this file constructs the service without
@@ -1922,6 +1976,235 @@ public sealed class SubscriptionCreationServiceTests
             "the snapshot is what later tells the reservation index this is not the " +
             "organization's own subscription");
     }
+
+    [Fact]
+    public async Task The_buyer_is_recorded_on_the_subscription()
+    {
+        await Service().CreateAsync(
+            NewRequest(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1", "Ada Byron", "ada@northwind.example"),
+            "corr-1",
+            CancellationToken.None);
+
+        _created!.PurchasedBy.Should().NotBeNull("the buyer decides whose trial a user-wise plan spends");
+        _created.PurchasedBy!.UserId.Should().Be("user-1");
+        _created.PurchasedBy.Name.Should().Be("Ada Byron");
+        _created.PurchasedBy.Email.Should().Be("ada@northwind.example");
+    }
+
+    [Fact]
+    public async Task An_organization_that_already_had_the_plans_trial_signs_up_paid()
+    {
+        _plan.TrialDays = 14;
+        var trials = TrialLedger(new TrialUsage
+        {
+            Scope = SubscriberScope.Organization,
+            SubjectId = OrganizationId,
+            PlanCode = "professional",
+            State = TrialUsageState.Used
+        });
+
+        var created = await ServiceWithTrials(trials.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+        var preview = await ServiceWithTrials(trials.Object).PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        created.IsSuccess.Should().BeTrue();
+        _created!.Trial.Should().BeNull("cancelling and signing up again must not buy a second trial");
+        preview.Value!.TrialEndsAtUtc.Should().BeNull();
+        preview.Value.TrialAlreadyUsed.Should().BeTrue(
+            "the customer has to be told why the trial they expected is not on the quote");
+        trials.Verify(
+            repository => repository.TryReserveAsync(It.IsAny<TrialUsage>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a paid signup claims no trial");
+    }
+
+    [Fact]
+    public async Task A_first_signup_gets_the_trial_and_claims_it_for_the_organization_and_plan()
+    {
+        _plan.TrialDays = 14;
+        var trials = TrialLedger(null);
+
+        await ServiceWithTrials(trials.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.Trial.Should().NotBeNull();
+        trials.Verify(
+            repository => repository.TryReserveAsync(
+                It.Is<TrialUsage>(usage =>
+                    usage.Scope == SubscriberScope.Organization &&
+                    usage.SubjectId == OrganizationId &&
+                    usage.PlanCode == "professional" &&
+                    usage.SubscriptionId == _created.ItemId),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "without a claim the next signup could not tell this trial was ever given");
+    }
+
+    [Fact]
+    public async Task A_user_wise_plans_trial_belongs_to_the_buyer_not_the_organization()
+    {
+        _plan.TrialDays = 14;
+        _plan.SubscriberScope = SubscriberScope.User;
+        var trials = TrialLedger(null);
+
+        await ServiceWithTrials(trials.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        trials.Verify(
+            repository => repository.FindActiveAsync(
+                TenantId, SubscriberScope.User, "user-1", "professional", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a colleague's trial of a user-wise plan must not block this person's own");
+    }
+
+    [Fact]
+    public async Task A_user_wise_signup_with_no_user_still_gets_the_trial()
+    {
+        _plan.TrialDays = 14;
+        _plan.SubscriberScope = SubscriberScope.User;
+        var trials = TrialLedger(null);
+
+        await ServiceWithTrials(trials.Object).CreateAsync(
+            NewRequest(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", null),
+            "corr-1",
+            CancellationToken.None);
+
+        _created!.Trial.Should().NotBeNull("an API key or the console has no one to limit");
+        trials.Verify(
+            repository => repository.TryReserveAsync(It.IsAny<TrialUsage>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "every user-less signup would otherwise share one empty-id slot");
+    }
+
+    [Fact]
+    public async Task Losing_the_race_for_a_trial_refuses_the_signup_and_expires_it()
+    {
+        _plan.TrialDays = 14;
+        var trials = TrialLedger(null);
+        trials
+            .Setup(repository => repository.TryReserveAsync(It.IsAny<TrialUsage>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var result = await ServiceWithTrials(trials.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse("two simultaneous signups must not both get the trial");
+        result.ErrorCode.Should().Be("subscription_trial_already_used");
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                TenantId,
+                _created!.ItemId,
+                It.Is<SubscriptionTransition>(transition =>
+                    transition.NewStatus == SubscriptionStatus.IncompleteExpired),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the refused signup must free the organization's slot so the retry can go through");
+    }
+
+    [Fact]
+    public async Task An_abandoned_signups_claim_is_given_back_to_the_next_one()
+    {
+        _plan.TrialDays = 14;
+        var trials = TrialLedger(new TrialUsage
+        {
+            ItemId = "usage-1",
+            Scope = SubscriberScope.Organization,
+            SubjectId = OrganizationId,
+            PlanCode = "professional",
+            SubscriptionId = "abandoned",
+            State = TrialUsageState.Claimed
+        });
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(TenantId, "abandoned", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail
+            {
+                ItemId = "abandoned",
+                Status = SubscriptionStatus.IncompleteExpired
+            });
+
+        await ServiceWithTrials(trials.Object).CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.Trial.Should().NotBeNull("a checkout that was never finished never started a trial");
+        trials.Verify(
+            repository => repository.ReleaseAsync(TenantId, "usage-1", It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the stale claim would otherwise sit in the unique index and refuse this signup's own");
+    }
+
+    [Fact]
+    public async Task A_preview_never_releases_a_claim()
+    {
+        _plan.TrialDays = 14;
+        var trials = TrialLedger(new TrialUsage
+        {
+            ItemId = "usage-1",
+            SubscriptionId = "missing",
+            State = TrialUsageState.Claimed
+        });
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(TenantId, "missing", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionDetail?)null);
+
+        var preview = await ServiceWithTrials(trials.Object).PreviewAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        preview.Value!.TrialAlreadyUsed.Should().BeFalse();
+        trials.Verify(
+            repository => repository.ReleaseAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a quote nobody confirmed writes nothing");
+    }
+
+    [Theory]
+    [InlineData(SubscriptionStatus.Incomplete, false, true)]
+    [InlineData(SubscriptionStatus.Trialing, true, true)]
+    [InlineData(SubscriptionStatus.Canceled, true, true)]
+    [InlineData(SubscriptionStatus.Canceled, false, false)]
+    [InlineData(SubscriptionStatus.IncompleteExpired, false, false)]
+    public void A_claim_holds_while_its_signup_can_still_start_or_already_did(
+        SubscriptionStatus status, bool activated, bool holds)
+    {
+        var holder = new SubscriptionDetail
+        {
+            Status = status,
+            ActivatedAtUtc = activated ? new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc) : null
+        };
+
+        SubscriptionCreationService.ReservationStillHolds(holder).Should().Be(holds,
+            "a trial that started is spent even after cancelling, and one that never started is not");
+        SubscriptionCreationService.ReservationStillHolds(null).Should().BeFalse(
+            "a claim nobody can trace must not lock the subscriber out forever");
+    }
+
+    private static Mock<ITrialUsageRepository> TrialLedger(TrialUsage? existing)
+    {
+        var trials = new Mock<ITrialUsageRepository>();
+        trials
+            .Setup(repository => repository.FindActiveAsync(
+                TenantId, It.IsAny<SubscriberScope>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+        trials
+            .Setup(repository => repository.TryReserveAsync(It.IsAny<TrialUsage>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        return trials;
+    }
+
+    private SubscriptionCreationService ServiceWithTrials(ITrialUsageRepository trials) => new(
+        _catalogue.Object,
+        _subscriptions.Object,
+        _discounts.Object,
+        _accounts.Object,
+        new CreateSubscriptionRequestValidator(),
+        NullLogger<SubscriptionCreationService>.Instance,
+        _time,
+        billingProfile: _billingProfile.Object,
+        trialUsages: trials);
 
     private static SubscriptionContext Context() =>
         new(TenantId, OrganizationId, "actor-1", "user-1");

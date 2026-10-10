@@ -974,6 +974,30 @@ public sealed class SubscriptionActivationProcessorTests
     }
 
     [Fact]
+    public async Task A_card_setup_that_starts_a_trial_spends_the_trial()
+    {
+        GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSavedCard();
+        GivenSubscription(subscription => subscription.Trial = new TrialTerms
+        {
+            StartsAtUtc = DateTime.UtcNow,
+            EndsAtUtc = DateTime.UtcNow.AddDays(14)
+        });
+        var trials = new Mock<ITrialUsageRepository>();
+
+        await Processor(trialUsages: trials.Object).ProcessDueAsync(TenantId, CancellationToken.None);
+
+        trials.Verify(
+            repository => repository.MarkUsedAsync(
+                It.Is<TrialUsage>(usage => usage.Scope == SubscriberScope.Organization && usage.SubjectId.Length > 0),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "a trial that started is spent for good, so cancelling cannot buy it again");
+    }
+
+    [Fact]
     public async Task A_confirmed_setup_waits_until_its_card_is_usable_for_renewal()
     {
         GivenDueLink(SubscriptionPaymentPurpose.PaymentMethodSetup);
@@ -1033,7 +1057,8 @@ public sealed class SubscriptionActivationProcessorTests
     private SubscriptionActivationProcessor Processor(
         SubscriptionOptions? options = null,
         ISubscriptionPaymentReconciler? reconciler = null,
-        IUsageProjectionReconciler? usageProjections = null) => new(
+        IUsageProjectionReconciler? usageProjections = null,
+        ITrialUsageRepository? trialUsages = null) => new(
         _links.Object,
         _subscriptions.Object,
         _accounts.Object,
@@ -1047,7 +1072,8 @@ public sealed class SubscriptionActivationProcessorTests
         renewals: _renewals.Object,
         documents: _documents.Object,
         reconciler: reconciler,
-        usageProjections: usageProjections);
+        usageProjections: usageProjections,
+        trialUsages: trialUsages);
 
     /// <summary>
     /// The reported bug: a paid signup sat Incomplete for 128 seconds.

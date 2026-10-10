@@ -65,6 +65,27 @@ public interface ISubscriptionAssignmentRepository
         string userId,
         CancellationToken cancellationToken);
 
+    /// <summary>The seat this person holds on this subscription right now, if any.</summary>
+    /// <remarks>
+    /// Read before a release so the email announcing it can be keyed on the very row the release
+    /// will close — the release itself is keyed on the person, and returns the row only after.
+    /// </remarks>
+    Task<SubscriptionAssignment?> GetActiveAsync(
+        string tenantId,
+        string subscriptionId,
+        string userId,
+        CancellationToken cancellationToken);
+
+    /// <summary>One assignment by its own id, held or released.</summary>
+    /// <remarks>
+    /// What the member emails check before sending: their event is written before the seat, so
+    /// the seat — not the event — says whether the change it announces really happened.
+    /// </remarks>
+    Task<SubscriptionAssignment?> GetByIdAsync(
+        string tenantId,
+        string assignmentId,
+        CancellationToken cancellationToken);
+
     /// <summary>Everyone currently holding a seat on one subscription.</summary>
     Task<IReadOnlyList<SubscriptionAssignment>> ListActiveAsync(
         string tenantId,

@@ -48,6 +48,12 @@ public sealed class SettlementReservation
 
     public string? RequestedByUserId { get; set; }
 
+    /// <summary>
+    /// Who asked, by name, so the email sent when the recovery sweep settles this — rather than the
+    /// request that opened it — can still say so.
+    /// </summary>
+    public string? RequestedByName { get; set; }
+
     /// <summary>Carried so a recovering sweep logs under the request that opened the reservation.</summary>
     public string CorrelationId { get; set; } = string.Empty;
 

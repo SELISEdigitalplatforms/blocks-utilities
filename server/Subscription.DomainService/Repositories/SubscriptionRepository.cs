@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -845,6 +845,7 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             .Set(subscription => subscription.CanCancelImmediately, false)
             .Set(subscription => subscription.CanceledAtUtc, (DateTime?)null)
             .Set(subscription => subscription.CancellationReason, (string?)null)
+            .Set(subscription => subscription.CancellationRequestedByName, (string?)null)
             // Restores the renewal the cancellation cleared. The caller already holds this
             // subscription's own CurrentPeriodEndUtc, so it is passed in rather than read back
             // through a pipeline update.
@@ -1142,16 +1143,28 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         string eventId,
         string leaseId,
         DateTime publishedAtUtc,
-        CancellationToken cancellationToken) =>
+        bool clearPayload,
+        CancellationToken cancellationToken)
+    {
+        var update = Builders<SubscriptionDetail>.Update
+            .Set("OutboxEvents.$[evt].Status", SubscriptionOutboxStatus.Published)
+            .Set("OutboxEvents.$[evt].PublishedAtUtc", publishedAtUtc)
+            .Set("OutboxEvents.$[evt].LeaseId", (string?)null)
+            .Set("OutboxEvents.$[evt].LeaseExpiresAtUtc", (DateTime?)null);
+
+        if (clearPayload)
+        {
+            // In the same write that marks it published: nothing reads a payload after that, and
+            // a separate write could fail and leave it behind for good.
+            update = update.Set("OutboxEvents.$[evt].Payload", string.Empty);
+        }
+
         await Subscriptions(tenantId).UpdateOneAsync(
             LeasedEventFilter(tenantId, subscriptionId, eventId, leaseId),
-            Builders<SubscriptionDetail>.Update
-                .Set("OutboxEvents.$[evt].Status", SubscriptionOutboxStatus.Published)
-                .Set("OutboxEvents.$[evt].PublishedAtUtc", publishedAtUtc)
-                .Set("OutboxEvents.$[evt].LeaseId", (string?)null)
-                .Set("OutboxEvents.$[evt].LeaseExpiresAtUtc", (DateTime?)null),
+            update,
             new UpdateOptions { ArrayFilters = EventArrayFilter(eventId) },
             cancellationToken);
+    }
 
     public async Task MarkEventFailedAsync(
         string tenantId,
@@ -1317,6 +1330,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 Shorten(reason));
         }
 
+        if (transition.CancellationRequestedByName is { } requestedByName)
+        {
+            update = update.Set(
+                subscription => subscription.CancellationRequestedByName,
+                Shorten(requestedByName));
+        }
+
         if (transition.InitialPaymentDetailId is { } paymentDetailId)
         {
             update = update.Set(
@@ -1465,9 +1485,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 nextUsageBilling);
         }
 
-        return transition.Event is null
+        List<SubscriptionOutboxEvent> events = transition.Event is null
+            ? [.. transition.AdditionalEvents]
+            : [transition.Event, .. transition.AdditionalEvents];
+
+        return events.Count == 0
             ? update
-            : update.Push(subscription => subscription.OutboxEvents, transition.Event);
+            : update.PushEach(subscription => subscription.OutboxEvents, events);
     }
 
     public async Task<bool> TryAppendDocumentSourceAsync(

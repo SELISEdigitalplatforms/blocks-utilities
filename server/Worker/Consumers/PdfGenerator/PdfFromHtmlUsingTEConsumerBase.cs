@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Utility.DomainService.PdfGenerator;
 using Utility.DomainService.PdfGenerator.service;
-using Utility.DomainService.TemplateEngine;
 using Utility.DomainService.TemplateEngine.service;
 
 namespace Worker.Consumers.PdfGenerator
@@ -24,7 +23,7 @@ namespace Worker.Consumers.PdfGenerator
         protected readonly IPdfEngineProvider _engineProvider;
         protected readonly IPdfGeneratorRepository _repository;
         protected readonly IPdfGeneratorNotificationService _notificationService;
-        protected readonly ITemplateEngineService _templateEngineService;
+        protected readonly TemplateRenderingService _templateRenderingService;
 
         protected PdfFromHtmlUsingTEConsumerBase(
             ILogger logger,
@@ -32,14 +31,14 @@ namespace Worker.Consumers.PdfGenerator
             IPdfEngineProvider engineProvider,
             IPdfGeneratorRepository repository,
             IPdfGeneratorNotificationService notificationService,
-            ITemplateEngineService templateEngineService)
+            TemplateRenderingService templateRenderingService)
         {
             _logger = logger;
             _storageHelper = storageHelper;
             _engineProvider = engineProvider;
             _repository = repository;
             _notificationService = notificationService;
-            _templateEngineService = templateEngineService;
+            _templateRenderingService = templateRenderingService;
         }
 
         /// <summary>
@@ -136,7 +135,9 @@ namespace Worker.Consumers.PdfGenerator
         }
 
         /// <summary>
-        /// Generates HTML content from template using Template Engine
+        /// Generates HTML content from template using Template Engine.
+        /// Renders in-process: ITemplateEngineService.RenderWithJsonAsync only queues the render, so
+        /// reading its RenderedFileId back right away always found no file and every TE PDF failed.
         /// </summary>
         protected async Task<string?> GenerateHtmlFromTemplate(TCommand command, string? projectKey, string tenantId)
         {
@@ -144,7 +145,6 @@ namespace Worker.Consumers.PdfGenerator
             {
                 var templateFileId = GetTemplateFileId(command);
                 var metaDataList = GetMetaDataList(command);
-                var fileExtension = GetFileNameExtension(command);
 
                 // Build JSON string from MetaDataList
                 var jsonData = new Dictionary<string, object>();
@@ -157,30 +157,15 @@ namespace Worker.Consumers.PdfGenerator
                 }
 
                 var jsonString = JsonSerializer.Serialize(jsonData);
-                var renderedFileId = $"rendered_{Guid.NewGuid()}{fileExtension}";
 
-                // Call template engine service to render HTML
-                var request = new RenderWithJsonRequest
+                var templateContent = await _storageHelper.GetHtmlContentAsString(templateFileId, projectKey);
+                if (string.IsNullOrEmpty(templateContent))
                 {
-                    ProjectKey = projectKey,
-                    TemplateFileId = templateFileId,
-                    RenderedFileId = renderedFileId,
-                    FileNameExtension = fileExtension,
-                    JSONString = jsonString
-                };
-
-                var response = await _templateEngineService.RenderWithJsonAsync(request);
-                
-                if (response.IsSuccess)
-                {
-                    // Get the rendered HTML content from storage
-                    return await _storageHelper.GetHtmlContentAsString(response.RenderedFileId, projectKey);
-                }
-                else
-                {
-                    _logger.LogError("{ConsumerName}: Template rendering failed for TemplateFileId={TemplateFileId}: {Message}", GetConsumerName(), templateFileId, response.Message);
+                    _logger.LogError("{ConsumerName}: Template file content is null or empty for TemplateFileId={TemplateFileId}", GetConsumerName(), templateFileId);
                     return null;
                 }
+
+                return _templateRenderingService.RenderTemplateWithJson(templateContent, jsonString);
             }
             catch (Exception ex)
             {
@@ -277,7 +262,6 @@ namespace Worker.Consumers.PdfGenerator
         protected abstract string GetOutputFileName(TCommand command);
         protected abstract string GetTemplateFileId(TCommand command);
         protected abstract List<PdfMetaData>? GetMetaDataList(TCommand command);
-        protected abstract string GetFileNameExtension(TCommand command);
         protected abstract double GetHeaderHeight(TCommand command);
         protected abstract double GetFooterHeight(TCommand command);
         protected abstract bool GetIsPageNumberEnabled(TCommand command);

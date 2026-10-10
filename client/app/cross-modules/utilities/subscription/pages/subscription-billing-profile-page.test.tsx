@@ -144,6 +144,43 @@ describe("billing profile page", () => {
     expect(request.address.countryCode).toBe("CH");
   });
 
+  it("loads the stored email language and sends an edited one trimmed", async () => {
+    const mutate = vi.fn();
+    useBillingProfile.mockReturnValue({
+      data: profile({ billingContactLanguage: "fr-CH" }),
+      isLoading: false,
+      error: null,
+    });
+    useUpdateBillingProfile.mockReturnValue(mutation({ mutate }));
+
+    renderPage();
+
+    const language = await screen.findByLabelText("Email language");
+    expect(language).toHaveValue("fr-CH");
+
+    await userEvent.clear(language);
+    await userEvent.type(language, " de-CH ");
+    await userEvent.click(screen.getByRole("button", { name: "Save billing profile" }));
+
+    await waitFor(() => expect(mutate).toHaveBeenCalled());
+    // The mail module matches templates on the exact tag, so padding would match none of them.
+    expect(mutate.mock.calls[0][0].billingContactLanguage).toBe("de-CH");
+  });
+
+  it("sends no email language when it is left empty, which the server reads as en-US", async () => {
+    const mutate = vi.fn();
+    useBillingProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
+    useUpdateBillingProfile.mockReturnValue(mutation({ mutate }));
+
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Save billing profile" }),
+    );
+
+    await waitFor(() => expect(mutate).toHaveBeenCalled());
+    expect(mutate.mock.calls[0][0].billingContactLanguage).toBeNull();
+  });
+
   it("sends an address object even when every line is blank, so clearing it clears it", async () => {
     const mutate = vi.fn();
     useBillingProfile.mockReturnValue({

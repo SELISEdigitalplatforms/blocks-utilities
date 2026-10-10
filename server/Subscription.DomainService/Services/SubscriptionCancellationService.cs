@@ -150,7 +150,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
 
             // Escalating a schedule that is allowed to escalate. This is the one case a repeat
             // request against an already-scheduled cancellation still writes something.
-            var escalated = await EndNowAsync(subscription, reason, now, correlationId, cancellationToken);
+            var escalated = await EndNowAsync(
+                subscription, reason, context.ActorName, now, correlationId, cancellationToken);
 
             if (!escalated)
             {
@@ -193,9 +194,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             : subscription.CurrentPeriodEndUtc;
 
         var applied = endsImmediately
-            ? await EndNowAsync(subscription, reason, now, correlationId, cancellationToken)
+            ? await EndNowAsync(
+                subscription, reason, context.ActorName, now, correlationId, cancellationToken)
             : await EndAtPeriodEndAsync(
-                subscription, reason, now, canCancelImmediately, correlationId, cancellationToken);
+                subscription, reason, context.ActorName, now, canCancelImmediately, correlationId,
+                cancellationToken);
 
         if (!applied)
         {
@@ -329,6 +332,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
             SubscriptionConstants.SubscriptionCancellationWithdrawn,
             cancelAtPeriodEnd: false,
             effectiveAtUtc: null,
+            reason: null,
+            context.ActorName,
             correlationId);
 
         if (!await _subscriptions.TryWithdrawScheduledCancellationAsync(
@@ -526,6 +531,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private async Task<bool> EndAtPeriodEndAsync(
         SubscriptionDetail subscription,
         string? reason,
+        string? actorName,
         DateTime now,
         bool canCancelImmediately,
         string correlationId,
@@ -549,6 +555,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 CanCancelImmediately = canCancelImmediately,
                 CanceledAtUtc = now,
                 CancellationReason = reason,
+                // Kept for the email sent when this takes effect, by a worker with no caller.
+                CancellationRequestedByName = actorName,
                 ClearNextFeeBillingAt = true,
                 // Status alone does not move here, so it cannot arbitrate two concurrent
                 // first-time requests the way it does everywhere else — this is what does instead.
@@ -581,6 +589,8 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                     SubscriptionConstants.SubscriptionCancellationRequested,
                     cancelAtPeriodEnd: true,
                     effectiveAtUtc,
+                    reason,
+                    actorName,
                     correlationId)
             },
             cancellationToken);
@@ -589,6 +599,7 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
     private async Task<bool> EndNowAsync(
         SubscriptionDetail subscription,
         string? reason,
+        string? actorName,
         DateTime now,
         string correlationId,
         CancellationToken cancellationToken)
@@ -657,6 +668,10 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                     SubscriptionConstants.SubscriptionCanceled,
                     cancelAtPeriodEnd: false,
                     now,
+                    // An escalation of a scheduled cancel may give no reason of its own; the one
+                    // given when it was scheduled is still the customer's reason.
+                    reason ?? subscription.CancellationReason,
+                    actorName,
                     correlationId)
             },
             cancellationToken);

@@ -34,6 +34,9 @@ public sealed record SubscriptionTransition(
 
     public string? CancellationReason { get; init; }
 
+    /// <summary>Written only when set, like <see cref="CancellationReason"/>.</summary>
+    public string? CancellationRequestedByName { get; init; }
+
     public string? InitialPaymentDetailId { get; init; }
 
     public string? LastRenewalPaymentDetailId { get; init; }
@@ -203,4 +206,15 @@ public sealed record SubscriptionTransition(
     public bool RequireCancellationNotAlreadyScheduled { get; init; }
 
     public SubscriptionOutboxEvent? Event { get; init; }
+
+    /// <summary>
+    /// Further events the same write announces, appended with <see cref="Event"/> in one update.
+    /// </summary>
+    /// <remarks>
+    /// For the one transition that is more than one thing happening: a renewal that also carries
+    /// out a scheduled decrease or plan change. Appended afterwards instead, a crash between the
+    /// two writes would leave the change applied and never announced — the gap the outbox exists
+    /// to close.
+    /// </remarks>
+    public IReadOnlyList<SubscriptionOutboxEvent> AdditionalEvents { get; init; } = [];
 }

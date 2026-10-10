@@ -33,6 +33,13 @@ public sealed class BillingAccount
 
     public string? BillingName { get; set; }
 
+    /// <summary>
+    /// The language the billing contact's notification emails are asked for in, when the
+    /// subscription named one. The organization's billing profile, read when each email is sent,
+    /// takes precedence: it is the one an administrator can still change.
+    /// </summary>
+    public string? Language { get; set; }
+
     /// <summary>The saved method a renewal would charge.</summary>
     public string? DefaultPaymentMethodId { get; set; }
 
