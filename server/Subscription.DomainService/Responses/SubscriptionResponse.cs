@@ -7,6 +7,15 @@ public sealed class SubscriptionResponse
 {
     public string SubscriptionId { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Who bought the subscription, frozen at signup. Null when no person signed up (an API key, or
+    /// the console acting for an organization) and for subscriptions created before this was kept.
+    /// </summary>
+    public string? PurchasedByUserId { get; init; }
+
+    /// <summary>The buyer's name as their identity provider gave it at signup. See <see cref="PurchasedByUserId"/>.</summary>
+    public string? PurchasedByName { get; init; }
+
     public string Status { get; init; } = string.Empty;
 
     public string PlanCode { get; init; } = string.Empty;

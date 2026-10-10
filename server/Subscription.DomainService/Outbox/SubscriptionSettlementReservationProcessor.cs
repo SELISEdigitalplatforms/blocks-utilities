@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -340,7 +340,12 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
                     quantity.RequestedQuantities,
                     quantity.NewCreditBalanceMinor,
                     paymentDetailId,
-                    _events.CreateQuantityChanged(subscription, reservation.CorrelationId),
+                    _events.CreateQuantityChanged(
+                        subscription,
+                        subscription.QuantityItems,
+                        quantity.RequestedQuantities,
+                        reservation.RequestedByName,
+                        reservation.CorrelationId),
                     cancellationToken,
                     // Stamped with the confirmed payment, as the request path stamps it.
                     quantity.ReplacementPendingAnnualPeriod?.SettledBy(paymentDetailId)),
@@ -368,6 +373,7 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
         CancellationToken cancellationToken)
     {
         var previousPlanCode = subscription.Plan.Code;
+        var previousPlanName = subscription.Plan.DisplayName;
 
         // In memory only: this copy is discarded when the pass ends, and the write below is what
         // persists the same terms.
@@ -394,7 +400,12 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
             plan.OutgoingUsagePeriod,
             plan.NewCreditBalanceMinor,
             paymentDetailId,
-            _events.CreatePlanChanged(subscription, previousPlanCode, reservation.CorrelationId),
+            _events.CreatePlanChanged(
+                subscription,
+                previousPlanCode,
+                previousPlanName,
+                reservation.RequestedByName,
+                reservation.CorrelationId),
             cancellationToken,
             replacementPendingAnnualPeriod: replacementAnnual);
     }

@@ -127,6 +127,31 @@ public sealed class SubscriptionPlansController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// The versions a plan has moved on from, newest first and read-only. The current version is
+    /// <c>GET {planId}</c>; subscribers keep billing from whichever version they bought.
+    /// </summary>
+    [HttpGet("{planId}/versions")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<PlanVersionResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<PlanVersionResponse>>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-plan::read")]
+    public async Task<IActionResult> ListPlanVersions(
+        string planId,
+        [FromQuery] string? organizationId,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _catalogue.ListPlanVersionsAsync(
+            planId,
+            organizationId,
+            correlationId,
+            cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]

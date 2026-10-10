@@ -151,6 +151,8 @@ public sealed class SubscriptionOutboxProcessor : ISubscriptionOutboxProcessor
                 claimed.EventId,
                 leaseId,
                 now,
+                clearPayload: SubscriptionConstants.NotificationMailPurposes.ContainsKey(
+                    claimed.EventType),
                 cancellationToken);
 
             _logger.LogInformation("Subscription event published");

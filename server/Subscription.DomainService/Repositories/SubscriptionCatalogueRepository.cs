@@ -31,6 +31,10 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
             SubscriptionIndexDefinitions.CreatePriceIndexes(),
             cancellationToken);
 
+        await PlanVersions(tenantId).Indexes.CreateManyAsync(
+            SubscriptionIndexDefinitions.CreatePlanVersionIndexes(),
+            cancellationToken);
+
         _indexedTenants.TryAdd(tenantId, 0);
     }
 
@@ -308,6 +312,47 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
         return result.ModifiedCount == 1;
     }
 
+    public async Task RecordPlanVersionAsync(
+        Plan current,
+        DateTime supersededAtUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+
+        await EnsureIndexesAsync(current.TenantId, cancellationToken);
+
+        try
+        {
+            await PlanVersions(current.TenantId).InsertOneAsync(
+                new PlanVersionRecord
+                {
+                    ItemId = PlanVersionRecord.IdOf(current.ItemId, current.Version),
+                    TenantId = current.TenantId,
+                    PlanId = current.ItemId,
+                    Version = current.Version,
+                    SupersededAtUtc = supersededAtUtc,
+                    Plan = current
+                },
+                cancellationToken: cancellationToken);
+        }
+        catch (MongoWriteException exception)
+            when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            // Already kept by an earlier attempt at the same version. The first copy stands.
+        }
+    }
+
+    public async Task<IReadOnlyList<PlanVersionRecord>> ListPlanVersionsAsync(
+        string tenantId,
+        string planId,
+        CancellationToken cancellationToken) =>
+        await PlanVersions(tenantId)
+            .Find(Builders<PlanVersionRecord>.Filter.And(
+                Builders<PlanVersionRecord>.Filter.Eq(record => record.TenantId, tenantId),
+                Builders<PlanVersionRecord>.Filter.Eq(record => record.PlanId, planId)))
+            .SortByDescending(record => record.Version)
+            .ToListAsync(cancellationToken);
+
     public async Task<bool> TryUpdatePlanMeterRatesAsync(
         string tenantId,
         string planId,
@@ -503,6 +548,12 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
             _dbContextProvider,
             tenantId,
             SubscriptionCollections.Plans);
+
+    private IMongoCollection<PlanVersionRecord> PlanVersions(string tenantId) =>
+        SubscriptionCollections.Of<PlanVersionRecord>(
+            _dbContextProvider,
+            tenantId,
+            SubscriptionCollections.PlanVersions);
 
     private IMongoCollection<Price> Prices(string tenantId) =>
         SubscriptionCollections.Of<Price>(

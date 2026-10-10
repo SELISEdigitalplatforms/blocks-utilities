@@ -75,6 +75,26 @@ public sealed class SubscriptionCancellationEffectiveProcessorTests
     }
 
     /// <summary>
+    /// The "your subscription has ended" email names whoever asked for it weeks earlier, and why.
+    /// </summary>
+    [Fact]
+    public async Task A_cancellation_taking_effect_carries_the_reason_and_requester_it_was_scheduled_with()
+    {
+        var subscription = NewSubscription("sub-1");
+        subscription.CancellationReason = "moving to another vendor";
+        subscription.CancellationRequestedByName = "Grace Hopper";
+        _due = [subscription];
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        var payload = JsonSerializer.Deserialize<SubscriptionLifecycleEvent>(
+            _transition!.Event!.Payload, PayloadOptions)!;
+        payload.CancellationReason.Should().Be("moving to another vendor");
+        payload.ActorName.Should().Be("Grace Hopper",
+            "the sweep has no caller of its own; the person who scheduled it is who ended it");
+    }
+
+    /// <summary>
     /// The sweep may pick this subscription up well after its period actually ended — a busy
     /// queue, a paused worker, a deploy. What was promised must not silently stretch to cover
     /// however late the pass happened to run.

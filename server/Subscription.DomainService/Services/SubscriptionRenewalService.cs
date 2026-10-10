@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -219,6 +219,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             period.Key,
             attemptNumber);
 
+        // Taken before the in-memory copy below is repainted with any scheduled change, so the
+        // events announcing that change can still say what it changed from.
+        var previousPlan = subscription.Plan;
+        var previousQuantities = subscription.QuantityItems;
+
         // A decrease scheduled for the end of the period now closing takes effect from here, so
         // this renewal is the first one priced at the new quantity — and the invoice it produces
         // must say the same. Applied to the in-memory subscription before pricing, and written in
@@ -437,6 +442,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 openingAnnualPeriod is not null,
                 convertingAnnual,
                 cancellationToken,
+                new AppliedChangeOrigin(previousPlan, previousQuantities),
                 pendingPlan,
                 outgoingUsagePeriod);
 
@@ -678,6 +684,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         bool openedAnnualPeriod,
         PendingAnnualPeriod? annualPeriodToHold,
         CancellationToken cancellationToken,
+        AppliedChangeOrigin origin,
         PendingPlanChange? appliedPlanChange = null,
         PendingUsagePeriod? outgoingUsagePeriod = null)
     {
@@ -740,7 +747,13 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     SubscriptionConstants.SubscriptionRenewed,
                     period.Key,
                     attemptNumber,
-                    subscription.CorrelationId)
+                    subscription.CorrelationId),
+                // A scheduled change carried out here is news of its own, not a detail of the
+                // renewal: a consumer listening for plan or quantity changes would otherwise never
+                // hear of one that waited for the period end. In this same write, so the change and
+                // its announcement cannot come apart.
+                AdditionalEvents = AppliedChangeEvents(
+                    subscription, origin, appliedQuantities, appliedPlanChange)
             },
             cancellationToken);
 
@@ -807,6 +820,49 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
             paymentDetailId, attemptNumber, cancellationToken);
     }
+
+    /// <summary>The change events a renewal owes for whatever scheduled change it carries out.</summary>
+    /// <remarks>
+    /// <paramref name="subscription"/> has already been repainted with the change for pricing, so it
+    /// carries the new plan the way <c>CreatePlanChanged</c> requires; <paramref name="origin"/> is
+    /// what it held before. The pending change itself — still on the copy, since the write that
+    /// clears it has not happened — names who asked for it.
+    /// </remarks>
+    private List<SubscriptionOutboxEvent> AppliedChangeEvents(
+        SubscriptionDetail subscription,
+        AppliedChangeOrigin origin,
+        List<SubscriptionQuantityItem>? appliedQuantities,
+        PendingPlanChange? appliedPlanChange)
+    {
+        var events = new List<SubscriptionOutboxEvent>();
+
+        if (appliedQuantities is not null)
+        {
+            events.Add(_events.CreateQuantityChanged(
+                subscription,
+                origin.Quantities,
+                appliedQuantities,
+                subscription.PendingQuantityChange?.RequestedByName,
+                subscription.CorrelationId));
+        }
+
+        if (appliedPlanChange is not null)
+        {
+            events.Add(_events.CreatePlanChanged(
+                subscription,
+                origin.Plan.Code,
+                origin.Plan.DisplayName,
+                appliedPlanChange.RequestedByName,
+                subscription.CorrelationId));
+        }
+
+        return events;
+    }
+
+    /// <summary>What a renewal found before applying any scheduled change to its in-memory copy.</summary>
+    private readonly record struct AppliedChangeOrigin(
+        PlanSnapshot Plan,
+        List<SubscriptionQuantityItem> Quantities);
 
     /// <summary>
     /// Re-freezes each open counter's allowance now that this subscription has converted out of its

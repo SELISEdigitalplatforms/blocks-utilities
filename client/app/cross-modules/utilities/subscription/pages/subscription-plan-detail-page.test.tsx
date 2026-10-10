@@ -196,14 +196,12 @@ describe("SubscriptionPlanDetailPage price management", () => {
     expect(link.getAttribute("href")).toContain("plan-1/edit");
   });
 
-  it("sends a subscribed plan to the same editor, for its prices", () => {
+  it("sends a subscribed plan to the same editor, to be edited as its next version", () => {
     renderPage(plan({ hasSubscribers: true }));
 
-    // Not disabled, which is what it used to be. A subscribed plan is the one that can need a new
-    // price, and the label says which half of the editor is still open to it.
-    const link = screen.getByRole("link", { name: "Manage prices" });
+    // Subscribers keep the version they bought, so a subscribed plan is as editable as any other.
+    const link = screen.getByRole("link", { name: "Edit" });
     expect(link.getAttribute("href")).toContain("plan-1/edit");
-    expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
   });
 
   it("points a plan with no price at the editor rather than a deleted route", () => {

@@ -12,6 +12,8 @@ public sealed class SubscriptionBillingProfileResponse
 
     public string BillingContactEmail { get; init; } = string.Empty;
 
+    public string? BillingContactLanguage { get; init; }
+
     public BillingAddressResponse? Address { get; init; }
 
     public string? TaxRegistrationId { get; init; }

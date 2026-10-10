@@ -805,6 +805,12 @@
             Active would be told a plan does not exist when it does.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.ListPlanVersions(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            The versions a plan has moved on from, newest first and read-only. The current version is
+            <c>GET {planId}</c>; subscribers keep billing from whichever version they bought.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePlan(System.String,Subscription.DomainService.Requests.UpdatePlanRequest,System.Threading.CancellationToken)">
             <summary>
             Rewrites what a plan sells. Refused with 409 once anything has subscribed to it — a

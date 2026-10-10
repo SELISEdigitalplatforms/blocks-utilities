@@ -161,30 +161,23 @@ export const SubscriptionPlanDetailPage = () => {
                 Duplicate plan
               </Link>
             </Button>
-            {/* One button, leading to the one editor. It was disabled for a subscribed plan and
-                sat beside a separate "Add price" button, which read as though a live plan could not
-                be repriced at all — the opposite of the truth. The editor now closes only the
-                plan's own terms, so the label says which half is still open rather than removing
-                the way in.
+            {/* One button, leading to the one editor, subscribed or not: an edit is the plan's
+                next version and existing subscribers keep the version they bought.
 
                 Gone entirely for an archived plan, rather than disabled: the server refuses every
                 catalogue mutation on one, so a button that opened the editor would lead to a form
                 whose every submission fails. Duplicate is the way forward, and it is the action
                 left standing. */}
             {isArchived ? null : (
-            <Button variant={plan.hasSubscribers ? "default" : "outline"} asChild>
+            <Button variant="outline" asChild>
               <Link
                 to={withOrganizationScope(
                   `${basePath}/${encodeURIComponent(plan.planId)}/edit`,
                   plan.organizationId,
                 )}
               >
-                {plan.hasSubscribers ? (
-                  <Plus className="mr-2 h-4 w-4" />
-                ) : (
-                  <Pencil className="mr-2 h-4 w-4" />
-                )}
-                {plan.hasSubscribers ? "Manage prices" : "Edit"}
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
               </Link>
             </Button>
             )}

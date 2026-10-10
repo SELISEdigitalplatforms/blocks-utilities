@@ -1,7 +1,7 @@
 namespace Subscription.DomainService.Enums;
 
 /// <summary>
-/// Which of the two mail publishers a report came from.
+/// Which of the mail publishers a report came from.
 /// </summary>
 /// <remarks>
 /// Named rather than inferred from whichever subject field happens to be populated: a reader
@@ -14,5 +14,11 @@ public enum MailDeliveryReportSource
     FinancialDocument = 0,
 
     /// <summary>A usage allowance warning, from the lifecycle event consumer.</summary>
-    UsageThreshold = 1
+    UsageThreshold = 1,
+
+    /// <summary>
+    /// A change to the subscription itself — seats, plan, cancellation. Which one is told apart
+    /// by the report's purpose.
+    /// </summary>
+    SubscriptionNotification = 2
 }

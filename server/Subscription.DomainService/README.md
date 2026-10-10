@@ -171,21 +171,32 @@ would have a client refuse a quantity the subscription is already sitting on.
 rest of that type exists: two surfaces describing the same quantities differently is how a client
 comes to enforce one rule on the read and another on the write.
 
-## Editing a plan ends when the first subscriber arrives
+## Editing a plan makes a new version; subscribers keep theirs
 
-`PUT /subscription-plans/{planId}` rewrites what a plan sells. It refuses with
-`subscription_plan_in_use` as soon as anything has subscribed, in any status — cancelled included.
+`PUT /subscription-plans/{planId}` rewrites what a plan sells, whether or not anything has
+subscribed. Each write moves `Version` on (v1 → v2 → …).
 
 That falls straight out of the snapshot rule above. An edit reaches the catalogue and nothing
-else, so a plan that was sold would leave the catalogue saying one thing while every live
-subscription bills from its own copy of something older; a cancelled subscription's past invoices
-were computed from those terms too. Create a new plan and migrate instead — that is what
-`ChangePlanAsync` is for.
+else: whoever subscribes next gets the new version, and every existing subscription — cancelled
+ones and their past invoices included — keeps billing from the copy it took at signup, with
+`plan.planVersion` saying which version that was. A subscriber moves onto a newer version only
+through `ChangePlanAsync`, which re-snapshots. There is no bulk "move everyone to the latest
+version" yet; that would be a deliberate, separate operation.
+
+Before any write moves the version on — an edit, a meter-rate change, or archiving — the version
+being replaced is copied, read-only, into `SubscriptionPlanVersions`. The id is
+`{planId}:{version}`, so a retried or raced copy of the same version is refused by the key and the
+first one stands. The copy is taken before the compare-and-set, never after: a crash between the
+two then leaves a record of a version that did exist rather than a version that vanished.
+`GET /subscription-plans/{planId}/versions` lists them newest first; the current version is the
+plan itself. Versions replaced before this history existed are not recoverable.
+
+Prices are separate documents with their own versions and are not copied into the plan's history.
 
 The code and the organization come from the stored plan, never the request: a code is what
 configuration points at, and a scope change would move the plan out from under whoever can see it.
-Prices are separate documents and are untouched. Reads return `hasSubscribers` so a caller can say
-why editing is closed before offering it.
+Reads still return `hasSubscribers`, so a caller can warn that an edit will not reach existing
+subscribers.
 
 `PlanDefinitionRequestValidator` holds every rule about a plan's contents, and both creating and
 editing include it — an edit that could store what a create would have refused is a hole, and one
@@ -604,6 +615,40 @@ This holds the same way regardless of which `TrialDurationKind` produced `Trial.
   before then, is charged its 25 September-1 October stub immediately and renews on 1 October —
   the trial only decided *when* the first charge happens, not which calendar boundaries the price
   itself renews on.
+
+### One trial per plan
+
+A subscriber gets each plan's trial once. Cancelling and signing up again does not buy a second
+one: the new signup has no trial, so it is an ordinary paid signup — the schedule anchors on now and
+checkout takes the opening charge. Trialing one plan never blocks the trial of another.
+
+| Plan scope | Whose trial it is |
+|---|---|
+| `Organization` | the organization |
+| `User` | the person who bought it (`SubscriptionDetail.PurchasedBy`), not the people seated on it |
+
+A plan is identified by its `Code`, so editing a plan does not hand out fresh trials. A user-wise
+signup with no user behind it (an API key, or the console acting for an organization) is not
+limited.
+
+The rule lives in the `SubscriptionTrialUsages` ledger (`TrialUsage`), enforced by a partial unique
+index on tenant, scope, subject and plan code rather than by a read before a write:
+
+- **Claimed** at signup, right after the subscription is stored. Two signups racing for the same
+  trial are settled here, before either collects a card; the loser is refused with
+  `subscription_trial_already_used`, its subscription is expired, and a retry is quoted without the
+  trial.
+- **Used** when the subscription reaches `Trialing` — on the card-free path in checkout and on the
+  card-setup path in the activation processor. Changing plan mid-trial marks the new plan as trialed
+  too. Permanent.
+- **Released** when a later signup finds the claim's subscription ended without ever starting
+  (`ActivatedAtUtc` unset and no longer `Incomplete`), or cannot find it at all. Released lazily,
+  at the next signup, instead of on every path that can end a signup, so a crash on one of those
+  paths cannot lock the subscriber out. A claim with no ledger row behind it — a crash between
+  storing the subscription and claiming its trial — is written as Used when the trial starts.
+
+The purchase preview reports `trialAlreadyUsed: true` when the plan has a trial this subscriber has
+already had. Subscriptions created before the ledger existed are not backfilled.
 
 ### Plan changes
 
@@ -1680,10 +1725,27 @@ executes it; the queue drainer is the only thing that runs subscription backgrou
 
 ### Which tenants the sweep covers
 
-Discovered, not configured. `SubscriptionTenantDirectory` reads the platform's own tenant
-registry — the `Tenants` collection in the root database, reached by connection string and
-database name rather than by ambient tenant, which is what makes it readable from background work
-that has no request to resolve one from.
+Discovered, not configured. `SubscriptionTenantDirectory` reads the **subscription tenant
+roster** — the `SubscriptionTenants` collection in the root database, reached by connection string
+and database name rather than by ambient tenant, which is what makes it readable from background
+work that has no request to resolve one from.
+
+The roster holds every tenant that has ever created a subscription, and nothing else:
+
+- **Creation records the tenant before the subscription exists** (`ISubscriptionTenantRoster`). A
+  failure there refuses the subscribe while nothing has been written, so no subscription can exist
+  for a tenant the sweep does not visit. Each process writes a given tenant once.
+- **Tenants that subscribed before the roster existed are backfilled once per environment.** The
+  first roster read walks the platform `Tenants` registry, records every tenant that has a
+  subscription, then writes a `$backfill-complete` marker so the walk never runs again. A tenant
+  with no database is skipped; any other failure leaves the marker unwritten and the walk retries.
+- **It is not derived from `SubscriptionBackgroundWork`.** A live subscription need not have a
+  pending row there — an unannounced renewal is exactly what the sweep exists to find, and
+  completed rows are purged — so a queue-derived roster would drop the tenants the sweep is for.
+
+This replaced walking the whole registry every pass: on prod that was 3,104 tenants for 8 with
+subscription work (2026-10-08), about a thousand of them without a database, each costing an
+error and a warning per pass.
 
 The roster is asked for on **every pass** and cached for `TenantRefreshSeconds`. It is never
 captured at startup: projects are created at any time and can subscribe immediately, so a list

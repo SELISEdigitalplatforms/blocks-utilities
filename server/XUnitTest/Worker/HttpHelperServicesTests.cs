@@ -389,6 +389,66 @@ public sealed class PaymentReconciliationBackgroundServiceTests
             "a tenant ordered after an unreachable one must still have its payments recovered");
     }
 
+    /// <summary>
+    /// Prod, 2026-10-08: about a thousand roster tenants with no database were retried every pass,
+    /// two log lines each, roughly 95 lines a second of noise.
+    /// </summary>
+    [Fact]
+    public async Task A_tenant_with_no_database_is_left_alone_until_its_recheck_then_tried_again()
+    {
+        var recovery = new Mock<IPaymentRecoveryProcessor>();
+        recovery
+            .Setup(x => x.RecoverStaleAsync("tenant-without-database", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException(
+                "Could not initialize database for tenant",
+                new KeyNotFoundException("Database information is missing for tenant")));
+
+        var services = new ServiceCollection()
+            .AddSingleton(recovery.Object)
+            .AddSingleton(Mock.Of<IPaymentTenantContextScopeFactory>())
+            .AddSingleton(Mock.Of<IPaymentCaptureRecoveryProcessor>())
+            .AddSingleton(Mock.Of<IPaymentRefundRecoveryProcessor>())
+            .AddSingleton(Mock.Of<IPaymentWebhookProcessor>())
+            .AddSingleton(Mock.Of<IStoredPaymentMethodRemovalRecoveryProcessor>())
+            .AddSingleton(Mock.Of<IPaymentMethodSetupExpiryProcessor>())
+            .AddSingleton(Mock.Of<IPaymentOutboxProcessor>())
+            .AddSingleton(Mock.Of<IPaymentRefundOutboxProcessor>())
+            .BuildServiceProvider();
+        var tenants = new Mock<IPaymentWorkTenantSource>();
+        tenants
+            .Setup(x => x.ListTenantIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["tenant-without-database", "healthy-tenant"]);
+        var time = new XUnitTest.Payment.ControlledTimeProvider(
+            new DateTimeOffset(2026, 10, 8, 2, 0, 0, TimeSpan.Zero));
+        using var service = new PaymentReconciliationBackgroundService(
+            services,
+            Mock.Of<IOptionsMonitor<PaymentOptions>>(x => x.CurrentValue == new PaymentOptions()),
+            NullLogger<PaymentReconciliationBackgroundService>.Instance,
+            time: time);
+
+        await service.ReconcilePassAsync(tenants.Object, CancellationToken.None);
+        time.Advance(TimeSpan.FromMinutes(1));
+        await service.ReconcilePassAsync(tenants.Object, CancellationToken.None);
+
+        recovery.Verify(
+            x => x.RecoverStaleAsync("tenant-without-database", It.IsAny<CancellationToken>()),
+            Times.Once,
+            "every attempt on a tenant with no database writes an error and a warning, so a pass " +
+            "inside the recheck window must not ask for its database again");
+        recovery.Verify(
+            x => x.RecoverStaleAsync("healthy-tenant", It.IsAny<CancellationToken>()),
+            Times.Exactly(2),
+            "a reachable tenant is still swept every pass");
+
+        time.Advance(TimeSpan.FromMinutes(15));
+        await service.ReconcilePassAsync(tenants.Object, CancellationToken.None);
+
+        recovery.Verify(
+            x => x.RecoverStaleAsync("tenant-without-database", It.IsAny<CancellationToken>()),
+            Times.Exactly(2),
+            "a tenant provisioned later must still be reached once its recheck comes round");
+    }
+
     [Fact]
     public async Task The_reconciliation_service_starts_and_stops_without_faulting()
     {

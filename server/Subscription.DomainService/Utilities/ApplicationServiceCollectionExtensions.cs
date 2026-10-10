@@ -1,4 +1,4 @@
-﻿using FluentValidation;
+using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -96,10 +96,13 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ICampaignRedemptionRepository,
             CampaignRedemptionRepository>();
+        services.AddSingleton<ITrialUsageRepository, TrialUsageRepository>();
         services.AddSingleton<
             ISubscriptionAssignmentRepository,
             SubscriptionAssignmentRepository>();
         services.AddScoped<ISubscriptionMemberService, SubscriptionMemberService>();
+        // Scoped: it forwards the caller's own token, read from the request's context.
+        services.AddScoped<IMemberDirectory, IamMemberDirectory>();
         services.AddScoped<
             ISubscriberSubscriptionResolver,
             SubscriberSubscriptionResolver>();
@@ -134,9 +137,13 @@ public static class ApplicationServiceCollectionExtensions
 
         // Singleton so the cache is actually shared. Scoped, every request would get an empty
         // one and the hot path would read the database every time regardless.
-        services.AddSingleton<
-            ISubscriptionTenantSource,
-            RootDatabaseTenantSource>();
+        // One instance behind both faces, so the tenants creation has already recorded are the
+        // ones it skips writing again.
+        services.AddSingleton<SubscriptionTenantRoster>();
+        services.AddSingleton<ISubscriptionTenantSource>(
+            provider => provider.GetRequiredService<SubscriptionTenantRoster>());
+        services.AddSingleton<ISubscriptionTenantRoster>(
+            provider => provider.GetRequiredService<SubscriptionTenantRoster>());
 
         // Singleton so the roster is actually cached. Scoped, every sweep would read the
         // registry again and the refresh interval would mean nothing.
@@ -337,6 +344,9 @@ public static class ApplicationServiceCollectionExtensions
         // Singleton to match the repository it wraps, and because it holds no per-request state.
         services.AddSingleton<IMailDeliveryReporter, MailDeliveryReporter>();
         services.AddScoped<IUsageThresholdEmailService, UsageThresholdEmailService>();
+        services.AddScoped<
+            ISubscriptionNotificationEmailService,
+            SubscriptionNotificationEmailService>();
         services.AddScoped<
             ISubscriptionActivationProcessor,
             SubscriptionActivationProcessor>();

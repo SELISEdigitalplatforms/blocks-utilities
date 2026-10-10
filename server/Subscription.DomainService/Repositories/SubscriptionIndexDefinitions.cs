@@ -78,6 +78,9 @@ public static class SubscriptionIndexDefinitions
     public const string PlanCodeIndexName =
         "ux_subscription_plan_tenant_org_code";
 
+    public const string PlanVersionIndexName =
+        "ix_subscription_plan_version_tenant_plan_version";
+
     public const string PricePlanIndexName =
         "ix_subscription_price_tenant_plan";
     public const string DiscountCodeIndexName = "ux_subscription_discount_tenant_org_code";
@@ -275,6 +278,16 @@ public static class SubscriptionIndexDefinitions
                 Unique = true,
                 Name = PlanCodeIndexName
             })
+    ];
+
+    public static IReadOnlyCollection<CreateIndexModel<PlanVersionRecord>> CreatePlanVersionIndexes() =>
+    [
+        new(
+            Builders<PlanVersionRecord>.IndexKeys
+                .Ascending(record => record.TenantId)
+                .Ascending(record => record.PlanId)
+                .Descending(record => record.Version),
+            new CreateIndexOptions { Name = PlanVersionIndexName })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<Price>> CreatePriceIndexes() =>
