@@ -20,6 +20,8 @@ export interface SubscriptionBillingProfile {
   displayName?: string | null;
   billingContactName: string;
   billingContactEmail: string;
+  /** BCP-47 tag the billing contact's notification emails are sent in; null means en-US. */
+  billingContactLanguage?: string | null;
   address?: BillingAddress | null;
   taxRegistrationId?: string | null;
   /**
@@ -40,6 +42,7 @@ export interface UpdateBillingProfileRequest {
   displayName?: string | null;
   billingContactName: string;
   billingContactEmail: string;
+  billingContactLanguage?: string | null;
   address?: BillingAddress | null;
   taxRegistrationId?: string | null;
   /** Console only; the server honours it for nobody else. */

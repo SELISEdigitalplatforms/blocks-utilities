@@ -118,6 +118,30 @@ public sealed class SubscriptionAssignmentRepository : ISubscriptionAssignmentRe
         return [.. held];
     }
 
+    public async Task<SubscriptionAssignment?> GetActiveAsync(
+        string tenantId,
+        string subscriptionId,
+        string userId,
+        CancellationToken cancellationToken) =>
+        await Assignments(tenantId)
+            .Find(Builders<SubscriptionAssignment>.Filter.And(
+                ActiveFilter(tenantId, subscriptionId),
+                Builders<SubscriptionAssignment>.Filter.Eq(
+                    assignment => assignment.UserId, userId)))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<SubscriptionAssignment?> GetByIdAsync(
+        string tenantId,
+        string assignmentId,
+        CancellationToken cancellationToken) =>
+        await Assignments(tenantId)
+            .Find(Builders<SubscriptionAssignment>.Filter.And(
+                Builders<SubscriptionAssignment>.Filter.Eq(
+                    assignment => assignment.TenantId, tenantId),
+                Builders<SubscriptionAssignment>.Filter.Eq(
+                    assignment => assignment.ItemId, assignmentId)))
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<IReadOnlyList<SubscriptionAssignment>> ListActiveAsync(
         string tenantId,
         string subscriptionId,

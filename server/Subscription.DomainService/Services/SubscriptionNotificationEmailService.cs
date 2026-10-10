@@ -12,7 +12,8 @@ namespace Subscription.DomainService.Services;
 
 /// <summary>
 /// Converts a seat, plan or cancellation lifecycle event into the mail command understood by
-/// Blocks OS, addressed to the subscription's billing contact.
+/// Blocks OS: to the subscription's billing contact, or for a seat given or taken back, to the
+/// person it was given to or taken from.
 /// </summary>
 /// <remarks>
 /// Every purpose is sent the same full set of keys, empty where a value does not apply. The mail
@@ -27,13 +28,20 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
     private readonly IMessageClient _messageClient;
     private readonly ILogger<SubscriptionNotificationEmailService> _logger;
     private readonly IMailDeliveryReporter? _mailReports;
+    private readonly ISubscriptionAssignmentRepository? _assignments;
+    private readonly ISubscriptionBillingProfileRepository? _profiles;
 
     public SubscriptionNotificationEmailService(
         ISubscriptionRepository subscriptions,
         IBillingAccountRepository billingAccounts,
         IMessageClient messageClient,
         ILogger<SubscriptionNotificationEmailService> logger,
-        IMailDeliveryReporter? mailReports = null)
+        IMailDeliveryReporter? mailReports = null,
+        // Optional only for hosts that never seat anyone. Absent, no member email is sent: the
+        // seat could not be checked, and an unchecked one may be a seat that was never written.
+        ISubscriptionAssignmentRepository? assignments = null,
+        // Optional: absent, the billing contact is mailed in the account's language, else en-US.
+        ISubscriptionBillingProfileRepository? profiles = null)
     {
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -41,6 +49,8 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         _logger = logger;
         // Optional for the same reason as on the usage-threshold path: absent, nothing is recorded.
         _mailReports = mailReports;
+        _assignments = assignments;
+        _profiles = profiles;
     }
 
     public async Task SendAsync(
@@ -52,6 +62,13 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         if (!SubscriptionConstants.NotificationMailPurposes.TryGetValue(
                 lifecycleEvent.EventType, out var purpose))
         {
+            return;
+        }
+
+        if (lifecycleEvent.EventType is SubscriptionConstants.SubscriptionMemberAssigned
+            or SubscriptionConstants.SubscriptionMemberReleased)
+        {
+            await SendToMemberAsync(lifecycleEvent, purpose, cancellationToken);
             return;
         }
 
@@ -99,11 +116,105 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         var subject = new Dictionary<string, string>(body);
         subject.Remove(CancellationReasonKey);
 
+        // Read now rather than copied when the subscription was made: the profile is the one place
+        // an administrator can change it, and a change should reach the very next email.
+        var profile = _profiles is null
+            ? null
+            : await _profiles.GetAsync(
+                lifecycleEvent.TenantId, subscription.OrganizationId, cancellationToken);
+
+        await QueueAsync(
+            lifecycleEvent,
+            account.BillingEmail,
+            purpose,
+            MailLanguage.FirstOf(profile?.BillingContactLanguage, account.Language),
+            subject,
+            body,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The member's own email, sent only if the seat it announces really changed.
+    /// </summary>
+    /// <remarks>
+    /// The event was written before the seat, so it may announce a seat that never landed — a
+    /// process that died between the two writes, or a person already seated whom the insert
+    /// refused. The seat itself is the only witness: given means it exists and is still held,
+    /// taken back means it exists and is released.
+    /// </remarks>
+    private async Task SendToMemberAsync(
+        SubscriptionLifecycleEvent lifecycleEvent,
+        string purpose,
+        CancellationToken cancellationToken)
+    {
+        var assignment = _assignments is null || string.IsNullOrWhiteSpace(lifecycleEvent.AssignmentId)
+            ? null
+            : await _assignments.GetByIdAsync(
+                lifecycleEvent.TenantId, lifecycleEvent.AssignmentId, cancellationToken);
+
+        var happened = lifecycleEvent.EventType == SubscriptionConstants.SubscriptionMemberAssigned
+            ? assignment is { ReleasedAtUtc: null }
+            : assignment is { ReleasedAtUtc: not null };
+
+        if (!happened)
+        {
+            _logger.LogInformation(
+                "Member email dropped because the seat change it announces did not land " +
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} EventId={EventId}",
+                PaymentLogValue.Id(lifecycleEvent.TenantId),
+                PaymentLogValue.Id(lifecycleEvent.SubscriptionId),
+                lifecycleEvent.EventId);
+            await ReportNotAttemptedAsync(lifecycleEvent, "seat_change_not_applied", cancellationToken);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(lifecycleEvent.MemberEmail))
+        {
+            _logger.LogWarning(
+                "Member email skipped because IAM gave no address for the member " +
+                "TenantId={TenantId} SubscriptionId={SubscriptionId} EventId={EventId}",
+                PaymentLogValue.Id(lifecycleEvent.TenantId),
+                PaymentLogValue.Id(lifecycleEvent.SubscriptionId),
+                lifecycleEvent.EventId);
+            await ReportNotAttemptedAsync(lifecycleEvent, "member_email_missing", cancellationToken);
+            return;
+        }
+
+        var context = new Dictionary<string, string>
+        {
+            ["DisplayName"] = string.IsNullOrWhiteSpace(lifecycleEvent.MemberDisplayName)
+                ? lifecycleEvent.MemberEmail
+                : lifecycleEvent.MemberDisplayName,
+            ["PlanName"] = lifecycleEvent.PlanName ?? string.Empty,
+            ["PlanCode"] = lifecycleEvent.PlanCode,
+            ["OrganizationName"] = lifecycleEvent.OrganizationName ?? string.Empty,
+            ["ActorName"] = lifecycleEvent.ActorName ?? string.Empty
+        };
+
+        await QueueAsync(
+            lifecycleEvent,
+            lifecycleEvent.MemberEmail,
+            purpose,
+            MailLanguage.FirstOf(lifecycleEvent.MemberLanguage),
+            new Dictionary<string, string>(context),
+            context,
+            cancellationToken);
+    }
+
+    private async Task QueueAsync(
+        SubscriptionLifecycleEvent lifecycleEvent,
+        string recipient,
+        string purpose,
+        string language,
+        Dictionary<string, string> subject,
+        Dictionary<string, string> body,
+        CancellationToken cancellationToken)
+    {
         var payload = new SendMail
         {
-            To = [account.BillingEmail.Trim().ToLowerInvariant()],
+            To = [recipient.Trim().ToLowerInvariant()],
             Purpose = purpose,
-            Language = SubscriptionConstants.DefaultMailLanguage,
+            Language = language,
             SubjectDataContext = subject,
             BodyDataContext = body,
             CorrelationId = lifecycleEvent.EventId

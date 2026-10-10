@@ -31,6 +31,8 @@ public sealed class SubscriptionNotificationEmailServiceTests
     private readonly Mock<IBillingAccountRepository> _accounts = new();
     private readonly Mock<IMessageClient> _messages = new();
     private readonly Mock<IMailDeliveryReporter> _reports = new();
+    private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
+    private readonly Mock<ISubscriptionBillingProfileRepository> _profiles = new();
     private readonly List<MailDeliveryReportRequest> _recorded = [];
     private ConsumerMessage<SendMail>? _queued;
 
@@ -209,12 +211,144 @@ public sealed class SubscriptionNotificationEmailServiceTests
         _messages.VerifyNoOtherCalls();
     }
 
+    [Fact]
+    public async Task A_member_given_a_seat_is_mailed_in_their_own_language()
+    {
+        Seat(releasedAtUtc: null);
+
+        await Service().SendAsync(MemberEvent(SubscriptionConstants.SubscriptionMemberAssigned), CancellationToken.None);
+
+        _queued.Should().NotBeNull();
+        _queued!.Payload.Purpose.Should().Be(SubscriptionConstants.MemberAssignedMailPurpose);
+        _queued.Payload.To.Should().Equal(["member@example.com"],
+            "this email is the member's, not the billing contact's");
+        _queued.Payload.Language.Should().Be("de-CH");
+        _queued.Payload.BodyDataContext.Should().Equal(new Dictionary<string, string>
+        {
+            ["DisplayName"] = "Charles Babbage",
+            ["PlanName"] = "Team",
+            ["PlanCode"] = "team",
+            ["OrganizationName"] = "Analytical Engines Ltd",
+            ["ActorName"] = "Grace Hopper"
+        });
+        _accounts.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task A_member_whose_seat_was_never_written_is_not_told_they_have_one()
+    {
+        // The event went in, then the process died before the seat did.
+        _assignments
+            .Setup(repository => repository.GetByIdAsync("tenant-1", "assignment-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionAssignment?)null);
+
+        await Service().SendAsync(MemberEvent(SubscriptionConstants.SubscriptionMemberAssigned), CancellationToken.None);
+
+        _queued.Should().BeNull("telling someone they have access they do not have is worse than silence");
+        _recorded.Should().ContainSingle().Which.ErrorCode.Should().Be("seat_change_not_applied");
+    }
+
+    [Fact]
+    public async Task A_member_whose_release_never_landed_is_not_told_they_lost_their_seat()
+    {
+        Seat(releasedAtUtc: null);
+
+        await Service().SendAsync(MemberEvent(SubscriptionConstants.SubscriptionMemberReleased), CancellationToken.None);
+
+        _queued.Should().BeNull("the seat is still held, so the member has lost nothing");
+    }
+
+    [Fact]
+    public async Task A_member_whose_release_landed_is_told()
+    {
+        Seat(releasedAtUtc: new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc));
+
+        await Service().SendAsync(MemberEvent(SubscriptionConstants.SubscriptionMemberReleased), CancellationToken.None);
+
+        _queued!.Payload.Purpose.Should().Be(SubscriptionConstants.MemberRemovedMailPurpose);
+    }
+
+    [Fact]
+    public async Task A_member_iam_gave_no_address_for_is_recorded_as_not_mailed()
+    {
+        Seat(releasedAtUtc: null);
+        var lifecycleEvent = MemberEvent(SubscriptionConstants.SubscriptionMemberAssigned);
+        lifecycleEvent.MemberEmail = null;
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        _queued.Should().BeNull();
+        _recorded.Should().ContainSingle().Which.ErrorCode.Should().Be("member_email_missing");
+    }
+
+    private void Seat(DateTime? releasedAtUtc) =>
+        _assignments
+            .Setup(repository => repository.GetByIdAsync("tenant-1", "assignment-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionAssignment { ItemId = "assignment-1", ReleasedAtUtc = releasedAtUtc });
+
+    private static SubscriptionLifecycleEvent MemberEvent(string eventType)
+    {
+        var lifecycleEvent = Event(eventType);
+        lifecycleEvent.AssignmentId = "assignment-1";
+        lifecycleEvent.MemberUserId = "user-b";
+        lifecycleEvent.MemberEmail = "Member@Example.com";
+        lifecycleEvent.MemberDisplayName = "Charles Babbage";
+        lifecycleEvent.MemberLanguage = "de-CH";
+        lifecycleEvent.OrganizationName = "Analytical Engines Ltd";
+        lifecycleEvent.ActorName = "Grace Hopper";
+        return lifecycleEvent;
+    }
+
+    [Fact]
+    public async Task The_billing_contact_is_mailed_in_the_profiles_language_set_after_subscribing()
+    {
+        Account(language: "fr-CH");
+        _profiles
+            .Setup(repository => repository.GetAsync("tenant-1", "organization-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionBillingProfile { BillingContactLanguage = "de-CH" });
+
+        await Service().SendAsync(Event(SubscriptionConstants.SubscriptionCanceled), CancellationToken.None);
+
+        _queued!.Payload.Language.Should().Be("de-CH",
+            "the profile is where an administrator changes it, and the change must reach the next email");
+    }
+
+    [Fact]
+    public async Task Without_a_profile_language_the_one_given_at_subscribing_is_used()
+    {
+        Account(language: "fr-CH");
+
+        await Service().SendAsync(Event(SubscriptionConstants.SubscriptionCanceled), CancellationToken.None);
+
+        _queued!.Payload.Language.Should().Be("fr-CH");
+    }
+
+    [Fact]
+    public async Task With_no_language_anywhere_the_mail_is_asked_for_in_en_us()
+    {
+        await Service().SendAsync(Event(SubscriptionConstants.SubscriptionCanceled), CancellationToken.None);
+
+        _queued!.Payload.Language.Should().Be("en-US");
+    }
+
+    private void Account(string? language) =>
+        _accounts
+            .Setup(repository => repository.GetAsync("tenant-1", "account-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount
+            {
+                BillingEmail = "billing@example.com",
+                BillingName = "Ada Lovelace",
+                Language = language
+            });
+
     private SubscriptionNotificationEmailService Service() => new(
         _subscriptions.Object,
         _accounts.Object,
         _messages.Object,
         NullLogger<SubscriptionNotificationEmailService>.Instance,
-        _reports.Object);
+        _reports.Object,
+        _assignments.Object,
+        _profiles.Object);
 
     private static SubscriptionDetail Subscription(string timeZoneId = "Europe/Zurich") => new()
     {

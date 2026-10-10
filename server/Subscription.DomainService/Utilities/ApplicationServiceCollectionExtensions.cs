@@ -101,6 +101,8 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionAssignmentRepository,
             SubscriptionAssignmentRepository>();
         services.AddScoped<ISubscriptionMemberService, SubscriptionMemberService>();
+        // Scoped: it forwards the caller's own token, read from the request's context.
+        services.AddScoped<IMemberDirectory, IamMemberDirectory>();
         services.AddScoped<
             ISubscriberSubscriptionResolver,
             SubscriberSubscriptionResolver>();
