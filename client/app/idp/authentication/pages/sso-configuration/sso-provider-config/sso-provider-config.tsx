@@ -4,7 +4,7 @@ import { SsoProviderConfigForms } from "./sso-provider-config-forms/sso-provider
 import { SSoProviderSetupGuideLine } from "../sso-provider-setup-guideline";
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
-import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
+import { setBreadcrumbTitle } from "@/constants/breadcrumb-custom-title";
 import { useState } from "react";
 
 type SSOProviderConfigProps = {
@@ -16,8 +16,8 @@ export const SSOProviderConfig = ({ provider, id = "" }: SSOProviderConfigProps)
   const [open, setOpen] = useState<boolean>(false);
   if (!provider) return null;
 
-  BREADCRUMB_CUSTOM_TITLES["/services/authentication?tab=social"] = "IDP";
-  BREADCRUMB_CUSTOM_TITLES[`/services/authentication/sso-configuration`] = provider;
+  setBreadcrumbTitle("/services/authentication?tab=social", "IDP");
+  setBreadcrumbTitle(`/services/authentication/sso-configuration`, provider);
   return (
     <div className="flex flex-col">
       <div className="hidden md:flex">

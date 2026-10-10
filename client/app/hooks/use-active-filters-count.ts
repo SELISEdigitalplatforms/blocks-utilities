@@ -7,9 +7,10 @@ export const useActiveFiltersCount = <TData,>(
   dateRange: DateRange | undefined,
   searchColumnId: string | undefined,
 ) => {
+  const columnFilters = table.getState().columnFilters;
   return useMemo(() => {
     let count = 0;
-    table.getState().columnFilters.forEach((filter) => {
+    columnFilters.forEach((filter) => {
       if (filter.id === searchColumnId) {
         if (typeof filter.value === "object" && filter.value !== null && "types" in filter.value) {
           count += (filter.value.types as string[]).length;
@@ -30,6 +31,5 @@ export const useActiveFiltersCount = <TData,>(
     }
 
     return count;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [table.getState().columnFilters, dateRange]);
+  }, [columnFilters, dateRange, searchColumnId]);
 };

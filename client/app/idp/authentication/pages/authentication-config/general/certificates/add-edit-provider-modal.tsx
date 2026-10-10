@@ -100,6 +100,21 @@ export const AddEditProviderModal = ({ existingData }: AddEditProviderModalProps
     formState: { errors, isDirty },
   } = form;
 
+  // When existingData changes, pick its provider and the public-url method (always used in
+  // edit mode). Adjusted while rendering; the form itself is reset below.
+  const [appliedData, setAppliedData] = useState<{ existingData: typeof existingData } | null>(
+    null,
+  );
+  if (appliedData === null || appliedData.existingData !== existingData) {
+    setAppliedData({ existingData });
+    if (existingData) {
+      if (existingData.providerName) {
+        setSelectedProvider(existingData.providerName);
+      }
+      setCertificateMethod("public-url");
+    }
+  }
+
   // Update form when existingData changes
   useEffect(() => {
     if (existingData) {
@@ -109,14 +124,6 @@ export const AddEditProviderModal = ({ existingData }: AddEditProviderModalProps
         issuer: existingData.issuer || "",
         audience: existingData.audiences?.join(", ") || "",
       });
-
-      // Set provider based on existing data
-      if (existingData.providerName) {
-        setSelectedProvider(existingData.providerName);
-      }
-
-      // Always select public-url in edit mode
-      setCertificateMethod("public-url");
     }
   }, [existingData, form]);
 

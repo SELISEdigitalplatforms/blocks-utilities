@@ -131,7 +131,7 @@ export const StepBenefit = ({
       )}
 
       <div className="space-y-2">
-        <Label>How it meets the price's own discount</Label>
+        <Label>How it meets the price&apos;s own discount</Label>
         <Select
           value={draft.campaignPrecedence}
           onValueChange={(value) => onChange({ campaignPrecedence: value as CampaignPrecedence })}

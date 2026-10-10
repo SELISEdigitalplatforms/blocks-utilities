@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "react-router";
 import {
   Popover,
@@ -429,21 +429,33 @@ function StarIcon({ filled }: { filled: boolean }) {
     </svg>
   );
 }
+/**
+ * Leaves the app for the IdP's authorization page. Only http(s) targets are followed, so a
+ * malformed or script URL in the response can't run in this origin.
+ */
+const redirectTo = (url: string): boolean => {
+  try {
+    const { protocol } = new URL(url, window.location.origin);
+    if (protocol !== "https:" && protocol !== "http:") return false;
+  } catch {
+    return false;
+  }
+  window.location.href = url;
+  return true;
+};
+
 export function BlocksAppLauncher() {
   const [open, setOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [favouriteKeys, setFavouriteKeys] = useState<Set<string>>(new Set());
-  const [isHydrated, setIsHydrated] = useState(false);
-  const [loadingKey, setLoadingKey] = useState<string | null>(null);
-  const location = useLocation();
-  useEffect(() => {
+  // Favourites are restored from localStorage up front, defaulting to IAM and localization.
+  const [favouriteKeys, setFavouriteKeys] = useState<Set<string>>(() => {
     const stored = localStorage.getItem("blocks-app-favourites");
-    const keys = stored
+    return stored
       ? new Set<string>(JSON.parse(stored) as string[])
       : new Set<string>(["iam", "localization"]);
-    setFavouriteKeys(keys);
-    setIsHydrated(true);
-  }, []);
+  });
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const location = useLocation();
   const saveFavourites = (keys: Set<string>) => {
     setFavouriteKeys(keys);
     localStorage.setItem(
@@ -473,8 +485,8 @@ export function BlocksAppLauncher() {
       const response = await fetch(initiateUrl, { headers });
       const data = await response.json();
 
-      if (data.redirect_uri) {
-        window.location.href = data.redirect_uri as string;
+      if (data.redirect_uri && redirectTo(data.redirect_uri as string)) {
+        return;
       } else {
         showErrorToast({ errors: "Failed to get authorization URL" });
         setLoadingKey(null);
@@ -485,7 +497,6 @@ export function BlocksAppLauncher() {
       setLoadingKey(null);
     }
   };
-  if (!isHydrated) return null;
   const favourites = SELISE_APPS.filter((a) => favouriteKeys.has(a.key));
   const moreApps = SELISE_APPS.filter((a) => !favouriteKeys.has(a.key));
   return (

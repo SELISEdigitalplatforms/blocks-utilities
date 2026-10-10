@@ -223,7 +223,7 @@ export const StepEligibility = ({
               placeholder="1"
             />
             <p className="text-xs text-muted-foreground">
-              Cannot exceed the plan's own limit for this entitlement.
+              Cannot exceed the plan&apos;s own limit for this entitlement.
             </p>
           </div>
         </div>
