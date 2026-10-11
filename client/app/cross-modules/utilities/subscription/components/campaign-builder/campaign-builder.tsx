@@ -1,17 +1,16 @@
-import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { toast } from "@/hooks/use-toast";
 import StepperProviderComponent, { useStepper } from "@/components/stepper/stepper-provider";
 import type { Steps } from "@/components/stepper/stepper-models";
 import type { SubscriptionPlan } from "../../models/subscription-plan.model";
+import { useStickyStepper } from "../plan-builder/use-sticky-stepper";
+import { CampaignBuilderActions } from "./campaign-builder-actions";
 import { CampaignBuilderProgress } from "./campaign-builder-progress";
 import {
   EMPTY_DRAFT,
   firstBlockedStep,
   stepProblems,
-  toCreateDiscountRequest,
   withCampaignKind,
   type CampaignDraft,
   type StepId,
@@ -57,6 +56,7 @@ const CampaignBuilderWizard = ({
   editing = false,
 }: CampaignBuilderProps) => {
   const { currentStep, nextStep, previousStep, goToStep } = useStepper();
+  const { stepperRef, isStuck } = useStickyStepper();
   const [draft, setDraft] = useState<CampaignDraft>(initialDraft);
   const step = currentStep as StepId;
   const isLastStep = currentStep === STEPS.length;
@@ -104,9 +104,15 @@ const CampaignBuilderWizard = ({
 
   return (
     <div className="space-y-5">
-      <CampaignBuilderProgress />
+      {/*
+        z-30 keeps the stepper above the form while staying below the z-50 Radix
+        Select/Popover portals, so an open dropdown still layers over it (H5).
+      */}
+      <div ref={stepperRef} className="sticky top-0 z-30">
+        <CampaignBuilderProgress isStuck={isStuck} />
+      </div>
 
-      <Card className="space-y-5 rounded-2xl p-5 sm:p-7">
+      <Card className="space-y-5 overflow-visible rounded-2xl p-5 sm:p-7">
         {step === 1 && <StepIdentity draft={draft} onChange={update} codeReadOnly={editing} />}
         {step === 2 && <StepBenefit draft={draft} onChange={update} />}
         {step === 3 && <StepEligibility draft={draft} plans={plans} onChange={update} />}
@@ -129,29 +135,17 @@ const CampaignBuilderWizard = ({
           </div>
         )}
 
-        <div className="flex justify-between border-t pt-5">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={currentStep === 1 ? onCancel : previousStep}
-            disabled={isSubmitting}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            {currentStep === 1 ? "Cancel" : "Back"}
-          </Button>
-
-          {isLastStep ? (
-            <Button type="button" onClick={submit} disabled={isSubmitting}>
-              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-              {isSubmitting ? "Creating…" : "Create discount"}
-            </Button>
-          ) : (
-            <Button type="button" onClick={nextStep} disabled={!canAdvance}>
-              Next
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          )}
-        </div>
+        <CampaignBuilderActions
+          isFirstStep={currentStep === 1}
+          isLastStep={isLastStep}
+          isSubmitting={isSubmitting}
+          canAdvance={canAdvance}
+          editing={editing}
+          onCancel={onCancel}
+          onBack={previousStep}
+          onNext={nextStep}
+          onSubmit={submit}
+        />
       </Card>
     </div>
   );
