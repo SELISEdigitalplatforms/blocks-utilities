@@ -50,8 +50,17 @@ public sealed class RecurringPaymentInitiationServiceTests
             .Callback(new TryCreateCallback((string _, string _, out string reference) => reference = "provider-ref"))
             .Returns(true);
         _gatewayResolver.Setup(r => r.Resolve("provider")).Returns(_gateway.Object);
+        _requestFactory.Setup(f => f.Create(
+                It.IsAny<PaymentDetail>(), It.IsAny<PaymentProvider>(), It.IsAny<StoredPaymentMethod>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>()))
+            .Returns(new StoredPaymentChargeRequest
+            {
+                CaptureMode = PaymentCaptureModes.AutomaticImmediate,
+                CaptureDelayHours = 0
+            });
         _payments.Setup(p => p.SaveProviderRoutingAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
     }
 
@@ -130,7 +139,8 @@ public sealed class RecurringPaymentInitiationServiceTests
     public async Task InitiateAsync_SaveRoutingFails_ReturnsConflict()
     {
         _payments.Setup(p => p.SaveProviderRoutingAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         var result = await InitiateAsync(Payment());
@@ -154,6 +164,29 @@ public sealed class RecurringPaymentInitiationServiceTests
         payment.PaymentStatus.Should().Be(PaymentStatuses.Processing);
         payment.PspReference.Should().Be("psp-1");
         _workDispatcher.Verify(d => d.TryDispatchAsync("tenant", false, null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task InitiateAsync_records_the_capture_mode_before_the_charge_is_sent()
+    {
+        var payment = Payment();
+        var routingSavedBeforeCharge = false;
+        _payments.Setup(p => p.SaveProviderRoutingAsync(
+                "tenant", payment.ItemId, "lease", "provider-ref", It.IsAny<string>(),
+                PaymentCaptureModes.AutomaticImmediate, 0, It.IsAny<CancellationToken>()))
+            .Callback(() => routingSavedBeforeCharge = true)
+            .ReturnsAsync(true);
+        _gateway.Setup(g => g.ChargeAsync(It.IsAny<PaymentProvider>(), It.IsAny<StoredPaymentChargeRequest>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback(() => routingSavedBeforeCharge.Should().BeTrue(
+                because: "Adyen can deliver the authorisation webhook before the charge call " +
+                         "returns, and a payment with no capture mode then stays AUTHORIZED"))
+            .ReturnsAsync(new StoredPaymentChargeProviderResult(StoredPaymentChargeOutcome.Rejected));
+
+        await InitiateAsync(payment);
+
+        _payments.Verify(p => p.SaveProviderRoutingAsync(
+            "tenant", payment.ItemId, "lease", "provider-ref", It.IsAny<string>(),
+            PaymentCaptureModes.AutomaticImmediate, 0, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

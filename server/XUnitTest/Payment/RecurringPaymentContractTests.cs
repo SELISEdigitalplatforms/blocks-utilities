@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using FluentValidation.TestHelper;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Models.StoredPayment;
 using Payment.DomainService.Providers;
@@ -139,6 +140,92 @@ public sealed class RecurringPaymentContractTests
                 because: "an account without stores must keep sending the body it always has; " +
                          "a blank store is an unknown store to Adyen");
     }
+
+    [Fact]
+    public void Adyen_immediate_capture_is_sent_and_recorded_so_the_authorisation_settles_the_charge()
+    {
+        var request = CreateRequest(new PaymentProvider
+        {
+            ProviderName = PaymentConstants.AdyenOnlineProvider,
+            MerchantId = "merchant",
+            CaptureDelayHours = 0
+        });
+
+        request.CaptureMode.Should().Be(
+            PaymentCaptureModes.AutomaticImmediate,
+            because: "Adyen sends no CAPTURE webhook on immediate capture, so without this mode a " +
+                     "plan upgrade or renewal stays AUTHORIZED and its invoice is never issued");
+        var body = JsonDocument.Parse(JsonSerializer.Serialize(request)).RootElement;
+        body.GetProperty("captureDelayHours").GetInt32().Should().Be(
+            0,
+            because: "the charge must be captured the way it is recorded, not by the account default");
+        body.TryGetProperty("additionalData", out _).Should().BeFalse(
+            because: "Adyen refuses a request carrying captureDelayHours and manualCapture together");
+        body.TryGetProperty("captureMode", out _).Should().BeFalse(
+            because: "the capture mode is our bookkeeping, not part of Adyen's request");
+    }
+
+    [Fact]
+    public void Adyen_manual_capture_is_sent_as_manual_and_recorded_as_manual()
+    {
+        var request = CreateRequest(new PaymentProvider
+        {
+            ProviderName = PaymentConstants.AdyenOnlineProvider,
+            MerchantId = "merchant",
+            ManualCapture = true,
+            CaptureDelayHours = 0
+        });
+
+        request.CaptureMode.Should().Be(PaymentCaptureModes.Manual);
+        var body = JsonDocument.Parse(JsonSerializer.Serialize(request)).RootElement;
+        body.GetProperty("additionalData").GetProperty("manualCapture").GetBoolean().Should().BeTrue(
+            because: "a charge recorded as awaiting manual capture must not be captured by Adyen on its own");
+        body.TryGetProperty("captureDelayHours", out _).Should().BeFalse(
+            because: "Adyen refuses a request carrying captureDelayHours and manualCapture together");
+    }
+
+    [Fact]
+    public void Adyen_without_a_configured_delay_keeps_the_account_default_and_the_request_body_unchanged()
+    {
+        var request = CreateRequest(new PaymentProvider
+        {
+            ProviderName = PaymentConstants.AdyenOnlineProvider,
+            MerchantId = "merchant"
+        });
+
+        request.CaptureMode.Should().Be(PaymentCaptureModes.AccountDefault);
+        var body = JsonDocument.Parse(JsonSerializer.Serialize(request)).RootElement;
+        body.TryGetProperty("captureDelayHours", out _).Should().BeFalse(
+            because: "a provider that never configured capture must keep sending the body it always has");
+        body.TryGetProperty("additionalData", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Stripe_off_session_charges_are_recorded_as_captured_immediately()
+    {
+        var request = CreateRequest(new PaymentProvider
+        {
+            ProviderName = PaymentConstants.StripeProvider,
+            MerchantId = "merchant",
+            ManualCapture = true
+        });
+
+        request.CaptureMode.Should().Be(
+            PaymentCaptureModes.AutomaticImmediate,
+            because: "the Stripe stored charge confirms without capture_method, which Stripe " +
+                     "captures automatically whatever the provider is configured to do");
+        request.CaptureDelayHours.Should().BeNull();
+        request.AdditionalData.Should().BeNull();
+    }
+
+    private static StoredPaymentChargeRequest CreateRequest(PaymentProvider provider) =>
+        new StoredPaymentChargeRequestFactory().Create(
+            new PaymentDetail { CurrencyCode = "USD", TenantId = "tenant-1" },
+            provider,
+            new StoredPaymentMethod(),
+            "provider-reference",
+            "provider-token",
+            97020);
 
     [Fact]
     public async Task Provider_gateway_uses_payments_endpoint_and_idempotency()

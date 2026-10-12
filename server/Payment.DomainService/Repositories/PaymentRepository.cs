@@ -362,6 +362,8 @@ public sealed class PaymentRepository : IPaymentRepository
         string leaseId,
         string providerReference,
         string merchantAccount,
+        string captureMode,
+        int? captureDelayHours,
         CancellationToken cancellationToken)
     {
         var filter = Builders<PaymentDetail>.Filter.And(
@@ -384,6 +386,12 @@ public sealed class PaymentRepository : IPaymentRepository
             .Set(
                 payment => payment.ProviderMerchantAccount,
                 merchantAccount)
+            .Set(
+                payment => payment.CaptureMode,
+                captureMode)
+            .Set(
+                payment => payment.CaptureDelayHours,
+                captureDelayHours)
             .Set(
                 payment => payment.LastUpdatedDateUtc,
                 DateTime.UtcNow);

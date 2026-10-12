@@ -326,7 +326,8 @@ public sealed class SubscriptionPaymentProviderReadinessServiceTests
 
         public Task<bool> SaveProviderRoutingAsync(
             string tenantId, string paymentId, string leaseId, string providerReference,
-            string merchantAccount, CancellationToken cancellationToken) =>
+            string merchantAccount, string captureMode, int? captureDelayHours,
+            CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<bool> SaveCheckoutObservationAsync(
