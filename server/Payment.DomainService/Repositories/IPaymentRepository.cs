@@ -138,6 +138,8 @@ public interface IPaymentRepository
         string leaseId,
         string providerReference,
         string merchantAccount,
+        string captureMode,
+        int? captureDelayHours,
         CancellationToken cancellationToken);
     Task<bool> SaveCheckoutObservationAsync(
         string tenantId,

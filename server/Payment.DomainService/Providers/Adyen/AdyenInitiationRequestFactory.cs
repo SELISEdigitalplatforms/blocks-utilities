@@ -133,7 +133,7 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
     /// delay meaning "whatever the merchant account defaults to". Translate that into the
     /// capture mode the rest of the system reasons about.
     /// </summary>
-    private static string ResolveCaptureMode(PaymentProvider provider) =>
+    internal static string ResolveCaptureMode(PaymentProvider provider) =>
         provider.ManualCapture
             ? PaymentCaptureModes.Manual
             : provider.CaptureDelayHours switch
