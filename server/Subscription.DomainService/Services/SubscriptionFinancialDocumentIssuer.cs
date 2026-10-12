@@ -2129,9 +2129,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         FinancialDocumentType documentType,
         string? refundId)
     {
-        if (captured is { Name.Length: > 0 })
+        if (NameOf(captured?.Name, captured?.UserId) is not null)
         {
-            return captured;
+            return captured!;
         }
 
         var actingUserId = captured?.UserId is { Length: > 0 } capturedId ? capturedId : userId;
@@ -2150,10 +2150,21 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         return new FinancialDocumentPerson
         {
             UserId = actingUserId,
-            Name = contact?.Name is { Length: > 0 } name ? name : actingUserId,
-            Email = contact?.Email
+            Name = NameOf(contact?.Name, actingUserId)
+                ?? NameOf(contact?.Email, actingUserId)
+                ?? NameOf(captured?.Email, actingUserId)
+                ?? actingUserId,
+            Email = contact?.Email is { Length: > 0 } email ? email : captured?.Email
         };
     }
+
+    /// <summary>
+    /// A name worth printing, or null. A name equal to the user id is not one: capture used to store the
+    /// id as the name when the token carried none, and those contacts are still in the profile, so the
+    /// fallbacks have to see past them rather than print an identifier a reader cannot recognise.
+    /// </summary>
+    private static string? NameOf(string? value, string? userId) =>
+        value is { Length: > 0 } && !string.Equals(value, userId, StringComparison.Ordinal) ? value : null;
 
     private static string SystemLabelFor(FinancialDocumentType documentType, string? refundId)
     {
