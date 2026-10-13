@@ -175,7 +175,7 @@ public static class SubscriptionDocumentSourceFactory
             ? new FinancialDocumentPerson
             {
                 UserId = userId,
-                Name = name ?? userId ?? string.Empty,
+                Name = name is { Length: > 0 } ? name : email is { Length: > 0 } ? email : userId ?? string.Empty,
                 Email = email
             }
             : null;

@@ -361,6 +361,29 @@ public sealed class SubscriptionBillingProfileTests
     }
 
     [Fact]
+    public async Task An_initiator_with_no_name_is_recorded_by_their_email()
+    {
+        Existing();
+
+        BillingContact? recorded = null;
+        _profiles
+            .Setup(profiles => profiles.RecordContactAsync(
+                TenantId,
+                OrganizationId,
+                It.IsAny<BillingContact>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, BillingContact contact, CancellationToken _) =>
+                recorded = contact)
+            .Returns(Task.CompletedTask);
+
+        await Guard().RememberInitiatorAsync(
+            TenantId, OrganizationId, "user-8", null, "linus@northwind.example", CancellationToken.None);
+
+        recorded!.Name.Should().Be("linus@northwind.example",
+            because: "an email is recognisable on an invoice where a user id is not");
+    }
+
+    [Fact]
     public async Task An_initiator_with_no_name_is_recorded_by_their_identifier()
     {
         Existing();
