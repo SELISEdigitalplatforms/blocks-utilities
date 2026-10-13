@@ -233,7 +233,9 @@ public static class FinancialDocumentHtmlTemplate
             AppendMetaRow(html, "VAT No.", merchantTaxId, strong: true);
         }
 
-        AppendMetaRow(html, "Subscription", document.SubscriptionId);
+        // The plan the subscriber bought is what they recognise; the id is for support, who search
+        // by document number anyway. The id stays as the fallback for a document with no plan name.
+        AppendMetaRow(html, "Subscription", Fallback(document.Subject.PlanName, document.SubscriptionId));
 
         var period = document.Period;
         if (period.StartUtc != default || period.EndUtc != default)
