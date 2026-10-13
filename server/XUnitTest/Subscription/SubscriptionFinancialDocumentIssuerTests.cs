@@ -1309,6 +1309,34 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task A_contact_recorded_with_its_id_for_a_name_is_named_by_its_email_instead()
+    {
+        Subscribed();
+        SettledRenewal(payment => payment.UserId = "user-8");
+
+        // What capture used to store for a token that carried no name: the user id as the name.
+        _profiles
+            .Setup(profiles => profiles.GetAsync(TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionBillingProfile
+            {
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                LegalName = "Northwind Trading AG",
+                Contacts =
+                [
+                    new BillingContact { UserId = "user-8", Name = "user-8", Email = "linus@northwind.example" }
+                ]
+            });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.InitiatedBy.Name.Should().Be("linus@northwind.example",
+            because: "an invoice that says it was initiated by a GUID names nobody the reader can recognise");
+        document.InitiatedBy.UserId.Should().Be("user-8");
+    }
+
+    [Fact]
     public async Task A_refund_credit_note_says_it_was_the_system_refunding_not_the_system_renewing()
     {
         Subscribed();
