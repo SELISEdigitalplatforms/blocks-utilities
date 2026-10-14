@@ -237,16 +237,16 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             },
             cancellationToken);
 
-    public async Task<bool> TryRetainThresholdsAsync(
+    public async Task<bool> TryClearThresholdsAsync(
         string tenantId,
         string counterId,
-        IReadOnlyList<int> retainedThresholds,
+        IReadOnlyList<int> clearedThresholds,
         CancellationToken cancellationToken)
     {
         var result = await Counters(tenantId).UpdateOneAsync(
             Builders<SubscriptionUsageCounter>.Filter.Eq(counter => counter.ItemId, counterId),
             Builders<SubscriptionUsageCounter>.Update
-                .Set(counter => counter.NotifiedThresholds, retainedThresholds.ToList())
+                .PullAll(counter => counter.NotifiedThresholds, clearedThresholds)
                 .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
 

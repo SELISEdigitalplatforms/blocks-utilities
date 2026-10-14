@@ -864,6 +864,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         // Taken in the order they would be spent, so a move hands over the credits that would have
         // lapsed first and leaves the giver the longest-lasting ones. Each piece keeps its own grant's
         // expiry: moving credits must never extend or shorten them.
+        //
+        // From the first debit on, the move is finished or undone whatever the caller does, so no
+        // write below listens for the caller's cancellation: a disconnect between a debit and its
+        // insert would otherwise delete the credits. ponytail: a process killed in that same gap
+        // still loses the piece; a move record swept like purchases closes it if that ever matters.
+        var write = CancellationToken.None;
         var taken = new List<(SubscriptionCreditGrant After, decimal Amount)>();
         var left = request.Quantity;
 
@@ -876,15 +882,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
 
             var amount = Math.Min(grant.Remaining, left);
 
-            if (await _grants.TryConsumeAsync(subscription.TenantId, grant.ItemId, amount, now, cancellationToken)
+            if (await _grants.TryConsumeAsync(subscription.TenantId, grant.ItemId, amount, now, write)
                 is not { } after)
             {
                 // Spent or closed since it was listed. Put back what this move already took so a
                 // refused move changes nothing, and let the caller try again with fresh figures.
-                foreach (var (restored, restoredAmount) in taken)
-                {
-                    await _grants.RestoreAsync(subscription.TenantId, restored.ItemId, restoredAmount, now, cancellationToken);
-                }
+                await RestoreTakenAsync(subscription.TenantId, taken, now);
 
                 return Failure<CreditMoveResponse>(
                     PaymentFailureKind.Conflict,
@@ -899,44 +902,37 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
 
         var created = new List<SubscriptionCreditGrant>(taken.Count);
 
-        foreach (var (source, amount) in taken)
+        try
         {
-            var moved = new SubscriptionCreditGrant
+            foreach (var (source, amount) in taken)
             {
-                TenantId = subscription.TenantId,
-                OrganizationId = subscription.OrganizationId,
-                SubscriptionId = subscription.ItemId,
-                MeterKey = meter.MeterKey,
-                SeatNumber = request.ToSeatNumber,
-                Source = CreditGrantSource.Moved,
-                Quantity = amount,
-                Remaining = amount,
-                ExpiryPolicy = source.ExpiryPolicy,
-                ExpiresAtUtc = source.ExpiresAtUtc,
-                GrantedAtUtc = now,
-                GrantedByUserId = context.UserId ?? string.Empty,
-                SourceGrantId = source.ItemId,
-                PlanVersionAtGrant = source.PlanVersionAtGrant,
-                LastUpdatedAtUtc = now
-            };
+                created.Add(await InsertMovedAsync(subscription, meter, request, context, source, amount, now, write));
+            }
+        }
+        catch
+        {
+            // What arrived stays moved; every piece that did not goes back to its grant. No credit
+            // is lost and none is counted twice, whichever insert failed.
+            await RestoreTakenAsync(subscription.TenantId, taken.Skip(created.Count), now);
+            throw;
+        }
 
-            await _grants.TryInsertAsync(moved, cancellationToken);
-            created.Add(moved);
-
+        foreach (var (moved, (source, _)) in created.Zip(taken))
+        {
             await _ledger.PublishAsync(subscription, SubscriptionConstants.SubscriptionCreditsMoved, moved,
-                correlationId, cancellationToken, request.FromSeatNumber);
+                correlationId, write, request.FromSeatNumber);
 
             if (source.Status == CreditGrantStatus.Exhausted)
             {
                 await _ledger.PublishAsync(subscription, SubscriptionConstants.SubscriptionCreditsExhausted, source,
-                    correlationId, cancellationToken);
+                    correlationId, write);
             }
         }
 
-        await _ledger.RearmThresholdsAsync(subscription, meter, request.ToSeatNumber, now, cancellationToken);
+        await _ledger.RearmThresholdsAsync(subscription, meter, request.ToSeatNumber, now, write);
 
         await AuditAsync(context, subscription, MoveOperation, "StateApplied", "Succeeded",
-            string.Join(',', created.Select(grant => grant.ItemId)), null, null, correlationId, cancellationToken);
+            string.Join(',', created.Select(grant => grant.ItemId)), null, null, correlationId, write);
 
         return SubscriptionOperationResult<CreditMoveResponse>.Success(
             new CreditMoveResponse
@@ -945,6 +941,56 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 To = [.. created.Select(GrantResponse)]
             },
             correlationId);
+    }
+
+    /// <summary>One moved piece, carrying its source grant's expiry. Throws if it cannot be stored.</summary>
+    private async Task<SubscriptionCreditGrant> InsertMovedAsync(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        MoveCreditsRequest request,
+        SubscriptionContext context,
+        SubscriptionCreditGrant source,
+        decimal amount,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var moved = new SubscriptionCreditGrant
+        {
+            TenantId = subscription.TenantId,
+            OrganizationId = subscription.OrganizationId,
+            SubscriptionId = subscription.ItemId,
+            MeterKey = meter.MeterKey,
+            SeatNumber = request.ToSeatNumber,
+            Source = CreditGrantSource.Moved,
+            Quantity = amount,
+            Remaining = amount,
+            ExpiryPolicy = source.ExpiryPolicy,
+            ExpiresAtUtc = source.ExpiresAtUtc,
+            GrantedAtUtc = now,
+            GrantedByUserId = context.UserId ?? string.Empty,
+            SourceGrantId = source.ItemId,
+            PlanVersionAtGrant = source.PlanVersionAtGrant,
+            LastUpdatedAtUtc = now
+        };
+
+        // A fresh id, so a false here is a store that refused the write, not an earlier copy.
+        if (!await _grants.TryInsertAsync(moved, cancellationToken))
+        {
+            throw new InvalidOperationException("A moved credit grant could not be stored.");
+        }
+
+        return moved;
+    }
+
+    private async Task RestoreTakenAsync(
+        string tenantId,
+        IEnumerable<(SubscriptionCreditGrant After, decimal Amount)> taken,
+        DateTime now)
+    {
+        foreach (var (grant, amount) in taken)
+        {
+            await _grants.RestoreAsync(tenantId, grant.ItemId, amount, now, CancellationToken.None);
+        }
     }
 
     // ---- lists ----------------------------------------------------------------------------

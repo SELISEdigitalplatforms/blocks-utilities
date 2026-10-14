@@ -64,13 +64,17 @@ public interface ISubscriptionUsageRepository
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Replaces the thresholds recorded as already reported, so ones a credit purchase has put
-    /// back out of reach can be reported again when crossed.
+    /// Forgets that these thresholds were reported, so ones a credit purchase has put back out of
+    /// reach can be reported again when crossed.
     /// </summary>
-    Task<bool> TryRetainThresholdsAsync(
+    /// <remarks>
+    /// Removes only the named thresholds rather than writing the list back, so a threshold a
+    /// concurrent recording marks in between is kept and is not reported a second time.
+    /// </remarks>
+    Task<bool> TryClearThresholdsAsync(
         string tenantId,
         string counterId,
-        IReadOnlyList<int> retainedThresholds,
+        IReadOnlyList<int> clearedThresholds,
         CancellationToken cancellationToken);
 
     Task<SubscriptionUsageCounter?> GetCounterAsync(

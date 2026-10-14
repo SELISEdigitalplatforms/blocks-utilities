@@ -453,6 +453,44 @@ public sealed class SubscriptionCreditServiceTests
     }
 
     [Fact]
+    public async Task A_move_whose_new_grant_cannot_be_stored_gives_the_credits_back()
+    {
+        Seated(seats: 3);
+        _grants.All.Add(LiveGrant("g1", seat: 1, remaining: 30));
+        _grants.InsertFailure = new TimeoutException("store unavailable");
+
+        var act = () => Service().MoveAsync(
+            SubscriptionId,
+            new MoveCreditsRequest { MeterKey = "ai-credit", Quantity = 10, FromSeatNumber = 1, ToSeatNumber = 2 },
+            "corr-1",
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<TimeoutException>();
+        _grants.All.Should().ContainSingle("nothing arrived at the other seat");
+        _grants.All.Single().Remaining.Should().Be(30, "credits taken for a move that failed must not simply vanish");
+    }
+
+    [Fact]
+    public async Task A_caller_that_goes_away_mid_move_does_not_delete_the_credits()
+    {
+        Seated(seats: 3);
+        _grants.All.Add(LiveGrant("g1", seat: 1, remaining: 30));
+        using var gone = new CancellationTokenSource();
+        // The caller goes away the moment the first credit has been taken.
+        _grants.AfterConsume = gone.Cancel;
+
+        await Service().MoveAsync(
+            SubscriptionId,
+            new MoveCreditsRequest { MeterKey = "ai-credit", Quantity = 10, FromSeatNumber = 1, ToSeatNumber = 2 },
+            "corr-1",
+            gone.Token);
+
+        _grants.All.Sum(grant => grant.Remaining).Should().Be(30,
+            "once the first credit is taken, the move finishes; a disconnect must not leave it half done");
+        _grants.All.Should().Contain(grant => grant.SeatNumber == 2 && grant.Remaining == 10);
+    }
+
+    [Fact]
     public async Task Moving_more_than_a_seat_holds_changes_nothing()
     {
         Seated(seats: 3);

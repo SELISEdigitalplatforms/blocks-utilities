@@ -15,8 +15,23 @@ internal sealed class InMemoryCreditGrants : ISubscriptionCreditGrantRepository
     /// <summary>How often a caller asked for live grants, so a test can prove it never did.</summary>
     public int LiveReads { get; private set; }
 
+    /// <summary>Runs after every successful take, so a test can act at exactly that moment.</summary>
+    public Action? AfterConsume { get; set; }
+
+    /// <summary>Thrown by the next insert, as a store that is down would.</summary>
+    public Exception? InsertFailure { get; set; }
+
     public Task<bool> TryInsertAsync(SubscriptionCreditGrant grant, CancellationToken cancellationToken)
     {
+        // As the driver does: a write asked for under a cancelled token never happens.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (InsertFailure is { } failure)
+        {
+            InsertFailure = null;
+            throw failure;
+        }
+
         if (All.Exists(existing => existing.ItemId == grant.ItemId))
         {
             return Task.FromResult(false);
@@ -64,6 +79,7 @@ internal sealed class InMemoryCreditGrants : ISubscriptionCreditGrantRepository
             grant.Status = CreditGrantStatus.Exhausted;
         }
 
+        AfterConsume?.Invoke();
         return Task.FromResult<SubscriptionCreditGrant?>(grant);
     }
 

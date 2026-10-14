@@ -45,7 +45,7 @@ public sealed class CreditConsumptionTests
 
     private readonly SubscriptionDetail _subscription = Subscription();
     private SubscriptionUsageCounter? _counter;
-    private IReadOnlyList<int>? _retained;
+    private IReadOnlyList<int>? _cleared;
 
     public CreditConsumptionTests()
     {
@@ -94,9 +94,9 @@ public sealed class CreditConsumptionTests
             .Setup(repository => repository.GetCounterAsync(TenantId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => _counter);
         _usage
-            .Setup(repository => repository.TryRetainThresholdsAsync(
+            .Setup(repository => repository.TryClearThresholdsAsync(
                 TenantId, It.IsAny<string>(), It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, IReadOnlyList<int>, CancellationToken>((_, _, retained, _) => _retained = retained)
+            .Callback<string, string, IReadOnlyList<int>, CancellationToken>((_, _, cleared, _) => _cleared = cleared)
             .ReturnsAsync(true);
 
         _projection
@@ -208,12 +208,12 @@ public sealed class CreditConsumptionTests
         _usage
             .Setup(repository => repository.ApplyDeltaAsync(
                 It.IsAny<SubscriptionUsageCounter>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
-            .Returns<SubscriptionUsageCounter, decimal, CancellationToken>((seed, delta, _) =>
+            .Returns<SubscriptionUsageCounter, decimal, CancellationToken>(async (seed, delta, _) =>
             {
                 _counter ??= seed;
                 _counter.Balance += delta;
-                cancellation.Cancel();
-                return Task.FromResult(_counter);
+                await cancellation.CancelAsync();
+                return _counter;
             });
         _usage
             .Setup(repository => repository.AddPurchasedConsumedAsync(
@@ -237,6 +237,43 @@ public sealed class CreditConsumptionTests
         var spent = 10 - _grants.All.Single().Remaining;
         _counter!.PurchasedConsumed.Should().BeGreaterThanOrEqualTo(spent,
             "credits spent without the counter knowing are billed again as overage at period close");
+    }
+
+    [Fact]
+    public async Task A_refusal_is_fully_undone_even_when_the_caller_goes_away_mid_way()
+    {
+        _subscription.Plan.Meters[0].OverageAllowed = false;
+        Opened(balance: 100);
+        using var gone = new CancellationTokenSource();
+        var reversals = 0;
+
+        // The caller goes away the moment the use is counted; every write after that which still
+        // listens to it fails, as a real driver call would.
+        _usage
+            .Setup(repository => repository.ApplyDeltaAsync(
+                It.IsAny<SubscriptionUsageCounter>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .Returns<SubscriptionUsageCounter, decimal, CancellationToken>(async (seed, delta, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                _counter ??= seed;
+                _counter.Balance += delta;
+                await gone.CancelAsync();
+                return _counter;
+            });
+        _usage
+            .Setup(repository => repository.TryAppendRecordAsync(It.IsAny<SubscriptionUsageRecord>(), It.IsAny<CancellationToken>()))
+            .Returns<SubscriptionUsageRecord, CancellationToken>((record, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                reversals += record.EntryType == UsageEntryType.Reversal ? 1 : 0;
+                return Task.FromResult(true);
+            });
+
+        var result = await Service().RecordAsync(Record(5), "corr-1", gone.Token);
+
+        result.Value!.Allowed.Should().BeFalse();
+        _counter!.Balance.Should().Be(100, "a refused use left counted is billed though nobody was allowed to make it");
+        reversals.Should().Be(1, "the ledger has to show the refusal, or rating from it would bill the use");
     }
 
     [Fact]
@@ -336,7 +373,7 @@ public sealed class CreditConsumptionTests
         await Ledger().RearmThresholdsAsync(
             _subscription, _subscription.Plan.Meters[0], null, Now.UtcDateTime, CancellationToken.None);
 
-        _retained.Should().BeEmpty("85 of 200 is under 80%, so the alert must be able to fire again at 160 (AC-24)");
+        _cleared.Should().Equal([80], "85 of 200 is under 80%, so the alert must be able to fire again at 160 (AC-24)");
     }
 
     [Fact]

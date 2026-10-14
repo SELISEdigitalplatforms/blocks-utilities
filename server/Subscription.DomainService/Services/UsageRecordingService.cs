@@ -965,10 +965,16 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     cancellationToken);
             }
 
+            // The record is written, so this use now has to be settled one way or the other: the
+            // counter moved, credits drawn, or a refusal reversed. None of that listens for the
+            // caller going away. A refusal whose reversal stopped halfway would leave a use
+            // nobody was allowed to make counted and billed.
+            var write = CancellationToken.None;
+
             var counter = await _usage.ApplyDeltaAsync(
                 SeedFor(context, subscription, seat, meter, period, opening),
                 request.Quantity,
-                cancellationToken);
+                write);
 
             // The window's own snapshot, not the figure just computed: it was frozen when the
             // window opened, so a carried-forward allowance cannot shift mid-window because the
@@ -981,7 +987,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             // authority, and two recordings at the boundary each draw only their own share of the
             // excess. A recording inside the allowance never reads a grant at all.
             var (drawnCounter, draw) = await DrawCreditsAsync(
-                subscription, meter, seat, counter, allowance, request.Quantity, cancellationToken);
+                subscription, meter, seat, counter, allowance, request.Quantity, write);
 
             // Judged on this call's own increment plus what it drew, never on the counter read back
             // after the draw: that read can already hold a concurrent recording's increment without
@@ -1002,14 +1008,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     period,
                     allowance,
                     correlationId,
-                    cancellationToken);
+                    write);
             }
 
             if (request.Enforce && !withinAllowance && !meter.OverageAllowed)
             {
                 // Refused whole, so whatever credits it drew go back first. Partly paid for is
                 // still not allowed, and a refused call must change nothing.
-                counter = await ReturnCreditsAsync(subscription, counter, draw, cancellationToken);
+                counter = await ReturnCreditsAsync(subscription, counter, draw, write);
                 allowance = MeterAllowance.Effective(counter, opening);
 
                 return await RefuseAsync(
@@ -1021,7 +1027,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     period,
                     allowance,
                     correlationId,
-                    cancellationToken);
+                    write);
             }
 
             // Every pace, checked after the amount. A use the period already refused never
@@ -1036,7 +1042,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             {
                 var pace = await ApplyPaceAsync(
                     context, subscription, seat, meter, limit, occurredAt, request.Quantity,
-                    cancellationToken);
+                    write);
 
                 paces.Add((limit, pace.Balance));
 
@@ -1056,10 +1062,10 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 {
                     await ReversePaceAsync(
                         context, subscription, seat, meter, limit, occurredAt, request.Quantity,
-                        cancellationToken);
+                        write);
                 }
 
-                counter = await ReturnCreditsAsync(subscription, counter, draw, cancellationToken);
+                counter = await ReturnCreditsAsync(subscription, counter, draw, write);
                 allowance = MeterAllowance.Effective(counter, opening);
 
                 return await RefuseAsync(
@@ -1071,26 +1077,26 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     period,
                     allowance,
                     correlationId,
-                    cancellationToken,
+                    write,
                     exceeded,
                     // What the windows hold once this refused use is put back.
                     [.. paces.Select(pace => PaceStateOf(
                         pace.Limit, pace.Used - request.Quantity, occurredAt))]);
             }
 
-            var liveCredits = await LiveCreditsAsync(subscription, meter, seat, cancellationToken);
+            var liveCredits = await LiveCreditsAsync(subscription, meter, seat, write);
 
             await _thresholds.EvaluateAsync(
                 subscription,
                 counter,
                 correlationId,
-                cancellationToken,
+                write,
                 liveCredits ?? 0);
 
             if (draw is not null && _credits is not null)
             {
                 await _credits.AnnounceExhaustedAsync(
-                    subscription, draw, _time.GetUtcNow().UtcDateTime, correlationId, cancellationToken);
+                    subscription, draw, _time.GetUtcNow().UtcDateTime, correlationId, write);
             }
 
             // Published from the final counter state, synchronously, before this call reports
@@ -1104,7 +1110,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 counter,
                 allowance,
                 correlationId,
-                cancellationToken,
+                write,
                 holderUserId: context.UserId,
                 subLimits: paces.Count == 0
                     ? null
@@ -1121,7 +1127,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 request.Quantity,
                 allowance,
                 correlationId,
-                cancellationToken);
+                write);
 
             _logger.LogInformation(
                 "Usage recorded TenantId={TenantId} OrganizationHash={OrganizationHash} " +
@@ -1168,7 +1174,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     subscription.ItemId,
                     period.Key,
                     request.IdempotencyKey,
-                    cancellationToken);
+                    // Always released, or rating waits on a claim nobody is holding any more.
+                    CancellationToken.None);
             }
         }
     }
