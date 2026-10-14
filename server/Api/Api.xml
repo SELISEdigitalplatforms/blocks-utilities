@@ -751,6 +751,73 @@
             them one at a time invites a new street beside an old city on the next document issued.
             </remarks>
         </member>
+        <member name="T:Api.Controllers.SubscriptionCreditsController">
+            <summary>
+            Buying, granting, moving and listing a subscription's meter credits. See spec 002.
+            </summary>
+            <remarks>
+            Its own controller under the subscription's route rather than more actions on
+            <see cref="T:Api.Controllers.SubscriptionsController"/>, which is already the widest controller here and whose
+            every dependency each of these would otherwise be constructed with.
+            <para>
+            Every action, reads and previews included, requires <c>subscription::manage</c>. Buying spends
+            the organization's money and granting gives credits away for free, so for now the same people
+            who can change the plan are the only ones who can do either; a narrower permission for free
+            grants is a recorded deferred decision in the spec, not an oversight.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionCreditsController.#ctor(Subscription.DomainService.Services.ISubscriptionCreditService)">
+            <summary>Takes the credit service, which owns every rule these actions forward to.</summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionCreditsController.Preview(System.String,Subscription.DomainService.Requests.CreditPurchaseRequest,System.Threading.CancellationToken)">
+            <summary>
+            What buying credits would cost, and when they would expire. Changes nothing.
+            </summary>
+            <remarks>
+            Checks everything the purchase does, in the same order, so a quote that comes back is a
+            purchase that will go through at that price unless the card declines.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionCreditsController.Purchase(System.String,Subscription.DomainService.Requests.CreditPurchaseRequest,System.Threading.CancellationToken)">
+            <summary>
+            Buys credits: charges the stored card once and grants them.
+            </summary>
+            <remarks>
+            <c>idempotencyKey</c> is required. Sending the same key and the same request again returns
+            the first result with <c>replayed</c> set, and never charges a second time; the same key with
+            a different request is refused. A declined card answers 422 and grants nothing.
+            <para>
+            The invoice is issued in the background once the payment settles, and appears in the
+            subscription's invoice list.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionCreditsController.ListGrants(System.String,System.String,System.String,System.Nullable{System.Int32},System.Boolean,System.Nullable{Subscription.DomainService.Enums.CreditGrantStatus},System.Threading.CancellationToken)">
+            <summary>
+            A subscription's credit grants, newest first, with what is left of each.
+            </summary>
+            <remarks>
+            <c>pool=true</c> lists only the shared pool, and is ignored when a seat is named.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionCreditsController.Grant(System.String,Subscription.DomainService.Requests.GrantCreditsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Gives credits without a charge. A reason is required and kept with the grant.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionCreditsController.Move(System.String,Subscription.DomainService.Requests.MoveCreditsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Moves unused credits between the shared pool and a seat, or between two seats.
+            </summary>
+            <remarks>
+            The credits that would lapse soonest are moved first, and each keeps its own expiry. Refused
+            whole when the giving bucket holds fewer unused credits than asked for.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionCreditsController.ListPurchases(System.String,System.String,System.Nullable{Subscription.DomainService.Enums.CreditPurchaseStatus},System.Threading.CancellationToken)">
+            <summary>A subscription's credit purchases, newest first, including failed ones.</summary>
+        </member>
         <member name="T:Api.Controllers.SubscriptionDiscountPreviewController">
             <summary>Buyer-facing, read-only validation and pricing of a discount code.</summary>
         </member>

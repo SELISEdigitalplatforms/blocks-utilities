@@ -17,6 +17,8 @@ public sealed class CreateDiscountRequest : ICampaignDiscountRequest
     public List<string> ApplicablePlanCodes { get; set; } = [];
     /// <summary>Empty is unrestricted by price. Narrows with the plan list, not instead of it.</summary>
     public List<string> ApplicablePriceIds { get; set; } = [];
+    public DiscountScope Scope { get; set; } = DiscountScope.Subscription;
+    public List<string> ApplicableMeterKeys { get; set; } = [];
 
     public CampaignKind CampaignKind { get; set; } = CampaignKind.Standard;
     public CampaignPrecedence? CampaignPrecedence { get; set; }

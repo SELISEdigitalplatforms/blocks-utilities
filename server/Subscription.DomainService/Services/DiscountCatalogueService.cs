@@ -82,6 +82,9 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             CurrencyCode = request.CurrencyCode?.Trim().ToUpperInvariant(),
             ApplicablePlanCodes = request.ApplicablePlanCodes.Distinct(StringComparer.Ordinal).ToList(),
             ApplicablePriceIds = request.ApplicablePriceIds.Distinct(StringComparer.Ordinal).ToList(),
+            Scope = request.Scope,
+            ApplicableMeterKeys =
+                request.ApplicableMeterKeys.Distinct(StringComparer.Ordinal).ToList(),
             Terms = new DiscountTerms
             {
                 Code = request.Code.Trim().ToLowerInvariant(),
@@ -168,6 +171,11 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             request.ApplicablePlanCodes.Distinct(StringComparer.Ordinal).ToList();
         existing.ApplicablePriceIds =
             request.ApplicablePriceIds.Distinct(StringComparer.Ordinal).ToList();
+        // Editable, like every other restriction here. A subscription already holding this code
+        // keeps the terms it copied at redemption, so a later rescope cannot reach into it.
+        existing.Scope = request.Scope;
+        existing.ApplicableMeterKeys =
+            request.ApplicableMeterKeys.Distinct(StringComparer.Ordinal).ToList();
         existing.Terms = new DiscountTerms
         {
             Code = existing.Code,
@@ -238,7 +246,10 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             return new CampaignTerms
             {
                 Precedence = request.CampaignPrecedence ?? CampaignPrecedence.BestDiscount,
-                PrecedenceConfigured = request.CampaignPrecedence.HasValue
+                PrecedenceConfigured = request.CampaignPrecedence.HasValue,
+                // The validator admits this on a standard discount only for a credit-purchase
+                // code, so it is false here for every subscription discount, as it always was.
+                OneUsePerOrganization = request.OneUsePerOrganization
             };
         }
 
@@ -306,7 +317,9 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        if (request.ApplicablePlanCodes.Count == 0 && request.ApplicablePriceIds.Count == 0)
+        if (request.ApplicablePlanCodes.Count == 0 &&
+            request.ApplicablePriceIds.Count == 0 &&
+            request.ApplicableMeterKeys.Count == 0)
         {
             // Unrestricted, which is the ordinary case and has nothing to resolve. A campaign kind
             // that needs at least one price is already refused by the request validator before
@@ -333,6 +346,12 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         if (unknownPlan is not null)
         {
             return Invalid($"No plan with the code '{unknownPlan}' is available here.", correlationId);
+        }
+
+        var meters = CheckMeterKeys(request, plans);
+        if (meters is not null)
+        {
+            return Invalid(meters, correlationId);
         }
 
         foreach (var priceId in request.ApplicablePriceIds)
@@ -386,6 +405,33 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Whether every meter a credit-purchase code names can actually be bought on a plan the code
+    /// applies to.
+    /// </summary>
+    /// <remarks>
+    /// The same reason the plan and price restrictions are checked: a code limited to a meter
+    /// nobody can buy credits for is a code that can never be redeemed, and the refusal at
+    /// purchase time would not tell its author why. Read against the catalogue, so a meter whose
+    /// credits are only for sale on an older snapshot is not counted.
+    /// </remarks>
+    private static string? CheckMeterKeys(ICampaignDiscountRequest request, IReadOnlyList<Plan> plans)
+    {
+        var eligible = request.ApplicablePlanCodes.Count == 0
+            ? plans
+            : [.. plans.Where(plan =>
+                request.ApplicablePlanCodes.Contains(plan.Code, StringComparer.Ordinal))];
+
+        var unknown = request.ApplicableMeterKeys.Find(key => !eligible.Any(plan =>
+            plan.Meters.Exists(meter =>
+                meter.IsPurchasable &&
+                string.Equals(meter.MeterKey, key, StringComparison.Ordinal))));
+
+        return unknown is null
+            ? null
+            : $"No plan this code applies to sells credits for the meter '{unknown}'.";
     }
 
     /// <summary>
@@ -544,6 +590,8 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         StartsAtUtc = item.Terms.StartsAtUtc, ExpiresAtUtc = item.Terms.ExpiresAtUtc,
         ApplicablePlanCodes = [.. item.ApplicablePlanCodes],
         ApplicablePriceIds = [.. item.ApplicablePriceIds],
+        Scope = item.Scope.ToString(),
+        ApplicableMeterKeys = [.. item.ApplicableMeterKeys],
         Status = item.Status.ToString(),
         Version = item.Version,
         CampaignKind = item.Campaign.Kind.ToString(),

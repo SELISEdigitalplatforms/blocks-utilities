@@ -1306,7 +1306,26 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                             })
                             .ToList()
                     })
-                    .ToList()
+                    .ToList(),
+                TopUp = meter.TopUp is { } topUp
+                    ? new MeterTopUpTerms
+                    {
+                        Enabled = topUp.Enabled,
+                        UnitPrices = topUp.UnitPrices
+                            .Select(price => new MeterTopUpPrice
+                            {
+                                CurrencyCode = price.CurrencyCode.Trim().ToUpperInvariant(),
+                                UnitAmountMinor = price.UnitAmountMinor
+                            })
+                            .ToList(),
+                        MinQuantity = topUp.MinQuantity,
+                        MaxQuantity = topUp.MaxQuantity,
+                        ExpiryPolicy = topUp.ExpiryPolicy,
+                        // Zero and absent both mean untaxed, so a mode is only kept beside a rate.
+                        TaxRateBasisPoints = topUp.TaxRateBasisPoints,
+                        TaxMode = topUp.TaxRateBasisPoints > 0 ? topUp.TaxMode : null
+                    }
+                    : null
             })
             .ToList(),
         Entitlements = request.Entitlements

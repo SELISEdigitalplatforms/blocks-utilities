@@ -519,6 +519,7 @@
       <li><a href="#api-merchant" class="sub">Merchant profile</a></li>
       <li><a href="#api-documents" class="sub">Invoices &amp; credit notes</a></li>
       <li><a href="#api-usage" class="sub">Usage</a></li>
+      <li><a href="#api-credits" class="sub">Credits</a></li>
       <li><a href="#api-ent" class="sub">Entitlements</a></li>
       <li><a href="#api-reports" class="sub">Reports</a></li>
       <li><a href="#envelope">Envelope &amp; status codes</a></li>
@@ -4320,6 +4321,163 @@ POST /api/subscriptions
           </p>
           <h4>Returns</h4>
           <p><code>200</code> · <code>400</code> <code>subscription_usage_preview_invalid</code> — missing <code>meterKey</code>, a non-positive <code>additionalQuantity</code>, or a projection outside the range this preview can compute · <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code> · <code>409</code> <code>subscription_meter_overage_not_allowed</code>, <code>subscription_meter_rate_unavailable</code> · <code>503</code> <code>subscription_schedule_unavailable</code>.</p>
+        </div>
+      </div>
+
+      <h3 id="api-credits">Credits</h3>
+      <div class="callout">
+        <strong>Buying more of a meter up front.</strong> A plan author can put a meter&apos;s credits
+        on sale: a price per credit in each currency, the smallest and largest purchase, a tax rate
+        and mode, and when bought credits expire &mdash; <code>Periodic</code> at the end of the
+        usage window they were bought in, <code>CarryForward</code> across renewals until the next
+        plan change, or <code>Never</code>. These are the meter&apos;s <code>topUp</code> terms on the
+        plan, and a subscription reads its own copy back as <code>meters[].creditPurchase</code>,
+        which is present only when the meter&apos;s credits can be bought in the subscription&apos;s
+        currency. Hide the buy action whenever it is absent.
+      </div>
+      <p class="prose">
+        Every credit endpoint, the preview and the lists included, requires
+        <code>blocks-utilities::subscription::manage</code>. Credits cannot be bought, granted or
+        moved during a trial (<code>subscription_credits_trialing</code>), while a cancellation is
+        scheduled (<code>subscription_credits_cancellation_scheduled</code>), or on a subscription
+        that is not active (<code>subscription_credits_not_allowed</code>). On a seated plan, credits
+        belong to the shared pool when <code>seatNumber</code> is left out, or to one seat when it is
+        given; a seat keeps its credits when its holder changes. Credits are never refunded.
+      </p>
+      <p class="prose">
+        <strong>How credits are spent.</strong> A recording uses the plan&apos;s allowance first, then
+        credits, then overage where the meter allows it; a seat spends its own credits before the
+        pool&apos;s. Usage paid for with credits is never billed again as overage, and credits may take
+        usage past a meter that otherwise allows none. An enforced recording that credits cannot fully
+        cover on such a meter is refused whole and spends nothing. A recording&apos;s response carries
+        <code>purchasedConsumed</code> and <code>purchasedRemaining</code>, and usage alerts are measured
+        against the plan&apos;s allowance plus the credits available, so buying credits moves them out.
+      </p>
+      <p class="prose">
+        <strong>When credits end.</strong> <code>Periodic</code> credits end with the usage window they
+        were bought in. <code>CarryForward</code> credits roll across renewals and are forfeited by a
+        plan change. <code>Never</code> credits survive a plan change while the new plan has the same
+        meter. Every grant is forfeited when the subscription is cancelled; an unpaid subscription
+        keeps its credits. Lapsed credits stop being spendable at once and read as
+        <code>Expired</code> or <code>Forfeited</code> in the list straight away.
+      </p>
+
+      <div class="endpoint" id="api-credits-preview">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/credits/preview</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "quantity": 100,
+  "seatNumber": null,
+  "discountCode": "topup20"
+}</code></pre>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "seatNumber": null,
+  "quantity": 100,
+  "currencyCode": "USD",
+  "unitAmountMinor": 10,
+  "grossMinor": 1000,
+  "discountMinor": 200,
+  "netMinor": 800,
+  "taxMinor": 0,
+  "totalMinor": 800,
+  "taxRateBasisPoints": null,
+  "taxMode": null,
+  "discountCode": "topup20",
+  "expiryPolicy": "Periodic",
+  "expiresAtUtc": "2026-11-01T00:00:00Z"
+}</code></pre>
+          <p class="prose">
+            Checks everything the purchase checks and writes nothing. Show <code>expiresAtUtc</code>
+            before the buyer confirms: credits that expire with the window and are bought near its
+            end are usable only until then. Only a code created with scope
+            <code>CreditPurchase</code> applies here, and only a code with scope
+            <code>Subscription</code> applies at signup.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code>, <code>subscription_credits_quantity_out_of_range</code>, <code>subscription_credits_seat_not_applicable</code>, <code>subscription_discount_not_applicable</code>, <code>subscription_discount_expired</code> &middot; <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code>, <code>subscription_credits_seat_not_found</code>, <code>subscription_discount_not_found</code> &middot; <code>409</code> the lifecycle refusals above, <code>subscription_credits_not_for_sale</code>, <code>subscription_credits_currency_not_priced</code>, <code>subscription_credits_no_payment_method</code>, <code>subscription_discount_already_redeemed</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint" id="api-credits-purchase">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/credits</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "quantity": 100,
+  "discountCode": "topup20",
+  "idempotencyKey": "buy-7f3c2a"
+}</code></pre>
+          <p class="prose">
+            Charges the subscription&apos;s saved card once and grants the credits. The response is
+            the purchase (<code>status</code> <code>Finalized</code>) with its <code>quote</code> and
+            the resulting <code>grant</code>. <code>idempotencyKey</code> is required: send the same
+            key and body again after a timeout and the first result comes back with
+            <code>replayed: true</code>, without a second charge. The invoice is issued in the
+            background once the payment settles and appears under
+            <a href="#api-documents">Invoices</a>.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; everything the preview returns &middot; <code>400</code> <code>subscription_credits_idempotency_key_required</code> &middot; <code>409</code> <code>subscription_credits_idempotency_conflict</code> &mdash; the key was used for a different purchase &middot; <code>422</code> the card was declined; nothing was granted &middot; <code>502</code> the provider failed.</p>
+        </div>
+      </div>
+
+      <div class="endpoint" id="api-credits-list">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/{subscriptionId}/credits</span></div>
+        <div class="endpoint-body">
+          <p class="prose">
+            The subscription&apos;s grants, newest first, each with <code>quantity</code>,
+            <code>remaining</code>, <code>expiresAtUtc</code> and a <code>status</code> of
+            <code>Active</code>, <code>Exhausted</code>, <code>Expired</code> or
+            <code>Forfeited</code>. Filter with <code>meterKey</code>, <code>seatNumber</code>,
+            <code>pool=true</code> for the shared pool only, and <code>status</code>.
+            <code>GET &hellip;/credits/purchases</code> lists the purchases themselves, failed ones
+            included.
+          </p>
+        </div>
+      </div>
+
+      <div class="endpoint" id="api-credits-grant">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/credits/grants</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "quantity": 20,
+  "seatNumber": 2,
+  "reason": "Outage on 12 October"
+}</code></pre>
+          <p class="prose">
+            Gives credits without a charge or an invoice. <code>reason</code> is required and is kept
+            on the grant and in the audit trail. The grant takes the meter&apos;s expiry policy, so the
+            meter must have credit terms, though its sales may be paused
+            (<code>subscription_credits_no_terms</code> otherwise).
+          </p>
+        </div>
+      </div>
+
+      <div class="endpoint" id="api-credits-move">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/credits/moves</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "quantity": 10,
+  "fromSeatNumber": 1,
+  "toSeatNumber": null
+}</code></pre>
+          <p class="prose">
+            Seated plans only. Moves unused credits between a seat and the shared pool, or between two
+            seats. The credits that would lapse soonest move first, and each moved piece keeps its own
+            expiry. Refused whole with <code>subscription_credits_insufficient</code> when the giving
+            bucket holds less than <code>quantity</code>, and with
+            <code>subscription_credits_changed</code> when they were spent while moving &mdash; reload
+            and try again.
+          </p>
         </div>
       </div>
 

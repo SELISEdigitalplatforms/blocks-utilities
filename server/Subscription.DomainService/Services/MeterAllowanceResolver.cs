@@ -55,9 +55,10 @@ public sealed class MeterAllowanceResolver : IMeterAllowanceResolver
         // opened, so nothing computed afterwards may move it. The computation is only the answer
         // for a window that has not opened yet — which is precisely the case the entitlement read
         // used to get wrong.
-        if (counter?.LimitSnapshot is { } frozen)
+        if (counter?.LimitSnapshot is not null)
         {
-            return frozen;
+            // Through the shared rule, so credits drawn in the window count as allowance here too.
+            return MeterAllowance.Effective(counter, 0);
         }
 
         return await OpeningAllowanceAsync(subscription, meter, period, cancellationToken, seat);

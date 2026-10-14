@@ -188,6 +188,14 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         var terms = TermsFor(subscription, source, charge, paymentDetailId);
 
         var (amounts, opening) = AmountsFor(payment, subscription, charge, terms);
+
+        if (charge.Kind == SubscriptionChargeKind.CreditPurchase)
+        {
+            // The subscription's own code describes its periods, not this purchase. Whatever the
+            // purchase used, or nothing, is what this invoice names.
+            amounts.PromotionCode = source?.PromotionCode;
+        }
+
         if (amounts.TotalMinor <= 0 && payment.SubscriptionSettlement is null)
         {
             // A zero charge that is not a settlement never reached the provider, so there is no
@@ -215,9 +223,15 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         // composition so the document is built from it in one piece. Null where there is none, or
         // where it could not be reconciled against what was charged — LinesFor then says the one
         // thing it has always said.
-        var usageLines = charge.Kind == SubscriptionChargeKind.Usage
-            ? await MeteredLinesAsync(subscription, terms, period, amounts, cancellationToken)
-            : null;
+        var usageLines = charge.Kind switch
+        {
+            SubscriptionChargeKind.Usage =>
+                await MeteredLinesAsync(subscription, terms, period, amounts, cancellationToken),
+            // Frozen by the purchase, which is the only thing that knows what was bought.
+            SubscriptionChargeKind.CreditPurchase when source is { Lines.Count: > 0 } =>
+                [.. source.Lines],
+            _ => null
+        };
 
         var document = await ComposeAndIssueAsync(
             subscription,
@@ -1950,6 +1964,22 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                     AmountMinor = amounts.NetSubtotalMinor
                 }
             ];
+        }
+
+        if (chargeKind == SubscriptionChargeKind.CreditPurchase)
+        {
+            // The frozen line, or — for a purchase whose obligation could not be recorded — the
+            // one thing that can honestly be said about it from the payment alone.
+            return usageLines is { Count: > 0 }
+                ? usageLines
+                :
+                [
+                    new FinancialDocumentLine
+                    {
+                        Description = $"Credits on {terms.Subject.PlanName}",
+                        AmountMinor = amounts.GrossSubtotalMinor
+                    }
+                ];
         }
 
         if (chargeKind == SubscriptionChargeKind.Usage)

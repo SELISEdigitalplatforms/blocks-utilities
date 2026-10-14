@@ -4,6 +4,7 @@ import type {
   CampaignKind,
   CampaignPrecedence,
   CreateSubscriptionDiscountRequest,
+  DiscountScope,
   PlanPrice,
   SubscriptionPlan,
   SubscriptionDiscount,
@@ -22,6 +23,8 @@ import type {
 export interface CampaignDraft {
   code: string;
   displayName: string;
+  /** What the code is redeemed against. A credit-purchase code is always a standard discount. */
+  scope: DiscountScope;
   campaignKind: CampaignKind;
   discountKind: "percent" | "fixed";
   percent: string;
@@ -34,6 +37,8 @@ export interface CampaignDraft {
   expiresAtUtc: string;
   planCodes: string[];
   priceIds: string[];
+  /** Credit-purchase codes only: the meters the code may be used on. Empty is any. */
+  meterKeys: string[];
   /** Local calendar dates, "yyyy-MM-dd" — campaign kinds only. */
   validFromDate: string;
   validThroughDate: string;
@@ -48,6 +53,7 @@ export interface CampaignDraft {
 export const EMPTY_DRAFT: CampaignDraft = {
   code: "",
   displayName: "",
+  scope: "Subscription",
   campaignKind: "Standard",
   discountKind: "percent",
   percent: "10",
@@ -59,6 +65,7 @@ export const EMPTY_DRAFT: CampaignDraft = {
   expiresAtUtc: "",
   planCodes: [],
   priceIds: [],
+  meterKeys: [],
   validFromDate: "",
   validThroughDate: "",
   timeZoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
@@ -78,6 +85,9 @@ const toLocalDateTimeInput = (instant: string | null): string => {
 export const discountToDraft = (discount: SubscriptionDiscount): CampaignDraft => ({
   code: discount.code,
   displayName: discount.displayName,
+  // Absent on every discount stored before credit purchases existed, all of which are
+  // subscription codes.
+  scope: discount.scope ?? "Subscription",
   campaignKind: discount.campaignKind,
   discountKind: discount.kind === "Percent" ? "percent" : "fixed",
   percent: discount.percentBasisPoints == null ? "" : String(discount.percentBasisPoints / 100),
@@ -92,6 +102,7 @@ export const discountToDraft = (discount: SubscriptionDiscount): CampaignDraft =
   expiresAtUtc: toLocalDateTimeInput(discount.expiresAtUtc),
   planCodes: [...discount.applicablePlanCodes],
   priceIds: [...(discount.applicablePriceIds ?? [])],
+  meterKeys: [...(discount.applicableMeterKeys ?? [])],
   validFromDate: discount.validFromDate ?? "",
   validThroughDate: discount.validThroughDate ?? "",
   timeZoneId: discount.timeZoneId ?? "UTC",
@@ -164,6 +175,47 @@ export const eligiblePrices = (
   );
 };
 
+/**
+ * Applies a scope's rules the moment it is picked, as {@link withCampaignKind} does for a kind.
+ *
+ * A credit purchase is one charge against no subscription price, so a credit code carries no
+ * campaign kind, duration or price restriction — the server refuses all three. Going back the
+ * other way drops the meters and the one-use flag, which a standard subscription code cannot carry.
+ */
+export const withScope = (draft: CampaignDraft, scope: DiscountScope): CampaignDraft =>
+  scope === "CreditPurchase"
+    ? {
+        ...draft,
+        scope,
+        campaignKind: "Standard",
+        durationPeriods: "",
+        priceIds: [],
+        requiresPaymentMethodUpfront: false,
+        entitlementKey: "",
+        entitlementLimit: "",
+      }
+    : { ...draft, scope, meterKeys: [], oneUsePerOrganization: false };
+
+/**
+ * Meters a credit-purchase code can name: ones some plan it applies to sells credits for.
+ * Mirrors the server's check, so a code limited to a meter nobody can buy credits for is refused
+ * here rather than at save.
+ */
+export const purchasableMeters = (
+  draft: CampaignDraft,
+  plans: SubscriptionPlan[],
+): { meterKey: string; label: string }[] => {
+  const keys = new Map<string, string>();
+
+  plans
+    .filter((plan) => draft.planCodes.length === 0 || draft.planCodes.includes(plan.code))
+    .flatMap((plan) => plan.meters)
+    .filter((meter) => meter.topUp?.enabled)
+    .forEach((meter) => keys.set(meter.meterKey, meter.displayName || meter.meterKey));
+
+  return [...keys].map(([meterKey, label]) => ({ meterKey, label }));
+};
+
 export type StepId = 1 | 2 | 3 | 4;
 
 /** Every reason this step cannot yet be left. Empty means it can. */
@@ -232,6 +284,15 @@ export const stepProblems = (
   if (step === 3) {
     const problems: string[] = [];
     const isCampaign = draft.campaignKind !== "Standard";
+
+    if (draft.scope === "CreditPurchase") {
+      const sold = new Set(purchasableMeters(draft, plans).map((meter) => meter.meterKey));
+      const unsold = draft.meterKeys.find((meterKey) => !sold.has(meterKey));
+
+      if (unsold) {
+        problems.push(`No plan this code applies to sells credits for the meter '${unsold}'.`);
+      }
+    }
 
     if (isCampaign && draft.priceIds.length === 0) {
       problems.push(
@@ -311,6 +372,7 @@ export const toCreateDiscountRequest = (
   organizationId: string | undefined,
 ): CreateSubscriptionDiscountRequest => {
   const isCampaign = draft.campaignKind !== "Standard";
+  const isCredit = draft.scope === "CreditPurchase";
 
   return {
     organizationId,
@@ -326,17 +388,23 @@ export const toCreateDiscountRequest = (
     // ever claims to set one — sending it would suggest an author-controlled figure that a
     // campaign kind silently overrides.
     durationPeriods:
-      !isCampaign && draft.durationPeriods.trim() !== "" ? Number(draft.durationPeriods) : undefined,
+      !isCampaign && !isCredit && draft.durationPeriods.trim() !== ""
+        ? Number(draft.durationPeriods)
+        : undefined,
     startsAtUtc: !isCampaign && draft.startsAtUtc ? new Date(draft.startsAtUtc).toISOString() : undefined,
     expiresAtUtc: !isCampaign && draft.expiresAtUtc ? new Date(draft.expiresAtUtc).toISOString() : undefined,
     applicablePlanCodes: draft.planCodes,
-    applicablePriceIds: draft.priceIds,
+    applicablePriceIds: isCredit ? [] : draft.priceIds,
+    scope: draft.scope,
+    applicableMeterKeys: isCredit ? draft.meterKeys : [],
     campaignKind: isCampaign ? draft.campaignKind : undefined,
     campaignPrecedence: draft.campaignPrecedence || undefined,
     validFromDate: isCampaign ? draft.validFromDate : undefined,
     validThroughDate: isCampaign && draft.validThroughDate ? draft.validThroughDate : undefined,
     timeZoneId: isCampaign ? draft.timeZoneId : undefined,
-    oneUsePerOrganization: isCampaign ? draft.oneUsePerOrganization : undefined,
+    // A credit code may be limited to one use per organization although it is a standard
+    // discount; no other standard code may carry the flag.
+    oneUsePerOrganization: isCampaign || isCredit ? draft.oneUsePerOrganization : undefined,
     requiresPaymentMethodUpfront: isCampaign ? draft.requiresPaymentMethodUpfront : undefined,
     entitlementOverrideKey:
       draft.campaignKind === "FreeOpeningCalendarPeriod" ? draft.entitlementKey.trim() : undefined,
