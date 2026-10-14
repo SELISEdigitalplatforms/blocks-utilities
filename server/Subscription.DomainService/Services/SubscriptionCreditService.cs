@@ -163,6 +163,11 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         purchase.OrderId = SubscriptionConstants.CreditPurchaseOrderIdFor(
             subscription.ItemId,
             Guid.NewGuid().ToString("N"));
+        purchase.ProviderName = account.ProviderName;
+        // The merchant's scope, which holds the card, exactly as a renewal charges.
+        purchase.ProviderOrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId;
+        purchase.ProviderCustomerId = account.ProviderCustomerId;
+        purchase.StoredPaymentMethodId = account.DefaultPaymentMethodId;
 
         if (!await _purchases.TryCreateAsync(purchase, cancellationToken))
         {
@@ -216,7 +221,30 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             reserved = true;
         }
 
-        var charged = await ChargeAsync(subscription, account, meter, purchase, correlationId, cancellationToken);
+        var charged = await ChargeAsync(subscription, meter, purchase, correlationId, cancellationToken);
+
+        if (!charged.IsSuccess && !SettledFailureKinds.Contains(charged.FailureKind))
+        {
+            // Nobody knows whether the money moved: a timeout can follow an authorization. Failing
+            // here would release the code and invite a second purchase while the first one may yet
+            // capture, so the purchase stays Pending with its code held and the recovery sweep
+            // settles it from what the provider recorded.
+            await AuditAsync(context, subscription, PurchaseOperation, "ChargeCompleted", "Unresolved",
+                purchase.ItemId, purchase.TotalMinor, purchase.CurrencyCode, correlationId,
+                cancellationToken, errorCode: charged.ErrorCode, failureKind: charged.FailureKind.ToString());
+
+            _logger.LogWarning(
+                "Credit purchase charge unanswered; left for the recovery sweep PurchaseHash={PurchaseHash} Reason={Reason}",
+                PaymentLogValue.Hash(purchase.ItemId),
+                PaymentLogValue.Label(charged.ErrorCode ?? "unknown"));
+
+            return Failure<CreditPurchaseResponse>(
+                charged.FailureKind,
+                "subscription_credits_charge_unresolved",
+                "The payment provider did not confirm the charge. The purchase will be finished or " +
+                    "cancelled automatically; retry with the same idempotency key to see how it ended.",
+                correlationId);
+        }
 
         if (!charged.IsSuccess)
         {
@@ -341,10 +369,13 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         return grant;
     }
 
+    /// <remarks>
+    /// Routed from the purchase, never from the billing account as it stands now, so the recovery
+    /// sweep's replay reaches the same provider customer and card the first attempt did.
+    /// </remarks>
     private async Task<SubscriptionOperationResult<string>> ChargeAsync(
         SubscriptionDetail subscription,
-        BillingAccount account,
-        PlanMeter meter,
+        PlanMeter? meter,
         SubscriptionCreditPurchase purchase,
         string correlationId,
         CancellationToken cancellationToken)
@@ -360,12 +391,11 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             new SubscriptionChargeRequest
             {
                 TenantId = subscription.TenantId,
-                // The merchant's scope, which holds the card, exactly as a renewal charges.
-                OrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId,
+                OrganizationId = purchase.ProviderOrganizationId ?? subscription.OrganizationId,
                 SubscriberOrganizationId = subscription.OrganizationId,
-                ProviderName = account.ProviderName,
-                StoredPaymentMethodId = account.DefaultPaymentMethodId!,
-                ProviderCustomerId = account.ProviderCustomerId,
+                ProviderName = purchase.ProviderName,
+                StoredPaymentMethodId = purchase.StoredPaymentMethodId!,
+                ProviderCustomerId = purchase.ProviderCustomerId,
                 AmountMinor = purchase.TotalMinor,
                 NetAmountMinor = purchase.NetMinor,
                 TaxAmountMinor = purchase.TaxMinor,
@@ -375,7 +405,7 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 PromotionalDiscountMinor = purchase.DiscountMinor,
                 CurrencyCode = purchase.CurrencyCode,
                 OrderId = purchase.OrderId,
-                Description = $"{Format(purchase.Quantity)} {CreditLabel(meter)}"
+                Description = $"{Format(purchase.Quantity)} {(meter is null ? $"{purchase.MeterKey} credits" : CreditLabel(meter))}"
             },
             SubscriptionConstants.CreditPurchaseChargeKeyFor(purchase.ItemId),
             correlationId,
@@ -987,6 +1017,19 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         PaymentStatuses.Expired
     ];
 
+    /// <summary>
+    /// The failures that are an answer: the provider refused, or the request never left. Anything
+    /// else (a timeout, an outage) leaves open whether the money moved.
+    /// </summary>
+    private static readonly PaymentFailureKind[] SettledFailureKinds =
+    [
+        PaymentFailureKind.ProviderRejected,
+        PaymentFailureKind.Validation,
+        PaymentFailureKind.NotFound,
+        PaymentFailureKind.Conflict,
+        PaymentFailureKind.RateLimited
+    ];
+
     private static readonly CreditPurchaseStatus[] Unfinished =
         [CreditPurchaseStatus.Pending, CreditPurchaseStatus.Charged];
 
@@ -997,10 +1040,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     /// <remarks>
     /// A Charged purchase took the money, so it is always finished: the steps after the charge are
     /// all safe to repeat. A Pending one is settled by what the payment module recorded under the
-    /// purchase's charge key. A charge that reached the provider is recorded there before the
-    /// provider is called, so finding nothing means no money moved and the purchase can fail and
-    /// give its code back. One still in flight is left alone until the alert deadline, then handed
-    /// to an operator rather than guessed at.
+    /// purchase's charge key. A recurring card charge is recorded there before the provider is
+    /// called, so finding nothing means no money moved and the purchase can fail and give its code
+    /// back. A Stripe invoice is recorded only once paid, so for Stripe finding nothing proves
+    /// nothing: the charge is replayed under its own key, which the provider answers with the
+    /// original charge if there was one. One still in flight is left alone until the alert
+    /// deadline, then handed to an operator rather than guessed at.
     /// </remarks>
     public async Task<int> RecoverStaleAsync(string tenantId, CancellationToken cancellationToken)
     {
@@ -1042,8 +1087,35 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         if (purchase.Status == CreditPurchaseStatus.Pending)
         {
             var payment = await FindChargeAsync(purchase, cancellationToken);
+            string? paymentId;
 
-            if (payment is null || DeclinedStatuses.Contains(payment.PaymentStatus, StringComparer.Ordinal))
+            if (payment is null &&
+                string.Equals(purchase.ProviderName, PaymentConstants.StripeProvider, StringComparison.OrdinalIgnoreCase))
+            {
+                var replayed = await ReplayChargeAsync(purchase, correlationId, cancellationToken);
+
+                if (replayed is null)
+                {
+                    return await HoldAsync(purchase, now, overdue, cancellationToken);
+                }
+
+                if (!replayed.IsSuccess)
+                {
+                    // The provider answered, and its answer is that no money moved.
+                    if (purchase.DiscountId is { } refusedDiscountId)
+                    {
+                        await _redemptions.TryReleaseAsync(
+                            purchase.TenantId, refusedDiscountId, purchase.ItemId, now, cancellationToken);
+                    }
+
+                    await FailAsync(purchase, replayed.ErrorCode ?? "subscription_credits_charge_declined",
+                        replayed.ErrorMessage ?? "The card was not charged.", cancellationToken);
+                    return true;
+                }
+
+                paymentId = replayed.Value;
+            }
+            else if (payment is null || DeclinedStatuses.Contains(payment.PaymentStatus, StringComparer.Ordinal))
             {
                 if (purchase.DiscountId is { } discountId)
                 {
@@ -1061,12 +1133,16 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 return true;
             }
 
-            if (!ChargedStatuses.Contains(payment.PaymentStatus, StringComparer.Ordinal))
+            else if (!ChargedStatuses.Contains(payment.PaymentStatus, StringComparer.Ordinal))
             {
                 return await HoldAsync(purchase, now, overdue, cancellationToken);
             }
+            else
+            {
+                paymentId = payment.ItemId;
+            }
 
-            purchase.PaymentId = payment.ItemId;
+            purchase.PaymentId = paymentId is { Length: > 0 } ? paymentId : null;
             purchase.Status = CreditPurchaseStatus.Charged;
             purchase.LastUpdatedAtUtc = now;
 
@@ -1123,6 +1199,34 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
 
         await _purchases.TryAdvanceAsync(purchase, purchase.Version, cancellationToken);
         return overdue;
+    }
+
+    /// <summary>
+    /// Re-raises a purchase's charge under its own key and routing. Null when there is no answer
+    /// either way (no card to replay with, no subscription to bill, or the provider still not
+    /// responding), so the purchase is held rather than guessed at.
+    /// </summary>
+    private async Task<SubscriptionOperationResult<string>?> ReplayChargeAsync(
+        SubscriptionCreditPurchase purchase,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(purchase.StoredPaymentMethodId))
+        {
+            return null;
+        }
+
+        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            return null;
+        }
+
+        var charged = await ChargeAsync(
+            subscription, FindMeter(subscription, purchase.MeterKey), purchase, correlationId, cancellationToken);
+
+        return charged.IsSuccess || SettledFailureKinds.Contains(charged.FailureKind) ? charged : null;
     }
 
     /// <summary>The payment this purchase's charge was recorded as, looked up the way settlements are.</summary>

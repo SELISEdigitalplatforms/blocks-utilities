@@ -163,6 +163,83 @@ public sealed class CreditConsumptionTests
     }
 
     [Fact]
+    public async Task A_concurrent_recording_at_the_boundary_does_not_refuse_one_its_own_credits_paid_for()
+    {
+        _subscription.Plan.Meters[0].OverageAllowed = false;
+        Opened(balance: 99);
+        _grants.All.Add(Grant("g1", remaining: 10));
+
+        // Every read-back after the draw already holds another recording's +2, but not the credits
+        // that recording is about to draw for itself, which is what a real concurrent read sees.
+        _usage
+            .Setup(repository => repository.AddPurchasedConsumedAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .Returns<string, string, decimal, CancellationToken>((_, _, delta, _) =>
+            {
+                _counter!.PurchasedConsumed += delta;
+                return Task.FromResult<SubscriptionUsageCounter?>(new SubscriptionUsageCounter
+                {
+                    ItemId = _counter.ItemId,
+                    TenantId = TenantId,
+                    SubscriptionId = SubscriptionId,
+                    MeterKey = _counter.MeterKey,
+                    LimitSnapshot = _counter.LimitSnapshot,
+                    PurchasedConsumed = _counter.PurchasedConsumed,
+                    Balance = _counter.Balance + 2
+                });
+            });
+
+        var result = await Service().RecordAsync(Record(2), "corr-1", CancellationToken.None);
+
+        result.Value!.Allowed.Should().BeTrue(
+            "101 against 100 plus the 1 credit this recording drew is covered; another recording's increment is not its to answer for");
+        _grants.All.Single().Remaining.Should().Be(9, "the credit it paid with stays spent");
+    }
+
+    [Fact]
+    public async Task A_caller_that_cancels_mid_draw_never_leaves_credits_spent_that_the_counter_does_not_show()
+    {
+        Opened(balance: 100);
+        _grants.All.Add(Grant("g1", remaining: 10));
+        using var cancellation = new CancellationTokenSource();
+
+        // The caller goes away the moment the counter has moved, and every write afterwards that
+        // still listens to it fails the way a real driver call would.
+        _usage
+            .Setup(repository => repository.ApplyDeltaAsync(
+                It.IsAny<SubscriptionUsageCounter>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .Returns<SubscriptionUsageCounter, decimal, CancellationToken>((seed, delta, _) =>
+            {
+                _counter ??= seed;
+                _counter.Balance += delta;
+                cancellation.Cancel();
+                return Task.FromResult(_counter);
+            });
+        _usage
+            .Setup(repository => repository.AddPurchasedConsumedAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .Returns<string, string, decimal, CancellationToken>((_, _, delta, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                _counter!.PurchasedConsumed += delta;
+                return Task.FromResult<SubscriptionUsageCounter?>(_counter);
+            });
+
+        try
+        {
+            await Service().RecordAsync(Record(5), "corr-1", cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Whatever the call itself answers, the ledger and the counter must still agree.
+        }
+
+        var spent = 10 - _grants.All.Single().Remaining;
+        _counter!.PurchasedConsumed.Should().BeGreaterThanOrEqualTo(spent,
+            "credits spent without the counter knowing are billed again as overage at period close");
+    }
+
+    [Fact]
     public async Task Credits_may_take_usage_past_a_meter_that_allows_no_overage()
     {
         _subscription.Plan.Meters[0].OverageAllowed = false;

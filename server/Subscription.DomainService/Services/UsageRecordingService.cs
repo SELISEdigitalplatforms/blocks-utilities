@@ -982,10 +982,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
             // excess. A recording inside the allowance never reads a grant at all.
             var (drawnCounter, draw) = await DrawCreditsAsync(
                 subscription, meter, seat, counter, allowance, request.Quantity, cancellationToken);
+
+            // Judged on this call's own increment plus what it drew, never on the counter read back
+            // after the draw: that read can already hold a concurrent recording's increment without
+            // the credits it is about to draw, and would refuse a use its own credits paid for.
+            var withinAllowance = counter.Balance <= allowance + (draw?.Drawn ?? 0);
+
             counter = drawnCounter;
             allowance = MeterAllowance.Effective(counter, opening);
-
-            var withinAllowance = counter.Balance <= allowance;
 
             if (counter.Balance < 0)
             {
@@ -1590,6 +1594,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// Only a positive recording draws. ponytail: a negative correction never gives credits back,
     /// even one that takes the balance back under what credits paid for; refund through a grant if
     /// that ever matters.
+    /// <para>
+    /// The counter is raised before any grant is touched and lowered by whatever the grants could
+    /// not cover, and none of these writes stop for the caller's cancellation: the counter has
+    /// already moved. A crash part way therefore leaves the counter claiming more was paid for
+    /// than the grants gave, which costs the customer nothing. The other order would leave credits
+    /// spent that rating then bills a second time as overage, with no record to repair it from.
+    /// </para>
     /// </remarks>
     private async Task<(SubscriptionUsageCounter Counter, CreditDraw? Draw)> DrawCreditsAsync(
         SubscriptionDetail subscription,
@@ -1614,18 +1625,19 @@ public sealed class UsageRecordingService : IUsageRecordingService
             return (counter, null);
         }
 
+        var raised = await _usage.AddPurchasedConsumedAsync(
+            subscription.TenantId, counter.ItemId, uncovered, CancellationToken.None);
+
         var draw = await _credits.DrawAsync(
-            subscription, meter.MeterKey, seat, uncovered, _time.GetUtcNow().UtcDateTime, cancellationToken);
+            subscription, meter.MeterKey, seat, uncovered, _time.GetUtcNow().UtcDateTime, CancellationToken.None);
 
-        if (draw.Drawn <= 0)
-        {
-            return (counter, null);
-        }
+        var shortfall = uncovered - draw.Drawn;
+        var after = shortfall > 0
+            ? await _usage.AddPurchasedConsumedAsync(
+                subscription.TenantId, counter.ItemId, -shortfall, CancellationToken.None)
+            : raised;
 
-        var after = await _usage.AddPurchasedConsumedAsync(
-            subscription.TenantId, counter.ItemId, draw.Drawn, cancellationToken);
-
-        return (after ?? counter, draw);
+        return (after ?? counter, draw.Drawn > 0 ? draw : null);
     }
 
     /// <summary>Puts back what <see cref="DrawCreditsAsync"/> took, for a recording that is refused.</summary>
@@ -1640,11 +1652,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
             return counter;
         }
 
+        // Not stopped by the caller's cancellation, for the reason given on DrawCreditsAsync. Grants
+        // first: a crash between the two leaves the counter generous, never the customer short.
         await _credits.RestoreAsync(
-            subscription.TenantId, draw, _time.GetUtcNow().UtcDateTime, cancellationToken);
+            subscription.TenantId, draw, _time.GetUtcNow().UtcDateTime, CancellationToken.None);
 
         return await _usage.AddPurchasedConsumedAsync(
-            subscription.TenantId, counter.ItemId, -draw.Drawn, cancellationToken) ?? counter;
+            subscription.TenantId, counter.ItemId, -draw.Drawn, CancellationToken.None) ?? counter;
     }
 
     /// <summary>
