@@ -589,6 +589,24 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 correlationId);
         }
 
+        // A charge at or under the provider's floor is never declined: Stripe marks the invoice
+        // paid at zero and moves the amount onto the customer's balance, which the next invoice
+        // then collects. The exact-amount check rightly refuses that, so the purchase sticks and
+        // the customer pays later for credits never granted. Refuse it here, before any charge.
+        // Zero stays allowed -- a code that takes it to nothing skips the provider entirely.
+        // See SubscriptionOptions.MinimumSettlementChargeMinor.
+        var floor = _options.CurrentValue.MinimumSettlementChargeMinor;
+
+        if (quote.TotalMinor > 0 && quote.TotalMinor <= floor)
+        {
+            return Failure<Priced>(
+                PaymentFailureKind.Validation,
+                "subscription_credits_below_minimum_charge",
+                $"This purchase comes to {quote.TotalMinor} minor units, which is too small to " +
+                    $"charge. Buy enough credits to total more than {floor}.",
+                correlationId);
+        }
+
         var purchase = new SubscriptionCreditPurchase
         {
             TenantId = subscription.TenantId,
