@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui-kits/radio-group/radio-group";
-import type { CampaignKind } from "../../models/subscription-plan.model";
+import type { CampaignKind, DiscountScope } from "../../models/subscription-plan.model";
 import type { CampaignDraft } from "./campaign-draft";
 
 const KIND_OPTIONS: { value: CampaignKind; title: string; description: string }[] = [
@@ -24,6 +24,19 @@ const KIND_OPTIONS: { value: CampaignKind; title: string; description: string }[
     description:
       "Discounts a calendar-aligned yearly price's first full annual period only. A renewal past " +
       "that reverts to the price's own rate automatically — no expiry date to manage.",
+  },
+];
+
+const SCOPE_OPTIONS: { value: DiscountScope; title: string; description: string }[] = [
+  {
+    value: "Subscription",
+    title: "Subscriptions",
+    description: "Redeemed at signup and kept through plan changes.",
+  },
+  {
+    value: "CreditPurchase",
+    title: "Credit purchases",
+    description: "Redeemed when buying extra meter credits. One purchase, so no duration.",
   },
 ];
 
@@ -73,6 +86,37 @@ export const StepIdentity = ({
     </div>
 
     <div className="space-y-2">
+      <Label>Applies to</Label>
+      <RadioGroup
+        value={draft.scope}
+        onValueChange={(value) => onChange({ scope: value as DiscountScope })}
+        className="gap-3 sm:grid-cols-2"
+      >
+        {SCOPE_OPTIONS.map((option) => (
+          <label
+            key={option.value}
+            htmlFor={`campaign-scope-${option.value}`}
+            className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm has-[:checked]:border-blocks-primary-400 has-[:checked]:bg-blocks-primary-50"
+          >
+            <RadioGroupItem
+              value={option.value}
+              id={`campaign-scope-${option.value}`}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium">{option.title}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {option.description}
+              </span>
+            </span>
+          </label>
+        ))}
+      </RadioGroup>
+    </div>
+
+    {/* Every campaign kind prices a subscription period, so a credit code has none to choose. */}
+    {draft.scope === "Subscription" && (
+    <div className="space-y-2">
       <Label>Offer type</Label>
       <RadioGroup
         value={draft.campaignKind}
@@ -100,5 +144,6 @@ export const StepIdentity = ({
         ))}
       </RadioGroup>
     </div>
+    )}
   </div>
 );

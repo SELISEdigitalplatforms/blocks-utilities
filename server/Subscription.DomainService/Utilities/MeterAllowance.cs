@@ -108,7 +108,14 @@ public static class MeterAllowance
     /// the window, so every later call in that window is held to the same number even if the plan
     /// is edited underneath it or the previous window's counter is repaired. The computed value is
     /// only the answer for a window that has not opened yet.
+    /// <para>
+    /// Credits drawn in the window are added on top. Every caller that measures overage subtracts
+    /// this figure from the balance, so this is the one place that keeps a balance paid for with
+    /// credits from being billed again as overage at period close.
+    /// </para>
     /// </remarks>
     public static decimal Effective(SubscriptionUsageCounter? counter, decimal computed) =>
-        counter?.LimitSnapshot ?? computed;
+        counter?.LimitSnapshot is { } frozen
+            ? frozen + counter.PurchasedConsumed
+            : computed;
 }

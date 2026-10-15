@@ -222,6 +222,9 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                         "otherwise a quantity falls into two bands and the bill depends on " +
                         "which is read first.")
                     .WithErrorCode("subscription_meter_tiers_invalid");
+                meter.RuleFor(definition => definition.TopUp!)
+                    .SetValidator(new MeterTopUpRequestValidator())
+                    .When(definition => definition.TopUp is { Enabled: true });
             });
 
         RuleForEach(request => request.Entitlements)

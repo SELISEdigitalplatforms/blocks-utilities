@@ -53,6 +53,26 @@ public interface ISubscriptionUsageRepository
         decimal delta,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Moves how much of a window's balance credits paid for, and returns the counter after the
+    /// move. Null when the counter does not exist.
+    /// </summary>
+    Task<SubscriptionUsageCounter?> AddPurchasedConsumedAsync(
+        string tenantId,
+        string counterId,
+        decimal delta,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Replaces the thresholds recorded as already reported, so ones a credit purchase has put
+    /// back out of reach can be reported again when crossed.
+    /// </summary>
+    Task<bool> TryRetainThresholdsAsync(
+        string tenantId,
+        string counterId,
+        IReadOnlyList<int> retainedThresholds,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionUsageCounter?> GetCounterAsync(
         string tenantId,
         string counterId,

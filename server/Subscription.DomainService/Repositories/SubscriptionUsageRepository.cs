@@ -221,6 +221,38 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                     periodKey)))
             .ToListAsync(cancellationToken);
 
+    public async Task<SubscriptionUsageCounter?> AddPurchasedConsumedAsync(
+        string tenantId,
+        string counterId,
+        decimal delta,
+        CancellationToken cancellationToken) =>
+        await Counters(tenantId).FindOneAndUpdateAsync(
+            Builders<SubscriptionUsageCounter>.Filter.Eq(counter => counter.ItemId, counterId),
+            Builders<SubscriptionUsageCounter>.Update
+                .Inc(counter => counter.PurchasedConsumed, delta)
+                .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
+            new FindOneAndUpdateOptions<SubscriptionUsageCounter>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+
+    public async Task<bool> TryRetainThresholdsAsync(
+        string tenantId,
+        string counterId,
+        IReadOnlyList<int> retainedThresholds,
+        CancellationToken cancellationToken)
+    {
+        var result = await Counters(tenantId).UpdateOneAsync(
+            Builders<SubscriptionUsageCounter>.Filter.Eq(counter => counter.ItemId, counterId),
+            Builders<SubscriptionUsageCounter>.Update
+                .Set(counter => counter.NotifiedThresholds, retainedThresholds.ToList())
+                .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryMarkThresholdNotifiedAsync(
         string tenantId,
         string counterId,

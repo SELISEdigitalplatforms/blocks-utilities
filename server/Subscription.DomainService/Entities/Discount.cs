@@ -27,6 +27,23 @@ public sealed class Discount
     /// offering two ways to qualify.
     /// </remarks>
     public List<string> ApplicablePriceIds { get; set; } = [];
+
+    /// <summary>
+    /// What this code may be redeemed against. <see cref="DiscountScope.Subscription"/> on every
+    /// discount stored before credit purchases existed, which is what keeps those redeemable
+    /// exactly where they always were and nowhere new.
+    /// </summary>
+    public DiscountScope Scope { get; set; } = DiscountScope.Subscription;
+
+    /// <summary>
+    /// The meters a credit-purchase code may be used on. Empty is any purchasable meter. Always
+    /// empty for a subscription code, which no meter narrows.
+    /// </summary>
+    /// <remarks>
+    /// Narrows alongside <see cref="ApplicablePlanCodes"/> by <em>and</em>, the same way plan and
+    /// price narrow each other for a subscription code.
+    /// </remarks>
+    public List<string> ApplicableMeterKeys { get; set; } = [];
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime LastUpdatedDateUtc { get; set; } = DateTime.UtcNow;
 

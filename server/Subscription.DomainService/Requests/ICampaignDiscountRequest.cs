@@ -16,10 +16,17 @@ public interface ICampaignDiscountRequest
     int? PercentBasisPoints { get; }
     long? AmountMinor { get; }
     string? CurrencyCode { get; }
+    int? DurationPeriods { get; }
     DateTime? StartsAtUtc { get; }
     DateTime? ExpiresAtUtc { get; }
     List<string> ApplicablePlanCodes { get; }
     List<string> ApplicablePriceIds { get; }
+
+    /// <summary>What the code may be redeemed against. Subscription unless stated.</summary>
+    DiscountScope Scope { get; }
+
+    /// <summary>Credit-purchase codes only: the meters it may be used on. Empty is any.</summary>
+    List<string> ApplicableMeterKeys { get; }
 
     CampaignKind CampaignKind { get; }
     CampaignPrecedence? CampaignPrecedence { get; }

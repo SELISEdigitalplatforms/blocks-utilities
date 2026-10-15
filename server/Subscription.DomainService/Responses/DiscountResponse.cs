@@ -15,6 +15,11 @@ public sealed class DiscountResponse
     public DateTime? ExpiresAtUtc { get; init; }
     public List<string> ApplicablePlanCodes { get; init; } = [];
     public List<string> ApplicablePriceIds { get; init; } = [];
+
+    /// <summary>"Subscription" or "CreditPurchase".</summary>
+    public string Scope { get; init; } = string.Empty;
+
+    public List<string> ApplicableMeterKeys { get; init; } = [];
     public string Status { get; init; } = string.Empty;
 
     /// <summary>Read back on every response so a subsequent edit can be sent as an expected value.</summary>

@@ -31,6 +31,42 @@ public abstract class CampaignDiscountRequestValidator<T> : AbstractValidator<T>
             .When(request => request.Kind == DiscountKind.FixedAmount);
         RuleForEach(request => request.ApplicablePlanCodes).NotEmpty().MaximumLength(64);
         RuleForEach(request => request.ApplicablePriceIds).NotEmpty().MaximumLength(64);
+        RuleForEach(request => request.ApplicableMeterKeys).NotEmpty().MaximumLength(64);
+        RuleFor(request => request.Scope).IsInEnum();
+
+        var isCreditPurchase =
+            (Func<T, bool>)(request => request.Scope == DiscountScope.CreditPurchase);
+
+        // A credit purchase is one charge, so there is no second period for a duration to reach.
+        // Refused rather than ignored: an author who wrote "three months" expects it to mean
+        // something, and silently dropping it is how a misunderstanding reaches an invoice.
+        RuleFor(request => request.DurationPeriods).Null()
+            .WithMessage("A credit-purchase code applies to one purchase. Remove the duration.")
+            .WithErrorCode("subscription_discount_credit_scope_invalid")
+            .When(isCreditPurchase);
+
+        // Every campaign kind prices a subscription period of a specific price. None of them has
+        // anything to say about a credit purchase.
+        RuleFor(request => request.CampaignKind).Equal(CampaignKind.Standard)
+            .WithMessage(
+                "A credit-purchase code is a standard discount. Campaign kinds price subscription " +
+                "periods, not credits.")
+            .WithErrorCode("subscription_discount_credit_scope_invalid")
+            .When(isCreditPurchase);
+
+        // A credit purchase is not charged against a subscription price, so a price restriction
+        // would never match and the code could never be redeemed.
+        RuleFor(request => request.ApplicablePriceIds).Empty()
+            .WithMessage(
+                "A credit-purchase code cannot be limited to prices. Limit it to plans or meters " +
+                "instead.")
+            .WithErrorCode("subscription_discount_credit_scope_invalid")
+            .When(isCreditPurchase);
+
+        RuleFor(request => request.ApplicableMeterKeys).Empty()
+            .WithMessage("Only a credit-purchase code can be limited to meters.")
+            .WithErrorCode("subscription_discount_meter_scope_invalid")
+            .When(request => !isCreditPurchase(request));
         RuleFor(request => request).Must(request =>
             request.Kind != DiscountKind.Percent || request.AmountMinor is null)
             .WithMessage("A percentage discount cannot also define a fixed amount.");
@@ -115,9 +151,14 @@ public abstract class CampaignDiscountRequestValidator<T> : AbstractValidator<T>
         // A non-campaign discount carries none of this. Refused rather than silently dropped, so a
         // caller who set a campaign field on a Standard discount finds out, instead of the field
         // disappearing without explanation the moment it is saved.
+        //
+        // The one exception is one-use-per-organization on a credit-purchase code. Credit codes are
+        // always standard (see above), and limiting a promotional top-up to once per customer is
+        // the ordinary thing to want of one; it is enforced by the same redemption ledger.
         RuleFor(request => request).Must(request =>
                 request.ValidFromDate is null && request.ValidThroughDate is null &&
-                string.IsNullOrEmpty(request.TimeZoneId) && !request.OneUsePerOrganization &&
+                string.IsNullOrEmpty(request.TimeZoneId) &&
+                (!request.OneUsePerOrganization || isCreditPurchase(request)) &&
                 !request.RequiresPaymentMethodUpfront && request.EntitlementOverrideKey is null)
             .WithMessage("A standard discount cannot carry campaign fields. Set a campaign kind, or clear them.")
             .When(request => !isCampaign(request));

@@ -142,6 +142,9 @@ export const SubscriptionPlanDetailPage = () => {
     prices: plan.prices,
     // Optional on the response for plans stored before it carried them.
     trialGrants: plan.trialGrants ?? [],
+    credits: plan.meters
+      .filter((meter) => meter.topUp)
+      .map((meter) => ({ meterKey: meter.meterKey, ...meter.topUp! })),
   };
 
   return (

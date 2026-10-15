@@ -1,4 +1,5 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Services;
 
@@ -35,15 +36,39 @@ public static class SubscriptionDiscountApplicability
     }
 
     /// <summary>Against the catalogue entry, as a code is being redeemed.</summary>
+    /// <remarks>
+    /// A credit-purchase code is refused here whatever it names. This is the gate signup goes
+    /// through, and a code written for a one-off top-up would otherwise discount every period of a
+    /// subscription it was never priced for.
+    /// </remarks>
     public static bool Permits(Discount discount, string planCode, string priceId)
     {
         ArgumentNullException.ThrowIfNull(discount);
 
-        return Permits(
+        return discount.Scope == DiscountScope.Subscription && Permits(
             discount.ApplicablePlanCodes,
             discount.ApplicablePriceIds,
             planCode,
             priceId);
+    }
+
+    /// <summary>
+    /// Whether a code may be used to buy credits for one meter of a subscription on one plan.
+    /// </summary>
+    /// <remarks>
+    /// The mirror of the subscription gate above: only a credit-purchase code passes. Plan codes
+    /// and meter keys narrow by <em>and</em>, and empty is unrestricted by that dimension, exactly
+    /// as plan and price do for a subscription code.
+    /// </remarks>
+    public static bool PermitsCreditPurchase(Discount discount, string planCode, string meterKey)
+    {
+        ArgumentNullException.ThrowIfNull(discount);
+
+        return discount.Scope == DiscountScope.CreditPurchase &&
+               (discount.ApplicablePlanCodes.Count == 0 ||
+                discount.ApplicablePlanCodes.Contains(planCode, StringComparer.Ordinal)) &&
+               (discount.ApplicableMeterKeys.Count == 0 ||
+                discount.ApplicableMeterKeys.Contains(meterKey, StringComparer.Ordinal));
     }
 
     /// <summary>

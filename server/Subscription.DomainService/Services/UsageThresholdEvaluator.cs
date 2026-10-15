@@ -46,7 +46,8 @@ public sealed class UsageThresholdEvaluator : IUsageThresholdEvaluator
         SubscriptionDetail subscription,
         SubscriptionUsageCounter counter,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        decimal liveCredits = 0)
     {
         ArgumentNullException.ThrowIfNull(subscription);
         ArgumentNullException.ThrowIfNull(counter);
@@ -56,11 +57,13 @@ public sealed class UsageThresholdEvaluator : IUsageThresholdEvaluator
 
         if (meter is null ||
             meter.ThresholdPercents.Count == 0 ||
-            counter.LimitSnapshot is not { } limit ||
-            limit <= 0)
+            counter.LimitSnapshot is not { } planLimit ||
+            planLimit + counter.PurchasedConsumed + liveCredits <= 0)
         {
             return 0;
         }
+
+        var limit = planLimit + counter.PurchasedConsumed + liveCredits;
 
         var reported = 0;
 

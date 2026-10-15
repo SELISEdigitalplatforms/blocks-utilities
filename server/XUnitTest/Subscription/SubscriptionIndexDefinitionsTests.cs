@@ -63,6 +63,14 @@ public sealed class SubscriptionIndexDefinitionsTests
             {
                 nameof(SubscriptionIndexDefinitions.CreateUsageCurrentIndexes),
                 Names(SubscriptionIndexDefinitions.CreateUsageCurrentIndexes())
+            },
+            {
+                nameof(SubscriptionCreditIndexDefinitions.CreateGrantIndexes),
+                Names(SubscriptionCreditIndexDefinitions.CreateGrantIndexes())
+            },
+            {
+                nameof(SubscriptionCreditIndexDefinitions.CreatePurchaseIndexes),
+                Names(SubscriptionCreditIndexDefinitions.CreatePurchaseIndexes())
             }
         };
 

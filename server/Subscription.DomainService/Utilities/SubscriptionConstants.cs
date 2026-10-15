@@ -204,6 +204,30 @@ public static class SubscriptionConstants
 
     public const string UsageSegment = "usage";
 
+    /// <summary>Marks a credit purchase's order id. Short for the same reason the others are.</summary>
+    public const string CreditPurchaseSegment = "cr";
+
+    /// <summary>
+    /// A credit purchase's order id: <c>sub:{subscriptionId}:cr:{token}</c>.
+    /// </summary>
+    /// <remarks>
+    /// Scoped by a token of its own rather than by the purchase record's id, which carries the
+    /// caller's idempotency key and would push the whole past the payment module's 80-character
+    /// limit. A 32-character token leaves it at 76. Stable across retries because the token is
+    /// stored on the purchase record before the first charge attempt.
+    /// </remarks>
+    public static string CreditPurchaseOrderIdFor(string subscriptionId, string token) =>
+        $"{OrderIdPrefix}{subscriptionId}:{CreditPurchaseSegment}:{token}";
+
+    /// <summary>The idempotency key a credit purchase is charged under. One per purchase record.</summary>
+    public static string CreditPurchaseChargeKeyFor(string purchaseId) =>
+        DeterministicKey($"sub-credit:{purchaseId}");
+
+    public const string SubscriptionCreditsPurchased = "SubscriptionCreditsPurchased";
+    public const string SubscriptionCreditsGranted = "SubscriptionCreditsGranted";
+    public const string SubscriptionCreditsMoved = "SubscriptionCreditsMoved";
+    public const string SubscriptionCreditsExhausted = "SubscriptionCreditsExhausted";
+
     /// <summary>
     /// Spellings written before the settlement kinds were distinguished and before the ids were
     /// shortened to fit the order-id limit. Read forever, written never: the rows carrying them are
