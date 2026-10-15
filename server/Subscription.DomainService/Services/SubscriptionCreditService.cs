@@ -1091,7 +1091,8 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     /// back. A Stripe invoice is recorded only once paid, so for Stripe finding nothing proves
     /// nothing: the charge is replayed under its own key, which the provider answers with the
     /// original charge if there was one. One still in flight is left alone until the alert
-    /// deadline, then handed to an operator rather than guessed at.
+    /// deadline, then handed to an operator rather than guessed at. On an ended subscription nothing
+    /// is replayed or granted: any purchase that may have taken money goes straight to an operator.
     /// </remarks>
     public async Task<int> RecoverStaleAsync(string tenantId, CancellationToken cancellationToken)
     {
@@ -1129,6 +1130,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     {
         var correlationId = $"credit-recovery-{Guid.NewGuid():N}";
         var overdue = now - purchase.CreatedAtUtc > TimeSpan.FromHours(Math.Max(1, options.CreditPurchaseAlertAfterHours));
+        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
+
+        // Credits granted into an ended subscription are forfeited the moment they land, so it must
+        // neither be charged again nor granted into. Whatever money may have moved goes to an operator.
+        var ended = subscription is null ||
+                    subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired;
 
         if (purchase.Status == CreditPurchaseStatus.Pending)
         {
@@ -1138,7 +1145,14 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             if (payment is null &&
                 string.Equals(purchase.ProviderName, PaymentConstants.StripeProvider, StringComparison.OrdinalIgnoreCase))
             {
-                var replayed = await ReplayChargeAsync(purchase, correlationId, cancellationToken);
+                if (ended)
+                {
+                    // Only a replay could tell whether the first attempt was paid, and on an ended
+                    // subscription a replay that was not would charge for nothing.
+                    return await HoldAsync(purchase, now, overdue: true, cancellationToken);
+                }
+
+                var replayed = await ReplayChargeAsync(purchase, subscription!, correlationId, cancellationToken);
 
                 if (replayed is null)
                 {
@@ -1198,16 +1212,14 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             }
         }
 
-        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
-
-        if (subscription is null)
+        if (ended)
         {
             // Paid for, with nothing left to grant into. Never dropped silently: this is money taken.
             return await HoldAsync(purchase, now, overdue: true, cancellationToken);
         }
 
         await FinalizeAsync(
-            subscription,
+            subscription!,
             purchase,
             purchase.DiscountId,
             new SubscriptionContext(purchase.TenantId, purchase.OrganizationId, "credit-purchase-recovery", purchase.BuyerUserId),
@@ -1249,22 +1261,16 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
 
     /// <summary>
     /// Re-raises a purchase's charge under its own key and routing. Null when there is no answer
-    /// either way (no card to replay with, no subscription to bill, or the provider still not
-    /// responding), so the purchase is held rather than guessed at.
+    /// either way (no card to replay with, or the provider still not responding), so the purchase
+    /// is held rather than guessed at.
     /// </summary>
     private async Task<SubscriptionOperationResult<string>?> ReplayChargeAsync(
         SubscriptionCreditPurchase purchase,
+        SubscriptionDetail subscription,
         string correlationId,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(purchase.StoredPaymentMethodId))
-        {
-            return null;
-        }
-
-        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
-
-        if (subscription is null)
         {
             return null;
         }

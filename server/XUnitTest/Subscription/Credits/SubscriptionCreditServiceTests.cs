@@ -651,6 +651,57 @@ public sealed class SubscriptionCreditServiceTests
         _grants.All.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(SubscriptionStatus.Canceled)]
+    [InlineData(SubscriptionStatus.IncompleteExpired)]
+    public async Task A_stripe_purchase_with_no_record_on_an_ended_subscription_is_not_charged_but_handed_to_an_operator(
+        SubscriptionStatus status)
+    {
+        var purchase = StripePurchase();
+        purchase.DiscountId = "disc-1";
+        _subscription.Status = status;
+
+        var settled = await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _gateway.Verify(gateway => gateway.ChargeAsync(
+            It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never, "a replay would charge the card for credits the ended subscription forfeits at once");
+        purchase.Status.Should().Be(CreditPurchaseStatus.NeedsAttention,
+            "the first attempt may still have taken money Stripe has not reported, so only an operator can settle it");
+        _grants.All.Should().BeEmpty();
+        _redemptions.Verify(repository => repository.TryReleaseAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_charged_purchase_on_an_ended_subscription_is_handed_to_an_operator_instead_of_granted()
+    {
+        var purchase = StalePurchase(CreditPurchaseStatus.Charged, paymentId: "pay-1");
+        _subscription.Status = SubscriptionStatus.Canceled;
+
+        await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        purchase.Status.Should().Be(CreditPurchaseStatus.NeedsAttention,
+            "credits granted into an ended subscription are forfeited at once, so the money is owed back instead");
+        _grants.All.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_pending_purchase_charged_before_the_subscription_ended_keeps_its_payment_for_the_operator()
+    {
+        var purchase = StalePurchase(CreditPurchaseStatus.Pending);
+        PaymentRecorded(purchase, PaymentStatuses.Captured);
+        _subscription.Status = SubscriptionStatus.Canceled;
+
+        await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        purchase.Status.Should().Be(CreditPurchaseStatus.NeedsAttention);
+        purchase.PaymentId.Should().Be("pay-9", "the operator needs the payment to refund");
+        _grants.All.Should().BeEmpty();
+    }
+
     private SubscriptionCreditPurchase StripePurchase()
     {
         var purchase = StalePurchase(CreditPurchaseStatus.Pending);
