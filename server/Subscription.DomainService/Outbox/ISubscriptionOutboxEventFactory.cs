@@ -88,6 +88,15 @@ public interface ISubscriptionOutboxEventFactory
         string correlationId);
 
     /// <summary>A usage invoice's terminal outcome — charged, or abandoned after every retry.</summary>
+    /// <summary>A credit grant was purchased, granted, moved into, or used up.</summary>
+    /// <param name="fromSeatNumber">On a move, the bucket the credits came out of.</param>
+    SubscriptionOutboxEvent CreateCreditEvent(
+        SubscriptionDetail subscription,
+        string eventType,
+        SubscriptionCreditGrant grant,
+        string correlationId,
+        int? fromSeatNumber = null);
+
     SubscriptionOutboxEvent CreateUsageRatingOutcome(
         SubscriptionDetail subscription,
         string eventType,

@@ -170,6 +170,22 @@ export interface PlanMeter {
    * period alone. The server reports a plan stored with the old single pace as a list of one.
    */
   subLimits?: PlanMeterSubLimit[];
+  /**
+   * The terms on which credits for this meter may be bought. Absent on every meter authored before
+   * credits existed, and null when none were ever set.
+   */
+  topUp?: PlanMeterTopUp | null;
+}
+
+/** Purchasable credits for one meter, as a plan response carries them: enums by name. */
+export interface PlanMeterTopUp {
+  enabled: boolean;
+  unitPrices: { currencyCode: string; unitAmountMinor: number }[];
+  minQuantity: number;
+  maxQuantity: number;
+  expiryPolicy: MeterResetPolicyName;
+  taxRateBasisPoints: number | null;
+  taxMode: "Exclusive" | "Inclusive" | null;
 }
 
 /** One pace, as a response carries it: enums by name. */
@@ -368,6 +384,17 @@ export interface CreatePlanMeterRequest {
     quantity: number;
     behaviour: number;
   }[];
+  /** Omitted for a meter whose credits are not for sale. */
+  topUp?: {
+    enabled: boolean;
+    unitPrices: { currencyCode: string; unitAmountMinor: number }[];
+    minQuantity: number;
+    maxQuantity: number;
+    /** METER_RESET_POLICY, read for a grant. */
+    expiryPolicy: number;
+    taxRateBasisPoints?: number;
+    taxMode?: "Exclusive" | "Inclusive";
+  };
 }
 
 export interface CreatePlanEntitlementRequest {
@@ -534,6 +561,9 @@ export type CampaignPrecedence = "BestDiscount" | "ReplaceBuiltIn" | "Stack";
  * included. Sending the underlying integer for either fails model binding the same way sending
  * the string would for `kind` (`DiscountKind`), which carries no such attribute.
  */
+/** What a code may be redeemed against. One scope per code. */
+export type DiscountScope = "Subscription" | "CreditPurchase";
+
 export interface SubscriptionDiscount {
   discountId: string;
   organizationId: string | null;
@@ -549,6 +579,10 @@ export interface SubscriptionDiscount {
   applicablePlanCodes: string[];
   /** Absent on discounts stored before price restrictions existed, which are unrestricted by price. */
   applicablePriceIds?: string[];
+  /** Absent on discounts stored before credit purchases existed, which are subscription codes. */
+  scope?: DiscountScope;
+  /** Credit-purchase codes only. Empty is any purchasable meter. */
+  applicableMeterKeys?: string[];
   status: "Active" | "Archived";
   /** Read back on every response so a subsequent edit can be sent as an expected version. */
   version: number;
@@ -590,6 +624,9 @@ export interface CreateSubscriptionDiscountRequest {
   applicablePlanCodes: string[];
   /** Narrows the plan list rather than replacing it: both have to match when both are given. */
   applicablePriceIds: string[];
+  /** Sent by name, like the campaign enums: the server reads it with a string converter. */
+  scope: DiscountScope;
+  applicableMeterKeys: string[];
   /** Omit entirely for a Standard discount — the server default is the same as omitting it. */
   campaignKind?: CampaignKind;
   campaignPrecedence?: CampaignPrecedence;

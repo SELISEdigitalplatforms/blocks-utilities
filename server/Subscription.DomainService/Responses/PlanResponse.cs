@@ -233,6 +233,39 @@ public sealed class PlanMeterResponse
     /// that a meter allowing overage has no table behind it.
     /// </summary>
     public List<PlanMeterRateTableResponse> RateTables { get; init; } = [];
+
+    /// <summary>
+    /// The terms on which credits for this meter may be bought. Null when none were ever set.
+    /// Returned because an edit rewrites the whole plan: terms the console cannot read back, the
+    /// next edit would drop.
+    /// </summary>
+    public PlanMeterTopUpResponse? TopUp { get; init; }
+}
+
+public sealed class PlanMeterTopUpResponse
+{
+    public bool Enabled { get; init; }
+
+    public List<PlanMeterTopUpPriceResponse> UnitPrices { get; init; } = [];
+
+    public decimal MinQuantity { get; init; }
+
+    public decimal MaxQuantity { get; init; }
+
+    /// <summary>"Periodic", "CarryForward" or "Never", read for a grant.</summary>
+    public string ExpiryPolicy { get; init; } = string.Empty;
+
+    public int? TaxRateBasisPoints { get; init; }
+
+    /// <summary>"Exclusive" or "Inclusive". Null when untaxed.</summary>
+    public string? TaxMode { get; init; }
+}
+
+public sealed class PlanMeterTopUpPriceResponse
+{
+    public string CurrencyCode { get; init; } = string.Empty;
+
+    public long UnitAmountMinor { get; init; }
 }
 
 /// <summary>One pace, with its enums as names like every other meter enum here.</summary>

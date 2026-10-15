@@ -4,7 +4,7 @@ import { Label } from "@/components/ui-kits/label/label";
 import { Switch } from "@/components/ui-kits/switch/switch";
 import type { SubscriptionPlan } from "../../models/subscription-plan.model";
 import { formatPrice } from "../../utilities/subscription-format";
-import { eligiblePrices, type CampaignDraft } from "./campaign-draft";
+import { eligiblePrices, purchasableMeters, type CampaignDraft } from "./campaign-draft";
 
 const toggle = (values: string[], value: string) =>
   values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value];
@@ -88,6 +88,11 @@ export const StepEligibility = ({
         </div>
       </fieldset>
 
+      {draft.scope === "CreditPurchase" && (
+        <CreditEligibility draft={draft} plans={plans} onChange={onChange} />
+      )}
+
+      {draft.scope === "Subscription" && (
       <fieldset className="space-y-1">
         <legend className="text-sm font-medium">
           Prices {isCampaign ? "" : "(optional)"}
@@ -115,6 +120,7 @@ export const StepEligibility = ({
           ))}
         </div>
       </fieldset>
+      )}
 
       {isCampaign && (
         <>
@@ -229,5 +235,65 @@ export const StepEligibility = ({
         </div>
       )}
     </div>
+  );
+};
+
+/**
+ * What a credit-purchase code is limited to beyond its plans: the meters it may be used on, and
+ * whether each organization may use it once. Prices are not offered, because a credit purchase is
+ * not charged against a subscription price and a code limited to one could never be redeemed.
+ */
+const CreditEligibility = ({
+  draft,
+  plans,
+  onChange,
+}: {
+  draft: CampaignDraft;
+  plans: SubscriptionPlan[];
+  onChange: (next: Partial<CampaignDraft>) => void;
+}) => {
+  const meters = purchasableMeters(draft, plans);
+
+  return (
+    <>
+      <fieldset className="space-y-1">
+        <legend className="text-sm font-medium">Meters (optional)</legend>
+        <p className="text-xs text-muted-foreground">
+          Limit the code to credits for these meters. Leave all unticked for any meter whose credits
+          are on sale.
+        </p>
+        <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
+          {meters.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No plan this code applies to sells credits yet.
+            </p>
+          )}
+          {meters.map((meter) => (
+            <label key={meter.meterKey} className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={draft.meterKeys.includes(meter.meterKey)}
+                onCheckedChange={() => onChange({ meterKeys: toggle(draft.meterKeys, meter.meterKey) })}
+                aria-label={`Restrict to ${meter.label} credits`}
+              />
+              <span>{meter.label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+        <div>
+          <p className="text-sm font-medium">One redemption per organization</p>
+          <p className="text-xs text-muted-foreground">
+            Each organization can use this code on one credit purchase.
+          </p>
+        </div>
+        <Switch
+          checked={draft.oneUsePerOrganization}
+          onCheckedChange={(checked) => onChange({ oneUsePerOrganization: checked === true })}
+          aria-label="One redemption per organization"
+        />
+      </div>
+    </>
   );
 };

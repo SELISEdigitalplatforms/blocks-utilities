@@ -191,8 +191,41 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
         OverageAllowed = meter.OverageAllowed,
         OveragePricing = meter.OverageAllowed
             ? ResolveOveragePricing(meter, subscription.CurrencyCode)
-            : null
+            : null,
+        CreditPurchase = ResolveCreditPurchase(meter, subscription.CurrencyCode)
     };
+
+    /// <summary>
+    /// What one bought credit costs this subscriber, or null when this meter's credits are not for
+    /// sale in their currency.
+    /// </summary>
+    /// <remarks>
+    /// Read from the subscription's own snapshot, which is what a purchase is quoted from. A
+    /// purchase is only ever charged in the subscription's currency, so a price in any other
+    /// currency is not an offer this subscriber can take up and is not shown.
+    /// </remarks>
+    private CreditPurchaseTermsResponse? ResolveCreditPurchase(PlanMeter meter, string currencyCode)
+    {
+        if (meter.TopUp is not { Enabled: true } topUp ||
+            topUp.PriceIn(currencyCode) is not { } price ||
+            !MinorUnitMajorAmountFormatter.TryFormat(
+                _currency, price.UnitAmountMinor, currencyCode, out var amount))
+        {
+            return null;
+        }
+
+        return new CreditPurchaseTermsResponse
+        {
+            CurrencyCode = currencyCode,
+            UnitAmountMinor = price.UnitAmountMinor,
+            UnitAmount = amount,
+            MinQuantity = topUp.MinQuantity,
+            MaxQuantity = topUp.MaxQuantity,
+            ExpiryPolicy = topUp.ExpiryPolicy.ToString(),
+            TaxRateBasisPoints = topUp.TaxRateBasisPoints,
+            TaxMode = topUp.TaxMode?.ToString()
+        };
+    }
 
     private OveragePricingResponse? ResolveOveragePricing(PlanMeter meter, string currencyCode)
     {

@@ -450,9 +450,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             // ponytail: a cut-short window's frozen allowance is the plan's per-place figure, so a
             // carry-forward place's own leftovers are not frozen with it. Freeze per place if a
             // user-wise meter ever carries forward.
+            // The frozen figure is the plan's alone; this place's own credits are added back, or
+            // usage they paid for would be billed again as overage.
             var placeAllowance = frozenAllowances is not null &&
                                  frozenAllowances.TryGetValue(meter.MeterKey, out var frozen)
-                ? frozen
+                ? frozen + (counter?.PurchasedConsumed ?? 0)
                 : await _allowances.EffectiveAsync(
                     subscription, meter, period, counter, cancellationToken, seat);
 
@@ -565,9 +567,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 // before the crash. A legacy PendingUsagePeriod queued before this snapshot existed
                 // carries no frozenAllowances entry, so it falls back to the live resolver exactly as
                 // before — same behavior, not a regression for documents already in flight.
+                // Credits drawn up to the close are added back to the frozen plan figure, as above.
                 allowance = frozenAllowances is not null &&
                                  frozenAllowances.TryGetValue(meter.MeterKey, out var frozenAllowance)
-                    ? frozenAllowance
+                    ? frozenAllowance + (counter?.PurchasedConsumed ?? 0)
                     : await _allowances.EffectiveAsync(
                         subscription, meter, period, counter, cancellationToken);
                 overageQuantity = Math.Max(0, balance - allowance);

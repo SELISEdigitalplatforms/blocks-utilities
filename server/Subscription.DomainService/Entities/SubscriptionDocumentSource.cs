@@ -116,6 +116,12 @@ public sealed class SubscriptionDocumentSource
     public long CreditedMinor { get; set; }
 
     /// <summary>
+    /// The promotional code a credit purchase used. The subscription's own code is what every other
+    /// charge names, and it says nothing about a one-off purchase made with a different one.
+    /// </summary>
+    public string? PromotionCode { get; set; }
+
+    /// <summary>
     /// Who acted, as their identity provider described them at the moment they acted.
     /// </summary>
     /// <remarks>

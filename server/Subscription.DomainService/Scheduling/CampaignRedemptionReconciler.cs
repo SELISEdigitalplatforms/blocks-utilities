@@ -48,19 +48,22 @@ public sealed class CampaignRedemptionReconciler
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<CampaignRedemptionReconciler> _logger;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionCreditPurchaseRepository? _creditPurchases;
 
     public CampaignRedemptionReconciler(
         ICampaignRedemptionRepository redemptions,
         ISubscriptionRepository subscriptions,
         IOptionsMonitor<SubscriptionOptions> options,
         ILogger<CampaignRedemptionReconciler> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionCreditPurchaseRepository? creditPurchases = null)
     {
         _redemptions = redemptions;
         _subscriptions = subscriptions;
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _creditPurchases = creditPurchases;
     }
 
     /// <summary>
@@ -82,6 +85,19 @@ public sealed class CampaignRedemptionReconciler
             if (cancellationToken.IsCancellationRequested)
             {
                 return resolved;
+            }
+
+            // A credit purchase's row names its purchase record, not a subscription, so it is
+            // settled by what happened to the purchase. Looking it up as a subscription would find
+            // nothing and defer it forever, holding a one-use code nobody can then redeem.
+            if (redemption.CreditPurchaseId is { } purchaseId)
+            {
+                if (await SettleCreditPurchaseAsync(tenantId, redemption, purchaseId, now, cancellationToken))
+                {
+                    resolved++;
+                }
+
+                continue;
             }
 
             var subscription = await _subscriptions.GetByIdAsync(
@@ -150,5 +166,43 @@ public sealed class CampaignRedemptionReconciler
         }
 
         return resolved;
+    }
+
+    /// <summary>
+    /// Settles one credit purchase's redemption: redeemed once the card was charged, released once
+    /// the purchase failed, and left for later while it is still in flight or awaiting an operator.
+    /// </summary>
+    private async Task<bool> SettleCreditPurchaseAsync(
+        string tenantId,
+        Entities.CampaignRedemption redemption,
+        string purchaseId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var purchase = _creditPurchases is null
+            ? null
+            : await _creditPurchases.GetAsync(tenantId, purchaseId, cancellationToken);
+
+        switch (purchase?.Status)
+        {
+            case CreditPurchaseStatus.Charged or CreditPurchaseStatus.Finalized:
+                await _redemptions.TryMarkRedeemedAsync(
+                    tenantId, redemption.DiscountId, redemption.SubscriptionId,
+                    purchase!.LastUpdatedAtUtc, cancellationToken);
+                return true;
+
+            case CreditPurchaseStatus.Failed:
+                await _redemptions.TryReleaseAsync(
+                    tenantId, redemption.DiscountId, redemption.SubscriptionId, now,
+                    cancellationToken);
+                return true;
+
+            default:
+                // Pending, waiting on an operator, or not readable here. The purchase is written
+                // before the code is reserved, so a missing one is a lookup that failed, not a
+                // purchase that never happened, and releasing on it could let the code be used twice.
+                await _redemptions.DeferAsync(tenantId, redemption.ItemId, now, cancellationToken);
+                return false;
+        }
     }
 }

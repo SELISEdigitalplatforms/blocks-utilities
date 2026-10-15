@@ -22,5 +22,8 @@ public enum SubscriptionChargeKind
     QuantityChange = 4,
 
     /// <summary>Metered overage for a closed usage window.</summary>
-    Usage = 5
+    Usage = 5,
+
+    /// <summary>A one-off purchase of meter credits. See spec 002.</summary>
+    CreditPurchase = 6
 }

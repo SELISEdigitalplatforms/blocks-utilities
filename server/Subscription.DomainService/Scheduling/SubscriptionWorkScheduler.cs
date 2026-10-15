@@ -291,6 +291,9 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         // waiting out a cancellation should not have that resolved any later than a renewal would.
         SubscriptionWorkType.CancellationEffective => 35,
         SubscriptionWorkType.ActivationRecovery => 40,
+        // Beside activation recovery and for the same reason: a stuck purchase may be a
+        // subscriber who has paid for credits they have not been given.
+        SubscriptionWorkType.CreditPurchaseRecovery => 45,
         SubscriptionWorkType.UsageInvoiceCharge => 50,
         SubscriptionWorkType.UsagePeriodClosure => 60,
         SubscriptionWorkType.OutboxPublication => 70,
@@ -301,6 +304,8 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         // Below every one of those. It repairs a read model that no billing decision reads,
         // and it must never delay work that moves money.
         SubscriptionWorkType.UsageProjectionRefresh => 95,
+        // Bookkeeping: spending already refuses a lapsed grant, so this only tidies stored status.
+        SubscriptionWorkType.CreditGrantMaintenance => 97,
         _ => 100
     };
 }

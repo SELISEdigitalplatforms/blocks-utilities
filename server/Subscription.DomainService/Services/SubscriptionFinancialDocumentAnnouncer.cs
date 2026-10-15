@@ -84,6 +84,45 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
             cancellationToken);
     }
 
+    public async Task AnnounceCreditPurchaseAsync(
+        SubscriptionDetail subscription,
+        string paymentDetailId,
+        FinancialDocumentLine line,
+        string? promotionCode,
+        string correlationId,
+        CancellationToken cancellationToken,
+        FinancialDocumentPerson? initiatedBy = null)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(line);
+
+        if (string.IsNullOrWhiteSpace(paymentDetailId))
+        {
+            return;
+        }
+
+        var source = SubscriptionDocumentSourceFactory.ForCharge(
+            subscription,
+            paymentDetailId,
+            SubscriptionChargeKind.CreditPurchase,
+            null,
+            initiatedBy,
+            _time.GetUtcNow().UtcDateTime,
+            correlationId);
+
+        source.Lines = [line];
+        source.PromotionCode = promotionCode;
+
+        await RecordAsync(subscription, source, cancellationToken);
+
+        await ScheduleAsync(
+            subscription,
+            $"{PaymentWorkKeyPrefix}{paymentDetailId}",
+            paymentDetailId,
+            correlationId,
+            cancellationToken);
+    }
+
     public async Task AnnounceTrialAsync(
         SubscriptionDetail subscription,
         string correlationId,
