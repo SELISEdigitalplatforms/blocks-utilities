@@ -105,7 +105,25 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                                 })
                                 .ToList()
                         })
-                        .ToList()
+                        .ToList(),
+                    TopUp = meter.TopUp is { } topUp
+                        ? new PlanMeterTopUpResponse
+                        {
+                            Enabled = topUp.Enabled,
+                            UnitPrices = topUp.UnitPrices
+                                .Select(price => new PlanMeterTopUpPriceResponse
+                                {
+                                    CurrencyCode = price.CurrencyCode,
+                                    UnitAmountMinor = price.UnitAmountMinor
+                                })
+                                .ToList(),
+                            MinQuantity = topUp.MinQuantity,
+                            MaxQuantity = topUp.MaxQuantity,
+                            ExpiryPolicy = topUp.ExpiryPolicy.ToString(),
+                            TaxRateBasisPoints = topUp.TaxRateBasisPoints,
+                            TaxMode = topUp.TaxMode?.ToString()
+                        }
+                        : null
                 })
                 .ToList(),
             Entitlements = plan.Entitlements

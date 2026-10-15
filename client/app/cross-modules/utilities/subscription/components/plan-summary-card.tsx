@@ -1,4 +1,4 @@
-import { CircleDollarSign, Gauge, Hourglass, Layers, ShieldCheck } from "lucide-react";
+import { CircleDollarSign, Coins, Gauge, Hourglass, Layers, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import type {
@@ -6,6 +6,7 @@ import type {
   SubscriberScopeName,
   TrialDurationKindName,
 } from "../models/subscription-plan.model";
+import { describeCreditTerms, type CreditTermsSummary } from "../utilities/credit-terms-format";
 import { describePace, describePlaces } from "../utilities/member-plan-format";
 import { describeEntitlementMeterMismatch } from "../utilities/plan-consistency";
 import {
@@ -74,6 +75,11 @@ export interface PlanSummaryData {
   }[];
   /** A meter's allowance for the length of the trial, replacing the plan's own. */
   trialGrants: { meterKey: string; includedQuantity: number }[];
+  /**
+   * Credits subscribers can buy on top of the allowance, one entry per meter that has terms.
+   * Optional so a caller that predates credits keeps compiling and simply shows none.
+   */
+  credits?: CreditTermsSummary[];
 }
 
 /**
@@ -219,6 +225,26 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
             </div>
           </div>
         )}
+
+        {plan.credits?.length ? (
+          <div className="flex items-start gap-2 text-sm">
+            <Coins className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
+            <div className="space-y-0.5">
+              <p className="font-medium">Extra credits</p>
+              {plan.credits.map((credit, index) => (
+                <p key={index}>
+                  <span className="font-medium">
+                    {plan.meters.find((meter) => meter.meterKey === credit.meterKey)?.displayName ||
+                      credit.meterKey ||
+                      "Meter not chosen"}
+                    :
+                  </span>{" "}
+                  {describeCreditTerms(credit)}
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {hasEntitlements && (
           <div className="flex items-start gap-2 text-sm">

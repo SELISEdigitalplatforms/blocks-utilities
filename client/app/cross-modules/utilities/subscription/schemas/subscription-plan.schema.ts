@@ -17,6 +17,7 @@ import {
   METER_QUANTITY_MAX_SCALE,
 } from "../utilities/meter-quantity";
 import { MAX_PACE_LIMITS, spanHours } from "../utilities/pace-limits";
+import { TAX_MODES } from "../utilities/subscription-tax";
 import {
   isRepresentableInMinorUnits,
   minorUnitExponent,
@@ -161,6 +162,103 @@ const meterSchema = z.object({
     .max(MAX_PACE_LIMITS, `A meter takes at most ${MAX_PACE_LIMITS} limits.`)
     .default([]),
 });
+
+/**
+ * Credits for one meter, as the builder edits them.
+ *
+ * A top-level list keyed by meter rather than a field on each meter, because the plan builder
+ * sends a failed save to the step that owns the field, and meters belong to the pricing step while
+ * credits have a step of their own. Merged into each meter's `topUp` on submit.
+ *
+ * Prices in the currency's own units, like the overage tiers, and converted on submit.
+ */
+// Checked in the credit's refinement, and only while the credits are on sale: paused terms keep a
+// half-written row as it is, as the server does.
+const meterCreditPriceSchema = z.object({
+  currencyCode: z.string().trim().toUpperCase(),
+  unitAmount: z.coerce.number(),
+});
+
+const meterCreditSchema = z
+  .object({
+    meterKey: key("meter"),
+    enabled: z.boolean(),
+    prices: z.array(meterCreditPriceSchema),
+    minQuantity: z.coerce.number().int("Credits are bought in whole numbers.").min(1).default(1),
+    maxQuantity: blankAsUndefined(
+      z.coerce.number().int("Credits are bought in whole numbers.").positive().optional(),
+    ),
+    /** METER_RESET_POLICY, read for a grant: 0 ends with the window, 2 carries forward, 1 never ends. */
+    expiryPolicy: z.coerce.number().int().min(0).max(2).default(0),
+    taxPercent: blankAsUndefined(
+      z.coerce
+        .number()
+        .min(0, "A tax rate cannot be negative.")
+        .max(100, "A tax rate cannot exceed 100%.")
+        .optional(),
+    ),
+    taxMode: z.enum(TAX_MODES).default("Exclusive"),
+  })
+  .superRefine((credit, context) => {
+    // Paused credits are saved as they are: an author switching sales off must not be stopped by
+    // a half-written price. The server applies the same rule.
+    if (!credit.enabled) {
+      return;
+    }
+
+    if (credit.prices.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["prices"],
+        message: "Add a price in at least one currency.",
+      });
+    }
+
+    const currencies = credit.prices.map((price) => price.currencyCode);
+
+    currencies.forEach((currency, index) => {
+      if (currencies.indexOf(currency) !== index) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prices", index, "currencyCode"],
+          message: "Each currency may have only one credit price.",
+        });
+      }
+    });
+
+    credit.prices.forEach((price, index) => {
+      if (price.currencyCode.length !== 3) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prices", index, "currencyCode"],
+          message: "Use a three-letter currency code.",
+        });
+      }
+
+      if (!(price.unitAmount > 0)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prices", index, "unitAmount"],
+          message: "A credit must cost something. Grant credits instead.",
+        });
+      } else if (!isRepresentableInMinorUnits(price.unitAmount, price.currencyCode)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prices", index, "unitAmount"],
+          message: `${price.currencyCode} takes at most ${minorUnitExponent(price.currencyCode)} decimal places.`,
+        });
+      }
+    });
+
+    // Required: it is what bounds one charge to a stored card.
+    if (credit.maxQuantity === undefined || credit.maxQuantity < credit.minQuantity) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["maxQuantity"],
+        message: "Set the largest purchase allowed, no smaller than the smallest.",
+      });
+    }
+  });
 
 /**
  * One volume band, as the builder edits it.
@@ -371,6 +469,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       meters: z.array(meterSchema),
       entitlements: z.array(entitlementSchema),
       trialGrants: z.array(trialGrantSchema),
+      meterCredits: z.array(meterCreditSchema).default([]),
       prices: z.array(subscriptionPriceFieldsSchema),
     })
     .superRefine((plan, context) => {
@@ -435,6 +534,26 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       }
 
       const meterKeys = new Set(plan.meters.map((meter) => meter.meterKey));
+
+      // Credits name a meter the plan defines, once each: a second entry for one meter would leave
+      // which terms apply to whichever the server read first.
+      plan.meterCredits.forEach((credit, index) => {
+        if (!meterKeys.has(credit.meterKey)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meterCredits", index, "meterKey"],
+            message: "Choose a meter this plan defines.",
+          });
+        } else if (
+          plan.meterCredits.findIndex((other) => other.meterKey === credit.meterKey) !== index
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["meterCredits", index, "meterKey"],
+            message: "This meter already has credit terms.",
+          });
+        }
+      });
 
       plan.meters.forEach((meter, index) => {
         // A cap is what stops a dormant subscription banking allowance forever, so it is
@@ -738,6 +857,7 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   meters: [],
   entitlements: [],
   trialGrants: [],
+  meterCredits: [],
   // One empty row, not none: a plan needs a price, and an admin who never notices the section is
   // the one who ends up with a plan nobody can subscribe to.
   prices: [defaultSubscriptionPriceFormValues],

@@ -41,6 +41,7 @@ import { SubscriptionPlanPageHeader } from "../subscription-plan-page-header";
 import { PlanBuilderActions } from "./plan-builder-actions";
 import { PlanBuilderProgress } from "./plan-builder-progress";
 import { previewStickyTop, useStickyStepper } from "./use-sticky-stepper";
+import { StepCredits } from "./step-credits";
 import { StepIdentity } from "./step-identity";
 import { StepPricingModel } from "./step-pricing-model";
 import { StepReview } from "./step-review";
@@ -51,8 +52,9 @@ const STEPS: Steps = [
   { id: 1, title: "Identity" },
   { id: 2, title: "Pricing model" },
   { id: 3, title: "What the plan grants" },
-  { id: 4, title: "Trial" },
-  { id: 5, title: "Review" },
+  { id: 4, title: "Credits" },
+  { id: 5, title: "Trial" },
+  { id: 6, title: "Review" },
 ];
 
 export interface PlanBuilderProps {
@@ -197,6 +199,22 @@ const PlanBuilderWizard = ({
     trialGrants: (draft.trialGrants ?? []).map((grant) => ({
       meterKey: grant?.meterKey ?? "",
       includedQuantity: grant?.includedQuantity ?? 0,
+    })),
+    // In minor units, as a stored plan carries them, so the card formats both the same way.
+    credits: (draft.meterCredits ?? []).map((credit) => ({
+      meterKey: credit?.meterKey ?? "",
+      enabled: credit?.enabled ?? false,
+      unitPrices: (credit?.prices ?? [])
+        .filter((price) => price?.currencyCode && price.currencyCode.length === 3)
+        .map((price) => ({
+          currencyCode: price!.currencyCode!,
+          unitAmountMinor: toMinorUnits(Number(price!.unitAmount ?? 0), price!.currencyCode!),
+        })),
+      minQuantity: Number(credit?.minQuantity ?? 1),
+      maxQuantity: credit?.maxQuantity === undefined ? null : Number(credit.maxQuantity),
+      expiryPolicy: credit?.expiryPolicy ?? 0,
+      taxRateBasisPoints: credit?.taxPercent ? toBasisPoints(Number(credit.taxPercent)) : null,
+      taxMode: credit?.taxPercent ? credit.taxMode : null,
     })),
     prices: (draft.prices ?? []).map((price) => ({
       currencyCode: price?.currencyCode ?? "USD",
@@ -346,8 +364,9 @@ const PlanBuilderWizard = ({
                       />
                     )}
                     {currentStep === 3 && <StepUsageLimits />}
-                    {currentStep === 4 && <StepTrial />}
-                    {currentStep === 5 && <StepReview plan={summary} />}
+                    {currentStep === 4 && <StepCredits />}
+                    {currentStep === 5 && <StepTrial />}
+                    {currentStep === 6 && <StepReview plan={summary} />}
                   </div>
 
                   {submissionError && (

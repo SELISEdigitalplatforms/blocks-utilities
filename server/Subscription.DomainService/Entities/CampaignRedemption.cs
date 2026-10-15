@@ -60,6 +60,18 @@ public sealed class CampaignRedemption
     /// </summary>
     public bool OneUsePerOrganization { get; set; }
 
+    /// <summary>
+    /// The credit purchase this redemption was made for, or null for a subscription's.
+    /// </summary>
+    /// <remarks>
+    /// A credit purchase redeems a code too, and its row carries the purchase record's id in
+    /// <see cref="SubscriptionId"/> rather than the subscription's: a subscription can buy credits
+    /// many times, and keyed by the subscription a second purchase would read as a retry of the
+    /// first and be let through a one-use code. Set so the reconciliation sweep settles the row
+    /// from the purchase's status instead of looking for a subscription by that id.
+    /// </remarks>
+    public string? CreditPurchaseId { get; set; }
+
     public DateTime ReservedAtUtc { get; set; }
     public DateTime? RedeemedAtUtc { get; set; }
     public DateTime? ReleasedAtUtc { get; set; }

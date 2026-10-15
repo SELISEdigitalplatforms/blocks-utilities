@@ -41,11 +41,14 @@ export const PLAN_BUILDER_STEP_OF_FIELD: Record<
   // 3 — What the plan grants
   entitlements: 3,
 
-  // 4 — Trial
-  trialDurationKind: 4,
-  trialDurationCount: 4,
-  trialRequiresPaymentMethod: 4,
-  trialGrants: 4,
+  // 4 — Credits
+  meterCredits: 4,
+
+  // 5 — Trial
+  trialDurationKind: 5,
+  trialDurationCount: 5,
+  trialRequiresPaymentMethod: 5,
+  trialGrants: 5,
 };
 
 /** A field path this form can focus. */
@@ -56,8 +59,9 @@ export const PLAN_BUILDER_STEP_TITLES: Record<number, string> = {
   1: "Identity",
   2: "Pricing model",
   3: "What the plan grants",
-  4: "Trial",
-  5: "Review",
+  4: "Credits",
+  5: "Trial",
+  6: "Review",
 };
 
 /**

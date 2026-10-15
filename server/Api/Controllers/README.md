@@ -44,7 +44,7 @@ A resource with no row answers 403 for every endpoint that names it.
 | `blocks-utilities::payment-provider::read-encryption` | `GET /payments/providers/encryption` |
 | `blocks-utilities::payment-provider::manage-encryption` | `POST /payments/providers/encryption/re-encrypt` |
 | `blocks-utilities::subscription::read` | `GET /subscriptions/current`, `GET /subscriptions/member-based`, `GET /subscriptions/{id}/members`, `GET /subscriptions/{id}/audit`, every `preview` |
-| `blocks-utilities::subscription::manage` | subscribe, cancel, change plan, change quantity, payment-method setup, `POST /subscriptions/{id}/members`, `DELETE /subscriptions/{id}/members/{userId}` |
+| `blocks-utilities::subscription::manage` | subscribe, cancel, change plan, change quantity, payment-method setup, `POST /subscriptions/{id}/members`, `DELETE /subscriptions/{id}/members/{userId}`, every `/subscriptions/{id}/credits` endpoint including its preview and lists |
 | `blocks-utilities::subscription::read-invoice` | `GET /subscriptions/invoices`, `GET /subscriptions/invoices/{id}/pdf` |
 | `blocks-utilities::subscription::manage-invoice` | `POST /subscriptions/invoices/{id}/resend` |
 | `blocks-utilities::entitlement::read` | `GET /entitlements`, `GET /entitlements/{key}`, `GET /subscriptions/mine` |

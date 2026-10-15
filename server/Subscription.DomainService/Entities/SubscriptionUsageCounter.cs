@@ -71,6 +71,24 @@ public sealed class SubscriptionUsageCounter
     /// </summary>
     public decimal? LimitSnapshot { get; set; }
 
+    /// <summary>
+    /// How much of this window's balance was paid for with bought or granted credits rather than
+    /// the plan's allowance. Zero on every counter written before credits existed.
+    /// </summary>
+    /// <remarks>
+    /// Raised by the recording that drew on a credit grant, in a write of its own after the balance
+    /// moved, and lowered again if that recording is refused. It is what keeps the bought share of
+    /// the balance from being billed a second time as overage: see
+    /// <see cref="Utilities.MeterAllowance.Effective"/>, which adds it to the frozen allowance for
+    /// every caller that measures overage.
+    /// <para>
+    /// Kept apart from <see cref="LimitSnapshot"/> because the two mean different things to a carry-
+    /// forward meter. Only the plan's own unused allowance rolls into the next window; credits are
+    /// carried by their grants, never by the counter.
+    /// </para>
+    /// </remarks>
+    public decimal PurchasedConsumed { get; set; }
+
     /// <summary>Threshold percentages already reported. The deduplication authority for alerts.</summary>
     public List<int> NotifiedThresholds { get; set; } = [];
 

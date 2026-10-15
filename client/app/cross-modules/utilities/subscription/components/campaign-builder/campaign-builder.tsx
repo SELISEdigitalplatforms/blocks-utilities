@@ -13,6 +13,7 @@ import {
   stepProblems,
   toCreateDiscountRequest,
   withCampaignKind,
+  withScope,
   type CampaignDraft,
   type StepId,
 } from "./campaign-draft";
@@ -66,7 +67,11 @@ const CampaignBuilderWizard = ({
     // and its two required flags for a free month, a cleared entitlement override for a
     // first-year discount) -- see withCampaignKind. Every other field is a plain merge.
     setDraft((current) =>
-      next.campaignKind !== undefined ? withCampaignKind(current, next.campaignKind) : { ...current, ...next },
+      next.scope !== undefined
+        ? withScope(current, next.scope)
+        : next.campaignKind !== undefined
+          ? withCampaignKind(current, next.campaignKind)
+          : { ...current, ...next },
     );
   };
 

@@ -66,5 +66,11 @@ public enum SubscriptionWorkType
     /// Bookkeeping, not money. Priority sits below every work type that can charge a customer.
     /// </para>
     /// </remarks>
-    UsageProjectionRefresh = 10
+    UsageProjectionRefresh = 10,
+
+    /// <summary>Finishing or failing credit purchases a crash left at Pending or Charged.</summary>
+    CreditPurchaseRecovery = 11,
+
+    /// <summary>Marking credit grants expired or forfeited once they have lapsed.</summary>
+    CreditGrantMaintenance = 12
 }

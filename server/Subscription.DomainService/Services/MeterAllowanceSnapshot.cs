@@ -65,8 +65,15 @@ public static class MeterAllowanceSnapshot
                      planMeter => planMeter.ResetPolicy != MeterResetPolicy.Never))
         {
             var counter = counters.GetValueOrDefault(meter.MeterKey);
-            snapshot[meter.MeterKey] = await allowances.EffectiveAsync(
+            var effective = await allowances.EffectiveAsync(
                 subscription, meter, period, counter, cancellationToken);
+
+            // The plan's figure alone. Credits keep being drawn until the window actually closes,
+            // and a user-wise meter's places each draw their own, so rating adds every counter's
+            // own PurchasedConsumed back at close rather than trusting a total frozen here.
+            snapshot[meter.MeterKey] = counter?.LimitSnapshot is null
+                ? effective
+                : effective - counter.PurchasedConsumed;
         }
 
         return snapshot;

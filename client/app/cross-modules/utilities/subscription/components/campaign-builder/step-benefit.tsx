@@ -156,6 +156,9 @@ export const StepBenefit = ({
 
       {!isCampaign ? (
         <div className="space-y-5">
+          {/* A credit purchase is one charge, so there is no later period for a duration to reach. */}
+          {draft.scope !== "CreditPurchase" && (
+            <>
           {/* On its own row. Sharing one with a date was what made this field read as part of the
               availability window, when it counts charges rather than bounding a period of time. */}
           <div className="space-y-1.5">
@@ -175,6 +178,8 @@ export const StepBenefit = ({
               limit.
             </p>
           </div>
+            </>
+          )}
           {/* The two availability dates are one decision, so they sit as one pair. They stack
               below sm, where a datetime-local control has no room to share a row. */}
           <div className="grid gap-5 sm:grid-cols-2">

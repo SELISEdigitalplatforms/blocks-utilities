@@ -108,6 +108,21 @@ public sealed class SubscriptionLifecycleEvent
     /// <summary>Set on member events: the organization's name as IAM gave it.</summary>
     public string? OrganizationName { get; set; }
 
+    /// <summary>Set on credit events: the grant the event is about.</summary>
+    public string? CreditGrantId { get; set; }
+
+    /// <summary>Set on credit events: the seat the credits belong to, or null for the shared pool.</summary>
+    public int? SeatNumber { get; set; }
+
+    /// <summary>Set on credit events: how many credits the event added or moved.</summary>
+    public decimal? CreditQuantity { get; set; }
+
+    /// <summary>Set on credit events: what the grant holds afterwards.</summary>
+    public decimal? CreditRemaining { get; set; }
+
+    /// <summary>Set on a move: the seat the credits came from, or null for the shared pool.</summary>
+    public int? FromSeatNumber { get; set; }
+
     public string CorrelationId { get; set; } = string.Empty;
 
     public DateTime OccurredAtUtc { get; set; }

@@ -50,6 +50,7 @@ vi.mock("./step-pricing-model", () => ({
 vi.mock("./step-usage-limits", () => ({
   StepUsageLimits: () => <div data-testid="step-body" />,
 }));
+vi.mock("./step-credits", () => ({ StepCredits: () => <div data-testid="step-body" /> }));
 vi.mock("./step-trial", () => ({ StepTrial: () => <div data-testid="step-body" /> }));
 vi.mock("./step-review", () => ({ StepReview: () => <div data-testid="step-body" /> }));
 vi.mock("../plan-summary-card", () => ({
@@ -82,7 +83,7 @@ const renderBuilder = (defaultValues: CreateSubscriptionPlanFormValues) =>
 
 /** Walks to the review step, where the only way on is Save. */
 const goToReview = async (user: ReturnType<typeof userEvent.setup>) => {
-  for (let step = 1; step < 5; step++) {
+  for (let step = 1; step < 6; step++) {
     await user.click(screen.getByRole("button", { name: /next/i }));
   }
 

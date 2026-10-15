@@ -42,6 +42,7 @@ import { useWithdrawCancellation } from "../hooks/use-cancel-subscription";
 import { useStartPaymentMethodSetup } from "../hooks/use-start-payment-method-setup";
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
 import { OverageTermsSection } from "../components/overage-terms-section";
+import { CreditsCard } from "../components/credits-card";
 import { PaymentOutcomeDialog } from "../components/payment-outcome-dialog";
 import { RunDueJobsDialog } from "../components/run-due-jobs-dialog";
 import { SimulatedPlanCard } from "../components/simulated-plan-card";
@@ -432,6 +433,10 @@ export const SubscriptionSimulationPage = () => {
 
       {currentSubscription && (
         <OverageTermsSection subscription={currentSubscription} organizationId={organizationScope} />
+      )}
+
+      {currentSubscription && (
+        <CreditsCard subscription={currentSubscription} organizationId={organizationScope} />
       )}
 
       {(isEntitled || memberPlans.length > 0) && (

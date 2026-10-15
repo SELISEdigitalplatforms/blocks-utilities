@@ -17,7 +17,7 @@ import { defaultSubscriptionPlanFormValues } from "../schemas/subscription-plan.
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
 import { toMajorUnits, toMinorUnits } from "./subscription-format";
-import { fromBasisPoints } from "./subscription-tax";
+import { fromBasisPoints, toBasisPoints } from "./subscription-tax";
 
 /**
  * What a plan is made of, in the shape both creating and editing send. Everything the two have in
@@ -89,6 +89,7 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
       quantity: limit.quantity ?? 0,
       behaviour: limit.behaviour,
     })),
+    topUp: toTopUp(values.meterCredits.find((credit) => credit.meterKey === meter.meterKey)),
   })),
   entitlements: values.entitlements.map((entitlement) => ({
     key: entitlement.key.trim(),
@@ -102,6 +103,32 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     includedQuantity: grant.includedQuantity,
   })),
 });
+
+/**
+ * One meter's credit terms on the wire, or nothing for a meter whose credits were never set up.
+ *
+ * Credits authored for a meter since removed from the plan have no meter to land on and are
+ * dropped here, which is what the author asked for by removing the meter.
+ */
+const toTopUp = (credit: CreateSubscriptionPlanFormValues["meterCredits"][number] | undefined) =>
+  credit
+    ? {
+        enabled: credit.enabled,
+        // A row with no currency yet can only be a paused draft's; there is no price to keep.
+        unitPrices: credit.prices
+          .filter((price) => price.currencyCode.length === 3)
+          .map((price) => ({
+            currencyCode: price.currencyCode,
+            unitAmountMinor: toMinorUnits(price.unitAmount, price.currencyCode),
+          })),
+        minQuantity: credit.minQuantity,
+        maxQuantity: credit.maxQuantity ?? 0,
+        expiryPolicy: credit.expiryPolicy,
+        // A mode only beside a rate, exactly as a price's tax is sent.
+        taxRateBasisPoints: credit.taxPercent ? toBasisPoints(credit.taxPercent) : undefined,
+        taxMode: credit.taxPercent ? credit.taxMode : undefined,
+      }
+    : undefined;
 
 export const toCreatePlanRequest = (
   values: CreateSubscriptionPlanFormValues,
@@ -242,6 +269,25 @@ export const planToFormValues = (
     meterKey: grant.meterKey,
     includedQuantity: grant.includedQuantity,
   })),
+  // Read back in full, paused ones included: an edit rewrites every meter, and terms the form did
+  // not reopen would be deleted by the next edit of anything else on the plan.
+  meterCredits: plan.meters
+    .filter((meter) => meter.topUp)
+    .map((meter) => ({
+      meterKey: meter.meterKey,
+      enabled: meter.topUp!.enabled,
+      prices: meter.topUp!.unitPrices.map((price) => ({
+        currencyCode: price.currencyCode,
+        unitAmount: toMajorUnits(price.unitAmountMinor, price.currencyCode),
+      })),
+      minQuantity: meter.topUp!.minQuantity,
+      maxQuantity: meter.topUp!.maxQuantity || undefined,
+      expiryPolicy: resetPolicyValue(meter.topUp!.expiryPolicy),
+      taxPercent: meter.topUp!.taxRateBasisPoints
+        ? fromBasisPoints(meter.topUp!.taxRateBasisPoints)
+        : undefined,
+      taxMode: meter.topUp!.taxMode ?? "Exclusive",
+    })),
   prices: includePrices ? plan.prices.map(planPriceToFormValues) : [],
 });
 

@@ -98,6 +98,12 @@ public static class ApplicationServiceCollectionExtensions
             CampaignRedemptionRepository>();
         services.AddSingleton<ITrialUsageRepository, TrialUsageRepository>();
         services.AddSingleton<
+            ISubscriptionCreditGrantRepository,
+            SubscriptionCreditGrantRepository>();
+        services.AddSingleton<
+            ISubscriptionCreditPurchaseRepository,
+            SubscriptionCreditPurchaseRepository>();
+        services.AddSingleton<
             ISubscriptionAssignmentRepository,
             SubscriptionAssignmentRepository>();
         services.AddScoped<ISubscriptionMemberService, SubscriptionMemberService>();
@@ -203,6 +209,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentIssueWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, FinancialDocumentDeliveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsageProjectionRefreshWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, CreditPurchaseRecoveryWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, CreditGrantMaintenanceWorkHandler>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
@@ -245,6 +253,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddTransient<
             IValidator<PreviewUsageOverageRequest>,
             PreviewUsageOverageRequestValidator>();
+        services.AddTransient<IValidator<CreditPurchaseRequest>, CreditPurchaseRequestValidator>();
+        services.AddTransient<IValidator<GrantCreditsRequest>, GrantCreditsRequestValidator>();
+        services.AddTransient<IValidator<MoveCreditsRequest>, MoveCreditsRequestValidator>();
 
         // Scoped: these read the caller's context, which belongs to one request.
         services.AddScoped<
@@ -252,6 +263,8 @@ public static class ApplicationServiceCollectionExtensions
             SubscriptionContextResolver>();
         services.AddScoped<IPlanCatalogueService, PlanCatalogueService>();
         services.AddScoped<IDiscountCatalogueService, DiscountCatalogueService>();
+        services.AddScoped<ISubscriptionCreditService, SubscriptionCreditService>();
+        services.AddScoped<CreditLedger>();
         services.AddScoped<
             ISubscriptionBillingProfileService,
             SubscriptionBillingProfileService>();
