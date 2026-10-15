@@ -633,6 +633,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     subscription.ItemId, meter.MeterKey, period.Key, seat),
                 out var counter);
 
+            // The credits too, as a recording reports them: what credits already paid for this
+            // window, and what this caller could still spend once the allowance runs out. Without
+            // them a subscriber who bought credits sees only the plan's figure and no sign of them.
             responses.Add(Describe(
                 meter,
                 period,
@@ -640,7 +643,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 await _allowances.EffectiveAsync(
                     subscription, meter, period, counter, cancellationToken, seat),
                 allowed: true,
-                replayed: false));
+                replayed: false,
+                purchasedConsumed: counter?.PurchasedConsumed ?? 0,
+                purchasedRemaining: await LiveCreditsAsync(subscription, meter, seat, cancellationToken)));
         }
 
         return SubscriptionOperationResult<List<UsageResponse>>.Success(responses, correlationId);
@@ -684,6 +689,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         foreach (var document in deduped)
         {
+            // ponytail: the projection does not store PurchasedConsumed, so this mode reports what
+            // is left to spend but not what credits already paid for (Included already counts it).
+            // Store it on SubscriptionUsageCurrent when publishing if a projection reader needs it.
+            var purchasedRemaining = FindMeter(subscription, document.MeterKey) is { } plannedMeter
+                ? await LiveCreditsAsync(subscription, plannedMeter, null, cancellationToken)
+                : null;
+
             results.Add((
                 new UsageResponse
                 {
@@ -700,6 +712,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     Used = document.Used,
                     Remaining = document.Remaining,
                     Overage = document.Overage,
+                    PurchasedRemaining = purchasedRemaining,
                     Replayed = false
                 },
                 document.UpdatedAtUtc));
