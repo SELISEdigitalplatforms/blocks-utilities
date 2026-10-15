@@ -172,9 +172,11 @@ const meterSchema = z.object({
  *
  * Prices in the currency's own units, like the overage tiers, and converted on submit.
  */
+// Checked in the credit's refinement, and only while the credits are on sale: paused terms keep a
+// half-written row as it is, as the server does.
 const meterCreditPriceSchema = z.object({
-  currencyCode: z.string().trim().length(3, "Use a three-letter currency code.").toUpperCase(),
-  unitAmount: z.coerce.number().positive("A credit must cost something. Grant credits instead."),
+  currencyCode: z.string().trim().toUpperCase(),
+  unitAmount: z.coerce.number(),
 });
 
 const meterCreditSchema = z
@@ -225,7 +227,21 @@ const meterCreditSchema = z
     });
 
     credit.prices.forEach((price, index) => {
-      if (!isRepresentableInMinorUnits(price.unitAmount, price.currencyCode)) {
+      if (price.currencyCode.length !== 3) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prices", index, "currencyCode"],
+          message: "Use a three-letter currency code.",
+        });
+      }
+
+      if (!(price.unitAmount > 0)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prices", index, "unitAmount"],
+          message: "A credit must cost something. Grant credits instead.",
+        });
+      } else if (!isRepresentableInMinorUnits(price.unitAmount, price.currencyCode)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["prices", index, "unitAmount"],

@@ -8,6 +8,7 @@ import type {
   SimulatedSubscription,
 } from "../models/subscription-simulation.model";
 import { subscriptionCreditsService } from "../services/subscription-credits.service";
+import { SubscriptionOperationError } from "../services/subscription-simulation.service";
 import { CreditsCard } from "./credits-card";
 
 /**
@@ -144,6 +145,38 @@ describe("the credits card", () => {
     await waitFor(() => expect(service.purchase).toHaveBeenCalledTimes(2));
     const [first, second] = service.purchase.mock.calls.map(([, request]) => request.idempotencyKey);
     expect(first).toBeTruthy();
+    expect(second).toBe(first);
+  });
+
+  const keysAfterFailing = async (failure: Error) => {
+    const user = userEvent.setup();
+    service.previewPurchase.mockResolvedValue(quote);
+    service.purchase.mockRejectedValue(failure);
+    renderCard([meter()]);
+
+    await user.click(screen.getByRole("button", { name: "Buy credits" }));
+    await user.click(screen.getByRole("button", { name: "Get quote" }));
+    await user.click(await screen.findByRole("button", { name: /Buy for/ }));
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: /Buy for/ }));
+
+    await waitFor(() => expect(service.purchase).toHaveBeenCalledTimes(2));
+    return service.purchase.mock.calls.map(([, request]) => request.idempotencyKey);
+  };
+
+  it("buys under a new key after the server declines, so a fixed card is not refused again", async () => {
+    const [first, second] = await keysAfterFailing(
+      new SubscriptionOperationError("Declined.", "card_declined", 422),
+    );
+
+    expect(second).not.toBe(first);
+  });
+
+  it("keeps the key while the server says the charge is still unresolved", async () => {
+    const [first, second] = await keysAfterFailing(
+      new SubscriptionOperationError("No answer.", "subscription_credits_charge_unresolved", 504),
+    );
+
     expect(second).toBe(first);
   });
 

@@ -1180,6 +1180,76 @@ public sealed class SubscriptionUsageRatingProcessorTests
             "the ledger cannot say whose the unmarked entries were, so each place's counter answers");
     }
 
+    /// <remarks>
+    /// Spec 002: a place's bought credits are allowance. A cut-short window rates every place
+    /// against the frozen plan figure, and used to stop there, billing the credits a place had
+    /// already paid for a second time as overage.
+    /// </remarks>
+    [Fact]
+    public async Task A_cut_short_window_does_not_bill_a_places_credit_paid_usage_as_overage()
+    {
+        var subscription = UserWise("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1",
+                MeterAllowances = new Dictionary<string, decimal>(StringComparer.Ordinal)
+                {
+                    ["screening"] = 500,
+                    ["envelope"] = 100
+                }
+            }
+        ];
+        _due = [subscription];
+        var place = PlaceCounter(1, 550);
+        place.LimitSnapshot = 500;
+        place.PurchasedConsumed = 50;
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([place]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TotalAmountMinor.Should().Be(0,
+            "the 50 units past the plan's 500 were paid for with credits the place bought");
+    }
+
+    [Fact]
+    public async Task A_frozen_allowance_holds_the_plans_figure_without_credits_drawn_so_far()
+    {
+        var subscription = NewSubscription("sub-1");
+        var usage = new Mock<ISubscriptionUsageRepository>();
+        usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new SubscriptionUsageCounter
+            {
+                MeterKey = "screening",
+                Balance = 540,
+                LimitSnapshot = 500,
+                PurchasedConsumed = 40
+            }]);
+
+        var snapshot = await MeterAllowanceSnapshot.CaptureAsync(
+            subscription,
+            new BillingPeriod(0, subscription.CurrentUsagePeriodStartUtc, subscription.CurrentUsagePeriodEndUtc, "M20260801T000000Z"),
+            usage.Object,
+            new MeterAllowanceResolver(usage.Object),
+            CancellationToken.None);
+
+        snapshot!["screening"].Should().Be(500,
+            "rating adds each counter's credits back at close; freezing them here would count credits drawn so far twice");
+    }
+
     private static SubscriptionDetail UserWise(string id)
     {
         var subscription = NewSubscription(id);

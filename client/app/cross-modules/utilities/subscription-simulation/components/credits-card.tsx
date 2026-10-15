@@ -22,6 +22,7 @@ import {
   usePreviewCreditPurchase,
   usePurchaseCredits,
 } from "../hooks/use-credits";
+import { SubscriptionOperationError } from "../services/subscription-simulation.service";
 import type {
   CreditGrant,
   CreditQuote,
@@ -37,6 +38,22 @@ const EXPIRY_LABEL: Record<CreditGrant["expiryPolicy"], string> = {
 
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message ? error.message : fallback;
+
+/** Answers that say the charge is still being settled, not that it failed. */
+const UNSETTLED_PURCHASE_CODES = new Set([
+  "subscription_credits_purchase_in_flight",
+  "subscription_credits_charge_unresolved",
+]);
+
+/**
+ * Whether the server answered that this purchase did not go through. A network failure, a 5xx, or
+ * an answer that the charge is still unresolved is not that answer.
+ */
+const isSettledPurchaseFailure = (error: unknown): boolean =>
+  error instanceof SubscriptionOperationError &&
+  error.code !== "unknown" &&
+  !(error.status !== undefined && error.status >= 500) &&
+  !UNSETTLED_PURCHASE_CODES.has(error.code);
 
 /** A blank seat field means the shared pool; anything else must be a seat number. */
 const seatOf = (value: string): number | null => (value.trim() === "" ? null : Number(value));
@@ -253,6 +270,13 @@ const BuyCreditsDialog = ({
       onClose();
     } catch (error) {
       setProblem(errorMessage(error, "The credits could not be bought."));
+
+      // The server replays a failed purchase for its key, so a retry after a declined card needs a
+      // new one. Kept whenever the charge may still have gone through, where a retry under the
+      // same key is exactly what stops it being charged twice.
+      if (isSettledPurchaseFailure(error)) {
+        setIdempotencyKey(crypto.randomUUID());
+      }
     }
   };
 

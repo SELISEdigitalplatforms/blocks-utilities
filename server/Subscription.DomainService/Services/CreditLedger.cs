@@ -194,13 +194,13 @@ public sealed class CreditLedger
         var total = limit + counter.PurchasedConsumed +
             await RemainingAsync(subscription, meter.MeterKey, seatNumber, nowUtc, cancellationToken);
 
-        var retained = counter.NotifiedThresholds
-            .Where(threshold => counter.Balance * 100 >= total * threshold)
+        var cleared = counter.NotifiedThresholds
+            .Where(threshold => counter.Balance * 100 < total * threshold)
             .ToList();
 
-        if (retained.Count != counter.NotifiedThresholds.Count)
+        if (cleared.Count > 0)
         {
-            await _usage.TryRetainThresholdsAsync(subscription.TenantId, counter.ItemId, retained, cancellationToken);
+            await _usage.TryClearThresholdsAsync(subscription.TenantId, counter.ItemId, cleared, cancellationToken);
         }
     }
 

@@ -123,6 +123,29 @@ describe("meter credits in the plan builder", () => {
     expect(createSubscriptionPlanSchema.safeParse(values).success).toBe(true);
   });
 
+  it("saves paused credits holding a price row not yet filled in, and sends no price for it", () => {
+    const values = draft({ ...onSale, enabled: false });
+    values.meterCredits[0].prices.push({ currencyCode: "", unitAmount: 0 });
+
+    const result = createSubscriptionPlanSchema.safeParse(values);
+
+    expect(result.success).toBe(true);
+    expect(toCreatePlanRequest(result.data!).meters[0].topUp?.unitPrices).toEqual([
+      { currencyCode: "USD", unitAmountMinor: 10 },
+    ]);
+  });
+
+  it("still refuses a blank or free price on credits that are on sale", () => {
+    const values = draft(onSale);
+    values.meterCredits[0].prices.push({ currencyCode: "", unitAmount: 0 });
+
+    const result = createSubscriptionPlanSchema.safeParse(values);
+
+    expect(result.error?.issues.map((issue) => issue.path.join("."))).toEqual(
+      expect.arrayContaining(["meterCredits.0.prices.1.currencyCode", "meterCredits.0.prices.1.unitAmount"]),
+    );
+  });
+
   it("refuses two prices in one currency", () => {
     const values = draft(onSale);
     values.meterCredits[0].prices.push({ currencyCode: "USD", unitAmount: 0.2 });

@@ -88,6 +88,20 @@ public sealed class SubscriptionCreditPurchase
     /// </summary>
     public string OrderId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Where the charge was sent, copied from the billing account before charging. The recovery
+    /// sweep replays an unanswered charge to exactly this provider, customer and card: a card
+    /// changed or removed since must not make a charge that went through look like one that never
+    /// happened.
+    /// </summary>
+    public string? ProviderName { get; set; }
+
+    public string? ProviderOrganizationId { get; set; }
+
+    public string? ProviderCustomerId { get; set; }
+
+    public string? StoredPaymentMethodId { get; set; }
+
     public CreditPurchaseStatus Status { get; set; } = CreditPurchaseStatus.Pending;
 
     public string? PaymentId { get; set; }

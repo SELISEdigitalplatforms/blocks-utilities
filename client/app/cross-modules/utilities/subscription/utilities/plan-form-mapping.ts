@@ -114,10 +114,13 @@ const toTopUp = (credit: CreateSubscriptionPlanFormValues["meterCredits"][number
   credit
     ? {
         enabled: credit.enabled,
-        unitPrices: credit.prices.map((price) => ({
-          currencyCode: price.currencyCode,
-          unitAmountMinor: toMinorUnits(price.unitAmount, price.currencyCode),
-        })),
+        // A row with no currency yet can only be a paused draft's; there is no price to keep.
+        unitPrices: credit.prices
+          .filter((price) => price.currencyCode.length === 3)
+          .map((price) => ({
+            currencyCode: price.currencyCode,
+            unitAmountMinor: toMinorUnits(price.unitAmount, price.currencyCode),
+          })),
         minQuantity: credit.minQuantity,
         maxQuantity: credit.maxQuantity ?? 0,
         expiryPolicy: credit.expiryPolicy,

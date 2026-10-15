@@ -328,6 +328,29 @@ public sealed class SubscriptionCreditServiceTests
     }
 
     [Fact]
+    public async Task A_charge_with_no_answer_stays_pending_and_keeps_its_code()
+    {
+        CodeExists(OneUseCreditCode());
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.Timeout, "provider_timeout", "No answer.", "corr-1"));
+
+        var result = await Service().PurchaseAsync(SubscriptionId, Buy(code: "topup20", key: "k1"), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_credits_charge_unresolved");
+        var purchase = _purchases.All.Single();
+        purchase.Status.Should().Be(CreditPurchaseStatus.Pending,
+            "a timeout can follow an authorization; failing it would hide a charge that may still capture");
+        purchase.ProviderName.Should().Be("Adyen", "the sweep replays to the provider the first attempt used");
+        purchase.StoredPaymentMethodId.Should().Be("card-1");
+        _redemptions.Verify(repository => repository.TryReleaseAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never, "releasing the code would let a second purchase use it while the first may have been paid");
+    }
+
+    [Fact]
     public async Task A_one_use_code_is_reserved_per_purchase_and_redeemed_once_charged()
     {
         CodeExists(OneUseCreditCode());
@@ -427,6 +450,44 @@ public sealed class SubscriptionCreditServiceTests
         moved.Remaining.Should().Be(10);
         moved.ExpiresAtUtc.Should().Be(expiry, "moving credits must never extend or shorten them");
         moved.SourceGrantId.Should().Be("g1");
+    }
+
+    [Fact]
+    public async Task A_move_whose_new_grant_cannot_be_stored_gives_the_credits_back()
+    {
+        Seated(seats: 3);
+        _grants.All.Add(LiveGrant("g1", seat: 1, remaining: 30));
+        _grants.InsertFailure = new TimeoutException("store unavailable");
+
+        var act = () => Service().MoveAsync(
+            SubscriptionId,
+            new MoveCreditsRequest { MeterKey = "ai-credit", Quantity = 10, FromSeatNumber = 1, ToSeatNumber = 2 },
+            "corr-1",
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<TimeoutException>();
+        _grants.All.Should().ContainSingle("nothing arrived at the other seat");
+        _grants.All.Single().Remaining.Should().Be(30, "credits taken for a move that failed must not simply vanish");
+    }
+
+    [Fact]
+    public async Task A_caller_that_goes_away_mid_move_does_not_delete_the_credits()
+    {
+        Seated(seats: 3);
+        _grants.All.Add(LiveGrant("g1", seat: 1, remaining: 30));
+        using var gone = new CancellationTokenSource();
+        // The caller goes away the moment the first credit has been taken.
+        _grants.AfterConsume = gone.Cancel;
+
+        await Service().MoveAsync(
+            SubscriptionId,
+            new MoveCreditsRequest { MeterKey = "ai-credit", Quantity = 10, FromSeatNumber = 1, ToSeatNumber = 2 },
+            "corr-1",
+            gone.Token);
+
+        _grants.All.Sum(grant => grant.Remaining).Should().Be(30,
+            "once the first credit is taken, the move finishes; a disconnect must not leave it half done");
+        _grants.All.Should().Contain(grant => grant.SeatNumber == 2 && grant.Remaining == 10);
     }
 
     [Fact]
@@ -531,6 +592,72 @@ public sealed class SubscriptionCreditServiceTests
         await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
 
         purchase.Status.Should().Be(CreditPurchaseStatus.Pending, "its own request may still be about to charge it");
+    }
+
+    [Fact]
+    public async Task A_stripe_purchase_with_no_record_yet_is_replayed_and_finished_when_the_provider_was_paid()
+    {
+        var purchase = StripePurchase();
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Success("pay-stripe", "corr-1"));
+
+        await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        purchase.Status.Should().Be(CreditPurchaseStatus.Finalized,
+            "Stripe records an invoice only once paid, so a missing record is not proof the card was never charged");
+        purchase.PaymentId.Should().Be("pay-stripe");
+        _gateway.Verify(gateway => gateway.ChargeAsync(
+            It.Is<SubscriptionChargeRequest>(request =>
+                request.ProviderName == "Stripe" && request.StoredPaymentMethodId == "pm-1" && request.ProviderCustomerId == "cus-1"),
+            SubscriptionConstants.CreditPurchaseChargeKeyFor(purchase.ItemId),
+            It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once,
+            "only a replay under the original key can return the original charge instead of a second one");
+    }
+
+    [Fact]
+    public async Task A_stripe_purchase_the_provider_refuses_on_replay_fails_and_gives_its_code_back()
+    {
+        var purchase = StripePurchase();
+        purchase.DiscountId = "disc-1";
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.ProviderRejected, "card_declined", "Declined.", "corr-1"));
+
+        await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        purchase.Status.Should().Be(CreditPurchaseStatus.Failed, "the provider answered that no money moved");
+        _redemptions.Verify(repository => repository.TryReleaseAsync(
+            TenantId, "disc-1", purchase.ItemId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_stripe_purchase_still_unanswered_on_replay_is_held()
+    {
+        var purchase = StripePurchase();
+        _gateway
+            .Setup(gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionOperationResult<string>.Failure(
+                PaymentFailureKind.Timeout, "provider_timeout", "No answer.", "corr-1"));
+
+        await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        purchase.Status.Should().Be(CreditPurchaseStatus.Pending,
+            "with no answer either way, failing it could leave a paid purchase with nothing granted");
+        _grants.All.Should().BeEmpty();
+    }
+
+    private SubscriptionCreditPurchase StripePurchase()
+    {
+        var purchase = StalePurchase(CreditPurchaseStatus.Pending);
+        purchase.ProviderName = "Stripe";
+        purchase.ProviderCustomerId = "cus-1";
+        purchase.StoredPaymentMethodId = "pm-1";
+        return purchase;
     }
 
     private SubscriptionCreditPurchase StalePurchase(
