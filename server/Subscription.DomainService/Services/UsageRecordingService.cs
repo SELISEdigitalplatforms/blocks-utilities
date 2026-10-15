@@ -1256,17 +1256,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
             holderUserId: context.UserId,
             subLimits: paces);
 
-        // The compensating half of the increment ApplyAsync already sent this user's row, so the
-        // reversal has to be applied to it too or a refused call would still count against them.
-        await _projection.PublishUserDeltaAsync(
-            subscription,
-            meter,
-            period,
-            context.UserId,
-            -record.Delta,
-            allowance,
-            correlationId,
-            cancellationToken);
+        // No user delta here: this user's row is only incremented on the success path, after every
+        // refusal branch, so a refused call never touched it and has nothing to compensate.
+        // Decrementing it would push the row below what this user actually used.
 
         _logger.LogInformation(
             "Usage refused because the resulting balance is outside its allowed range TenantId={TenantId} " +
