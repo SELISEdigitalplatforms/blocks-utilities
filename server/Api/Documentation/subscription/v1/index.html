@@ -4247,6 +4247,14 @@ POST /api/subscriptions
         <div class="endpoint-body">
           <p>Every meter's balance for the current period. Useful for a usage screen; not a gate.</p>
           <p>For the organization's own subscription only; per-person places are read with <a href="#api-members"><code>GET …/members</code></a> or <code>GET /api/subscription-usage/mine</code>.</p>
+          <p class="prose">
+            Bought credits appear here before any is spent: <code>purchasedRemaining</code> is what
+            the shared pool can still spend (a seat&apos;s own read, <code>…/mine</code>, adds that
+            seat&apos;s credits), and <code>purchasedConsumed</code> is what credits already paid for
+            this window, which <code>included</code> counts. <code>included</code> does not grow when
+            credits are bought, only as they are spent. With <code>readMode=projection</code>,
+            <code>purchasedConsumed</code> reads <code>0</code>; <code>included</code> still counts it.
+          </p>
           <h4>Returns</h4>
           <p><code>200</code> array of the same shape · <code>404</code> no subscription.</p>
         </div>
