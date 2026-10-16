@@ -186,6 +186,56 @@ public sealed class SubscriptionCreditServiceTests
         result.ErrorCode.Should().Be("subscription_credits_quantity_out_of_range");
     }
 
+    // Stripe does not decline a charge under its minimum: it marks the invoice paid at zero and
+    // moves the amount onto the customer's balance, so the purchase stuck and the next invoice
+    // collected money for credits never granted. Observed live at 50 minor units.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public async Task A_preview_at_or_under_the_providers_minimum_charge_is_refused(long unitAmountMinor)
+    {
+        Priced(unitAmountMinor);
+
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(quantity: 10), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_credits_below_minimum_charge");
+    }
+
+    [Fact]
+    public async Task A_purchase_at_the_providers_minimum_charge_is_refused_without_charging()
+    {
+        Priced(5);
+
+        var result = await Service().PurchaseAsync(SubscriptionId, Buy(quantity: 10, key: "k1"), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_credits_below_minimum_charge");
+        _gateway.Verify(gateway => gateway.ChargeAsync(
+            It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_purchase_just_over_the_providers_minimum_charge_is_quoted()
+    {
+        Priced(5);
+
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(quantity: 11), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.TotalMinor.Should().Be(55);
+    }
+
+    [Fact]
+    public async Task A_code_that_takes_a_purchase_under_the_minimum_charge_is_refused()
+    {
+        Priced(6);
+        CodeExists(OneUseCreditCode());
+
+        // 60 less 20% is 48: over the floor before the code, under it after.
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(quantity: 10, code: "topup20"), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_credits_below_minimum_charge");
+    }
+
     [Fact]
     public async Task Credits_are_not_offered_in_a_currency_the_meter_has_no_price_in()
     {
@@ -787,6 +837,10 @@ public sealed class SubscriptionCreditServiceTests
         DiscountCode = code,
         IdempotencyKey = key
     };
+
+    private void Priced(long unitAmountMinor) =>
+        _subscription.Plan.Meters[0].TopUp!.UnitPrices =
+            [new MeterTopUpPrice { CurrencyCode = "USD", UnitAmountMinor = unitAmountMinor }];
 
     private void Seated(long seats)
     {
