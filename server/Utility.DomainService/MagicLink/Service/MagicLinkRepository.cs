@@ -38,6 +38,12 @@ namespace Utility.DomainService.MagicLink.Service
             var filterBuilder = Builders<Models.MagicLink>.Filter;
             var filter = filterBuilder.Eq(x => x.ItemId, itemId);
 
+            // Every link lives in the root database, so the ProjectKey is what keeps tenants apart
+            if (!string.IsNullOrEmpty(projectKey))
+            {
+                filter &= filterBuilder.Eq(x => x.ProjectKey, projectKey);
+            }
+
             return await collection.Find(filter).FirstOrDefaultAsync();
         }
 

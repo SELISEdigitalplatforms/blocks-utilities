@@ -9,7 +9,7 @@ using Utility.DomainService.MagicLink.Service;
 
 namespace XUnitTest.MagicLink
 {
-    public class MagicLinkServiceExtendedTests
+    public sealed class MagicLinkServiceExtendedTests : IDisposable
     {
         private readonly Mock<ILogger<MagicLinkService>> _mockLogger;
         private readonly Mock<IMagicLinkRepository> _mockRepository;
@@ -20,6 +20,11 @@ namespace XUnitTest.MagicLink
 
         public MagicLinkServiceExtendedTests()
         {
+            // The caller every request below comes from; services act on this tenant only
+            BlocksContext.SetContext(BlocksContext.Create(
+                "test-project", null, "user-1", true, null, "org-1",
+                DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
+
             _mockLogger = new Mock<ILogger<MagicLinkService>>();
             _mockRepository = new Mock<IMagicLinkRepository>();
             _mockCacheClient = new Mock<ICacheClient>();
@@ -37,6 +42,8 @@ namespace XUnitTest.MagicLink
                 _mockConfiguration.Object
             );
         }
+
+        public void Dispose() => BlocksContext.SetContext(null);
 
         #region CreateLinkAsync Exception Tests
 
@@ -70,7 +77,7 @@ namespace XUnitTest.MagicLink
             {
                 Type = MagicLinkType.Redirect,
                 Uri = "https://example.com",
-                ProjectKey = "custom-project"
+                ProjectKey = "test-project"
             };
             Utility.DomainService.MagicLink.Models.MagicLink? capturedLink = null;
             _mockRepository.Setup(r => r.CreateMagicLinkAsync(It.IsAny<Utility.DomainService.MagicLink.Models.MagicLink>()))
@@ -84,7 +91,7 @@ namespace XUnitTest.MagicLink
 
             // Assert
             capturedLink.Should().NotBeNull();
-            capturedLink!.ProjectKey.Should().Be("custom-project");
+            capturedLink!.ProjectKey.Should().Be("test-project");
         }
 
         [Fact]
@@ -108,7 +115,7 @@ namespace XUnitTest.MagicLink
 
             // Assert
             capturedLink.Should().NotBeNull();
-            capturedLink!.ProjectKey.Should().Be("root-tenant");
+            capturedLink!.ProjectKey.Should().Be("test-project");
         }
 
         [Fact]
@@ -172,7 +179,7 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new CreateMagicLinksRequest
             {
-                ProjectKey = "bulk-project",
+                ProjectKey = "test-project",
                 Requests = new List<CreateMagicLinkRequest>
                 {
                     new() { Type = MagicLinkType.Redirect, Uri = "https://example1.com" },
@@ -249,7 +256,7 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new CreateMagicLinksRequest
             {
-                ProjectKey = "parent-project",
+                ProjectKey = "test-project",
                 Requests = new List<CreateMagicLinkRequest>
                 {
                     new() { Type = MagicLinkType.Redirect, Uri = "https://example.com", ProjectKey = null }
@@ -267,7 +274,7 @@ namespace XUnitTest.MagicLink
 
             // Assert
             capturedLink.Should().NotBeNull();
-            capturedLink!.ProjectKey.Should().Be("parent-project");
+            capturedLink!.ProjectKey.Should().Be("test-project");
         }
 
         #endregion

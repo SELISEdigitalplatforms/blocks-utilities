@@ -160,7 +160,9 @@ namespace Utility.DomainService.TemplateEngine.service
             try
             {
                 _logger.LogInformation("GetEntityByItemIdAsync for entityName: {EntityName}, itemId: {ItemId}", entityName, itemId);
-                
+
+                MongoQueryHelper.EnsureEntityIsQueryable(entityName);
+
                 var database = _dbContextProvider.GetDatabase(tenantId);
                 var collection = database.GetCollection<BsonDocument>($"{entityName}s");
                 var filter = Builders<BsonDocument>.Filter.Eq("_id", itemId);

@@ -202,6 +202,16 @@ Creates file using MongoDB filtered queries (replaces Platform Data Service).
 or omitted `text` matches every document in the collection. Anything that is not valid MongoDB
 query JSON is rejected with `ArgumentException`; it is not silently treated as "match all".
 
+Queries run against the caller's own tenant database, so two further rules apply. A refused query
+returns no data for its `key`, the same as an invalid one:
+- `entityName` must be a plain identifier (letters, digits, `_`) naming the tenant's business data.
+  Platform collections are refused: IAM and Genesis ones (`User`, `Role`, `Permission`,
+  `ClientCredential`, `Secret`, `Tenant`, ...) and every `Subscription*`, `Payment*`,
+  `StoredPaymentMethod*`, `Sms*`, `MagicLink*` and PDF-job collection. See
+  `MongoQueryHelper.EnsureEntityIsQueryable`.
+- `$where`, `$function`, `$accumulator` and `$expr` are refused anywhere in `text`, since they run
+  code on the database server.
+
 **Features:**
 - ✅ MongoDB collection querying
 - ✅ Pagination support
@@ -233,7 +243,10 @@ public interface IProjectKey
 ```
 
 Common properties:
-- `ProjectKey` - Multi-tenant project identifier
+- `ProjectKey` - Optional. Jobs always run in the caller's tenant (from the token and
+  `x-blocks-key`); a `ProjectKey` naming any other tenant is refused with
+  `"ProjectKey must match the tenant of the caller."`. To act for another project, call with a
+  token for that project.
 - `SubscriptionFilterId` - For notification routing
 - `NotifyOnProcessEnding` - Enable/disable notifications
 - `RaiseEventOnProcessEnding` - Enable/disable event publishing
