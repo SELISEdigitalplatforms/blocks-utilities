@@ -41,6 +41,10 @@ public sealed class HostedCheckoutSessionRequest
     [JsonPropertyName("shopperEmail")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ShopperEmail { get; set; }
+    /// <summary>ISO 8601. Null leaves Adyen's own session lifetime (1 hour).</summary>
+    [JsonPropertyName("expiresAt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ExpiresAt { get; set; }
     [JsonPropertyName("shopperInteraction")]
     public string ShopperInteraction { get; set; } = "Ecommerce";
 

@@ -111,6 +111,62 @@ public sealed class SubscriptionCreditPurchaseRepository : ISubscriptionCreditPu
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<SubscriptionCreditPurchase?> FindOpenCheckoutAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditPurchase>.Filter;
+
+        return await Collection(tenantId)
+            .Find(filter.And(
+                filter.Eq(purchase => purchase.TenantId, tenantId),
+                filter.Eq(purchase => purchase.SubscriptionId, subscriptionId),
+                filter.Eq(purchase => purchase.PaymentPath, CreditPaymentPath.Checkout),
+                filter.In(purchase => purchase.Status,
+                    [CreditPurchaseStatus.Pending, CreditPurchaseStatus.AwaitingPayment])))
+            .SortByDescending(purchase => purchase.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<SubscriptionCreditPurchase?> FindCheckoutByPaymentAsync(
+        string tenantId,
+        string paymentId,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditPurchase>.Filter;
+
+        return await Collection(tenantId)
+            .Find(filter.And(
+                filter.Eq(purchase => purchase.TenantId, tenantId),
+                filter.Eq(purchase => purchase.PaymentId, paymentId),
+                filter.Eq(purchase => purchase.PaymentPath, CreditPaymentPath.Checkout)))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SubscriptionCreditPurchase>> ListCardAdoptionDueAsync(
+        string tenantId,
+        DateTime createdAfterUtc,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditPurchase>.Filter;
+
+        return await Collection(tenantId)
+            .Find(filter.And(
+                filter.Eq(purchase => purchase.TenantId, tenantId),
+                filter.In(purchase => purchase.Status,
+                    [CreditPurchaseStatus.Finalized, CreditPurchaseStatus.NeedsAttention]),
+                filter.Eq(purchase => purchase.PaymentPath, CreditPaymentPath.Checkout),
+                filter.Eq(purchase => purchase.CardAdoptedAtUtc, null),
+                filter.Gt(purchase => purchase.CreatedAtUtc, createdAfterUtc),
+                filter.Lt(purchase => purchase.LastUpdatedAtUtc, olderThanUtc)))
+            .SortBy(purchase => purchase.LastUpdatedAtUtc)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {
         if (_indexed.ContainsKey(tenantId)) return;

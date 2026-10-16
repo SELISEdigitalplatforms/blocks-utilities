@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -30,7 +31,7 @@ namespace Subscription.DomainService.Services;
 /// on theirs — which is what lets the recovery sweep finish a purchase this service started.
 /// </para>
 /// </remarks>
-public sealed class SubscriptionCreditService : ISubscriptionCreditService
+public sealed partial class SubscriptionCreditService : ISubscriptionCreditService
 {
     private const string PurchaseOperation = "CreditPurchase";
     private const string GrantOperation = "CreditGrant";
@@ -55,6 +56,13 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     private readonly ILogger<SubscriptionCreditService> _logger;
     private readonly TimeProvider _time;
 
+    // Spec 003, hosted checkout for a buyer with no saved card. Optional, like the activation
+    // processor's collaborators: without them a purchase with no card is refused, as before.
+    private readonly IPaymentService? _paymentService;
+    private readonly ICurrencyMinorUnitResolver? _currency;
+    private readonly BillingAccountCardAdopter? _cardAdopter;
+    private readonly ISubscriptionPaymentReconciler? _reconciler;
+
     public SubscriptionCreditService(
         ISubscriptionContextResolver contextResolver,
         ISubscriptionRepository subscriptions,
@@ -73,7 +81,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         IValidator<GrantCreditsRequest> grantValidator,
         IValidator<MoveCreditsRequest> moveValidator,
         ILogger<SubscriptionCreditService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        IPaymentService? paymentService = null,
+        ICurrencyMinorUnitResolver? currency = null,
+        BillingAccountCardAdopter? cardAdopter = null,
+        // Stripe only; absent for a provider it cannot observe. See ISubscriptionPaymentReconciler.
+        ISubscriptionPaymentReconciler? reconciler = null)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -93,6 +106,10 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         _moveValidator = moveValidator;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _paymentService = paymentService;
+        _currency = currency;
+        _cardAdopter = cardAdopter;
+        _reconciler = reconciler;
     }
 
     // ---- preview and purchase -------------------------------------------------------------
@@ -157,6 +174,16 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         }
 
         var (purchase, meter, account, discount) = priced.Value!;
+
+        // ponytail: read-then-insert, so two keys racing past this can each open a session. Both
+        // would settle correctly; only the one-session promise breaks. A unique index on the open
+        // checkout is the upgrade if that is ever seen.
+        if (purchase.PaymentPath == CreditPaymentPath.Checkout &&
+            await _purchases.FindOpenCheckoutAsync(context.TenantId, subscription.ItemId, cancellationToken) is { } open)
+        {
+            return CheckoutInProgress(open, correlationId);
+        }
+
         purchase.ItemId = purchaseId;
         purchase.IdempotencyKey = request.IdempotencyKey;
         purchase.RequestFingerprint = fingerprint;
@@ -164,8 +191,11 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             subscription.ItemId,
             Guid.NewGuid().ToString("N"));
         purchase.ProviderName = account.ProviderName;
-        // The merchant's scope, which holds the card, exactly as a renewal charges.
-        purchase.ProviderOrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId;
+        // The merchant's scope, which holds the card, exactly as a renewal charges. A checkout opens
+        // under the scope a signup checkout does, which is the one the card it saves will live in.
+        purchase.ProviderOrganizationId = purchase.PaymentPath == CreditPaymentPath.Checkout
+            ? CheckoutProviderOrganizationId(account, subscription)
+            : account.ProviderOrganizationId ?? subscription.OrganizationId;
         purchase.ProviderCustomerId = account.ProviderCustomerId;
         purchase.StoredPaymentMethodId = account.DefaultPaymentMethodId;
 
@@ -219,6 +249,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             }
 
             reserved = true;
+        }
+
+        if (purchase.PaymentPath == CreditPaymentPath.Checkout)
+        {
+            return await StartCheckoutAsync(
+                subscription, meter, purchase, account, reserved ? discount!.ItemId : null, correlationId, cancellationToken);
         }
 
         var charged = await ChargeAsync(subscription, meter, purchase, correlationId, cancellationToken);
@@ -432,6 +468,14 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 correlationId);
         }
 
+        if (existing.Status == CreditPurchaseStatus.AwaitingPayment)
+        {
+            // The buyer is usually back from the provider's page by now, and the webhook may not
+            // be. Ask the provider directly where it can be asked and settle on its answer -- the
+            // redirect itself proves nothing.
+            await ReadCheckoutOnReturnAsync(existing, correlationId, cancellationToken);
+        }
+
         if (existing.Status == CreditPurchaseStatus.Failed)
         {
             return Failure<CreditPurchaseResponse>(
@@ -547,16 +591,6 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         var account = await _billingAccounts.GetAsync(
             subscription.TenantId, subscription.BillingAccountId, cancellationToken);
 
-        if (account is not { DefaultPaymentMethodId.Length: > 0 })
-        {
-            return Failure<Priced>(
-                PaymentFailureKind.Conflict,
-                "subscription_credits_no_payment_method",
-                "There is no saved card to charge. Add a payment method to the subscription, then " +
-                    "buy credits.",
-                correlationId);
-        }
-
         var now = Now();
         Discount? discount = null;
         DiscountTerms? discountTerms = null;
@@ -607,6 +641,25 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 correlationId);
         }
 
+        // With no saved card the buyer pays at a hosted checkout that saves one (spec 003). Not for
+        // a purchase a code took to nothing, which has no amount to check out, and not without the
+        // checkout collaborators: both keep the refusal this used to be for every purchase.
+        // Decided after the quote for that reason, so every other refusal still comes first.
+        var path = account is { DefaultPaymentMethodId.Length: > 0 }
+            ? CreditPaymentPath.StoredCard
+            : CreditPaymentPath.Checkout;
+
+        if (account is null ||
+            path == CreditPaymentPath.Checkout && (quote.TotalMinor <= 0 || !CheckoutAvailable))
+        {
+            return Failure<Priced>(
+                PaymentFailureKind.Conflict,
+                "subscription_credits_no_payment_method",
+                "There is no saved card to charge. Add a payment method to the subscription, then " +
+                    "buy credits.",
+                correlationId);
+        }
+
         var purchase = new SubscriptionCreditPurchase
         {
             TenantId = subscription.TenantId,
@@ -630,6 +683,7 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             DiscountVersion = discount?.Version ?? 0,
             ExpiryPolicy = terms.ExpiryPolicy,
             ExpiresAtUtc = ExpiryOf(subscription, meter, terms.ExpiryPolicy, now),
+            PaymentPath = path,
             CreatedAtUtc = now,
             LastUpdatedAtUtc = now
         };
@@ -1095,7 +1149,7 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     ];
 
     private static readonly CreditPurchaseStatus[] Unfinished =
-        [CreditPurchaseStatus.Pending, CreditPurchaseStatus.Charged];
+        [CreditPurchaseStatus.Pending, CreditPurchaseStatus.AwaitingPayment, CreditPurchaseStatus.Charged];
 
     /// <summary>
     /// Finishes or fails the purchases a crash left part way, for one tenant. Returns how many it
@@ -1131,11 +1185,20 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 break;
             }
 
-            if (await RecoverAsync(purchase, now, options, cancellationToken))
+            // A checkout purchase not yet paid is settled by what the provider decided at its
+            // session, never by replaying a charge: it has no card to replay with.
+            var recovered = purchase.PaymentPath == CreditPaymentPath.Checkout &&
+                            purchase.Status != CreditPurchaseStatus.Charged
+                ? await RecoverCheckoutAsync(purchase, now, options, cancellationToken)
+                : await RecoverAsync(purchase, now, options, cancellationToken);
+
+            if (recovered)
             {
                 settled++;
             }
         }
+
+        await AdoptPendingCardsAsync(tenantId, now, options, cancellationToken);
 
         return settled;
     }
@@ -1548,7 +1611,8 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         TaxMode = purchase.TaxMode?.ToString(),
         DiscountCode = purchase.DiscountCode,
         ExpiryPolicy = purchase.ExpiryPolicy.ToString(),
-        ExpiresAtUtc = purchase.ExpiresAtUtc
+        ExpiresAtUtc = purchase.ExpiresAtUtc,
+        PaymentPath = purchase.PaymentPath.ToString()
     };
 
     private static CreditPurchaseResponse PurchaseResponse(
@@ -1560,6 +1624,7 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         Status = purchase.Status.ToString(),
         Quote = QuoteResponse(purchase),
         PaymentId = purchase.PaymentId,
+        CheckoutUrl = purchase.Status == CreditPurchaseStatus.AwaitingPayment ? purchase.CheckoutUrl : null,
         Grant = grant is null ? null : GrantResponse(grant),
         FailureCode = purchase.FailureCode,
         FailureReason = purchase.FailureReason,

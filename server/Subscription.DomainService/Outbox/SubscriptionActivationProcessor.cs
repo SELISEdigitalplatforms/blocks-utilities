@@ -52,7 +52,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
     private readonly IBillingAccountRepository _billingAccounts;
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly IPaymentRepository _payments;
-    private readonly IStoredPaymentMethodRepository _storedMethods;
+    private readonly BillingAccountCardAdopter _cardAdopter;
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly ILogger<SubscriptionActivationProcessor> _logger;
     private readonly TimeProvider _time;
@@ -92,7 +92,9 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
         _billingAccounts = billingAccounts;
         _events = events;
         _payments = payments;
-        _storedMethods = storedMethods;
+        // Built here rather than injected, so every caller and test constructing this processor
+        // keeps working unchanged. Same logger, so its messages read exactly as they did.
+        _cardAdopter = new BillingAccountCardAdopter(storedMethods, billingAccounts, logger);
         _options = options;
         _logger = logger;
         _time = time ?? TimeProvider.System;
@@ -847,125 +849,12 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
             ? null
             : LinkNotPending;
 
-    /// <summary>
-    /// Whether a stored card can be wired to the billing account as the one a renewal will charge.
-    /// </summary>
-    /// <remarks>
-    /// Stripe charges a card off-session through its customer, so a Stripe card with no customer id
-    /// is unusable and must not be adopted. Adyen has no separate customer — it addresses the
-    /// shopper by the shopper reference the card is already filed under — so its cards never carry
-    /// one. Requiring a customer id of every provider made adoption impossible for Adyen: a paid
-    /// checkout activated with no default card (so <c>hasPaymentMethod</c> read false next to an
-    /// active card), and a card setup could never complete, being held open until the card was
-    /// adopted, so the recovery sweep retried it indefinitely.
-    /// </remarks>
-    private static bool IsAdoptable(StoredPaymentMethod method) =>
-        method.ProviderPayerReference is { Length: > 0 } ||
-        string.Equals(
-            method.ProviderName,
-            PaymentConstants.AdyenOnlineProvider,
-            StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Records the provider's customer from the card the charge saved.
-    /// </summary>
-    /// <remarks>
-    /// Taken from the payment rather than created up front: hosted checkout makes its own
-    /// customer, so pre-creating one we cannot pin to the session would leave an orphan behind
-    /// on every signup. The renewal needs this identifier, so a failure here is logged rather
-    /// than swallowed — but it does not undo an activation the customer has already paid for.
-    /// </remarks>
     /// <returns>Null once the card is recorded; otherwise why it was not, as an audit error code.</returns>
-    private async Task<string?> AdoptProviderCustomerAsync(
+    private Task<string?> AdoptProviderCustomerAsync(
         SubscriptionDetail subscription,
         PaymentDetail payment,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(payment.ShopperReference))
-        {
-            _logger.LogWarning(
-                "A paid subscription has no shopper reference to find its card by; renewals " +
-                "will fail until one is recorded");
-
-            return "no_shopper_reference";
-        }
-
-        // Found by the reference the card was saved under, not by a link from the payment.
-        // Hosted checkout never writes StoredPaymentMethodPublicId — only a charge already made
-        // from a stored card does — so reading it here meant every subscription reached its
-        // first renewal with no card, and failed closed a whole billing period after the
-        // mistake was made.
-        //
-        // Scoped to the *subscriber*, never to the organization that took the money. Those are
-        // two different things on every payment this processor sees: OrganizationId is the
-        // merchant scope the provider was resolved under, and is the same value for every
-        // subscriber a tenant sells to. Looking cards up by it returns whichever card was saved
-        // most recently anywhere under that merchant, so each organization's billing account
-        // adopted a stranger's card and provider customer, and every later off-session charge --
-        // renewal, plan change, quantity change, usage overage, all of which read
-        // DefaultPaymentMethodId -- presented a customer that does not own the subscription.
-        // StoredPaymentMethodRepository.BuildActiveFilter matches the reference and the
-        // organization as a pair precisely to keep one organization's cards away from another's;
-        // passing the merchant here handed it the wrong half of that pair.
-        var methods = await _storedMethods.ListActiveAsync(
-            subscription.TenantId,
-            [new StoredPaymentMethodLookupScope(
-                payment.ShopperReference,
-                subscription.OrganizationId)],
-            cancellationToken);
-
-        // The card this charge saved, newest first: a shopper who paid twice has more than one,
-        // and the one they just used is the one a renewal should charge.
-        var method = (methods ?? [])
-            .OrderByDescending(candidate => candidate.CreatedAtUtc)
-            .FirstOrDefault(IsAdoptable);
-
-        if (method is null)
-        {
-            _logger.LogWarning(
-                "No provider customer recorded for a subscription; renewals will need one");
-
-            return "no_provider_customer";
-        }
-
-        var outcome = await _billingAccounts.TrySetProviderCustomerAsync(
-            subscription.TenantId,
-            subscription.BillingAccountId,
-            // Null for a provider with no separate payer (Adyen): the card is still recorded as
-            // the account's default, which is what the renewal reads.
-            method.ProviderPayerReference,
-            method.ItemId,
-            // The scope that took the money, which is what later charges must resolve the
-            // provider under. Organizations subscribe; the tenant is the merchant.
-            payment.OrganizationId,
-            cancellationToken);
-
-        // Never discarded. Whether the card a renewal will present actually got recorded is the
-        // one thing this method exists to decide, and the silence here is what let a billing
-        // account sit for a month pointing at a removed card while everything else read healthy.
-        switch (outcome)
-        {
-            case SetProviderCustomerOutcome.Repointed:
-                _logger.LogWarning(
-                    "A subscription's billing account moved to a different provider customer; " +
-                    "cards saved against the previous one are no longer reachable " +
-                    "TenantId={TenantId} SubscriptionId={SubscriptionId}",
-                    PaymentLogValue.Id(subscription.TenantId),
-                    PaymentLogValue.Id(subscription.ItemId));
-                break;
-
-            case SetProviderCustomerOutcome.AccountMissing:
-                _logger.LogError(
-                    "A paid subscription has no billing account to record its card against; " +
-                    "renewals will find no payment method " +
-                    "TenantId={TenantId} SubscriptionId={SubscriptionId}",
-                    PaymentLogValue.Id(subscription.TenantId),
-                    PaymentLogValue.Id(subscription.ItemId));
-                break;
-        }
-
-        return outcome == SetProviderCustomerOutcome.AccountMissing ? "billing_account_missing" : null;
-    }
+        CancellationToken cancellationToken) =>
+        _cardAdopter.AdoptAsync(subscription, payment, onlyIfNoDefault: false, cancellationToken);
 
     /// <summary>
     /// Gives up on this attempt, and on the subscription behind it unless another attempt is

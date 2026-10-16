@@ -862,6 +862,8 @@ export interface CreditQuote {
   expiryPolicy: "Periodic" | "CarryForward" | "Never";
   /** Set for credits that expire with the current usage window. */
   expiresAtUtc: string | null;
+  /** "Checkout" when there is no saved card and the buyer pays at the provider's page (spec 003). */
+  paymentPath?: "StoredCard" | "Checkout";
 }
 
 export interface CreditGrant {
@@ -883,9 +885,11 @@ export interface CreditGrant {
 
 export interface CreditPurchase {
   purchaseId: string;
-  status: "Pending" | "Charged" | "Finalized" | "Failed" | "NeedsAttention";
+  status: "Pending" | "AwaitingPayment" | "Charged" | "Finalized" | "Failed" | "NeedsAttention";
   quote: CreditQuote;
   paymentId: string | null;
+  /** Where to pay, while the purchase is AwaitingPayment. */
+  checkoutUrl?: string | null;
   grant: CreditGrant | null;
   failureCode: string | null;
   failureReason: string | null;
