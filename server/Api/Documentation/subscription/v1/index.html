@@ -4443,17 +4443,22 @@ POST /api/subscriptions
   "taxMode": null,
   "discountCode": "topup20",
   "expiryPolicy": "Periodic",
-  "expiresAtUtc": "2026-11-01T00:00:00Z"
+  "expiresAtUtc": "2026-11-01T00:00:00Z",
+  "paymentPath": "StoredCard"
 }</code></pre>
           <p class="prose">
-            Checks everything the purchase checks and writes nothing. Show <code>expiresAtUtc</code>
+            Checks everything the purchase checks and writes nothing. <code>paymentPath</code> says
+            how it will be paid: <code>StoredCard</code> charges the saved card during the purchase;
+            <code>Checkout</code> means the billing account has no saved card, and the purchase will
+            send the buyer to the payment provider&apos;s page instead &mdash; say so before they
+            confirm. Show <code>expiresAtUtc</code>
             before the buyer confirms: credits that expire with the window and are bought near its
             end are usable only until then. Only a code created with scope
             <code>CreditPurchase</code> applies here, and only a code with scope
             <code>Subscription</code> applies at signup.
           </p>
           <h4>Returns</h4>
-          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code>, <code>subscription_credits_quantity_out_of_range</code>, <code>subscription_credits_seat_not_applicable</code>, <code>subscription_discount_not_applicable</code>, <code>subscription_discount_expired</code> &middot; <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code>, <code>subscription_credits_seat_not_found</code>, <code>subscription_discount_not_found</code> &middot; <code>409</code> the lifecycle refusals above, <code>subscription_credits_not_for_sale</code>, <code>subscription_credits_currency_not_priced</code>, <code>subscription_credits_no_payment_method</code>, <code>subscription_discount_already_redeemed</code>.</p>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code>, <code>subscription_credits_quantity_out_of_range</code>, <code>subscription_credits_seat_not_applicable</code>, <code>subscription_discount_not_applicable</code>, <code>subscription_discount_expired</code> &middot; <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code>, <code>subscription_credits_seat_not_found</code>, <code>subscription_discount_not_found</code> &middot; <code>409</code> the lifecycle refusals above, <code>subscription_credits_not_for_sale</code>, <code>subscription_credits_currency_not_priced</code>, <code>subscription_credits_no_payment_method</code> &mdash; no saved card and nothing to check out (a code took the total to zero), <code>subscription_discount_already_redeemed</code>.</p>
         </div>
       </div>
 
@@ -4515,6 +4520,20 @@ POST /api/subscriptions
             <a href="#api-documents">Invoices</a>.
           </p>
           <p class="prose">
+            <strong>No saved card.</strong> When the billing account has no saved card, the purchase
+            opens a hosted checkout for the quoted total instead, and answers <code>200</code> with
+            <code>status: "AwaitingPayment"</code>, a <code>checkoutUrl</code> and no
+            <code>grant</code>. Send the buyer to <code>checkoutUrl</code>; it stays payable for 60
+            minutes. Paying there also saves the card, which becomes the account&apos;s default if it
+            still has none, so later top-ups are charged directly. The credits are granted once the
+            payment provider confirms the payment &mdash; never because the buyer came back. When they
+            do come back, send the same key and body again: the purchase is checked with the provider
+            and returned as it now stands. Keep the key until it is <code>Finalized</code> or
+            <code>Failed</code>. A checkout nobody pays ends <code>Failed</code>
+            (<code>subscription_credits_checkout_expired</code>) shortly after it expires, and a code
+            it reserved is given back. Only one checkout can be open on a subscription at a time.
+          </p>
+          <p class="prose">
             <strong>Retrying.</strong> Send the same key and body again after a timeout and the first
             result comes back with <code>replayed: true</code>, never a second charge. A replay of a
             purchase still being settled returns it with its current <code>status</code>. Reusing a
@@ -4527,15 +4546,16 @@ POST /api/subscriptions
               <thead><tr><th>status</th><th>Meaning</th></tr></thead>
               <tbody>
                 <tr><td><code>Pending</code></td><td class="prose">Recorded; the charge may or may not have reached the provider. Settled by the recovery sweep within minutes if its request did not finish it.</td></tr>
+                <tr><td><code>AwaitingPayment</code></td><td class="prose">No saved card: waiting for the buyer to pay at <code>checkoutUrl</code>. Nothing is granted yet.</td></tr>
                 <tr><td><code>Charged</code></td><td class="prose">The money moved; the grant, invoice or events are being finished. Always finished, never failed.</td></tr>
                 <tr><td><code>Finalized</code></td><td class="prose">Charged, granted, invoiced and announced. <code>grant</code> is present.</td></tr>
                 <tr><td><code>Failed</code></td><td class="prose">Not charged: declined, refused, or never reached the provider. <code>failureCode</code> and <code>failureReason</code> say why. A one-use code it reserved is usable again.</td></tr>
-                <tr><td><code>NeedsAttention</code></td><td class="prose">Still unresolved 24 hours later. An operator has to look at it; it is never guessed at.</td></tr>
+                <tr><td><code>NeedsAttention</code></td><td class="prose">Still unresolved 24 hours later, or a checkout was paid but could not be granted (the subscription ended, the credits&apos; window had already closed, the amount did not match, or it was paid after it had failed). An operator has to look at it; it is never guessed at.</td></tr>
               </tbody>
             </table>
           </div>
           <h4>Returns</h4>
-          <p><code>200</code> &middot; everything the preview returns &middot; <code>400</code> <code>subscription_credits_idempotency_key_required</code>, <code>subscription_credits_amount_too_large</code> &middot; <code>409</code> <code>subscription_credits_idempotency_conflict</code> &mdash; the key was used for a different purchase; <code>subscription_credits_purchase_in_flight</code> &mdash; the same key is being processed right now, retry in a moment &middot; <code>422</code> the card was declined; nothing was granted, and a replay of it answers the same &middot; <code>429</code> the provider refused for rate; nothing was charged &middot; <code>502</code> <code>503</code> <code>504</code> <code>subscription_credits_charge_unresolved</code> &mdash; the provider did not answer, so whether the card was charged is not known yet. The purchase stays <code>Pending</code> and any one-use code stays reserved until it is settled; retry with the same key to read the outcome.</p>
+          <p><code>200</code> &middot; everything the preview returns &middot; <code>400</code> <code>subscription_credits_idempotency_key_required</code>, <code>subscription_credits_amount_too_large</code> &middot; <code>409</code> <code>subscription_credits_idempotency_conflict</code> &mdash; the key was used for a different purchase; <code>subscription_credits_purchase_in_flight</code> &mdash; the same key is being processed right now, retry in a moment; <code>subscription_credits_checkout_in_progress</code> &mdash; another purchase on this subscription is waiting at its checkout; the error details carry its <code>purchaseId</code> and <code>checkoutUrl</code> &middot; <code>422</code> the card was declined; nothing was granted, and a replay of it answers the same &middot; <code>429</code> the provider refused for rate; nothing was charged &middot; <code>502</code> <code>503</code> <code>504</code> <code>subscription_credits_charge_unresolved</code> &mdash; the provider did not answer, so whether the card was charged is not known yet. The purchase stays <code>Pending</code> and any one-use code stays reserved until it is settled; retry with the same key to read the outcome. <code>subscription_credits_checkout_unresolved</code> is the same for a checkout the provider did not confirm opening.</p>
         </div>
       </div>
 
@@ -4593,7 +4613,7 @@ POST /api/subscriptions
         <div class="endpoint-body">
           <p><strong>Call when:</strong> showing purchase history, including attempts that failed or are still being settled.</p>
           <h4>Query</h4>
-          <p><code>status</code> &mdash; <code>Pending</code>, <code>Charged</code>, <code>Finalized</code>, <code>Failed</code> or <code>NeedsAttention</code> &middot; <code>organizationId</code>.</p>
+          <p><code>status</code> &mdash; <code>Pending</code>, <code>AwaitingPayment</code>, <code>Charged</code>, <code>Finalized</code>, <code>Failed</code> or <code>NeedsAttention</code> &middot; <code>organizationId</code>.</p>
           <h4>Sample response</h4>
           <pre><code>[
   {

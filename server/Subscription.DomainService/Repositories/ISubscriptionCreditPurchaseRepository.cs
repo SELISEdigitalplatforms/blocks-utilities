@@ -40,4 +40,30 @@ public interface ISubscriptionCreditPurchaseRepository
         DateTime olderThanUtc,
         int limit,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The subscription's checkout purchase that is still open (not yet sent to the provider, or
+    /// waiting for the buyer to pay), if any. At most one is allowed per subscription (spec 003).
+    /// </summary>
+    Task<SubscriptionCreditPurchase?> FindOpenCheckoutAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken);
+
+    /// <summary>The checkout purchase a payment was raised for, if it was raised for one.</summary>
+    Task<SubscriptionCreditPurchase?> FindCheckoutByPaymentAsync(
+        string tenantId,
+        string paymentId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Paid checkout purchases whose saved card has not yet been offered to the billing account,
+    /// created after <paramref name="createdAfterUtc"/> and untouched since <paramref name="olderThanUtc"/>.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionCreditPurchase>> ListCardAdoptionDueAsync(
+        string tenantId,
+        DateTime createdAfterUtc,
+        DateTime olderThanUtc,
+        int limit,
+        CancellationToken cancellationToken);
 }
