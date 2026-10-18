@@ -46,6 +46,15 @@ namespace Utility.DomainService.PdfGenerator.service
                 LogSanitizer.Scrub(correlationId),
                 LogSanitizer.Scrub(request.ProjectKey));
 
+            var projectKey = CallerTenant.Resolve(request.ProjectKey);
+            if (projectKey == null)
+            {
+                return Fail(CallerTenant.MismatchMessage, correlationId);
+            }
+
+            // The PDF is saved to this tenant's storage
+            request.ProjectKey = projectKey;
+
             var validationFailure = ValidateRequest(request);
             if (validationFailure != null)
             {
@@ -126,11 +135,6 @@ namespace Utility.DomainService.PdfGenerator.service
 
         private static string? ValidateRequest(CreateSinglePdfFromHtmlRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.ProjectKey))
-            {
-                return "ProjectKey is required";
-            }
-
             if (string.IsNullOrWhiteSpace(request.HtmlContent))
             {
                 return "HtmlContent is required";
