@@ -110,7 +110,8 @@ namespace Utility.DomainService.PdfGenerator.service
                 // Aspose.Words.HtmlLoadOptions this used was an alias that no longer exists.
                 var htmlLoadOptions = new Aspose.Words.Loading.HtmlLoadOptions
                 {
-                    LoadFormat = Aspose.Words.LoadFormat.Html
+                    LoadFormat = Aspose.Words.LoadFormat.Html,
+                    ResourceLoadingCallback = PublicResourceLoadingCallback.Instance
                 };
 
                 var htmlBytes = Encoding.UTF8.GetBytes(htmlContent);

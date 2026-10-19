@@ -16,6 +16,54 @@ namespace Utility.DomainService.Shared.Utilities
     /// </remarks>
     public static class PublicNetwork
     {
+        /// <summary>Largest resource <see cref="FetchAsync"/> will download.</summary>
+        public const int MaxResourceBytes = 10 * 1024 * 1024;
+
+        // One client for the process, so connections are pooled; every new connection, redirects
+        // included, still goes through ConnectAsync. Static rather than a named factory client
+        // because the Subscription module builds the PDF engines without this module's registrations.
+        private static readonly HttpClient ResourceClient = new(new SocketsHttpHandler
+        {
+            ConnectCallback = ConnectAsync,
+            UseProxy = false,
+            MaxAutomaticRedirections = 5,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+        })
+        {
+            Timeout = TimeSpan.FromSeconds(10),
+            MaxResponseContentBufferSize = MaxResourceBytes
+        };
+
+        /// <summary>
+        /// Downloads an http(s) resource that caller-supplied content refers to, so a renderer never
+        /// opens the connection itself. Null when <paramref name="location"/> is not an http(s) URL, the host is not public, or
+        /// the download fails, times out or exceeds <see cref="MaxResourceBytes"/>.
+        /// </summary>
+        public static async Task<PublicResource?> FetchAsync(string? location, CancellationToken cancellationToken)
+        {
+            if (!Uri.TryCreate(location, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                return null;
+            }
+
+            try
+            {
+                using var response = await ResourceClient.GetAsync(uri, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                var body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                return new PublicResource(body, response.Content.Headers.ContentType?.ToString());
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                return null;
+            }
+        }
+
         /// <summary>
         /// False for loopback, unspecified, private (RFC 1918 / unique-local), link-local and the
         /// other IPv6 ranges that are not routable on the public internet. Same ranges as
@@ -85,4 +133,7 @@ namespace Utility.DomainService.Shared.Utilities
             }
         }
     }
+
+    /// <summary>A resource downloaded by <see cref="PublicNetwork.FetchAsync"/>.</summary>
+    public sealed record PublicResource(byte[] Body, string? ContentType);
 }

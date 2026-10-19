@@ -97,7 +97,10 @@ namespace Utility.DomainService.PdfGenerator.service
                     return null;
                 }
 
-                var document = new Document(buffered);
+                var document = new Document(buffered, new Aspose.Words.Loading.LoadOptions
+                {
+                    ResourceLoadingCallback = PublicResourceLoadingCallback.Instance
+                });
 
                 // Aspose reports substituted fonts and unsupported features through this callback
                 // rather than by failing, so without it a document that rendered wrongly is

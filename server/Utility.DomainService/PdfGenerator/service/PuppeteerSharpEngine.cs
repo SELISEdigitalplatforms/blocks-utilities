@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PuppeteerSharp;
 using PuppeteerSharp.Media;
+using Utility.DomainService.Shared.Utilities;
 
 namespace Utility.DomainService.PdfGenerator.service
 {
@@ -79,7 +80,12 @@ namespace Utility.DomainService.PdfGenerator.service
                         "--disable-dev-shm-usage",
                         "--disable-gpu",
                         "--disable-software-rasterizer",
-                        "--font-render-hinting=none"
+                        "--font-render-hinting=none",
+                        // Backstop for traffic request interception never sees (WebSockets,
+                        // WebRTC): route it to a proxy that does not exist, loopback included.
+                        "--proxy-server=127.0.0.1:9",
+                        "--proxy-bypass-list=<-loopback>",
+                        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"
                     }
                 };
 
@@ -103,6 +109,11 @@ namespace Utility.DomainService.PdfGenerator.service
 
                 var browser = await GetBrowserAsync();
                 await using var page = await browser.NewPageAsync();
+
+                // The HTML comes from callers, so Chromium never opens a connection for it: every
+                // request is answered with bytes PublicNetwork downloaded, or aborted (SSRF).
+                await page.SetRequestInterceptionAsync(true);
+                page.Request += async (_, e) => await RouteRequestAsync(e.Request);
 
                 // The content is self-contained — inline CSS, logos embedded as data URIs, no
                 // external requests — so there is no network activity for Networkidle0 to settle
@@ -133,6 +144,46 @@ namespace Utility.DomainService.PdfGenerator.service
             {
                 _logger.LogError(ex, "PuppeteerSharpEngine: Error converting HTML to PDF");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Answers one intercepted page request. Inline <c>data:</c> URLs load as usual; a GET for
+        /// an http(s) resource is served from <see cref="PublicNetwork.FetchAsync"/>; anything else
+        /// (other methods, <c>file:</c>, non-public hosts, failed downloads) is aborted.
+        /// </summary>
+        public static async Task RouteRequestAsync(IRequest request)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+
+            try
+            {
+                if (request.Url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await request.ContinueAsync();
+                    return;
+                }
+
+                var resource = request.Method == HttpMethod.Get
+                    ? await PublicNetwork.FetchAsync(request.Url, CancellationToken.None)
+                    : null;
+
+                if (resource == null)
+                {
+                    await request.AbortAsync();
+                    return;
+                }
+
+                await request.RespondAsync(new ResponseData
+                {
+                    Status = System.Net.HttpStatusCode.OK,
+                    BodyData = resource.Body,
+                    ContentType = resource.ContentType
+                });
+            }
+            catch (PuppeteerException)
+            {
+                // The page closed while the request was in flight; nothing is waiting for it.
             }
         }
 
