@@ -462,6 +462,58 @@ public sealed class SubscriptionProrationCalculatorTests
         outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(30_000);
     }
 
+    /// <summary>
+    /// A plan change onto a fresh anniversary period that opens now charges the whole period.
+    /// </summary>
+    /// <remarks>
+    /// A schedule anchors to the whole minute, so the period a change opens at 06:31:01.5 starts
+    /// at 06:31:00. Those 1.5 seconds are not time the subscriber has had on the new plan, and
+    /// prorating them away billed a $0 -> $49.00 upgrade 4899 on prod (INV-2026-000004).
+    /// </remarks>
+    [Fact]
+    public void A_fresh_period_opened_now_is_charged_in_full_despite_its_minute_aligned_start()
+    {
+        var targetStart = new DateTime(2026, 10, 19, 6, 31, 0, DateTimeKind.Utc);
+        var now = targetStart.AddSeconds(1.5);
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            NewSubscription(oldAmountMinor: 0),
+            new PlanSnapshot(),
+            NewPrice(4_900),
+            [],
+            now,
+            targetStart,
+            targetStart.AddMonths(1));
+
+        outcome.ChargeMinor.Should().Be(4_900);
+        outcome.Breakdown.Target.ProratedValueMinor.Should().Be(4_900);
+    }
+
+    /// <summary>
+    /// The outgoing side gets the same treatment: a period still in its first minute is unused.
+    /// </summary>
+    /// <remarks>
+    /// On prod a $15 -> $49 upgrade made seconds after the $15 period opened charged 3400 only
+    /// because both sides had floored a cent away and the two errors cancelled.
+    /// </remarks>
+    [Fact]
+    public void A_period_left_within_its_first_minute_is_credited_in_full()
+    {
+        var periodStart = new DateTime(2026, 10, 19, 6, 31, 0, DateTimeKind.Utc);
+        var periodEnd = periodStart.AddMonths(1);
+        var now = periodStart.AddSeconds(1.5);
+        var subscription = NewSubscription(oldAmountMinor: 1_500);
+        subscription.CurrentPeriodStartUtc = periodStart;
+        subscription.CurrentPeriodEndUtc = periodEnd;
+
+        var outcome = SubscriptionProrationCalculator.Calculate(
+            subscription, new PlanSnapshot(), NewPrice(4_900), [], now, periodStart, periodEnd);
+
+        outcome.Breakdown.Outgoing.ProratedValueMinor.Should().Be(1_500);
+        outcome.Breakdown.Target.ProratedValueMinor.Should().Be(4_900);
+        outcome.ChargeMinor.Should().Be(3_400);
+    }
+
     private static readonly DateTime StubStart = new(2026, 4, 29, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime StubEnd = new(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
 
