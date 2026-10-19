@@ -1,12 +1,14 @@
 using FluentAssertions;
 using FluentValidation;
 using FluentValidation.Results;
+using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace XUnitTest.Payment;
 
@@ -29,7 +31,8 @@ public sealed class PaymentCapturePreflightServiceTests
 
     private PaymentCapturePreflightService CreateService() => new(
         _validator.Object, _minorUnits.Object, _rateLimiter.Object,
-        _captures.Object, _payments.Object, _providers.Object);
+        _captures.Object, _payments.Object, _providers.Object,
+        Mock.Of<IOptionsMonitor<PaymentOptions>>(m => m.CurrentValue == new PaymentOptions()));
 
     private static CreatePaymentCaptureRequest Request(decimal amount = 10) => new() { Amount = amount };
 

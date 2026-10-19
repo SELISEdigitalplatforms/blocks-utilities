@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -15,6 +16,7 @@ public sealed class PaymentCaptureService : IPaymentCaptureService
     private readonly IPaymentCaptureInitiationService _initiation;
     private readonly IPaymentCaptureRepository _captures;
     private readonly IPaymentCaptureResponseMapper _responses;
+    private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public PaymentCaptureService(
         IPaymentExecutionContextResolver contextResolver,
@@ -23,7 +25,8 @@ public sealed class PaymentCaptureService : IPaymentCaptureService
         IPaymentCaptureReservationService reservations,
         IPaymentCaptureInitiationService initiation,
         IPaymentCaptureRepository captures,
-        IPaymentCaptureResponseMapper responses)
+        IPaymentCaptureResponseMapper responses,
+        IOptionsMonitor<PaymentOptions> options)
     {
         _contextResolver = contextResolver;
         _preflight = preflight;
@@ -32,6 +35,7 @@ public sealed class PaymentCaptureService : IPaymentCaptureService
         _initiation = initiation;
         _captures = captures;
         _responses = responses;
+        _options = options;
     }
 
     public async Task<PaymentCaptureOperationResult>
@@ -125,11 +129,16 @@ public sealed class PaymentCaptureService : IPaymentCaptureService
                 correlationId);
         }
 
+        var context = contextResolution.Context!;
         var payment = await _captures.GetPaymentByCaptureIdAsync(
-            contextResolution.Context!.TenantId,
+            context.TenantId,
             captureId,
             cancellationToken);
-        var capture = payment?.ItemId == paymentDetailId
+        var capture = payment?.ItemId == paymentDetailId &&
+            PaymentOrganizationScope.MayAccess(
+                payment,
+                context.OrganizationId,
+                _options.CurrentValue)
             ? payment.Captures.FirstOrDefault(
                 item => item.CaptureId == captureId)
             : null;
