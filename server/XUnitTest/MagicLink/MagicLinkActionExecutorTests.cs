@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using Moq;
 using Moq.Protected;
 using Utility.DomainService.MagicLink.Service;
@@ -18,7 +19,16 @@ namespace XUnitTest.MagicLink
         {
             _mockLogger = new Mock<ILogger<MagicLinkActionExecutor>>();
             _mockHttpClientFactory = new Mock<IHttpClientFactory>();
-            _executor = new MagicLinkActionExecutor(_mockLogger.Object, _mockHttpClientFactory.Object);
+
+            // Tokens are minted by api.test.com, so the links below may carry them
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["AuthenticationTokenEndpoint"] = "https://api.test.com/idp/v1/Authentication/token"
+                })
+                .Build();
+
+            _executor = new MagicLinkActionExecutor(_mockLogger.Object, _mockHttpClientFactory.Object, configuration);
         }
 
         [Theory]

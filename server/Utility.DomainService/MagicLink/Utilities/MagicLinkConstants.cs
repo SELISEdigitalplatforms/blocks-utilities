@@ -14,6 +14,11 @@ namespace Utility.DomainService.MagicLink.Utilities
         public const string MagicLinkVisitorUsagesCollection = "MagicLinkVisitorUsages";
         public const string LinkBasedActionConfigsCollection = "LinkBasedActionConfigs";
         public const string ClientCredentialsCollection = "ClientCredentials";
+
+        // Named HttpClient for Action links; registered with a public-address-only connector
+        public const string ActionHttpClientName = "MagicLinkAction";
+        public const string DefaultAuthenticationTokenEndpoint = "https://api.blocksdevelopers.com/idp/v1/Authentication/token";
+
         public const string DefaultProvider = "azure";
         public const string RabbitMqProvider = "rabbitmq";
         public static MessageConfiguration GetMessageConfiguration(string messageConnectionString)

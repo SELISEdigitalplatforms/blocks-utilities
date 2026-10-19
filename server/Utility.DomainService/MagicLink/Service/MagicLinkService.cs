@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Utility.DomainService.MagicLink.Events;
 using Utility.DomainService.MagicLink.Models;
 using Utility.DomainService.MagicLink.Utilities;
+using Utility.DomainService.Shared.Utilities;
 
 namespace Utility.DomainService.MagicLink.Service
 {
@@ -43,9 +44,14 @@ namespace Utility.DomainService.MagicLink.Service
         {
             try
             {
-                _logger.LogInformation("CreateLinkAsync started for Type: {Type}, Uri: {Uri}", request.Type, request.Uri);
+                _logger.LogInformation("CreateLinkAsync started for Type: {Type}", request.Type);
 
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                // The link, and the ClientCredential it may carry, belong to the caller's tenant
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new CreateMagicLinkResponse { IsSuccess = false, ErrorMessage = CallerTenant.MismatchMessage };
+                }
 
                 // Get configuration if specified (for Action type)
                 LinkBasedActionConfig? config = null;
@@ -112,7 +118,7 @@ namespace Utility.DomainService.MagicLink.Service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in CreateLinkAsync for Uri: {Uri}", request.Uri);
+                _logger.LogError(ex, "Error in CreateLinkAsync for Type: {Type}", request.Type);
                 return new CreateMagicLinkResponse
                 {
                     IsSuccess = false,
@@ -194,7 +200,12 @@ namespace Utility.DomainService.MagicLink.Service
                     };
                 }
 
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new RemoveMagicLinksResponse { IsSuccess = false, ErrorMessage = CallerTenant.MismatchMessage };
+                }
+
                 var removedCount = 0;
 
                 // Get the links from database
@@ -256,7 +267,13 @@ namespace Utility.DomainService.MagicLink.Service
                 _logger.LogInformation("GetLinkAsync started for ItemId: {ItemId}, ProjectKey: {ProjectKey}",
                     request.ItemId, request.ProjectKey);
 
-                var link = await _repository.GetMagicLinkAsync(request.ItemId, request.ProjectKey);
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new GetMagicLinkResponse { Data = null, IsSuccess = false, ErrorMessage = CallerTenant.MismatchMessage };
+                }
+
+                var link = await _repository.GetMagicLinkAsync(request.ItemId, projectKey);
 
                 if (link == null)
                 {
@@ -300,6 +317,13 @@ namespace Utility.DomainService.MagicLink.Service
                 _logger.LogInformation("GetLinksAsync started for ProjectKey: {ProjectKey}, Type: {Type}, PageSize: {PageSize}, PageNumber: {PageNumber}",
                     request.ProjectKey, request.Type, request.PageSize, request.PageNumber);
 
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new GetMagicLinksResponse { Data = new List<MagicLinkDto>(), TotalCount = 0, IsSuccess = false, ErrorMessage = CallerTenant.MismatchMessage };
+                }
+
+                request.ProjectKey = projectKey;
                 var (links, totalCount) = await _repository.GetMagicLinksAsync(request);
 
                 // Map entities to DTOs with computed status
@@ -337,8 +361,8 @@ namespace Utility.DomainService.MagicLink.Service
             {
                 _logger.LogInformation("InvokeLinkAsync started for LinkId: {LinkId}", request.LinkId);
 
-                // Get the link
-                var link = await _repository.GetMagicLinkAsync(request.LinkId, request.ProjectKey);
+                // Anonymous: the link ID alone finds it, and the stored link carries its own tenant
+                var link = await _repository.GetMagicLinkAsync(request.LinkId);
 
                 if (link == null)
                 {
@@ -577,7 +601,12 @@ namespace Utility.DomainService.MagicLink.Service
         {
             try
             {
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new SaveLinkBasedActionConfigResponse { IsSuccess = false, ErrorMessage = CallerTenant.MismatchMessage };
+                }
+
                 _logger.LogInformation("SaveLinkBasedActionConfigAsync started for ProjectKey: {ProjectKey}", projectKey);
 
                 // Check if config already exists for this project
@@ -651,7 +680,12 @@ namespace Utility.DomainService.MagicLink.Service
         {
             try
             {
-                var projectKey = request.ProjectKey ?? _configuration["RootTenantId"] ?? "";
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new GetLinkBasedActionConfigResponse { IsSuccess = false, ErrorMessage = CallerTenant.MismatchMessage };
+                }
+
                 _logger.LogInformation("GetLinkBasedActionConfigAsync started for ProjectKey: {ProjectKey}", projectKey);
 
                 var config = await _repository.GetLinkBasedActionConfigAsync(projectKey);
