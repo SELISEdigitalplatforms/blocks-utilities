@@ -228,6 +228,23 @@ Content-Type: application/json
 }
 ```
 
+## External Resources in Submitted HTML
+
+HTML and documents sent for rendering come from callers, so the renderers never open network
+connections for them. Images, style sheets, fonts and scripts they reference are handled like this:
+
+- `data:` URIs render as usual.
+- `http`/`https` URLs are downloaded through `PublicNetwork.FetchAsync`, and the bytes are handed to the
+  renderer. The connection is allowed only when the host resolves to public addresses only (checked
+  after DNS, on every redirect), and each resource is limited to 10 MB and 10 seconds.
+- Everything else is dropped: private, loopback and link-local hosts (including the cloud metadata
+  address `169.254.169.254`), `file:` URLs and relative paths, and anything other than a GET.
+
+Chromium (engine 1) does this through request interception, and is launched with a dead proxy so
+traffic interception never sees (WebSockets, WebRTC) has nowhere to go. Aspose (engine 3 and document
+conversion) does it through `PublicResourceLoadingCallback`. wkhtmltopdf (engine 4) has neither hook
+and is not installed in the images; install it only after giving it the same restriction.
+
 ## PDF Ingestion
 
 A sibling feature (`Utility.DomainService.PdfIngestion`, alongside this module rather than inside
