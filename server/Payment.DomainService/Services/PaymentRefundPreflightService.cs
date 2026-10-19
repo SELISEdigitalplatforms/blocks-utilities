@@ -1,8 +1,10 @@
 using FluentValidation;
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Services;
 
@@ -17,6 +19,7 @@ public sealed class PaymentRefundPreflightService :
     private readonly IPaymentRepository _payments;
     private readonly IPaymentProviderCache _providers;
     private readonly IPaymentFundReturnStrategyResolver _strategies;
+    private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly TimeProvider _time;
 
     public PaymentRefundPreflightService(
@@ -27,6 +30,7 @@ public sealed class PaymentRefundPreflightService :
         IPaymentRepository payments,
         IPaymentProviderCache providers,
         IPaymentFundReturnStrategyResolver strategies,
+        IOptionsMonitor<PaymentOptions> options,
         TimeProvider? time = null)
     {
         _validator = validator;
@@ -36,6 +40,7 @@ public sealed class PaymentRefundPreflightService :
         _payments = payments;
         _providers = providers;
         _strategies = strategies;
+        _options = options;
         _time = time ?? TimeProvider.System;
     }
 
@@ -96,7 +101,11 @@ public sealed class PaymentRefundPreflightService :
             paymentDetailId,
             cancellationToken);
 
-        if (payment == null)
+        if (payment == null ||
+            !PaymentOrganizationScope.MayAccess(
+                payment,
+                context.OrganizationId,
+                _options.CurrentValue))
         {
             return Failed(
                 PaymentFailureKind.NotFound,
