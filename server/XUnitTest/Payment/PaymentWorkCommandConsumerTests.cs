@@ -7,6 +7,7 @@ using Payment.DomainService.Outbox;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Services;
 using Worker.Consumers.Payment;
 
 namespace XUnitTest.Payment;
@@ -28,6 +29,23 @@ public sealed class PaymentWorkCommandConsumerTests
 
         fixture.VerifyDueWork(Times.Once());
         fixture.VerifyRecovery(Times.Never());
+    }
+
+    /// <summary>
+    /// A credit top-up paid at checkout (spec 003) is settled on the tick that carried its webhook,
+    /// from the same transitioned payments the subscription fast path reads.
+    /// </summary>
+    [Fact]
+    public async Task Consume_settles_credit_checkouts_for_the_payments_the_webhooks_moved()
+    {
+        var fixture = new Fixture();
+
+        await fixture.Consumer.Consume(new ProcessPaymentWorkCommand { TenantId = TenantId });
+
+        fixture.Credits.Verify(credits => credits.SettleCheckoutsForPaymentsAsync(
+            TenantId,
+            It.Is<IReadOnlyCollection<string>>(ids => ids.SequenceEqual(new[] { "pay-1" })),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -190,6 +208,7 @@ public sealed class PaymentWorkCommandConsumerTests
         public Mock<IPaymentCaptureRecoveryProcessor> CaptureRecovery { get; } = new();
         public Mock<ISubscriptionActivationProcessor> SubscriptionActivation { get; } = new();
         public Mock<ISubscriptionOutboxProcessor> SubscriptionOutbox { get; } = new();
+        public Mock<ISubscriptionCreditService> Credits { get; } = new();
 
         /// <summary>The order the subscription passes ran in, which is the thing under test.</summary>
         public List<string> SubscriptionCalls { get; } = [];
@@ -253,6 +272,7 @@ public sealed class PaymentWorkCommandConsumerTests
             // Subscriptions ride this same tick, so the consumer resolves their processors too.
             services.AddScoped(_ => SubscriptionActivation.Object);
             services.AddScoped(_ => SubscriptionOutbox.Object);
+            services.AddScoped(_ => Credits.Object);
             var provider = services.BuildServiceProvider();
 
             Consumer = new PaymentWorkCommandConsumer(

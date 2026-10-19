@@ -34,6 +34,15 @@ namespace DomainService.Utilities
             // calls it adds nothing.
             services.AddHttpClient(Utility.DomainService.Storage.StorageHelperBase.StorageHttpClientName);
 
+            // Action magic links call whatever URL their creator typed, so the connection is vetted
+            // after DNS resolution. No proxy: the connector would then vet the proxy, not the target.
+            services.AddHttpClient(Utility.DomainService.MagicLink.Utilities.MagicLinkConstants.ActionHttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+                {
+                    ConnectCallback = Utility.DomainService.Shared.Utilities.PublicNetwork.ConnectAsync,
+                    UseProxy = false
+                });
+
             // Sequence Services
             services.AddSingleton<ISequenceService, SequenceService>();
             services.AddSingleton<ISequenceRepository, SequenceRepository>();

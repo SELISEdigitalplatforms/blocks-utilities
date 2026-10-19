@@ -277,6 +277,32 @@ public sealed class CreditConsumptionTests
     }
 
     [Fact]
+    public async Task Reading_current_usage_shows_the_credits_bought_and_what_they_paid_for()
+    {
+        Opened(balance: 60);
+        _counter!.PurchasedConsumed = 10;
+        _grants.All.Add(Grant("g1", remaining: 90));
+        _usage
+            .Setup(repository => repository.GetCountersAsync(
+                TenantId, It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            // The plan has one meter, so whichever window id is asked for is this counter.
+            .ReturnsAsync((string _, IReadOnlyCollection<string> ids, CancellationToken _) =>
+                (IReadOnlyDictionary<string, SubscriptionUsageCounter>)ids.ToDictionary(id => id, _ => _counter!));
+        _current
+            .Setup(repository => repository.ListUserRowsAsync(
+                TenantId, OrganizationId, SubscriptionId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var result = await Service().GetCurrentUsageAsync(null, "corr-1", CancellationToken.None);
+
+        var meter = result.Value!.Single();
+        meter.PurchasedRemaining.Should().Be(90,
+            "a subscriber who bought credits must see them before spending any, not only on a recording");
+        meter.PurchasedConsumed.Should().Be(10);
+        meter.Included.Should().Be(110, "the plan's 100 plus the 10 credits already spent");
+    }
+
+    [Fact]
     public async Task Credits_may_take_usage_past_a_meter_that_allows_no_overage()
     {
         _subscription.Plan.Meters[0].OverageAllowed = false;

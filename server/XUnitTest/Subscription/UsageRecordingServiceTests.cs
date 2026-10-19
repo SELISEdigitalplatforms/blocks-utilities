@@ -267,7 +267,7 @@ public sealed class UsageRecordingServiceTests
     }
 
     [Fact]
-    public async Task A_refused_call_reverses_the_users_own_delta_too()
+    public async Task A_refused_call_leaves_the_users_own_row_untouched()
     {
         _subscription.Plan.Meters[0].OverageAllowed = false;
         _balance = 500;
@@ -275,19 +275,23 @@ public sealed class UsageRecordingServiceTests
         var request = NewRequest("usage-1");
         request.Enforce = true;
 
-        await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+        var result = await Service().RecordAsync(request, "corr-1", CancellationToken.None);
 
+        result.Value!.Allowed.Should().BeFalse();
+
+        // The user's row is only ever incremented on success, so a refusal must not publish any
+        // delta to it - a compensating -1 here drove the row below zero.
         _projection.Verify(
             publisher => publisher.PublishUserDeltaAsync(
                 It.IsAny<SubscriptionDetail>(),
                 It.IsAny<PlanMeter>(),
                 It.IsAny<BillingPeriod>(),
-                "user-1",
-                -1,
+                It.IsAny<string?>(),
                 It.IsAny<decimal>(),
-                "corr-1",
+                It.IsAny<decimal>(),
+                It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
-            Times.Once,
+            Times.Never,
             "a refused call must leave this user's own row exactly where it started, same as the pool");
     }
 

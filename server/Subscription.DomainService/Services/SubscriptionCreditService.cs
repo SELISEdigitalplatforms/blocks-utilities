@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -30,7 +31,7 @@ namespace Subscription.DomainService.Services;
 /// on theirs — which is what lets the recovery sweep finish a purchase this service started.
 /// </para>
 /// </remarks>
-public sealed class SubscriptionCreditService : ISubscriptionCreditService
+public sealed partial class SubscriptionCreditService : ISubscriptionCreditService
 {
     private const string PurchaseOperation = "CreditPurchase";
     private const string GrantOperation = "CreditGrant";
@@ -55,6 +56,13 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     private readonly ILogger<SubscriptionCreditService> _logger;
     private readonly TimeProvider _time;
 
+    // Spec 003, hosted checkout for a buyer with no saved card. Optional, like the activation
+    // processor's collaborators: without them a purchase with no card is refused, as before.
+    private readonly IPaymentService? _paymentService;
+    private readonly ICurrencyMinorUnitResolver? _currency;
+    private readonly BillingAccountCardAdopter? _cardAdopter;
+    private readonly ISubscriptionPaymentReconciler? _reconciler;
+
     public SubscriptionCreditService(
         ISubscriptionContextResolver contextResolver,
         ISubscriptionRepository subscriptions,
@@ -73,7 +81,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         IValidator<GrantCreditsRequest> grantValidator,
         IValidator<MoveCreditsRequest> moveValidator,
         ILogger<SubscriptionCreditService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        IPaymentService? paymentService = null,
+        ICurrencyMinorUnitResolver? currency = null,
+        BillingAccountCardAdopter? cardAdopter = null,
+        // Stripe only; absent for a provider it cannot observe. See ISubscriptionPaymentReconciler.
+        ISubscriptionPaymentReconciler? reconciler = null)
     {
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
@@ -93,6 +106,10 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         _moveValidator = moveValidator;
         _logger = logger;
         _time = time ?? TimeProvider.System;
+        _paymentService = paymentService;
+        _currency = currency;
+        _cardAdopter = cardAdopter;
+        _reconciler = reconciler;
     }
 
     // ---- preview and purchase -------------------------------------------------------------
@@ -157,6 +174,16 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         }
 
         var (purchase, meter, account, discount) = priced.Value!;
+
+        // ponytail: read-then-insert, so two keys racing past this can each open a session. Both
+        // would settle correctly; only the one-session promise breaks. A unique index on the open
+        // checkout is the upgrade if that is ever seen.
+        if (purchase.PaymentPath == CreditPaymentPath.Checkout &&
+            await _purchases.FindOpenCheckoutAsync(context.TenantId, subscription.ItemId, cancellationToken) is { } open)
+        {
+            return CheckoutInProgress(open, correlationId);
+        }
+
         purchase.ItemId = purchaseId;
         purchase.IdempotencyKey = request.IdempotencyKey;
         purchase.RequestFingerprint = fingerprint;
@@ -164,8 +191,11 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             subscription.ItemId,
             Guid.NewGuid().ToString("N"));
         purchase.ProviderName = account.ProviderName;
-        // The merchant's scope, which holds the card, exactly as a renewal charges.
-        purchase.ProviderOrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId;
+        // The merchant's scope, which holds the card, exactly as a renewal charges. A checkout opens
+        // under the scope a signup checkout does, which is the one the card it saves will live in.
+        purchase.ProviderOrganizationId = purchase.PaymentPath == CreditPaymentPath.Checkout
+            ? CheckoutProviderOrganizationId(account, subscription)
+            : account.ProviderOrganizationId ?? subscription.OrganizationId;
         purchase.ProviderCustomerId = account.ProviderCustomerId;
         purchase.StoredPaymentMethodId = account.DefaultPaymentMethodId;
 
@@ -219,6 +249,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             }
 
             reserved = true;
+        }
+
+        if (purchase.PaymentPath == CreditPaymentPath.Checkout)
+        {
+            return await StartCheckoutAsync(
+                subscription, meter, purchase, account, reserved ? discount!.ItemId : null, correlationId, cancellationToken);
         }
 
         var charged = await ChargeAsync(subscription, meter, purchase, correlationId, cancellationToken);
@@ -432,6 +468,14 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 correlationId);
         }
 
+        if (existing.Status == CreditPurchaseStatus.AwaitingPayment)
+        {
+            // The buyer is usually back from the provider's page by now, and the webhook may not
+            // be. Ask the provider directly where it can be asked and settle on its answer -- the
+            // redirect itself proves nothing.
+            await ReadCheckoutOnReturnAsync(existing, correlationId, cancellationToken);
+        }
+
         if (existing.Status == CreditPurchaseStatus.Failed)
         {
             return Failure<CreditPurchaseResponse>(
@@ -547,16 +591,6 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         var account = await _billingAccounts.GetAsync(
             subscription.TenantId, subscription.BillingAccountId, cancellationToken);
 
-        if (account is not { DefaultPaymentMethodId.Length: > 0 })
-        {
-            return Failure<Priced>(
-                PaymentFailureKind.Conflict,
-                "subscription_credits_no_payment_method",
-                "There is no saved card to charge. Add a payment method to the subscription, then " +
-                    "buy credits.",
-                correlationId);
-        }
-
         var now = Now();
         Discount? discount = null;
         DiscountTerms? discountTerms = null;
@@ -589,6 +623,43 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 correlationId);
         }
 
+        // A charge at or under the provider's floor is never declined: Stripe marks the invoice
+        // paid at zero and moves the amount onto the customer's balance, which the next invoice
+        // then collects. The exact-amount check rightly refuses that, so the purchase sticks and
+        // the customer pays later for credits never granted. Refuse it here, before any charge.
+        // Zero stays allowed -- a code that takes it to nothing skips the provider entirely.
+        // See SubscriptionOptions.MinimumSettlementChargeMinor.
+        var floor = _options.CurrentValue.MinimumSettlementChargeMinor;
+
+        if (quote.TotalMinor > 0 && quote.TotalMinor <= floor)
+        {
+            return Failure<Priced>(
+                PaymentFailureKind.Validation,
+                "subscription_credits_below_minimum_charge",
+                $"This purchase comes to {quote.TotalMinor} minor units, which is too small to " +
+                    $"charge. Buy enough credits to total more than {floor}.",
+                correlationId);
+        }
+
+        // With no saved card the buyer pays at a hosted checkout that saves one (spec 003). Not for
+        // a purchase a code took to nothing, which has no amount to check out, and not without the
+        // checkout collaborators: both keep the refusal this used to be for every purchase.
+        // Decided after the quote for that reason, so every other refusal still comes first.
+        var path = account is { DefaultPaymentMethodId.Length: > 0 }
+            ? CreditPaymentPath.StoredCard
+            : CreditPaymentPath.Checkout;
+
+        if (account is null ||
+            path == CreditPaymentPath.Checkout && (quote.TotalMinor <= 0 || !CheckoutAvailable))
+        {
+            return Failure<Priced>(
+                PaymentFailureKind.Conflict,
+                "subscription_credits_no_payment_method",
+                "There is no saved card to charge. Add a payment method to the subscription, then " +
+                    "buy credits.",
+                correlationId);
+        }
+
         var purchase = new SubscriptionCreditPurchase
         {
             TenantId = subscription.TenantId,
@@ -612,6 +683,7 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             DiscountVersion = discount?.Version ?? 0,
             ExpiryPolicy = terms.ExpiryPolicy,
             ExpiresAtUtc = ExpiryOf(subscription, meter, terms.ExpiryPolicy, now),
+            PaymentPath = path,
             CreatedAtUtc = now,
             LastUpdatedAtUtc = now
         };
@@ -1077,7 +1149,7 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     ];
 
     private static readonly CreditPurchaseStatus[] Unfinished =
-        [CreditPurchaseStatus.Pending, CreditPurchaseStatus.Charged];
+        [CreditPurchaseStatus.Pending, CreditPurchaseStatus.AwaitingPayment, CreditPurchaseStatus.Charged];
 
     /// <summary>
     /// Finishes or fails the purchases a crash left part way, for one tenant. Returns how many it
@@ -1091,7 +1163,8 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     /// back. A Stripe invoice is recorded only once paid, so for Stripe finding nothing proves
     /// nothing: the charge is replayed under its own key, which the provider answers with the
     /// original charge if there was one. One still in flight is left alone until the alert
-    /// deadline, then handed to an operator rather than guessed at.
+    /// deadline, then handed to an operator rather than guessed at. On an ended subscription nothing
+    /// is replayed or granted: any purchase that may have taken money goes straight to an operator.
     /// </remarks>
     public async Task<int> RecoverStaleAsync(string tenantId, CancellationToken cancellationToken)
     {
@@ -1112,11 +1185,20 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
                 break;
             }
 
-            if (await RecoverAsync(purchase, now, options, cancellationToken))
+            // A checkout purchase not yet paid is settled by what the provider decided at its
+            // session, never by replaying a charge: it has no card to replay with.
+            var recovered = purchase.PaymentPath == CreditPaymentPath.Checkout &&
+                            purchase.Status != CreditPurchaseStatus.Charged
+                ? await RecoverCheckoutAsync(purchase, now, options, cancellationToken)
+                : await RecoverAsync(purchase, now, options, cancellationToken);
+
+            if (recovered)
             {
                 settled++;
             }
         }
+
+        await AdoptPendingCardsAsync(tenantId, now, options, cancellationToken);
 
         return settled;
     }
@@ -1129,6 +1211,12 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
     {
         var correlationId = $"credit-recovery-{Guid.NewGuid():N}";
         var overdue = now - purchase.CreatedAtUtc > TimeSpan.FromHours(Math.Max(1, options.CreditPurchaseAlertAfterHours));
+        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
+
+        // Credits granted into an ended subscription are forfeited the moment they land, so it must
+        // neither be charged again nor granted into. Whatever money may have moved goes to an operator.
+        var ended = subscription is null ||
+                    subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired;
 
         if (purchase.Status == CreditPurchaseStatus.Pending)
         {
@@ -1138,7 +1226,14 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             if (payment is null &&
                 string.Equals(purchase.ProviderName, PaymentConstants.StripeProvider, StringComparison.OrdinalIgnoreCase))
             {
-                var replayed = await ReplayChargeAsync(purchase, correlationId, cancellationToken);
+                if (ended)
+                {
+                    // Only a replay could tell whether the first attempt was paid, and on an ended
+                    // subscription a replay that was not would charge for nothing.
+                    return await HoldAsync(purchase, now, overdue: true, cancellationToken);
+                }
+
+                var replayed = await ReplayChargeAsync(purchase, subscription!, correlationId, cancellationToken);
 
                 if (replayed is null)
                 {
@@ -1198,16 +1293,14 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
             }
         }
 
-        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
-
-        if (subscription is null)
+        if (ended)
         {
             // Paid for, with nothing left to grant into. Never dropped silently: this is money taken.
             return await HoldAsync(purchase, now, overdue: true, cancellationToken);
         }
 
         await FinalizeAsync(
-            subscription,
+            subscription!,
             purchase,
             purchase.DiscountId,
             new SubscriptionContext(purchase.TenantId, purchase.OrganizationId, "credit-purchase-recovery", purchase.BuyerUserId),
@@ -1249,22 +1342,16 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
 
     /// <summary>
     /// Re-raises a purchase's charge under its own key and routing. Null when there is no answer
-    /// either way (no card to replay with, no subscription to bill, or the provider still not
-    /// responding), so the purchase is held rather than guessed at.
+    /// either way (no card to replay with, or the provider still not responding), so the purchase
+    /// is held rather than guessed at.
     /// </summary>
     private async Task<SubscriptionOperationResult<string>?> ReplayChargeAsync(
         SubscriptionCreditPurchase purchase,
+        SubscriptionDetail subscription,
         string correlationId,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(purchase.StoredPaymentMethodId))
-        {
-            return null;
-        }
-
-        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
-
-        if (subscription is null)
         {
             return null;
         }
@@ -1524,7 +1611,8 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         TaxMode = purchase.TaxMode?.ToString(),
         DiscountCode = purchase.DiscountCode,
         ExpiryPolicy = purchase.ExpiryPolicy.ToString(),
-        ExpiresAtUtc = purchase.ExpiresAtUtc
+        ExpiresAtUtc = purchase.ExpiresAtUtc,
+        PaymentPath = purchase.PaymentPath.ToString()
     };
 
     private static CreditPurchaseResponse PurchaseResponse(
@@ -1536,6 +1624,7 @@ public sealed class SubscriptionCreditService : ISubscriptionCreditService
         Status = purchase.Status.ToString(),
         Quote = QuoteResponse(purchase),
         PaymentId = purchase.PaymentId,
+        CheckoutUrl = purchase.Status == CreditPurchaseStatus.AwaitingPayment ? purchase.CheckoutUrl : null,
         Grant = grant is null ? null : GrantResponse(grant),
         FailureCode = purchase.FailureCode,
         FailureReason = purchase.FailureReason,

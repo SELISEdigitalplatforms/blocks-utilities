@@ -180,6 +180,51 @@ describe("the credits card", () => {
     expect(second).toBe(first);
   });
 
+  // Spec 003, AC-24: with no saved card the purchase is paid at a checkout, and the dialog checks
+  // on it under the same key until the server says it is done -- never deciding from the redirect.
+  it("sends a buyer with no saved card to checkout and checks payment under the same key", async () => {
+    const user = userEvent.setup();
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const checkoutQuote: CreditQuote = { ...quote, paymentPath: "Checkout" };
+    const awaiting = {
+      purchaseId: "sub-1:key",
+      status: "AwaitingPayment" as const,
+      quote: checkoutQuote,
+      paymentId: "pay-c1",
+      checkoutUrl: "https://checkout.example/c1",
+      grant: null,
+      failureCode: null,
+      failureReason: null,
+      createdAtUtc: "2026-10-13T12:00:00Z",
+      replayed: false,
+    };
+    service.previewPurchase.mockResolvedValue(checkoutQuote);
+    service.purchase
+      .mockResolvedValueOnce(awaiting)
+      .mockResolvedValueOnce({ ...awaiting, replayed: true })
+      .mockResolvedValueOnce({ ...awaiting, status: "Finalized", checkoutUrl: null, replayed: true });
+    renderCard([meter()]);
+
+    await user.click(screen.getByRole("button", { name: "Buy credits" }));
+    await user.click(screen.getByRole("button", { name: "Get quote" }));
+    expect(await screen.findByText(/paid at checkout/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Pay at checkout for/ }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Waiting for payment");
+    expect(open).toHaveBeenCalledWith("https://checkout.example/c1", "_blank", "noopener");
+
+    await user.click(screen.getByRole("button", { name: "Check payment" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Waiting for payment");
+    await user.click(screen.getByRole("button", { name: "Check payment" }));
+
+    await waitFor(() => expect(service.purchase).toHaveBeenCalledTimes(3));
+    const keys = service.purchase.mock.calls.map(([, request]) => request.idempotencyKey);
+    expect(new Set(keys).size).toBe(1);
+    expect(open).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    open.mockRestore();
+  });
+
   it("asks for a new quote once the request is changed", async () => {
     const user = userEvent.setup();
     service.previewPurchase.mockResolvedValue(quote);

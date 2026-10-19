@@ -396,6 +396,46 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
             : SetProviderCustomerOutcome.Repointed;
     }
 
+    public async Task<bool> TrySetDefaultPaymentMethodIfNoneAsync(
+        string tenantId,
+        string billingAccountId,
+        string? providerCustomerId,
+        string defaultPaymentMethodId,
+        string? providerOrganizationId,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<BillingAccount>.Filter;
+
+        var update = Builders<BillingAccount>.Update
+            .Set(account => account.DefaultPaymentMethodId, defaultPaymentMethodId)
+            .Set(account => account.LastUpdatedDateUtc, DateTime.UtcNow)
+            .Inc(account => account.Version, 1);
+
+        // Same rule as TrySetProviderCustomerAsync: only fields there is a value for, so an Adyen
+        // card (no separate customer) never blanks a customer id the account already holds.
+        if (!string.IsNullOrWhiteSpace(providerCustomerId))
+        {
+            update = update.Set(account => account.ProviderCustomerId, providerCustomerId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(providerOrganizationId))
+        {
+            update = update.Set(account => account.ProviderOrganizationId, providerOrganizationId);
+        }
+
+        var result = await Accounts(tenantId).UpdateOneAsync(
+            filter.And(
+                filter.Eq(account => account.TenantId, tenantId),
+                filter.Eq(account => account.ItemId, billingAccountId),
+                filter.Or(
+                    filter.Eq(account => account.DefaultPaymentMethodId, null),
+                    filter.Eq(account => account.DefaultPaymentMethodId, string.Empty))),
+            update,
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount > 0;
+    }
+
     private async Task<BillingAccount?> FindAsync(
         string tenantId,
         string organizationId,

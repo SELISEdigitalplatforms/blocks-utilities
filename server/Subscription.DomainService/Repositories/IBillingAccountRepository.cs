@@ -80,4 +80,24 @@ public interface IBillingAccountRepository
         string? defaultPaymentMethodId,
         string? providerOrganizationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a card as the account's default only while the account has none.
+    /// </summary>
+    /// <remarks>
+    /// For a card saved by a credit top-up checkout (spec 003). That checkout only opens when the
+    /// account has no card, but one can be added through payment-method setup while the buyer is
+    /// still on the provider's page, and the card the subscriber chose there must not be replaced
+    /// by the one a top-up happened to save. The check and the write are one conditional update.
+    /// </remarks>
+    /// <returns>
+    /// True when this call set the default; false when the account already had one or is missing.
+    /// </returns>
+    Task<bool> TrySetDefaultPaymentMethodIfNoneAsync(
+        string tenantId,
+        string billingAccountId,
+        string? providerCustomerId,
+        string defaultPaymentMethodId,
+        string? providerOrganizationId,
+        CancellationToken cancellationToken);
 }

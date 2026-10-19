@@ -265,6 +265,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IDiscountCatalogueService, DiscountCatalogueService>();
         services.AddScoped<ISubscriptionCreditService, SubscriptionCreditService>();
         services.AddScoped<CreditLedger>();
+        services.AddScoped<BillingAccountCardAdopter>();
         services.AddScoped<
             ISubscriptionBillingProfileService,
             SubscriptionBillingProfileService>();

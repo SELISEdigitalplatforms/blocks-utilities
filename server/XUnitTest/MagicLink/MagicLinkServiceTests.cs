@@ -9,7 +9,7 @@ using Utility.DomainService.MagicLink;
 
 namespace XUnitTest.MagicLink
 {
-    public class MagicLinkServiceTests
+    public sealed class MagicLinkServiceTests : IDisposable
     {
         private readonly Mock<ILogger<MagicLinkService>> _mockLogger;
         private readonly Mock<IMagicLinkRepository> _mockRepository;
@@ -20,6 +20,11 @@ namespace XUnitTest.MagicLink
 
         public MagicLinkServiceTests()
         {
+            // The caller every request below comes from; services act on this tenant only
+            BlocksContext.SetContext(BlocksContext.Create(
+                "test-project", null, "user-1", true, null, "org-1",
+                DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
+
             _mockLogger = new Mock<ILogger<MagicLinkService>>();
             _mockRepository = new Mock<IMagicLinkRepository>();
             _mockCacheClient = new Mock<ICacheClient>();
@@ -37,6 +42,8 @@ namespace XUnitTest.MagicLink
                 _mockConfiguration.Object
             );
         }
+
+        public void Dispose() => BlocksContext.SetContext(null);
 
         #region CreateLinkAsync Tests
 
@@ -419,7 +426,7 @@ namespace XUnitTest.MagicLink
         public async Task GetLinksAsync_EmptyResult_ShouldReturnEmptyList()
         {
             // Arrange
-            var request = new GetMagicLinksRequest { ProjectKey = "empty-project" };
+            var request = new GetMagicLinksRequest { ProjectKey = "test-project" };
             _mockRepository.Setup(r => r.GetMagicLinksAsync(request))
                 .ReturnsAsync((new List<Utility.DomainService.MagicLink.Models.MagicLink>(), 0));
 
@@ -784,7 +791,7 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new CreateMagicLinksRequest
             {
-                ProjectKey = "bulk-project",
+                ProjectKey = "test-project",
                 Requests = new List<CreateMagicLinkRequest>
                 {
                     new() { Type = MagicLinkType.Redirect, Uri = "https://link1.com" },
@@ -812,7 +819,7 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new CreateMagicLinksRequest
             {
-                ProjectKey = "bulk-project",
+                ProjectKey = "test-project",
                 Requests = new List<CreateMagicLinkRequest>
                 {
                     new() { Type = MagicLinkType.Redirect, Uri = "https://link1.com", ProjectKey = null }
@@ -831,7 +838,7 @@ namespace XUnitTest.MagicLink
             // Assert
             result.IsSuccess.Should().BeTrue();
             capturedLink.Should().NotBeNull();
-            capturedLink!.ProjectKey.Should().Be("bulk-project");
+            capturedLink!.ProjectKey.Should().Be("test-project");
         }
 
         [Fact]
@@ -840,7 +847,7 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new CreateMagicLinksRequest
             {
-                ProjectKey = "partial-project",
+                ProjectKey = "test-project",
                 Requests = new List<CreateMagicLinkRequest>
                 {
                     new() { Type = MagicLinkType.Redirect, Uri = "https://link1.com" },
@@ -872,7 +879,7 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new CreateMagicLinksRequest
             {
-                ProjectKey = "fail-project",
+                ProjectKey = "test-project",
                 Requests = new List<CreateMagicLinkRequest>
                 {
                     new() { Type = MagicLinkType.Redirect, Uri = "https://link1.com" }
@@ -897,7 +904,7 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new CreateMagicLinksRequest
             {
-                ProjectKey = "error-project",
+                ProjectKey = "test-project",
                 Requests = null! // This will cause an exception
             };
 
@@ -1025,7 +1032,7 @@ namespace XUnitTest.MagicLink
         public async Task GetLinksAsync_Exception_ShouldReturnError()
         {
             // Arrange
-            var request = new GetMagicLinksRequest { ProjectKey = "error-project" };
+            var request = new GetMagicLinksRequest { ProjectKey = "test-project" };
             _mockRepository.Setup(r => r.GetMagicLinksAsync(request))
                 .ThrowsAsync(new Exception("Database error"));
 
@@ -1068,11 +1075,11 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new SaveLinkBasedActionConfigRequest
             {
-                ProjectKey = "new-project",
+                ProjectKey = "test-project",
                 ContextName = "Test Context",
                 ShortUrlBase = "https://short.test.com"
             };
-            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("new-project"))
+            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("test-project"))
                 .ReturnsAsync((LinkBasedActionConfig?)null);
             _mockRepository.Setup(r => r.CreateLinkBasedActionConfigAsync(It.IsAny<LinkBasedActionConfig>()))
                 .ReturnsAsync("config-id");
@@ -1094,16 +1101,16 @@ namespace XUnitTest.MagicLink
             var existingConfig = new LinkBasedActionConfig
             {
                 ItemId = "existing-config",
-                ProjectKey = "existing-project",
+                ProjectKey = "test-project",
                 ContextName = "Old Context"
             };
             var request = new SaveLinkBasedActionConfigRequest
             {
-                ProjectKey = "existing-project",
+                ProjectKey = "test-project",
                 ContextName = "New Context",
                 ShortUrlBase = "https://new.test.com"
             };
-            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("existing-project"))
+            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("test-project"))
                 .ReturnsAsync(existingConfig);
             _mockRepository.Setup(r => r.UpdateLinkBasedActionConfigAsync(It.IsAny<LinkBasedActionConfig>()))
                 .ReturnsAsync(true);
@@ -1125,14 +1132,14 @@ namespace XUnitTest.MagicLink
             var existingConfig = new LinkBasedActionConfig
             {
                 ItemId = "fail-config",
-                ProjectKey = "fail-project"
+                ProjectKey = "test-project"
             };
             var request = new SaveLinkBasedActionConfigRequest
             {
-                ProjectKey = "fail-project",
+                ProjectKey = "test-project",
                 ContextName = "Test"
             };
-            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("fail-project"))
+            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("test-project"))
                 .ReturnsAsync(existingConfig);
             _mockRepository.Setup(r => r.UpdateLinkBasedActionConfigAsync(It.IsAny<LinkBasedActionConfig>()))
                 .ReturnsAsync(false);
@@ -1154,7 +1161,7 @@ namespace XUnitTest.MagicLink
                 ProjectKey = null,
                 ContextName = "Test Context"
             };
-            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("root-tenant"))
+            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("test-project"))
                 .ReturnsAsync((LinkBasedActionConfig?)null);
             _mockRepository.Setup(r => r.CreateLinkBasedActionConfigAsync(It.IsAny<LinkBasedActionConfig>()))
                 .ReturnsAsync("new-config");
@@ -1172,9 +1179,9 @@ namespace XUnitTest.MagicLink
             // Arrange
             var request = new SaveLinkBasedActionConfigRequest
             {
-                ProjectKey = "error-project"
+                ProjectKey = "test-project"
             };
-            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("error-project"))
+            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("test-project"))
                 .ThrowsAsync(new Exception("Database error"));
 
             // Act
@@ -1216,8 +1223,8 @@ namespace XUnitTest.MagicLink
         public async Task GetLinkBasedActionConfigAsync_ConfigNotFound_ShouldReturnNull()
         {
             // Arrange
-            var request = new GetLinkBasedActionConfigRequest { ProjectKey = "no-config" };
-            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("no-config"))
+            var request = new GetLinkBasedActionConfigRequest { ProjectKey = "test-project" };
+            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("test-project"))
                 .ReturnsAsync((LinkBasedActionConfig?)null);
 
             // Act
@@ -1233,7 +1240,7 @@ namespace XUnitTest.MagicLink
         {
             // Arrange
             var request = new GetLinkBasedActionConfigRequest { ProjectKey = null };
-            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("root-tenant"))
+            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("test-project"))
                 .ReturnsAsync((LinkBasedActionConfig?)null);
 
             // Act
@@ -1247,8 +1254,8 @@ namespace XUnitTest.MagicLink
         public async Task GetLinkBasedActionConfigAsync_Exception_ShouldReturnError()
         {
             // Arrange
-            var request = new GetLinkBasedActionConfigRequest { ProjectKey = "error-project" };
-            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("error-project"))
+            var request = new GetLinkBasedActionConfigRequest { ProjectKey = "test-project" };
+            _mockRepository.Setup(r => r.GetLinkBasedActionConfigAsync("test-project"))
                 .ThrowsAsync(new Exception("Database error"));
 
             // Act

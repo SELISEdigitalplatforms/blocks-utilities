@@ -6,6 +6,7 @@ using Payment.DomainService.Outbox;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Services;
 
 namespace Worker.Consumers.Payment;
 
@@ -158,6 +159,13 @@ public sealed class PaymentWorkCommandConsumer :
         // below so a link settled here is no longer pending and is not looked at twice.
         var targetedSettlements =
             await subscriptionActivation.SettleForPaymentsAsync(
+                command.TenantId,
+                webhookResult.TransitionedPaymentDetailIds,
+                CancellationToken.None);
+        // Same fast path for a credit top-up paid at checkout (spec 003): its purchase record, not
+        // a subscription link, is what waits on the payment.
+        targetedSettlements +=
+            await services.GetRequiredService<ISubscriptionCreditService>().SettleCheckoutsForPaymentsAsync(
                 command.TenantId,
                 webhookResult.TransitionedPaymentDetailIds,
                 CancellationToken.None);

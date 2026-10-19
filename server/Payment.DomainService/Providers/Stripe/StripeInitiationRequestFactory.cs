@@ -84,6 +84,15 @@ public sealed class StripeInitiationRequestFactory : IProviderInitiationRequestF
             .AddMetadata(
                 RoutingMetadata(payment, provider, providerReference, shopperReference));
 
+        if (request.CheckoutExpiresInMinutes is { } minutes)
+        {
+            // Stripe refuses anything outside 30 minutes to 24 hours. Fixed here as an absolute
+            // time, so a recovered initiation replays the same session lifetime, not a new one.
+            form.Add(
+                "expires_at",
+                DateTimeOffset.UtcNow.AddMinutes(Math.Clamp(minutes, 30, 24 * 60)).ToUnixTimeSeconds());
+        }
+
         // Which methods the page offers. Applied here, before the save-card branches below, so
         // the narrowing sees the same save decision they act on: a checkout that stores the
         // method for later renewals must not offer one Stripe can never charge again, however

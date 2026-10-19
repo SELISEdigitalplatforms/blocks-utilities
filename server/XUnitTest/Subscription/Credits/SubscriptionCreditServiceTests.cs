@@ -186,6 +186,56 @@ public sealed class SubscriptionCreditServiceTests
         result.ErrorCode.Should().Be("subscription_credits_quantity_out_of_range");
     }
 
+    // Stripe does not decline a charge under its minimum: it marks the invoice paid at zero and
+    // moves the amount onto the customer's balance, so the purchase stuck and the next invoice
+    // collected money for credits never granted. Observed live at 50 minor units.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public async Task A_preview_at_or_under_the_providers_minimum_charge_is_refused(long unitAmountMinor)
+    {
+        Priced(unitAmountMinor);
+
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(quantity: 10), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_credits_below_minimum_charge");
+    }
+
+    [Fact]
+    public async Task A_purchase_at_the_providers_minimum_charge_is_refused_without_charging()
+    {
+        Priced(5);
+
+        var result = await Service().PurchaseAsync(SubscriptionId, Buy(quantity: 10, key: "k1"), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_credits_below_minimum_charge");
+        _gateway.Verify(gateway => gateway.ChargeAsync(
+            It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_purchase_just_over_the_providers_minimum_charge_is_quoted()
+    {
+        Priced(5);
+
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(quantity: 11), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.TotalMinor.Should().Be(55);
+    }
+
+    [Fact]
+    public async Task A_code_that_takes_a_purchase_under_the_minimum_charge_is_refused()
+    {
+        Priced(6);
+        CodeExists(OneUseCreditCode());
+
+        // 60 less 20% is 48: over the floor before the code, under it after.
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(quantity: 10, code: "topup20"), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_credits_below_minimum_charge");
+    }
+
     [Fact]
     public async Task Credits_are_not_offered_in_a_currency_the_meter_has_no_price_in()
     {
@@ -651,6 +701,57 @@ public sealed class SubscriptionCreditServiceTests
         _grants.All.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(SubscriptionStatus.Canceled)]
+    [InlineData(SubscriptionStatus.IncompleteExpired)]
+    public async Task A_stripe_purchase_with_no_record_on_an_ended_subscription_is_not_charged_but_handed_to_an_operator(
+        SubscriptionStatus status)
+    {
+        var purchase = StripePurchase();
+        purchase.DiscountId = "disc-1";
+        _subscription.Status = status;
+
+        var settled = await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        settled.Should().Be(1);
+        _gateway.Verify(gateway => gateway.ChargeAsync(
+            It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never, "a replay would charge the card for credits the ended subscription forfeits at once");
+        purchase.Status.Should().Be(CreditPurchaseStatus.NeedsAttention,
+            "the first attempt may still have taken money Stripe has not reported, so only an operator can settle it");
+        _grants.All.Should().BeEmpty();
+        _redemptions.Verify(repository => repository.TryReleaseAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_charged_purchase_on_an_ended_subscription_is_handed_to_an_operator_instead_of_granted()
+    {
+        var purchase = StalePurchase(CreditPurchaseStatus.Charged, paymentId: "pay-1");
+        _subscription.Status = SubscriptionStatus.Canceled;
+
+        await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        purchase.Status.Should().Be(CreditPurchaseStatus.NeedsAttention,
+            "credits granted into an ended subscription are forfeited at once, so the money is owed back instead");
+        _grants.All.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_pending_purchase_charged_before_the_subscription_ended_keeps_its_payment_for_the_operator()
+    {
+        var purchase = StalePurchase(CreditPurchaseStatus.Pending);
+        PaymentRecorded(purchase, PaymentStatuses.Captured);
+        _subscription.Status = SubscriptionStatus.Canceled;
+
+        await Service().RecoverStaleAsync(TenantId, CancellationToken.None);
+
+        purchase.Status.Should().Be(CreditPurchaseStatus.NeedsAttention);
+        purchase.PaymentId.Should().Be("pay-9", "the operator needs the payment to refund");
+        _grants.All.Should().BeEmpty();
+    }
+
     private SubscriptionCreditPurchase StripePurchase()
     {
         var purchase = StalePurchase(CreditPurchaseStatus.Pending);
@@ -736,6 +837,10 @@ public sealed class SubscriptionCreditServiceTests
         DiscountCode = code,
         IdempotencyKey = key
     };
+
+    private void Priced(long unitAmountMinor) =>
+        _subscription.Plan.Meters[0].TopUp!.UnitPrices =
+            [new MeterTopUpPrice { CurrencyCode = "USD", UnitAmountMinor = unitAmountMinor }];
 
     private void Seated(long seats)
     {
