@@ -164,7 +164,6 @@ export interface GetPermission {
 export enum ResourceType {
   "Endpoint" = 1,
   "FE action" = 2,
-  "Data protection" = 3,
 }
 
 export const RESOURCE_TYPE = [
@@ -175,10 +174,6 @@ export const RESOURCE_TYPE = [
   {
     value: "2",
     label: "FE action",
-  },
-  {
-    value: "3",
-    label: "Data protection",
   },
 ];
 
