@@ -64,6 +64,35 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreateCreditEvent(
+        SubscriptionDetail subscription,
+        string eventType,
+        SubscriptionCreditGrant grant,
+        string correlationId,
+        int? fromSeatNumber = null)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(grant);
+
+        var payload = NewPayload(subscription, eventType);
+        payload.MeterKey = grant.MeterKey;
+        payload.CreditGrantId = grant.ItemId;
+        payload.SeatNumber = grant.SeatNumber;
+        payload.CreditQuantity = grant.Quantity;
+        payload.CreditRemaining = grant.Remaining;
+        payload.FromSeatNumber = fromSeatNumber;
+
+        return Build(
+            subscription,
+            eventType,
+            // One of each kind per grant: a grant is purchased, granted or moved into exactly once,
+            // and used up at most once, so the grant's id is all the scoping these need.
+            $"{subscription.ItemId}:{eventType}:{grant.ItemId}",
+            payload,
+            correlationId,
+            null);
+    }
+
     public SubscriptionOutboxEvent CreateRenewalOutcome(
         SubscriptionDetail subscription,
         string eventType,

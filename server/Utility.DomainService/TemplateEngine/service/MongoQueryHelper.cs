@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -14,6 +15,38 @@ namespace Utility.DomainService.TemplateEngine.service
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     public class MongoQueryHelper
     {
+        /// <summary>
+        /// The most documents one query may bring into memory, paged or not.
+        /// </summary>
+        /// <remarks>
+        /// Every matched document is held, converted and rendered in this process, so a caller asking
+        /// for a whole collection (or a page of <c>int.MaxValue</c>) could exhaust the host's memory.
+        /// </remarks>
+        // ponytail: fixed cap, make it configurable if a tenant's real exports outgrow it
+        public const int MaxDocumentsPerQuery = 10_000;
+
+        private static readonly Regex EntityNamePattern = new("^[A-Za-z][A-Za-z0-9_]*$", RegexOptions.CultureInvariant);
+
+        private static readonly HashSet<string> ForbiddenOperators = new(StringComparer.Ordinal)
+        {
+            "$where", "$function", "$accumulator", "$expr"
+        };
+
+        // Collections owned by IAM, Genesis and this service's own modules
+        private static readonly HashSet<string> DeniedCollections = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Users", "Roles", "Permissions", "ClientCredentials", "Secrets", "Tenants",
+            "LinkBasedActionConfigs", "KeyValueStores", "IdentityConfigurations", "AllowedApis",
+            "ResourceLimits", "JwtThirdPartyProviders"
+        };
+
+        private static readonly string[] DeniedCollectionPrefixes =
+        {
+            "Subscription", "Payment", "StoredPaymentMethod", "Sms", "MagicLink",
+            "DocumentConversion", "PdfIngestion", "PdfSignatureValidation", "PdfGeneration",
+            "PdfUtility", "PdfExtract"
+        };
+
         private readonly ILogger<MongoQueryHelper> _logger;
         private readonly IDbContextProvider _dbContextProvider;
 
@@ -89,7 +122,7 @@ namespace Utility.DomainService.TemplateEngine.service
 
                 // Execute query with pagination
                 var pageNumber = queryData.PageNumber ?? 0;
-                var pageLimit = queryData.PageLimit ?? 100;
+                var pageLimit = Math.Clamp(queryData.PageLimit ?? 100, 1, MaxDocumentsPerQuery);
 
                 var documents = await collection.Find(filter)
                     .Sort(sortDefinition)
@@ -117,10 +150,18 @@ namespace Utility.DomainService.TemplateEngine.service
             {
                 var (collection, filter, sortDefinition) = GetMongoQueryComponents(queryData, tenantId);
 
-                // Execute query without pagination
+                // One past the cap tells "exactly the cap" apart from "more than the cap"
                 var documents = await collection.Find(filter)
                     .Sort(sortDefinition)
+                    .Limit(MaxDocumentsPerQuery + 1)
                     .ToListAsync();
+
+                // Refused rather than truncated: a generated file silently missing rows reads as complete
+                if (documents.Count > MaxDocumentsPerQuery)
+                {
+                    throw new InvalidOperationException(
+                        $"The query matches more than {MaxDocumentsPerQuery} documents; narrow it or page through it.");
+                }
 
                 return ConvertBsonDocumentsToObjects(documents, queryData.EntityName, " (no pagination)");
             }
@@ -134,15 +175,16 @@ namespace Utility.DomainService.TemplateEngine.service
         /// <summary>
         /// Gets MongoDB collection, filter, and sort definition for a query
         /// </summary>
-        private (IMongoCollection<BsonDocument> collection, FilterDefinition<BsonDocument> filter, SortDefinition<BsonDocument> sortDefinition) 
+        private (IMongoCollection<BsonDocument> collection, FilterDefinition<BsonDocument> filter, SortDefinition<BsonDocument> sortDefinition)
             GetMongoQueryComponents(FilteredMongoQueryData queryData, string tenantId)
         {
+            // Both checks run before the database is touched
+            EnsureEntityIsQueryable(queryData.EntityName);
+            var filter = BuildMongoFilter(queryData.Text);
+
             var database = _dbContextProvider.GetDatabase(tenantId);
             var collectionName = $"{queryData.EntityName}s";
             var collection = database.GetCollection<BsonDocument>(collectionName);
-
-            // Build filter from query text
-            var filter = BuildMongoFilter(queryData.Text);
 
             // Apply sorting
             var sortDefinition = queryData.SortOrder == SortOrder.Descending
@@ -189,35 +231,93 @@ namespace Utility.DomainService.TemplateEngine.service
                 return Builders<BsonDocument>.Filter.Empty;
             }
 
+            // The query text is not logged: its filter values are often emails, names or IDs
+            BsonDocument bsonDocument;
             try
             {
                 // Parse MongoDB JSON query format
                 // Example input: {"status": "completed", "amount": {"$gt": 100}}
                 // Example input: {"$and": [{"status": "active"}, {"age": {"$gte": 18}}]}
-                
-                _logger.LogDebug("BuildMongoFilter: Parsing query text: {QueryText}", queryText);
-                
-                var bsonDocument = BsonDocument.Parse(queryText);
-                var filter = new BsonDocumentFilterDefinition<BsonDocument>(bsonDocument);
-                
-                _logger.LogInformation("BuildMongoFilter: Successfully parsed MongoDB query with {ConditionCount} condition(s)", bsonDocument.ElementCount);
-                
-                return filter;
+                bsonDocument = BsonDocument.Parse(queryText);
             }
             catch (MongoDB.Bson.BsonException ex)
             {
-                _logger.LogError(ex, "BuildMongoFilter: Failed to parse MongoDB query. Query text: {QueryText}", queryText);
+                _logger.LogError(ex, "BuildMongoFilter: Failed to parse MongoDB query");
                 throw new ArgumentException($"Invalid MongoDB query format: {ex.Message}. Query must be valid MongoDB JSON (e.g., {{\"field\": \"value\"}}).", nameof(queryText), ex);
             }
             catch (FormatException ex)
             {
-                _logger.LogError(ex, "BuildMongoFilter: Invalid JSON format in query text: {QueryText}", queryText);
+                _logger.LogError(ex, "BuildMongoFilter: Invalid JSON format in query text");
                 throw new ArgumentException($"Invalid JSON format in query: {ex.Message}", nameof(queryText), ex);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "BuildMongoFilter: Unexpected error parsing query text: {QueryText}", queryText);
+                _logger.LogError(ex, "BuildMongoFilter: Unexpected error parsing query text");
                 throw new ArgumentException($"Error parsing MongoDB query: {ex.Message}", nameof(queryText), ex);
+            }
+
+            EnsureNoForbiddenOperators(bsonDocument);
+
+            _logger.LogInformation("BuildMongoFilter: Successfully parsed MongoDB query with {ConditionCount} condition(s)", bsonDocument.ElementCount);
+
+            return new BsonDocumentFilterDefinition<BsonDocument>(bsonDocument);
+        }
+
+        /// <summary>
+        /// Refuses entity names that map onto platform collections rather than the tenant's own
+        /// business data.
+        /// </summary>
+        /// <remarks>
+        /// The tenant database is shared with IAM and with this service's own modules, and any
+        /// signed-in user of the tenant can submit these queries. Without this check a query for
+        /// <c>ClientCredential</c> returns every OAuth client secret, and one for <c>User</c> every
+        /// user record, rendered into a file the caller can download. Prefixes cover whole
+        /// families (<c>Subscription*</c>, <c>Payment*</c>, ...) so new internal collections are
+        /// denied without an edit here. The identifier pattern also rules out <c>system.*</c>.
+        /// </remarks>
+        /// <exception cref="ArgumentException">The entity may not be queried.</exception>
+        public static void EnsureEntityIsQueryable(string? entityName)
+        {
+            if (string.IsNullOrWhiteSpace(entityName) || !EntityNamePattern.IsMatch(entityName))
+            {
+                throw new ArgumentException("EntityName must be a plain identifier.", nameof(entityName));
+            }
+
+            var collectionName = $"{entityName}s";
+            if (DeniedCollections.Contains(collectionName) ||
+                DeniedCollectionPrefixes.Any(prefix => collectionName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new ArgumentException($"Entity '{entityName}' is a platform collection and cannot be queried.", nameof(entityName));
+            }
+        }
+
+        /// <summary>
+        /// Refuses operators that run server-side code or evaluate expressions. <c>$where</c>,
+        /// <c>$function</c> and <c>$accumulator</c> execute JavaScript on the database server, and
+        /// <c>$expr</c> is the door <c>$function</c> needs in a find filter.
+        /// </summary>
+        private static void EnsureNoForbiddenOperators(BsonValue value)
+        {
+            switch (value)
+            {
+                case BsonDocument document:
+                    foreach (var element in document)
+                    {
+                        if (ForbiddenOperators.Contains(element.Name))
+                        {
+                            throw new ArgumentException($"The '{element.Name}' operator is not allowed in template queries.");
+                        }
+
+                        EnsureNoForbiddenOperators(element.Value);
+                    }
+                    break;
+
+                case BsonArray array:
+                    foreach (var item in array)
+                    {
+                        EnsureNoForbiddenOperators(item);
+                    }
+                    break;
             }
         }
 

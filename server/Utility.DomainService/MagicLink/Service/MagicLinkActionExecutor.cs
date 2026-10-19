@@ -1,24 +1,52 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Utility.DomainService.MagicLink.Utilities;
 
 namespace Utility.DomainService.MagicLink.Service
 {
     /// <summary>
     /// Service for executing HTTP requests for action-type magic links
     /// </summary>
+    /// <remarks>
+    /// Requests go through the <see cref="MagicLinkConstants.ActionHttpClientName"/> client, which
+    /// only connects to public addresses, because the target URL is whatever the link's creator
+    /// typed. A link that carries a client credential is further limited to the Blocks API host the
+    /// token was minted by: the token holds that credential's roles, and the anonymous Invoke
+    /// endpoint would otherwise let any link creator have it delivered to a server they control.
+    /// </remarks>
     public class MagicLinkActionExecutor
     {
+        public const string TokenHostMismatchMessage =
+            "Links with a client credential may only target the Blocks API host that issues its token.";
+
         private readonly ILogger<MagicLinkActionExecutor> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IConfiguration _configuration;
 
         public MagicLinkActionExecutor(
             ILogger<MagicLinkActionExecutor> logger,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IConfiguration configuration)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
+            _configuration = configuration;
+        }
+
+        /// <summary>
+        /// True when the link's target has the same scheme, host and port as the token endpoint,
+        /// so a client-credential token may be attached to the request.
+        /// </summary>
+        public bool MayReceiveToken(Models.MagicLink link)
+        {
+            ArgumentNullException.ThrowIfNull(link);
+
+            return Uri.TryCreate(link.Uri, UriKind.Absolute, out var target) &&
+                   Uri.TryCreate(ClientCredentialTokenService.ResolveTokenEndpoint(_configuration), UriKind.Absolute, out var issuer) &&
+                   Uri.Compare(target, issuer, UriComponents.SchemeAndServer, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
         }
 
         /// <summary>
@@ -41,8 +69,20 @@ namespace Utility.DomainService.MagicLink.Service
                     };
                 }
 
-                _logger.LogInformation("Executing action for LinkId: {LinkId}, Method: {Method}, Url: {Url}",
-                    link.ItemId, link.RequestMethod, link.Uri);
+                if (!string.IsNullOrEmpty(token) && !MayReceiveToken(link))
+                {
+                    _logger.LogWarning("Refusing to send a client-credential token off the Blocks API host for LinkId: {LinkId}", link.ItemId);
+                    return new MagicLinkActionExecutionResult
+                    {
+                        IsSuccess = false,
+                        StatusCode = 403,
+                        ErrorMessage = TokenHostMismatchMessage
+                    };
+                }
+
+                // Host only: the full URL often carries tokens or personal data in its query string
+                _logger.LogInformation("Executing action for LinkId: {LinkId}, Method: {Method}, Host: {Host}",
+                    link.ItemId, link.RequestMethod, Uri.TryCreate(link.Uri, UriKind.Absolute, out var target) ? target.Host : null);
 
                 return link.RequestMethod.ToUpperInvariant() switch
                 {
@@ -72,7 +112,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         private async Task<MagicLinkActionExecutionResult> ExecuteGetActionAsync(Models.MagicLink link, string? token)
         {
-            using var client = _httpClientFactory.CreateClient();
+            using var client = _httpClientFactory.CreateClient(MagicLinkConstants.ActionHttpClientName);
             var apiUrl = BuildApiUrl(link);
 
             SetupClient(client, link, token);
@@ -83,7 +123,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         private async Task<MagicLinkActionExecutionResult> ExecutePostActionAsync(Models.MagicLink link, string? token)
         {
-            using var client = _httpClientFactory.CreateClient();
+            using var client = _httpClientFactory.CreateClient(MagicLinkConstants.ActionHttpClientName);
             var apiUrl = BuildApiUrl(link);
 
             SetupClient(client, link, token);
@@ -100,7 +140,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         private async Task<MagicLinkActionExecutionResult> ExecutePutActionAsync(Models.MagicLink link, string? token)
         {
-            using var client = _httpClientFactory.CreateClient();
+            using var client = _httpClientFactory.CreateClient(MagicLinkConstants.ActionHttpClientName);
             var apiUrl = BuildApiUrl(link);
 
             SetupClient(client, link, token);
@@ -117,7 +157,7 @@ namespace Utility.DomainService.MagicLink.Service
 
         private async Task<MagicLinkActionExecutionResult> ExecuteDeleteActionAsync(Models.MagicLink link, string? token)
         {
-            using var client = _httpClientFactory.CreateClient();
+            using var client = _httpClientFactory.CreateClient(MagicLinkConstants.ActionHttpClientName);
             var apiUrl = BuildApiUrl(link);
 
             SetupClient(client, link, token);
@@ -162,6 +202,14 @@ namespace Utility.DomainService.MagicLink.Service
                     {
                         foreach (var header in headers)
                         {
+                            // Host would reroute the request at the gateway; a stored Authorization
+                            // would ride alongside (or replace) the minted token.
+                            if (string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrEmpty(token) && string.Equals(header.Key, "Authorization", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                continue;
+                            }
+
                             if (!string.IsNullOrEmpty(header.Key) && !string.IsNullOrEmpty(header.Value))
                             {
                                 client.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);

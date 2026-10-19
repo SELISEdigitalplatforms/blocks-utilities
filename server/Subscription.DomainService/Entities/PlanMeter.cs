@@ -151,4 +151,12 @@ public sealed class PlanMeter
     public List<int> ThresholdPercents { get; set; } = [];
 
     public List<MeterRateTable> RateTables { get; set; } = [];
+
+    /// <summary>
+    /// The terms on which extra credits for this meter may be bought. Null when they cannot be.
+    /// </summary>
+    public MeterTopUpTerms? TopUp { get; set; }
+
+    /// <summary>Whether a subscriber may buy credits for this meter at all, in any currency.</summary>
+    public bool IsPurchasable => TopUp is { Enabled: true };
 }

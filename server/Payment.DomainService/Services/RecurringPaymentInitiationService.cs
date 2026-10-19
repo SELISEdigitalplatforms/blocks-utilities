@@ -181,6 +181,8 @@ public sealed class RecurringPaymentInitiationService :
                     leaseId,
                     providerReference,
                     provider.MerchantId,
+                    providerRequest.CaptureMode,
+                    providerRequest.CaptureDelayHours,
                     cancellationToken))
             {
                 return Conflict(correlationId);

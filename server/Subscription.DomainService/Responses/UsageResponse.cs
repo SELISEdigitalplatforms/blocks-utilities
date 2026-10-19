@@ -48,6 +48,19 @@ public sealed class UsageResponse
     /// <summary>How much has been used beyond the allowance.</summary>
     public decimal Overage { get; init; }
 
+    /// <summary>
+    /// How much of <see cref="Used"/> bought or granted credits paid for in this window. Already
+    /// counted inside <see cref="Included"/>, so overage is never charged for it.
+    /// </summary>
+    public decimal PurchasedConsumed { get; init; }
+
+    /// <summary>
+    /// Credits this recorder can still spend once the plan's allowance runs out. Reported on a
+    /// recording for a meter that sells credits, and null otherwise. The full breakdown is on
+    /// <c>GET /subscriptions/{id}/credits</c>.
+    /// </summary>
+    public decimal? PurchasedRemaining { get; init; }
+
     /// <summary>True when this call repeated one already recorded and changed nothing.</summary>
     public bool Replayed { get; init; }
 

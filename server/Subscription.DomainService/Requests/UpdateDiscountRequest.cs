@@ -32,6 +32,8 @@ public sealed class UpdateDiscountRequest : ICampaignDiscountRequest
     public DateTime? ExpiresAtUtc { get; set; }
     public List<string> ApplicablePlanCodes { get; set; } = [];
     public List<string> ApplicablePriceIds { get; set; } = [];
+    public DiscountScope Scope { get; set; } = DiscountScope.Subscription;
+    public List<string> ApplicableMeterKeys { get; set; } = [];
 
     public CampaignKind CampaignKind { get; set; } = CampaignKind.Standard;
     public CampaignPrecedence? CampaignPrecedence { get; set; }

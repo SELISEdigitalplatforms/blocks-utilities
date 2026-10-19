@@ -166,6 +166,11 @@ export interface MeterTerms {
    * quote.
    */
   overagePricing: OveragePricing | null;
+  /**
+   * What one bought credit costs in this subscription's currency. Absent or null when this meter's
+   * credits cannot be bought by this subscriber, which is when the buy action is hidden.
+   */
+  creditPurchase?: CreditPurchaseTerms | null;
 }
 
 /** A meter's graduated overage rates, already converted to the subscription's currency. */
@@ -813,4 +818,104 @@ export interface SubscriptionMemberAssignment {
   subscriptionId: string;
   assigned: SubscriptionMember[];
   refused: SubscriptionMemberRefusal[];
+}
+
+/** A meter's credits as this subscriber can buy them. See spec 002. */
+export interface CreditPurchaseTerms {
+  currencyCode: string;
+  unitAmountMinor: number;
+  /** The same figure formatted for the currency. */
+  unitAmount: string;
+  minQuantity: number;
+  maxQuantity: number;
+  expiryPolicy: "Periodic" | "CarryForward" | "Never";
+  taxRateBasisPoints: number | null;
+  taxMode: "Exclusive" | "Inclusive" | null;
+}
+
+/** `POST /api/subscriptions/{id}/credits/preview` and `POST /api/subscriptions/{id}/credits`. */
+export interface CreditPurchaseRequest {
+  organizationId?: string;
+  meterKey: string;
+  quantity: number;
+  /** Null buys for the shared pool. */
+  seatNumber?: number | null;
+  discountCode?: string;
+  /** Required to buy. A retry with the same key never charges twice. */
+  idempotencyKey?: string;
+}
+
+export interface CreditQuote {
+  meterKey: string;
+  seatNumber: number | null;
+  quantity: number;
+  currencyCode: string;
+  unitAmountMinor: number;
+  grossMinor: number;
+  discountMinor: number;
+  netMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  taxRateBasisPoints: number | null;
+  taxMode: string | null;
+  discountCode: string | null;
+  expiryPolicy: "Periodic" | "CarryForward" | "Never";
+  /** Set for credits that expire with the current usage window. */
+  expiresAtUtc: string | null;
+  /** "Checkout" when there is no saved card and the buyer pays at the provider's page (spec 003). */
+  paymentPath?: "StoredCard" | "Checkout";
+}
+
+export interface CreditGrant {
+  grantId: string;
+  meterKey: string;
+  seatNumber: number | null;
+  source: "Purchased" | "AdminGranted" | "Moved";
+  quantity: number;
+  remaining: number;
+  expiryPolicy: "Periodic" | "CarryForward" | "Never";
+  expiresAtUtc: string | null;
+  status: "Active" | "Exhausted" | "Expired" | "Forfeited";
+  grantedAtUtc: string;
+  grantedByUserId: string;
+  reason: string | null;
+  purchaseId: string | null;
+  sourceGrantId: string | null;
+}
+
+export interface CreditPurchase {
+  purchaseId: string;
+  status: "Pending" | "AwaitingPayment" | "Charged" | "Finalized" | "Failed" | "NeedsAttention";
+  quote: CreditQuote;
+  paymentId: string | null;
+  /** Where to pay, while the purchase is AwaitingPayment. */
+  checkoutUrl?: string | null;
+  grant: CreditGrant | null;
+  failureCode: string | null;
+  failureReason: string | null;
+  createdAtUtc: string;
+  replayed: boolean;
+}
+
+export interface GrantCreditsRequest {
+  organizationId?: string;
+  meterKey: string;
+  quantity: number;
+  seatNumber?: number | null;
+  reason: string;
+}
+
+export interface MoveCreditsRequest {
+  organizationId?: string;
+  meterKey: string;
+  quantity: number;
+  /** Null takes from the shared pool. */
+  fromSeatNumber?: number | null;
+  /** Null gives to the shared pool. */
+  toSeatNumber?: number | null;
+}
+
+export interface CreditMove {
+  from: CreditGrant[];
+  to: CreditGrant[];
 }

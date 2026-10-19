@@ -476,12 +476,18 @@ public sealed class PaymentRepositoryIntegrationTests
             tenantId, payment.ItemId, leaseId, DateTime.UtcNow.AddMinutes(5), CancellationToken.None);
 
         var ok = await _repository.SaveProviderRoutingAsync(
-            tenantId, payment.ItemId, leaseId, "provider-ref", "merchant-acc", CancellationToken.None);
+            tenantId, payment.ItemId, leaseId, "provider-ref", "merchant-acc",
+            PaymentCaptureModes.AutomaticImmediate, 0, CancellationToken.None);
 
         ok.Should().BeTrue();
         var stored = await _repository.GetByIdAsync(tenantId, payment.ItemId, CancellationToken.None);
         stored!.ProviderReference.Should().Be("provider-ref");
         stored.ProviderMerchantAccount.Should().Be("merchant-acc");
+        stored.CaptureMode.Should().Be(
+            PaymentCaptureModes.AutomaticImmediate,
+            because: "the authorisation webhook settles a stored-card charge only from the mode " +
+                     "recorded here; losing it leaves every renewal and upgrade AUTHORIZED");
+        stored.CaptureDelayHours.Should().Be(0);
     }
 
     [Fact]

@@ -1309,6 +1309,34 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task A_contact_recorded_with_its_id_for_a_name_is_named_by_its_email_instead()
+    {
+        Subscribed();
+        SettledRenewal(payment => payment.UserId = "user-8");
+
+        // What capture used to store for a token that carried no name: the user id as the name.
+        _profiles
+            .Setup(profiles => profiles.GetAsync(TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionBillingProfile
+            {
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                LegalName = "Northwind Trading AG",
+                Contacts =
+                [
+                    new BillingContact { UserId = "user-8", Name = "user-8", Email = "linus@northwind.example" }
+                ]
+            });
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.InitiatedBy.Name.Should().Be("linus@northwind.example",
+            because: "an invoice that says it was initiated by a GUID names nobody the reader can recognise");
+        document.InitiatedBy.UserId.Should().Be("user-8");
+    }
+
+    [Fact]
     public async Task A_refund_credit_note_says_it_was_the_system_refunding_not_the_system_renewing()
     {
         Subscribed();
@@ -1939,6 +1967,96 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             payment.SubscriptionQuantityDiscountBasisPoints = null;
             payment.SubscriptionDiscountCombination = null;
         });
+
+    /// <summary>
+    /// A credit purchase is invoiced as what was bought, not as a period of the plan (spec 002).
+    /// </summary>
+    [Fact]
+    public async Task A_credit_purchase_is_invoiced_as_the_credits_it_bought()
+    {
+        CreditPurchaseSettled(promotionCode: "topup20");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document.Should().NotBeNull("a settled credit purchase owes an invoice like any other charge");
+        var line = document!.Lines.Should().ContainSingle(
+            "one purchase is one line: quantity times the credit price").Subject;
+        line.Description.Should().Be("AI credits credits");
+        line.Quantity.Should().Be(100);
+        line.UnitAmountMinor.Should().Be(10);
+        line.AmountMinor.Should().Be(1_000);
+        document.Amounts.PromotionalDiscountMinor.Should().Be(200);
+        document.Amounts.TotalMinor.Should().Be(800,
+            "the invoice totals what the card was charged");
+    }
+
+    [Fact]
+    public async Task A_credit_purchase_invoice_names_the_code_the_purchase_used_not_the_subscriptions()
+    {
+        CreditPurchaseSettled(promotionCode: "topup20", subscriptionCode: "launch");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Amounts.PromotionCode.Should().Be("topup20",
+            "naming the subscription's own code would credit the wrong promotion for the reduction");
+    }
+
+    private void CreditPurchaseSettled(string? promotionCode, string? subscriptionCode = null)
+    {
+        Subscribed(subscription =>
+        {
+            subscription.Discount = subscriptionCode is null ? null : new DiscountTerms { Code = subscriptionCode };
+            subscription.PendingDocumentSources =
+            [
+                new SubscriptionDocumentSource
+                {
+                    SourceKey = FinancialDocumentSourceKey.ForPayment("pay-1"),
+                    PaymentDetailId = "pay-1",
+                    DocumentType = FinancialDocumentType.Invoice,
+                    ChargeKind = SubscriptionChargeKind.CreditPurchase,
+                    CurrencyCode = "CHF",
+                    Subject = SubscriptionDocumentSourceFactory.SubjectOf(subscription),
+                    Lines =
+                    [
+                        new FinancialDocumentLine
+                        {
+                            Description = "AI credits credits",
+                            Quantity = 100,
+                            UnitAmountMinor = 10,
+                            AmountMinor = 1_000,
+                            ItemKey = "ai-credit"
+                        }
+                    ],
+                    PromotionCode = promotionCode,
+                    Period = new FinancialDocumentPeriod
+                    {
+                        StartUtc = subscription.CurrentPeriodStartUtc,
+                        EndUtc = subscription.CurrentPeriodEndUtc,
+                        TimeZoneId = "Europe/Zurich"
+                    }
+                }
+            ];
+        });
+
+        SettledRenewal(payment =>
+        {
+            payment.OrderId = SubscriptionConstants.CreditPurchaseOrderIdFor(
+                SubscriptionId, "0123456789abcdef0123456789abcdef");
+            payment.PreciseAmount = 8.00m;
+            payment.SubscriptionGrossAmountMinor = 1_000;
+            payment.SubscriptionBuiltInDiscountMinor = 0;
+            payment.SubscriptionPromotionalDiscountMinor = 200;
+            payment.SubscriptionNetAmountMinor = 800;
+            payment.SubscriptionTaxAmountMinor = 0;
+            payment.SubscriptionTaxRateBasisPoints = null;
+            payment.SubscriptionTaxMode = null;
+            payment.SubscriptionCreditAmountMinor = 0;
+            payment.SubscriptionAutomaticDiscountBasisPoints = null;
+            payment.SubscriptionQuantityDiscountBasisPoints = null;
+        });
+    }
 
     private ISubscriptionFinancialDocumentIssuer Issuer() =>
         new SubscriptionFinancialDocumentIssuer(

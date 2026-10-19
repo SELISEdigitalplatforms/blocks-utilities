@@ -71,6 +71,44 @@ public sealed class PlanMeterRequest
     public List<int> ThresholdPercents { get; set; } = [];
 
     public List<MeterRateTableRequest> RateTables { get; set; } = [];
+
+    /// <summary>
+    /// The terms on which extra credits for this meter may be bought. Null, or not enabled, when
+    /// they cannot be.
+    /// </summary>
+    public MeterTopUpRequest? TopUp { get; set; }
+}
+
+/// <summary>Purchasable credits for one meter. See <c>MeterTopUpTerms</c>.</summary>
+public sealed class MeterTopUpRequest
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>One price per currency, required when enabled.</summary>
+    public List<MeterTopUpPriceRequest> UnitPrices { get; set; } = [];
+
+    /// <summary>Whole credits. At least one.</summary>
+    public decimal MinQuantity { get; set; } = 1;
+
+    /// <summary>Whole credits. Required when enabled, and not below the minimum.</summary>
+    public decimal MaxQuantity { get; set; }
+
+    /// <summary>Periodic expires with the usage window, CarryForward rolls until a plan change, Never does not expire.</summary>
+    public MeterResetPolicy ExpiryPolicy { get; set; } = MeterResetPolicy.Periodic;
+
+    /// <summary>Basis points out of 10,000. Null or zero is untaxed.</summary>
+    public int? TaxRateBasisPoints { get; set; }
+
+    /// <summary>Required with a positive rate.</summary>
+    public TaxMode? TaxMode { get; set; }
+}
+
+public sealed class MeterTopUpPriceRequest
+{
+    public string CurrencyCode { get; set; } = string.Empty;
+
+    /// <summary>What one credit costs, in minor units. Positive.</summary>
+    public long UnitAmountMinor { get; set; }
 }
 
 /// <summary>One pace: so much per window.</summary>

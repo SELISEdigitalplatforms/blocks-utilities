@@ -109,7 +109,11 @@ public sealed class SubscriptionBillingProfileGuard : ISubscriptionBillingProfil
                 new BillingContact
                 {
                     UserId = userId,
-                    Name = name is { Length: > 0 } present ? present : userId,
+                    // A token with no name usually still carries an email, which a reader recognises;
+                    // the bare id is the last resort.
+                    Name = name is { Length: > 0 } present ? present
+                        : email is { Length: > 0 } address ? address
+                        : userId,
                     Email = email
                 },
                 cancellationToken);

@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
@@ -6,6 +7,7 @@ using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace XUnitTest.Payment;
 
@@ -31,7 +33,8 @@ public sealed class PaymentCaptureServiceTests
 
     private PaymentCaptureService CreateService() => new(
         _contextResolver.Object, _preflight.Object, _distributedLock.Object,
-        _reservations.Object, _initiation.Object, _captures.Object, _responses.Object);
+        _reservations.Object, _initiation.Object, _captures.Object, _responses.Object,
+        Mock.Of<IOptionsMonitor<PaymentOptions>>(m => m.CurrentValue == new PaymentOptions()));
 
     private void SetupContextFailure() =>
         _contextResolver.Setup(c => c.Resolve(It.IsAny<string>()))

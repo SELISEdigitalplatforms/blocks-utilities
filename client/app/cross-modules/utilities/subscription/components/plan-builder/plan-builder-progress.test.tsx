@@ -8,14 +8,15 @@ vi.mock("@/components/stepper/stepper-provider", () => ({
   useStepper: () => ({
     completedSteps: [1],
     currentStep: 2,
-    totalSteps: 5,
+    totalSteps: 6,
     goToStep: (id: number) => goToStep(id),
     getSteps: () => [
       { id: 1, title: "Identity" },
       { id: 2, title: "Pricing model" },
       { id: 3, title: "What the plan grants" },
-      { id: 4, title: "Trial" },
-      { id: 5, title: "Review" },
+      { id: 4, title: "Credits" },
+      { id: 5, title: "Trial" },
+      { id: 6, title: "Review" },
     ],
   }),
 }));
@@ -73,10 +74,16 @@ describe("PlanBuilderProgress — stuck treatment (H3, H5)", () => {
 });
 
 describe("PlanBuilderProgress — behaviour that must not change (C2)", () => {
-  it("still reports the step count and renders all five nodes", () => {
+  it("still reports the step count and renders every node", () => {
     render(<PlanBuilderProgress isStuck />);
-    expect(screen.getByText("Step 2 of 5")).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(5);
+    expect(screen.getByText("Step 2 of 6")).toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(6);
+  });
+
+  /** A hard-coded column count wrapped the sixth step onto its own row once Credits was added. */
+  it("lays every step out on one row, one column per step", () => {
+    render(<PlanBuilderProgress />);
+    expect(screen.getByRole("list").style.gridTemplateColumns).toBe("repeat(6, minmax(0, 1fr))");
   });
 
   it("still navigates via goToStep for reachable steps", async () => {
@@ -87,7 +94,7 @@ describe("PlanBuilderProgress — behaviour that must not change (C2)", () => {
 
   it("still disables steps that are not yet reachable", () => {
     render(<PlanBuilderProgress />);
-    // completedSteps [1], current 2 -> step 4 is not reachable (step 3 incomplete).
+    // completedSteps [1], current 2 -> step 5 is not reachable (step 3 incomplete).
     expect(screen.getByRole("button", { name: /Trial/ })).toBeDisabled();
   });
 
@@ -95,7 +102,7 @@ describe("PlanBuilderProgress — behaviour that must not change (C2)", () => {
     render(<PlanBuilderProgress />);
     const mobileTitle = screen
       .getAllByText("Pricing model")
-      .find((el) => el.className.includes("sm:hidden"));
+      .find((el) => el.className.includes("md:hidden"));
     expect(mobileTitle).toBeDefined();
   });
 });

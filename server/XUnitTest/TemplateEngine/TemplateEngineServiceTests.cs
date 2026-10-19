@@ -7,7 +7,7 @@ using Utility.DomainService.TemplateEngine.service;
 
 namespace XUnitTest.TemplateEngine
 {
-    public class TemplateEngineServiceTests
+    public sealed class TemplateEngineServiceTests : IDisposable
     {
         private readonly Mock<ILogger<TemplateEngineService>> _mockLogger;
         private readonly Mock<ITemplateEngineRepository> _mockRepository;
@@ -16,6 +16,11 @@ namespace XUnitTest.TemplateEngine
 
         public TemplateEngineServiceTests()
         {
+            // The caller every request below comes from; services act on this tenant only
+            BlocksContext.SetContext(BlocksContext.Create(
+                "test-project", null, "user-1", true, null, "org-1",
+                DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
+
             _mockLogger = new Mock<ILogger<TemplateEngineService>>();
             _mockRepository = new Mock<ITemplateEngineRepository>();
             _mockMessageClient = new Mock<IMessageClient>();
@@ -23,6 +28,8 @@ namespace XUnitTest.TemplateEngine
                 _mockLogger.Object,
                 _mockMessageClient.Object);
         }
+
+        public void Dispose() => BlocksContext.SetContext(null);
 
         #region RenderWithJsonAsync Tests
 

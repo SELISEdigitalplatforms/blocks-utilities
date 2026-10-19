@@ -56,6 +56,33 @@ public sealed class MeterTermsResponse
     /// exact quote.
     /// </summary>
     public OveragePricingResponse? OveragePricing { get; init; }
+
+    /// <summary>
+    /// What one bought credit costs in this subscription's currency. Null when this meter's
+    /// credits cannot be bought by this subscriber.
+    /// </summary>
+    public CreditPurchaseTermsResponse? CreditPurchase { get; init; }
+}
+
+public sealed class CreditPurchaseTermsResponse
+{
+    public string CurrencyCode { get; init; } = string.Empty;
+
+    public long UnitAmountMinor { get; init; }
+
+    /// <summary>The same figure as a major-unit string, formatted for the currency.</summary>
+    public string UnitAmount { get; init; } = string.Empty;
+
+    public decimal MinQuantity { get; init; }
+
+    public decimal MaxQuantity { get; init; }
+
+    /// <summary>"Periodic", "CarryForward" or "Never".</summary>
+    public string ExpiryPolicy { get; init; } = string.Empty;
+
+    public int? TaxRateBasisPoints { get; init; }
+
+    public string? TaxMode { get; init; }
 }
 
 /// <summary>A meter's graduated overage rates, already converted to the subscription's currency.</summary>

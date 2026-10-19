@@ -74,6 +74,12 @@ internal static class SubscriptionCollections
     /// </summary>
     public const string MailDeliveryReports = "SubscriptionMailDeliveryReports";
 
+    /// <summary>Bought, granted and moved meter credits. See <see cref="Entities.SubscriptionCreditGrant"/>.</summary>
+    public const string CreditGrants = "SubscriptionCreditGrants";
+
+    /// <summary>Credit purchases, recorded before charging. See <see cref="Entities.SubscriptionCreditPurchase"/>.</summary>
+    public const string CreditPurchases = "SubscriptionCreditPurchases";
+
     public static IMongoCollection<TDocument> Of<TDocument>(
         IDbContextProvider dbContextProvider,
         string tenantId,

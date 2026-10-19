@@ -71,6 +71,14 @@ public static class SubscriptionOrderId
                 null);
         }
 
+        if (Names(SubscriptionConstants.CreditPurchaseSegment, suffix))
+        {
+            return new SubscriptionChargeReference(
+                subscriptionId,
+                SubscriptionChargeKind.CreditPurchase,
+                null);
+        }
+
         if (Names(SubscriptionConstants.UsageSegment, suffix))
         {
             var periodKey = suffix[(SubscriptionConstants.UsageSegment.Length + 1)..];

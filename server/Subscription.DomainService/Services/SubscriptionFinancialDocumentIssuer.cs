@@ -188,6 +188,14 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         var terms = TermsFor(subscription, source, charge, paymentDetailId);
 
         var (amounts, opening) = AmountsFor(payment, subscription, charge, terms);
+
+        if (charge.Kind == SubscriptionChargeKind.CreditPurchase)
+        {
+            // The subscription's own code describes its periods, not this purchase. Whatever the
+            // purchase used, or nothing, is what this invoice names.
+            amounts.PromotionCode = source?.PromotionCode;
+        }
+
         if (amounts.TotalMinor <= 0 && payment.SubscriptionSettlement is null)
         {
             // A zero charge that is not a settlement never reached the provider, so there is no
@@ -215,9 +223,15 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         // composition so the document is built from it in one piece. Null where there is none, or
         // where it could not be reconciled against what was charged — LinesFor then says the one
         // thing it has always said.
-        var usageLines = charge.Kind == SubscriptionChargeKind.Usage
-            ? await MeteredLinesAsync(subscription, terms, period, amounts, cancellationToken)
-            : null;
+        var usageLines = charge.Kind switch
+        {
+            SubscriptionChargeKind.Usage =>
+                await MeteredLinesAsync(subscription, terms, period, amounts, cancellationToken),
+            // Frozen by the purchase, which is the only thing that knows what was bought.
+            SubscriptionChargeKind.CreditPurchase when source is { Lines.Count: > 0 } =>
+                [.. source.Lines],
+            _ => null
+        };
 
         var document = await ComposeAndIssueAsync(
             subscription,
@@ -1952,6 +1966,22 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             ];
         }
 
+        if (chargeKind == SubscriptionChargeKind.CreditPurchase)
+        {
+            // The frozen line, or — for a purchase whose obligation could not be recorded — the
+            // one thing that can honestly be said about it from the payment alone.
+            return usageLines is { Count: > 0 }
+                ? usageLines
+                :
+                [
+                    new FinancialDocumentLine
+                    {
+                        Description = $"Credits on {terms.Subject.PlanName}",
+                        AmountMinor = amounts.GrossSubtotalMinor
+                    }
+                ];
+        }
+
         if (chargeKind == SubscriptionChargeKind.Usage)
         {
             if (usageLines is { Count: > 0 })
@@ -2129,9 +2159,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         FinancialDocumentType documentType,
         string? refundId)
     {
-        if (captured is { Name.Length: > 0 })
+        if (NameOf(captured?.Name, captured?.UserId) is not null)
         {
-            return captured;
+            return captured!;
         }
 
         var actingUserId = captured?.UserId is { Length: > 0 } capturedId ? capturedId : userId;
@@ -2150,10 +2180,21 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         return new FinancialDocumentPerson
         {
             UserId = actingUserId,
-            Name = contact?.Name is { Length: > 0 } name ? name : actingUserId,
-            Email = contact?.Email
+            Name = NameOf(contact?.Name, actingUserId)
+                ?? NameOf(contact?.Email, actingUserId)
+                ?? NameOf(captured?.Email, actingUserId)
+                ?? actingUserId,
+            Email = contact?.Email is { Length: > 0 } email ? email : captured?.Email
         };
     }
+
+    /// <summary>
+    /// A name worth printing, or null. A name equal to the user id is not one: capture used to store the
+    /// id as the name when the token carried none, and those contacts are still in the profile, so the
+    /// fallbacks have to see past them rather than print an identifier a reader cannot recognise.
+    /// </summary>
+    private static string? NameOf(string? value, string? userId) =>
+        value is { Length: > 0 } && !string.Equals(value, userId, StringComparison.Ordinal) ? value : null;
 
     private static string SystemLabelFor(FinancialDocumentType documentType, string? refundId)
     {

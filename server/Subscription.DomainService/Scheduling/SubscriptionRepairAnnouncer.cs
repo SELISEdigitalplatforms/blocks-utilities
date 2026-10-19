@@ -42,6 +42,8 @@ public sealed class SubscriptionRepairAnnouncer
     private readonly TimeProvider _time;
     private readonly CampaignRedemptionReconciler? _campaignRedemptions;
     private readonly IUsageProjectionReconciler? _usageProjections;
+    private readonly ISubscriptionCreditPurchaseRepository? _creditPurchases;
+    private readonly ISubscriptionCreditGrantRepository? _creditGrants;
 
     public SubscriptionRepairAnnouncer(
         ISubscriptionWorkScheduler scheduler,
@@ -61,7 +63,11 @@ public sealed class SubscriptionRepairAnnouncer
         CampaignRedemptionReconciler? campaignRedemptions = null,
         // Optional for the same reason: a caller or test that constructs this class by hand,
         // unaware the usage projection exists, must keep compiling and keep behaving as before.
-        IUsageProjectionReconciler? usageProjections = null)
+        IUsageProjectionReconciler? usageProjections = null,
+        // Optional for the same reason again: a caller unaware credits exist keeps compiling, and
+        // simply never announces credit work.
+        ISubscriptionCreditPurchaseRepository? creditPurchases = null,
+        ISubscriptionCreditGrantRepository? creditGrants = null)
     {
         _scheduler = scheduler;
         _subscriptions = subscriptions;
@@ -76,6 +82,8 @@ public sealed class SubscriptionRepairAnnouncer
         _time = time ?? TimeProvider.System;
         _campaignRedemptions = campaignRedemptions;
         _usageProjections = usageProjections;
+        _creditPurchases = creditPurchases;
+        _creditGrants = creditGrants;
     }
 
     /// <summary>
@@ -358,6 +366,32 @@ public sealed class SubscriptionRepairAnnouncer
         if (owesDocument)
         {
             due.Add(SubscriptionWorkType.FinancialDocumentIssue);
+        }
+
+        // A purchase left Pending or Charged past the time its own request needed. Charged ones
+        // matter most: the card was charged and the credits have not been granted.
+        if (_creditPurchases is not null &&
+            (await _creditPurchases.ListStaleAsync(
+                tenantId,
+                [CreditPurchaseStatus.Pending, CreditPurchaseStatus.Charged],
+                now.AddSeconds(-Math.Max(30, options.CreditPurchaseRecoveryAfterSeconds)),
+                1,
+                cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.CreditPurchaseRecovery);
+        }
+
+        // Each live grant is due a look once per interval and as soon as its date passes, so this
+        // is rarely true and cheap to ask either way.
+        if (_creditGrants is not null &&
+            (await _creditGrants.ListDueForCheckAsync(
+                tenantId,
+                now,
+                now.AddHours(-Math.Max(1, options.CreditGrantCheckIntervalHours)),
+                1,
+                cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.CreditGrantMaintenance);
         }
 
         // Exact, because this one is affordable: the delivery index is partial and holds only the

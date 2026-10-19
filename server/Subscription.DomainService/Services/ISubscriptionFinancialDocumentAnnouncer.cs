@@ -50,6 +50,23 @@ public interface ISubscriptionFinancialDocumentAnnouncer
         FinancialDocumentPerson? initiatedBy = null);
 
     /// <summary>
+    /// Announces a settled credit purchase, freezing the line it is invoiced as.
+    /// </summary>
+    /// <remarks>
+    /// Its own method because the invoice cannot be composed from the subscription the way every
+    /// other charge's is: what was bought is on the purchase record, not the plan. The line and the
+    /// code used are frozen here, while the amounts stay on the payment like every other charge's.
+    /// </remarks>
+    Task AnnounceCreditPurchaseAsync(
+        SubscriptionDetail subscription,
+        string paymentDetailId,
+        FinancialDocumentLine line,
+        string? promotionCode,
+        string correlationId,
+        CancellationToken cancellationToken,
+        FinancialDocumentPerson? initiatedBy = null);
+
+    /// <summary>
     /// Announces a trial that has begun, which owes a zero-total document stating its terms.
     /// </summary>
     /// <remarks>

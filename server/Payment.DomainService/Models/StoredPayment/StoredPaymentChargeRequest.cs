@@ -22,6 +22,34 @@ public sealed class StoredPaymentChargeRequest
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Store { get; init; }
 
+    /// <summary>
+    /// The provider's configured capture delay, sent the same way the hosted checkout sends it.
+    /// </summary>
+    /// <remarks>
+    /// Omitted when capture is manual or no delay is configured: Adyen refuses a request carrying
+    /// both this and <c>additionalData.manualCapture</c>.
+    /// </remarks>
+    [JsonPropertyName("captureDelayHours")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CaptureDelayHours { get; init; }
+
+    [JsonPropertyName("additionalData")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ProviderAdditionalData? AdditionalData { get; init; }
+
+    /// <summary>
+    /// How this charge will be captured, as a <see cref="Enums.PaymentCaptureModes"/> value, so it
+    /// can be recorded on the payment before the charge is sent.
+    /// </summary>
+    /// <remarks>
+    /// Adyen's authorisation webhook does not say whether funds were captured, and on automatic
+    /// capture no capture webhook follows. The recorded mode is the only thing that lets the
+    /// authorisation settle the payment; without it every renewal and upgrade charge stayed
+    /// <c>AUTHORIZED</c> and its invoice was never issued. Not part of the provider request body.
+    /// </remarks>
+    [JsonIgnore]
+    public string CaptureMode { get; init; } = Enums.PaymentCaptureModes.AccountDefault;
+
     [JsonPropertyName("amount")]
     public ProviderAmount Amount { get; init; } = new();
 

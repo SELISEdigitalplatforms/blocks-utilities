@@ -76,6 +76,15 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
+    public void A_document_with_no_plan_name_still_identifies_its_subscription()
+    {
+        var html = Render(document => document.Subject.PlanName = string.Empty);
+
+        html.Should().Contain("<tr><th>Subscription</th><td>sub-1</td></tr>",
+            because: "an empty row would leave support nothing to find the subscription by");
+    }
+
+    [Fact]
     public void The_customer_number_is_the_subscribers_organization_id()
     {
         Render().Should().Contain("<tr><th>Customer number</th><td>org-1</td></tr>");
@@ -421,7 +430,9 @@ public sealed class FinancialDocumentHtmlTemplateTests
     {
         var html = Render();
 
-        html.Should().Contain("<tr><th>Subscription</th><td>sub-1</td></tr>");
+        // The plan the subscriber bought, not its GUID, which tells them nothing (issue #682).
+        html.Should().Contain("<tr><th>Subscription</th><td>Pro</td></tr>",
+            because: "the plan name is what the subscriber can match against what they bought");
         html.Should().Contain(
             "<tr><th>Service period (UTC)</th><td>2026-01-01 00:00:00Z to 2027-01-01 00:00:00Z</td></tr>");
     }

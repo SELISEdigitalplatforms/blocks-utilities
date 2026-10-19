@@ -75,6 +75,14 @@ public sealed class MakePaymentRequest
     [JsonIgnore]
     public string? ExpectedProviderId { get; set; }
 
+    /// <summary>
+    /// How long the hosted checkout stays payable, in minutes. Null leaves it to the provider
+    /// (Stripe 24 hours, Adyen 1 hour). Internal: set by a credit top-up checkout, which fails the
+    /// purchase and gives a held discount code back once its session can no longer be paid.
+    /// </summary>
+    [JsonIgnore]
+    public int? CheckoutExpiresInMinutes { get; set; }
+
     [JsonIgnore]
     public bool ShouldSavePaymentMethod =>
         SavePaymentMethod ??

@@ -86,7 +86,6 @@ export interface GroupsData {
 export enum ResourceType {
   "Endpoint" = 1,
   "FE action" = 2,
-  "Data protection" = 3,
 }
 
 export interface IGetRoles {

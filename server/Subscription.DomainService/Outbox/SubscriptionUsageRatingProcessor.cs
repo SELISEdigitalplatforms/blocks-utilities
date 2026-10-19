@@ -193,19 +193,28 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             // in PendingUsagePeriods and let the next sweep pass find it again; there is no
             // bespoke retry to schedule, since this loop already runs on its own periodic cadence.
             //
-            // Gated only when a closure record actually exists for this period. A plan change's
-            // own outgoing window never creates one — closure coordination exists for cancellation
-            // specifically — so "no record" there still means "always ready", exactly as before
-            // this mechanism existed. A cancellation-originated window always has one by the time
-            // it is queued here, since reserving it is what the write that queued it required to
-            // succeed; a record that exists but has not yet reached Closing (still CloseReserved,
-            // in the brief gap between the subscription transition committing and this loop's own
-            // pass, or one from an attempt that never actually committed) must not be rated either
-            // — only "Closing, and no writer still holding it open" is actually ready.
+            // Gated only when a closure record actually exists for this period; "no record" means
+            // no usage was ever written to it, so it is always ready. A cancellation-originated
+            // window always has one by the time it is queued here, since reserving it is what the
+            // write that queued it required to succeed; a record still CloseReserved (in the brief
+            // gap between the subscription transition committing and this loop's own pass, or one
+            // from an attempt that never actually committed) must not be rated — only "Closing,
+            // and no writer still holding it open" is actually ready.
             if (_closures is not null)
             {
                 var closure = await _closures.GetAsync(
                     subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+
+                // Every usage write lazily creates its period's record as Open, and nothing but
+                // cancellation ever moves it on — so a window a plan change detached is still Open
+                // here, and skipping it until Closing left it unrated forever. It is already
+                // detached, so this loop closes it itself: no new writer gets in, and the writer
+                // check below waits out one admitted before the swap.
+                if (closure is not null)
+                {
+                    closure = await CloseDetachedWindowAsync(
+                        subscription, pending, closure, cancellationToken);
+                }
 
                 if (closure is not null)
                 {
@@ -395,6 +404,49 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
     }
 
     /// <summary>
+    /// Moves a detached window's Open closure record to Closing through the same reserve/commit
+    /// protocol cancellation uses, and returns the record as it now stands. A record some other
+    /// operation holds comes back untouched — still CloseReserved, it is skipped this pass.
+    /// </summary>
+    private async Task<UsagePeriodClosure?> CloseDetachedWindowAsync(
+        SubscriptionDetail subscription,
+        PendingUsagePeriod pending,
+        UsagePeriodClosure closure,
+        CancellationToken cancellationToken)
+    {
+        // Deterministic, so a pass after a crash between reserve and commit resumes its own
+        // reservation — cancellation's stale-reservation recovery leaves one of these alone.
+        var closeOperationId = $"pending-window-close:{subscription.ItemId}:{pending.PeriodKey}";
+        var ours = closure.State == UsagePeriodClosureState.Open ||
+            (closure.State == UsagePeriodClosureState.CloseReserved &&
+                closure.CloseOperationId == closeOperationId);
+
+        if (!ours)
+        {
+            return closure;
+        }
+
+        if (await _closures!.TryReserveClosingAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                pending.PeriodKey,
+                pending.PeriodEndUtc,
+                closeOperationId,
+                cancellationToken) == ClosureReservationOutcome.Reserved)
+        {
+            await _closures.TryCommitClosingAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                pending.PeriodKey,
+                closeOperationId,
+                cancellationToken);
+        }
+
+        return await _closures.GetAsync(
+            subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+    }
+
+    /// <summary>
     /// Prices the closed period's overage and records it, unless a crash already left one behind
     /// — <c>TryCreateAsync</c>'s uniqueness index is what makes this safe to call twice.
     /// </summary>
@@ -450,9 +502,11 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             // ponytail: a cut-short window's frozen allowance is the plan's per-place figure, so a
             // carry-forward place's own leftovers are not frozen with it. Freeze per place if a
             // user-wise meter ever carries forward.
+            // The frozen figure is the plan's alone; this place's own credits are added back, or
+            // usage they paid for would be billed again as overage.
             var placeAllowance = frozenAllowances is not null &&
                                  frozenAllowances.TryGetValue(meter.MeterKey, out var frozen)
-                ? frozen
+                ? frozen + (counter?.PurchasedConsumed ?? 0)
                 : await _allowances.EffectiveAsync(
                     subscription, meter, period, counter, cancellationToken, seat);
 
@@ -565,9 +619,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                 // before the crash. A legacy PendingUsagePeriod queued before this snapshot existed
                 // carries no frozenAllowances entry, so it falls back to the live resolver exactly as
                 // before — same behavior, not a regression for documents already in flight.
+                // Credits drawn up to the close are added back to the frozen plan figure, as above.
                 allowance = frozenAllowances is not null &&
                                  frozenAllowances.TryGetValue(meter.MeterKey, out var frozenAllowance)
-                    ? frozenAllowance
+                    ? frozenAllowance + (counter?.PurchasedConsumed ?? 0)
                     : await _allowances.EffectiveAsync(
                         subscription, meter, period, counter, cancellationToken);
                 overageQuantity = Math.Max(0, balance - allowance);

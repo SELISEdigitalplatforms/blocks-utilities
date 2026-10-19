@@ -145,6 +145,14 @@ console; every other caller is answered under the organization its token carries
 organization *replaces* the caller's scope rather than narrowing it, which is exactly why an
 application may not name one.
 
+**Refunds and captures are scoped too.** Creating a refund or capture, and reading a payment's
+refunds or captures, answer `404 payment_not_found` (or the refund/capture equivalent) for a
+payment outside the caller's organization, through `PaymentOrganizationScope.MayAccess`: an
+organization reaches its own payments and the ones made before organizations existed, a
+caller with no organization reaches the whole tenant, and the console reaches every
+organization because its payment page can name one. Not found rather than forbidden, so the
+answer cannot confirm that an identifier exists elsewhere.
+
 ### Turning verification off
 
 `Payment:VerifyOrganizationWithIam` (default `true`) exists because the IAM call has to work

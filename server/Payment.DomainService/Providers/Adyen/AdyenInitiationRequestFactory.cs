@@ -110,6 +110,9 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
                 ? shopperReference
                 : null,
             ShopperEmail = request.CustomerEmail,
+            ExpiresAt = request.CheckoutExpiresInMinutes is { } minutes
+                ? DateTimeOffset.UtcNow.AddMinutes(minutes).ToString("yyyy-MM-ddTHH:mm:ssK", System.Globalization.CultureInfo.InvariantCulture)
+                : null,
             ShopperInteraction = "Ecommerce"
         };
 
@@ -133,7 +136,7 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
     /// delay meaning "whatever the merchant account defaults to". Translate that into the
     /// capture mode the rest of the system reasons about.
     /// </summary>
-    private static string ResolveCaptureMode(PaymentProvider provider) =>
+    internal static string ResolveCaptureMode(PaymentProvider provider) =>
         provider.ManualCapture
             ? PaymentCaptureModes.Manual
             : provider.CaptureDelayHours switch

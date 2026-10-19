@@ -79,7 +79,10 @@ internal static class SubscriptionSnapshotBuilder
                                 })
                                 .ToList()
                         })
-                        .ToList()
+                        .ToList(),
+                    // Snapshotted like the overage rates: a price raised in the catalogue later
+                    // reaches new subscribers, never one who already holds this plan.
+                    TopUp = meter.TopUp?.Clone()
                 })
                 .ToList(),
             QuantityItems = plan.QuantityItems

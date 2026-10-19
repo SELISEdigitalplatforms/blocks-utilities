@@ -41,7 +41,7 @@ describe("the field-to-step map", () => {
 
   /** The review step shows no fields, so nothing may be mapped to it. */
   it("maps nothing to the review step", () => {
-    expect(Object.values(PLAN_BUILDER_STEP_OF_FIELD)).not.toContain(5);
+    expect(Object.values(PLAN_BUILDER_STEP_OF_FIELD)).not.toContain(6);
   });
 });
 
@@ -55,7 +55,8 @@ describe("firstPlanBuilderErrorStep", () => {
     ["meters", 2],
     ["prices", 2],
     ["entitlements", 3],
-    ["trialGrants", 4],
+    ["meterCredits", 4],
+    ["trialGrants", 5],
   ])("sends %s to step %s", (field, step) => {
     expect(firstPlanBuilderErrorStep(errors({ [field]: leaf("bad") }))).toBe(step);
   });

@@ -221,6 +221,68 @@ public sealed class SubscriptionUsageRatingProcessorTests
             TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>
+    /// Every usage write lazily creates its period's closure record as Open, and a plan change
+    /// never closes it — so the detached window always has an Open record, which rating used to
+    /// skip forever and never invoice.
+    /// </summary>
+    [Fact]
+    public async Task A_plan_change_window_whose_usage_left_an_open_closure_is_closed_and_rated()
+    {
+        var subscription = NewSubscription("sub-1");
+        var oldPlan = subscription.Plan;
+        subscription.Plan = new PlanSnapshot { Meters = [] };
+        subscription.CurrentUsagePeriodEndUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                Plan = oldPlan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "change-1"
+            }
+        ];
+        _due = [subscription];
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([NewCounter("screening", 700)]);
+
+        var closure = new UsagePeriodClosure
+        {
+            ItemId = "sub-1:M20260801T000000Z",
+            TenantId = TenantId,
+            SubscriptionId = "sub-1",
+            PeriodKey = "M20260801T000000Z",
+            State = UsagePeriodClosureState.Open,
+            ActiveWriterCount = 0
+        };
+        _closures
+            .Setup(repository => repository.GetAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => closure);
+        _closures
+            .Setup(repository => repository.TryReserveClosingAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<DateTime>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ClosureReservationOutcome.Reserved);
+        _closures
+            .Setup(repository => repository.TryCommitClosingAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback(() => closure.State = UsagePeriodClosureState.Closing)
+            .ReturnsAsync(ClosureCommitOutcome.Committed);
+
+        var closed = await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        closed.PeriodsClosed.Should().Be(1);
+        _createdInvoice!.TotalAmountMinor.Should().Be(2_000);
+        _subscriptions.Verify(repository => repository.TryRemovePendingUsagePeriodAsync(
+            TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task A_canceled_subscriptions_final_window_is_rated_from_its_own_snapshot()
     {
@@ -1178,6 +1240,76 @@ public sealed class SubscriptionUsageRatingProcessorTests
 
         _createdInvoice!.Lines.Single().OverageQuantity.Should().Be(100,
             "the ledger cannot say whose the unmarked entries were, so each place's counter answers");
+    }
+
+    /// <remarks>
+    /// Spec 002: a place's bought credits are allowance. A cut-short window rates every place
+    /// against the frozen plan figure, and used to stop there, billing the credits a place had
+    /// already paid for a second time as overage.
+    /// </remarks>
+    [Fact]
+    public async Task A_cut_short_window_does_not_bill_a_places_credit_paid_usage_as_overage()
+    {
+        var subscription = UserWise("sub-1");
+        subscription.Status = SubscriptionStatus.Canceled;
+        subscription.PendingUsagePeriods =
+        [
+            new PendingUsagePeriod
+            {
+                PeriodKey = "M20260801T000000Z",
+                PeriodStartUtc = subscription.CurrentUsagePeriodStartUtc,
+                PeriodEndUtc = subscription.CurrentUsagePeriodEndUtc,
+                Plan = subscription.Plan,
+                Price = subscription.Price,
+                CurrencyCode = "CHF",
+                CorrelationId = "cancel-1",
+                MeterAllowances = new Dictionary<string, decimal>(StringComparer.Ordinal)
+                {
+                    ["screening"] = 500,
+                    ["envelope"] = 100
+                }
+            }
+        ];
+        _due = [subscription];
+        var place = PlaceCounter(1, 550);
+        place.LimitSnapshot = 500;
+        place.PurchasedConsumed = 50;
+        _usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([place]);
+
+        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
+
+        _createdInvoice!.TotalAmountMinor.Should().Be(0,
+            "the 50 units past the plan's 500 were paid for with credits the place bought");
+    }
+
+    [Fact]
+    public async Task A_frozen_allowance_holds_the_plans_figure_without_credits_drawn_so_far()
+    {
+        var subscription = NewSubscription("sub-1");
+        var usage = new Mock<ISubscriptionUsageRepository>();
+        usage
+            .Setup(repository => repository.ListCountersAsync(
+                TenantId, "sub-1", "M20260801T000000Z", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new SubscriptionUsageCounter
+            {
+                MeterKey = "screening",
+                Balance = 540,
+                LimitSnapshot = 500,
+                PurchasedConsumed = 40
+            }]);
+
+        var snapshot = await MeterAllowanceSnapshot.CaptureAsync(
+            subscription,
+            new BillingPeriod(0, subscription.CurrentUsagePeriodStartUtc, subscription.CurrentUsagePeriodEndUtc, "M20260801T000000Z"),
+            usage.Object,
+            new MeterAllowanceResolver(usage.Object),
+            CancellationToken.None);
+
+        snapshot!["screening"].Should().Be(500,
+            "rating adds each counter's credits back at close; freezing them here would count credits drawn so far twice");
     }
 
     private static SubscriptionDetail UserWise(string id)

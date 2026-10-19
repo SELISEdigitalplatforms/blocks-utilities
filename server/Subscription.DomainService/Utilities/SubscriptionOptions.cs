@@ -158,6 +158,41 @@ public sealed class SubscriptionOptions
     public int CampaignRedemptionBatchSize { get; set; } = 50;
 
     /// <summary>
+    /// How long a credit purchase may sit at Pending or Charged before the recovery sweep looks at
+    /// it. Long enough that a purchase still being processed by its own request is never mistaken
+    /// for one a crash left behind.
+    /// </summary>
+    public int CreditPurchaseRecoveryAfterSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// How long a credit purchase may stay unresolved before it is marked NeedsAttention and an
+    /// operator is told. Past this the sweep stops guessing.
+    /// </summary>
+    public int CreditPurchaseAlertAfterHours { get; set; } = 24;
+
+    /// <summary>
+    /// How long the hosted checkout opened for a credit purchase with no saved card stays payable
+    /// (spec 003). Stripe accepts 30 minutes to 24 hours; the value is clamped to that range.
+    /// </summary>
+    public int CreditCheckoutSessionMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// How long past its checkout's expiry a credit purchase still undecided by the provider is
+    /// left before the sweep fails it and gives its discount code back. Covers a webhook that is
+    /// late for a payment made in the session's last minutes.
+    /// </summary>
+    public int CreditCheckoutExpiryGraceMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// How often each live credit grant is re-checked for expiry and forfeiture. Spending already
+    /// refuses a grant that has lapsed or been forfeited the moment it has; this only brings the
+    /// stored status into line for the history list and reports.
+    /// </summary>
+    public int CreditGrantCheckIntervalHours { get; set; } = 24;
+
+    public int CreditMaintenanceBatchSize { get; set; } = 200;
+
+    /// <summary>
     /// Renewal attempts, including the first decline, before a subscription moves to
     /// <c>Unpaid</c>. Retrying beyond this is treated as certain to fail again rather than
     /// eventually succeeding.

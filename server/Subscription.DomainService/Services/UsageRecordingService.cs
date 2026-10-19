@@ -23,6 +23,7 @@ namespace Subscription.DomainService.Services;
 /// </remarks>
 public sealed class UsageRecordingService : IUsageRecordingService
 {
+    private readonly CreditLedger? _credits;
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriberSubscriptionResolver? _resolver;
     private readonly ISubscriptionUsageRepository _usage;
@@ -58,8 +59,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         UsageProjectionMetrics? metrics = null,
         // Optional for the same reason, and the fallback is what every caller had
         // before seats existed: the organization's own subscription.
-        ISubscriberSubscriptionResolver? resolver = null)
+        ISubscriberSubscriptionResolver? resolver = null,
+        // Optional like the two above. Without it no recording spends credits, which is exactly
+        // how every meter behaved before credits existed.
+        CreditLedger? credits = null)
     {
+        _credits = credits;
         _subscriptions = subscriptions;
         _resolver = resolver;
         _usage = usage;
@@ -628,6 +633,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     subscription.ItemId, meter.MeterKey, period.Key, seat),
                 out var counter);
 
+            // The credits too, as a recording reports them: what credits already paid for this
+            // window, and what this caller could still spend once the allowance runs out. Without
+            // them a subscriber who bought credits sees only the plan's figure and no sign of them.
             responses.Add(Describe(
                 meter,
                 period,
@@ -635,7 +643,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 await _allowances.EffectiveAsync(
                     subscription, meter, period, counter, cancellationToken, seat),
                 allowed: true,
-                replayed: false));
+                replayed: false,
+                purchasedConsumed: counter?.PurchasedConsumed ?? 0,
+                purchasedRemaining: await LiveCreditsAsync(subscription, meter, seat, cancellationToken)));
         }
 
         return SubscriptionOperationResult<List<UsageResponse>>.Success(responses, correlationId);
@@ -679,6 +689,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         foreach (var document in deduped)
         {
+            // ponytail: the projection does not store PurchasedConsumed, so this mode reports what
+            // is left to spend but not what credits already paid for (Included already counts it).
+            // Store it on SubscriptionUsageCurrent when publishing if a projection reader needs it.
+            var purchasedRemaining = FindMeter(subscription, document.MeterKey) is { } plannedMeter
+                ? await LiveCreditsAsync(subscription, plannedMeter, null, cancellationToken)
+                : null;
+
             results.Add((
                 new UsageResponse
                 {
@@ -695,6 +712,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     Used = document.Used,
                     Remaining = document.Remaining,
                     Overage = document.Overage,
+                    PurchasedRemaining = purchasedRemaining,
                     Replayed = false
                 },
                 document.UpdatedAtUtc));
@@ -960,10 +978,16 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     cancellationToken);
             }
 
+            // The record is written, so this use now has to be settled one way or the other: the
+            // counter moved, credits drawn, or a refusal reversed. None of that listens for the
+            // caller going away. A refusal whose reversal stopped halfway would leave a use
+            // nobody was allowed to make counted and billed.
+            var write = CancellationToken.None;
+
             var counter = await _usage.ApplyDeltaAsync(
                 SeedFor(context, subscription, seat, meter, period, opening),
                 request.Quantity,
-                cancellationToken);
+                write);
 
             // The window's own snapshot, not the figure just computed: it was frozen when the
             // window opened, so a carried-forward allowance cannot shift mid-window because the
@@ -971,7 +995,20 @@ public sealed class UsageRecordingService : IUsageRecordingService
             // caller.
             var allowance = MeterAllowance.Effective(counter, opening);
 
-            var withinAllowance = counter.Balance <= allowance;
+            // Credits are spent only for what the plan's allowance could not cover, and only after
+            // the increment above has settled who is past it: the counter is still the one
+            // authority, and two recordings at the boundary each draw only their own share of the
+            // excess. A recording inside the allowance never reads a grant at all.
+            var (drawnCounter, draw) = await DrawCreditsAsync(
+                subscription, meter, seat, counter, allowance, request.Quantity, write);
+
+            // Judged on this call's own increment plus what it drew, never on the counter read back
+            // after the draw: that read can already hold a concurrent recording's increment without
+            // the credits it is about to draw, and would refuse a use its own credits paid for.
+            var withinAllowance = counter.Balance <= allowance + (draw?.Drawn ?? 0);
+
+            counter = drawnCounter;
+            allowance = MeterAllowance.Effective(counter, opening);
 
             if (counter.Balance < 0)
             {
@@ -984,11 +1021,16 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     period,
                     allowance,
                     correlationId,
-                    cancellationToken);
+                    write);
             }
 
             if (request.Enforce && !withinAllowance && !meter.OverageAllowed)
             {
+                // Refused whole, so whatever credits it drew go back first. Partly paid for is
+                // still not allowed, and a refused call must change nothing.
+                counter = await ReturnCreditsAsync(subscription, counter, draw, write);
+                allowance = MeterAllowance.Effective(counter, opening);
+
                 return await RefuseAsync(
                     record,
                     context,
@@ -998,7 +1040,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     period,
                     allowance,
                     correlationId,
-                    cancellationToken);
+                    write);
             }
 
             // Every pace, checked after the amount. A use the period already refused never
@@ -1013,7 +1055,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             {
                 var pace = await ApplyPaceAsync(
                     context, subscription, seat, meter, limit, occurredAt, request.Quantity,
-                    cancellationToken);
+                    write);
 
                 paces.Add((limit, pace.Balance));
 
@@ -1033,8 +1075,11 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 {
                     await ReversePaceAsync(
                         context, subscription, seat, meter, limit, occurredAt, request.Quantity,
-                        cancellationToken);
+                        write);
                 }
+
+                counter = await ReturnCreditsAsync(subscription, counter, draw, write);
+                allowance = MeterAllowance.Effective(counter, opening);
 
                 return await RefuseAsync(
                     record,
@@ -1045,18 +1090,27 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     period,
                     allowance,
                     correlationId,
-                    cancellationToken,
+                    write,
                     exceeded,
                     // What the windows hold once this refused use is put back.
                     [.. paces.Select(pace => PaceStateOf(
                         pace.Limit, pace.Used - request.Quantity, occurredAt))]);
             }
 
+            var liveCredits = await LiveCreditsAsync(subscription, meter, seat, write);
+
             await _thresholds.EvaluateAsync(
                 subscription,
                 counter,
                 correlationId,
-                cancellationToken);
+                write,
+                liveCredits ?? 0);
+
+            if (draw is not null && _credits is not null)
+            {
+                await _credits.AnnounceExhaustedAsync(
+                    subscription, draw, _time.GetUtcNow().UtcDateTime, correlationId, write);
+            }
 
             // Published from the final counter state, synchronously, before this call reports
             // success. Placed after every branch that could still reverse the balance, so what a
@@ -1069,7 +1123,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 counter,
                 allowance,
                 correlationId,
-                cancellationToken,
+                write,
                 holderUserId: context.UserId,
                 subLimits: paces.Count == 0
                     ? null
@@ -1086,7 +1140,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 request.Quantity,
                 allowance,
                 correlationId,
-                cancellationToken);
+                write);
 
             _logger.LogInformation(
                 "Usage recorded TenantId={TenantId} OrganizationHash={OrganizationHash} " +
@@ -1113,7 +1167,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     // refusing and then says nothing has capped nothing at all — the consumer is
                     // the one that can slow down, and it can only do so on being told.
                     subLimitExceeded: exceeded.Count > 0,
-                    exceeded: exceeded),
+                    exceeded: exceeded,
+                    purchasedConsumed: counter.PurchasedConsumed,
+                    purchasedRemaining: liveCredits),
                 correlationId);
         }
         finally
@@ -1131,7 +1187,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     subscription.ItemId,
                     period.Key,
                     request.IdempotencyKey,
-                    cancellationToken);
+                    // Always released, or rating waits on a claim nobody is holding any more.
+                    CancellationToken.None);
             }
         }
     }
@@ -1199,17 +1256,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
             holderUserId: context.UserId,
             subLimits: paces);
 
-        // The compensating half of the increment ApplyAsync already sent this user's row, so the
-        // reversal has to be applied to it too or a refused call would still count against them.
-        await _projection.PublishUserDeltaAsync(
-            subscription,
-            meter,
-            period,
-            context.UserId,
-            -record.Delta,
-            allowance,
-            correlationId,
-            cancellationToken);
+        // No user delta here: this user's row is only incremented on the success path, after every
+        // refusal branch, so a refused call never touched it and has nothing to compensate.
+        // Decrementing it would push the row below what this user actually used.
 
         _logger.LogInformation(
             "Usage refused because the resulting balance is outside its allowed range TenantId={TenantId} " +
@@ -1549,6 +1598,95 @@ public sealed class UsageRecordingService : IUsageRecordingService
         };
     }
 
+    /// <summary>
+    /// Pays for the part of this recording the plan's allowance did not cover from credit grants,
+    /// and records on the counter how much was paid for that way.
+    /// </summary>
+    /// <remarks>
+    /// Only a positive recording draws. ponytail: a negative correction never gives credits back,
+    /// even one that takes the balance back under what credits paid for; refund through a grant if
+    /// that ever matters.
+    /// <para>
+    /// The counter is raised before any grant is touched and lowered by whatever the grants could
+    /// not cover, and none of these writes stop for the caller's cancellation: the counter has
+    /// already moved. A crash part way therefore leaves the counter claiming more was paid for
+    /// than the grants gave, which costs the customer nothing. The other order would leave credits
+    /// spent that rating then bills a second time as overage, with no record to repair it from.
+    /// </para>
+    /// </remarks>
+    private async Task<(SubscriptionUsageCounter Counter, CreditDraw? Draw)> DrawCreditsAsync(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        int? seat,
+        SubscriptionUsageCounter counter,
+        decimal allowance,
+        decimal quantity,
+        CancellationToken cancellationToken)
+    {
+        if (_credits is null || meter.TopUp is null || quantity <= 0)
+        {
+            return (counter, null);
+        }
+
+        // This recording's own share of the excess, never more: the excess also contains whatever
+        // a concurrent recording past the boundary is drawing for itself.
+        var uncovered = Math.Min(quantity, counter.Balance - allowance);
+
+        if (uncovered <= 0)
+        {
+            return (counter, null);
+        }
+
+        var raised = await _usage.AddPurchasedConsumedAsync(
+            subscription.TenantId, counter.ItemId, uncovered, CancellationToken.None);
+
+        var draw = await _credits.DrawAsync(
+            subscription, meter.MeterKey, seat, uncovered, _time.GetUtcNow().UtcDateTime, CancellationToken.None);
+
+        var shortfall = uncovered - draw.Drawn;
+        var after = shortfall > 0
+            ? await _usage.AddPurchasedConsumedAsync(
+                subscription.TenantId, counter.ItemId, -shortfall, CancellationToken.None)
+            : raised;
+
+        return (after ?? counter, draw.Drawn > 0 ? draw : null);
+    }
+
+    /// <summary>Puts back what <see cref="DrawCreditsAsync"/> took, for a recording that is refused.</summary>
+    private async Task<SubscriptionUsageCounter> ReturnCreditsAsync(
+        SubscriptionDetail subscription,
+        SubscriptionUsageCounter counter,
+        CreditDraw? draw,
+        CancellationToken cancellationToken)
+    {
+        if (draw is null || _credits is null)
+        {
+            return counter;
+        }
+
+        // Not stopped by the caller's cancellation, for the reason given on DrawCreditsAsync. Grants
+        // first: a crash between the two leaves the counter generous, never the customer short.
+        await _credits.RestoreAsync(
+            subscription.TenantId, draw, _time.GetUtcNow().UtcDateTime, CancellationToken.None);
+
+        return await _usage.AddPurchasedConsumedAsync(
+            subscription.TenantId, counter.ItemId, -draw.Drawn, CancellationToken.None) ?? counter;
+    }
+
+    /// <summary>
+    /// What this recorder could still spend from credits, or null for a meter whose credits are
+    /// not part of its terms, which then costs nothing extra to record against.
+    /// </summary>
+    private async Task<decimal?> LiveCreditsAsync(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        int? seat,
+        CancellationToken cancellationToken) =>
+        _credits is null || meter.TopUp is null
+            ? null
+            : await _credits.RemainingAsync(
+                subscription, meter.MeterKey, seat, _time.GetUtcNow().UtcDateTime, cancellationToken);
+
     private SubscriptionUsageCounter SeedFor(
         SubscriptionContext context,
         SubscriptionDetail subscription,
@@ -1591,10 +1729,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         bool replayed,
         UsageProjectionOutcome projection,
         bool subLimitExceeded = false,
-        IReadOnlyList<PlanMeterSubLimit>? exceeded = null) =>
+        IReadOnlyList<PlanMeterSubLimit>? exceeded = null,
+        decimal purchasedConsumed = 0,
+        decimal? purchasedRemaining = null) =>
         Describe(
             meter, period, balance, allowance, allowed, replayed, ToState(projection),
-            subLimitExceeded, exceeded);
+            subLimitExceeded, exceeded, purchasedConsumed, purchasedRemaining);
 
     private static UsageResponse Describe(
         PlanMeter meter,
@@ -1605,8 +1745,12 @@ public sealed class UsageRecordingService : IUsageRecordingService
         bool replayed,
         UsageProjectionState projection = UsageProjectionState.Published,
         bool subLimitExceeded = false,
-        IReadOnlyList<PlanMeterSubLimit>? exceeded = null) => new()
+        IReadOnlyList<PlanMeterSubLimit>? exceeded = null,
+        decimal purchasedConsumed = 0,
+        decimal? purchasedRemaining = null) => new()
     {
+        PurchasedConsumed = purchasedConsumed,
+        PurchasedRemaining = purchasedRemaining,
         Allowed = allowed,
         SubLimitExceeded = subLimitExceeded,
         ExceededSubLimits = [.. (exceeded ?? []).Select(PlanResponseMapper.DescribeSubLimit)],

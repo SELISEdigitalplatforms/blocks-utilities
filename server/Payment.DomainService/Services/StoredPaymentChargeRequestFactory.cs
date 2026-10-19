@@ -1,7 +1,10 @@
 using System.Text;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Models.StoredPayment;
+using Payment.DomainService.Providers.Adyen;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Services;
 
@@ -20,10 +23,26 @@ public sealed class StoredPaymentChargeRequestFactory :
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(method);
 
+        // Only Adyen reads the capture fields. Stripe's off-session charge confirms without a
+        // capture_method, which Stripe captures automatically whatever the provider is set to.
+        var isAdyen = string.Equals(
+            provider.ProviderName,
+            PaymentConstants.AdyenOnlineProvider,
+            StringComparison.OrdinalIgnoreCase);
+
         return new StoredPaymentChargeRequest
         {
             MerchantAccount = provider.MerchantId,
             Store = string.IsNullOrWhiteSpace(provider.StoreId) ? null : provider.StoreId,
+            CaptureMode = isAdyen
+                ? AdyenInitiationRequestFactory.ResolveCaptureMode(provider)
+                : PaymentCaptureModes.AutomaticImmediate,
+            CaptureDelayHours = isAdyen && !provider.ManualCapture
+                ? provider.CaptureDelayHours
+                : null,
+            AdditionalData = isAdyen && provider.ManualCapture
+                ? new ProviderAdditionalData { ManualCapture = true }
+                : null,
             Amount = new ProviderAmount
             {
                 Value = minorUnits,
