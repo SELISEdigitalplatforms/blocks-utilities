@@ -142,5 +142,76 @@ namespace XUnitTest.TemplateEngine
 
             Assert.IsType<ArgumentException>(ex.InnerException);
         }
+
+        // A caller-chosen page size must not bring a whole collection into memory
+        [Fact]
+        public async Task GetEntityListFromQueryData_PageLimitAboveTheCap_IsClamped()
+        {
+            var options = CaptureFindOptions(1);
+
+            await _helper.GetEntityListFromQueryData(
+                new List<FilteredMongoQueryData> { new() { EntityName = "Order", Text = "{}", PageLimit = int.MaxValue } },
+                "tenant1");
+
+            Assert.Equal(MongoQueryHelper.MaxDocumentsPerQuery, options.Single().Limit);
+        }
+
+        [Fact]
+        public async Task GetEntityListFromQueryData_FetchAll_AsksForOnePastTheCap()
+        {
+            var options = CaptureFindOptions(1);
+
+            var result = await _helper.GetEntityListFromQueryData(
+                new List<FilteredMongoQueryData> { new() { EntityName = "Order", Text = "{}", FetchAllMatchedItem = true } },
+                "tenant1");
+
+            Assert.Equal(MongoQueryHelper.MaxDocumentsPerQuery + 1, options.Single().Limit);
+            Assert.Single(result["OrderList"]);
+        }
+
+        // Refused rather than truncated: a file silently missing rows would read as complete
+        [Fact]
+        public async Task GetEntityListFromQueryData_FetchAllBeyondTheCap_ReturnsNothing()
+        {
+            CaptureFindOptions(MongoQueryHelper.MaxDocumentsPerQuery + 1);
+
+            var result = await _helper.GetEntityListFromQueryData(
+                new List<FilteredMongoQueryData> { new() { EntityName = "Order", Text = "{}", FetchAllMatchedItem = true } },
+                "tenant1");
+
+            Assert.Empty(result["OrderList"]);
+        }
+
+        private List<FindOptions<BsonDocument, BsonDocument>> CaptureFindOptions(int documentCount)
+        {
+            var captured = new List<FindOptions<BsonDocument, BsonDocument>>();
+            var documents = Enumerable.Range(0, documentCount)
+                .Select(i => new BsonDocument { { "ItemId", i.ToString(System.Globalization.CultureInfo.InvariantCulture) } })
+                .ToList();
+
+            var cursorMock = new Mock<IAsyncCursor<BsonDocument>>();
+            cursorMock.SetupSequence(x => x.MoveNextAsync(It.IsAny<CancellationToken>()))
+                      .ReturnsAsync(true)
+                      .ReturnsAsync(false);
+            cursorMock.SetupSequence(x => x.MoveNext(It.IsAny<CancellationToken>()))
+                      .Returns(true)
+                      .Returns(false);
+            cursorMock.Setup(x => x.Current).Returns(documents);
+
+            var collectionMock = new Mock<IMongoCollection<BsonDocument>>();
+            collectionMock.Setup(x => x.FindAsync(
+                    It.IsAny<FilterDefinition<BsonDocument>>(),
+                    It.IsAny<FindOptions<BsonDocument, BsonDocument>>(),
+                    It.IsAny<CancellationToken>()))
+                .Callback<FilterDefinition<BsonDocument>, FindOptions<BsonDocument, BsonDocument>, CancellationToken>(
+                    (_, findOptions, _) => captured.Add(findOptions))
+                .ReturnsAsync(cursorMock.Object);
+
+            _databaseMock
+                .Setup(x => x.GetCollection<BsonDocument>("Orders", null))
+                .Returns(collectionMock.Object);
+
+            return captured;
+        }
     }
 }
