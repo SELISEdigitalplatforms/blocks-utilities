@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, ReactNode, useCallback } from "react";
+import { useState, useEffect, ReactNode, useCallback } from "react";
 
 interface InfiniteScrollProps<T> {
   initialData: T[];
@@ -24,7 +24,9 @@ export const InfiniteScroll = <T,>({
   const [data, setData] = useState(initialData);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(hasTopMore);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // The scroll container, captured through a callback ref so handlers passed to render props
+  // (bottomIndicator) never read a ref.
+  const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
   const [isNewDataAvailable, setNewDataAvailable] = useState(false);
 
   // Fetch older data when scrolling to the top
@@ -37,7 +39,7 @@ export const InfiniteScroll = <T,>({
       const olderData = await topFn(firstItem);
       if (olderData.length > 0) {
         // Save the current scroll height
-        const scrollContainer = scrollContainerRef.current;
+        const scrollContainer = scrollContainerEl;
         const previousScrollHeight = scrollContainer?.scrollHeight || 0;
 
         // Add older data to the top
@@ -61,7 +63,7 @@ export const InfiniteScroll = <T,>({
     } finally {
       setIsLoading(false);
     }
-  }, [data, hasMore, isLoading, topFn]);
+  }, [data, hasMore, isLoading, scrollContainerEl, topFn]);
 
   // Fetch newer data periodically
   const handleFetchNewerData = useCallback(async () => {
@@ -79,7 +81,7 @@ export const InfiniteScroll = <T,>({
 
   // Handle scroll to top for fetching older data
   useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
+    const scrollContainer = scrollContainerEl;
 
     const handleScroll = () => {
       if (scrollContainer && scrollContainer.scrollTop === 0 && hasMore) {
@@ -95,7 +97,7 @@ export const InfiniteScroll = <T,>({
 
     scrollContainer?.addEventListener("scroll", handleScroll);
     return () => scrollContainer?.removeEventListener("scroll", handleScroll);
-  }, [handleFetchOlderData, hasMore, isLoading]);
+  }, [handleFetchOlderData, hasMore, isLoading, scrollContainerEl]);
 
   // Periodically fetch newer data
   useEffect(() => {
@@ -107,22 +109,21 @@ export const InfiniteScroll = <T,>({
   }, [handleFetchNewerData, pollingInterval]);
 
   const bottomIndicatorHanlder = () => {
-    scrollContainerRef.current?.scrollTo({
-      top: scrollContainerRef.current?.scrollHeight,
+    scrollContainerEl?.scrollTo({
+      top: scrollContainerEl.scrollHeight,
       behavior: "smooth",
     });
     setNewDataAvailable(false);
   };
 
+  // Start at the newest entries once the container is mounted.
   useEffect(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight });
-    }
-  }, []);
+    scrollContainerEl?.scrollTo({ top: scrollContainerEl.scrollHeight });
+  }, [scrollContainerEl]);
 
   return (
     <div className="relative flex h-full flex-col">
-      <div ref={scrollContainerRef} className="h-full overflow-scroll">
+      <div ref={setScrollContainerEl} className="h-full overflow-scroll">
         {data.length ? (
           <>
             {isLoading && loadingIndicator}

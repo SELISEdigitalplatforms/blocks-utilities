@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import {
@@ -164,13 +164,20 @@ export const StoredPaymentMethodsSection = () => {
     Math.ceil(filteredMethods.length / pageSize),
   );
 
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [brandFilter, pageSize, searchText, typeFilter]);
+  // A filter or page-size change goes back to the first page; otherwise the page is kept
+  // within range as the list shrinks. Adjusted while rendering.
+  const [prevFilters, setPrevFilters] = useState({ brandFilter, pageSize, searchText, typeFilter });
+  if (
+    prevFilters.brandFilter !== brandFilter ||
+    prevFilters.pageSize !== pageSize ||
+    prevFilters.searchText !== searchText ||
+    prevFilters.typeFilter !== typeFilter
+  ) {
+    setPrevFilters({ brandFilter, pageSize, searchText, typeFilter });
+    if (page !== 1) setPage(1);
+  } else if (page > totalPages) {
+    setPage(totalPages);
+  }
 
   const pageMethods = filteredMethods.slice(
     (page - 1) * pageSize,

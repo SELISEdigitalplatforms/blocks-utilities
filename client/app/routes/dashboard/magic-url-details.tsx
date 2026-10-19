@@ -105,7 +105,7 @@ export default function MagicUrlDetailsPage() {
             <DropdownMenuItem
               className="cursor-pointer text-error"
               onClick={(e) => {
-                magicUrl && handleDeactivate(magicUrl, e);
+                if (magicUrl) handleDeactivate(magicUrl, e);
                 e.preventDefault();
               }}
             >

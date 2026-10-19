@@ -38,15 +38,22 @@ export const Activation = ({ code }: ActivationProps) => {
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [resendSuccess, setResendSuccess] = useState(false);
 
-  useEffect(() => {
+  // With no code there is nothing to validate: show the invalid state straight away. Adjusted
+  // while rendering (the sentinel covers the first render); codes are validated below.
+  const [checked, setChecked] = useState<{ code: ActivationProps["code"] } | null>(null);
+  if (checked === null || checked.code !== code) {
+    setChecked({ code });
     if (!code) {
       setActivationError("invalid");
       setActivationUserId(null);
       setResendMessage(null);
       setResendSuccess(false);
       setIsValidCode(false);
-      return;
     }
+  }
+
+  useEffect(() => {
+    if (!code) return;
 
     const validateCode = async () => {
       try {

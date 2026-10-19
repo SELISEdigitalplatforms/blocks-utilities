@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useSearchParams } from "react-router";
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, ReactNode } from "react";
 import { Logo } from "@/components/logo";
 import { Loader } from "lucide-react";
 import { extractOIDCParams } from "@blocks-idp/authentication/utils/oidc-utils";
@@ -44,12 +44,9 @@ function OIDCProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const [params, setParams] = useState<OIDCContextType>({
-    themeColor: "#124091",
-    isLoading: true,
-  });
-
-  useEffect(() => {
+  // Merge the OIDC params from the URL with any stored from earlier in the flow. Recomputed
+  // when the route changes; extractOIDCParams reads window.location itself.
+  const params = useMemo<OIDCContextType>(() => {
     const urlParams = extractOIDCParams(true);
 
     let stored: OIDCContextType = {};
@@ -75,16 +72,17 @@ function OIDCProvider({ children }: { children: ReactNode }) {
       isLoading: false,
     };
 
-    const hasAnyParams = Object.values(mergedParams).some(
-      (value) => value && value !== "#124091",
-    );
-
-    if (hasAnyParams) {
-      localStorage.setItem("oidc-flow-params", JSON.stringify(mergedParams));
-    }
-
-    setParams(mergedParams);
+    return mergedParams;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the route is the trigger; extractOIDCParams reads window.location
   }, [location.pathname, searchParams]);
+
+  // Persist the merged params so later steps of the flow can recover them.
+  useEffect(() => {
+    const hasAnyParams = Object.values(params).some((value) => value && value !== "#124091");
+    if (hasAnyParams) {
+      localStorage.setItem("oidc-flow-params", JSON.stringify(params));
+    }
+  }, [params]);
 
   return <OIDCContext.Provider value={params}>{children}</OIDCContext.Provider>;
 }

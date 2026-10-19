@@ -90,8 +90,17 @@ for (const [path, config] of Object.entries(BREADCRUMB_ROUTES)) {
   }
 }
 
+/**
+ * Records a custom breadcrumb title for `path`. The breadcrumb reads the map on its next
+ * render; pages call this while rendering so the title tracks the page's current state.
+ */
+function setBreadcrumbTitle(path: string, title: string | null) {
+  BREADCRUMB_CUSTOM_TITLES[path] = title;
+}
+
 export {
   BREADCRUMB_CUSTOM_TITLES,
   BREADCRUMB_HREF_OVERRIDES,
   BREADCRUMB_SKIP_PATHS,
+  setBreadcrumbTitle,
 };

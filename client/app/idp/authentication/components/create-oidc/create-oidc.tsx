@@ -78,6 +78,28 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
     ? "Update OIDC client details"
     : "Enter details to create a new key";
 
+  // Load the logo for the client being edited (or clear it for a new one) whenever the dialog
+  // opens or the loaded client changes. Adjusted while rendering; the form is reset below.
+  const [logoLoadedFor, setLogoLoadedFor] = useState<{
+    existingOidc: typeof existingOidc;
+    isEditMode: boolean;
+    open: boolean | undefined;
+  } | null>(null);
+  if (
+    !logoLoadedFor ||
+    logoLoadedFor.existingOidc !== existingOidc ||
+    logoLoadedFor.isEditMode !== isEditMode ||
+    logoLoadedFor.open !== open
+  ) {
+    setLogoLoadedFor({ existingOidc, isEditMode, open });
+    if (isEditMode && existingOidc?.oIDCClientCredential && open) {
+      setClientLogoUrl(existingOidc.oIDCClientCredential.clientLogoUrl || "");
+    } else if (!isEditMode && open) {
+      setClientLogoUrl("");
+    }
+  }
+
+  // react-hook-form keeps its own values, so reset it after render.
   useEffect(() => {
     if (isEditMode && existingOidc?.oIDCClientCredential && open) {
       const credential = existingOidc.oIDCClientCredential;
@@ -88,13 +110,11 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
         clientBrandColor: credential.clientBrandColor || "#124091",
         clientDisplayName: credential.clientDisplayName || "",
       });
-      setClientLogoUrl(credential.clientLogoUrl || "");
     } else if (!isEditMode && open) {
       form.reset({
         ...createOIDCFormDefaultValue,
         clientBrandColor: "#124091",
       });
-      setClientLogoUrl("");
     }
   }, [existingOidc, isEditMode, open, form]);
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import {
@@ -35,12 +35,12 @@ export const ArchivePlanDialog = ({
   const [failure, setFailure] = useState<string | null>(null);
 
   // A dialog reopened after a failure must not still be showing the last one, and one reopened for
-  // a different plan certainly must not.
-  useEffect(() => {
-    if (isOpen) {
-      setFailure(null);
-    }
-  }, [isOpen, plan?.planId]);
+  // a different plan certainly must not. Cleared while rendering, before the stale message shows.
+  const [shownFor, setShownFor] = useState({ isOpen, planId: plan?.planId });
+  if (shownFor.isOpen !== isOpen || shownFor.planId !== plan?.planId) {
+    setShownFor({ isOpen, planId: plan?.planId });
+    if (isOpen) setFailure(null);
+  }
 
   if (!plan) {
     return null;

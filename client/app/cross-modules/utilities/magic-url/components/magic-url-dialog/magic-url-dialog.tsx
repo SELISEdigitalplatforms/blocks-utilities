@@ -84,7 +84,8 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
 
   const { mutate: createMagicUrl, isPending } = useCreateMagicUrl();
 
-  const resetForm = React.useCallback(() => {
+  // Puts the component's own fields back to a blank form.
+  const resetFields = () => {
     setUrl("");
     setName("");
     setType("1");
@@ -101,16 +102,25 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
     setAutoExpiry(false);
     setExpiryDate(undefined);
     setIsCalendarOpen(false);
-    reset({ uri: "", name: "" });
-  }, [reset]);
+  };
 
-  React.useEffect(() => {
+  const resetForm = () => {
+    resetFields();
+    reset({ uri: "", name: "" });
+  };
+
+  // When the dialog opens (or is handed different data while open), load the fields from
+  // initialData or start blank. Adjusted while rendering; the form library is synced below.
+  const [loadedFor, setLoadedFor] = useState<{ open?: boolean; initialData?: MagicUrl }>({
+    open: false,
+    initialData: undefined,
+  });
+  if (loadedFor.open !== open || loadedFor.initialData !== initialData) {
+    setLoadedFor({ open, initialData });
     if (open) {
       if (initialData) {
         setUrl(initialData.uri);
         setName(initialData.name || "");
-        setValue("uri", initialData.uri, { shouldValidate: true });
-        setValue("name", initialData.name || "", { shouldValidate: true });
         setType(initialData.type || "1");
         setRequestMethod(initialData.requestMethod || "GET");
         setClientCredential(initialData.clientCredential || "");
@@ -121,10 +131,21 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
         setAutoExpiry(!!initialData.expiryLifeSpan || !!initialData.expiryDate);
         setExpiryDate(initialData.expiryDate ? new Date(initialData.expiryDate) : undefined);
       } else {
-        resetForm();
+        resetFields();
       }
     }
-  }, [open, initialData, setValue, resetForm]);
+  }
+
+  // react-hook-form holds its own copy of uri/name, so sync it after render.
+  React.useEffect(() => {
+    if (!open) return;
+    if (initialData) {
+      setValue("uri", initialData.uri, { shouldValidate: true });
+      setValue("name", initialData.name || "", { shouldValidate: true });
+    } else {
+      reset({ uri: "", name: "" });
+    }
+  }, [open, initialData, setValue, reset]);
 
   const handleShorten = () => {
     if (!isValid) {
