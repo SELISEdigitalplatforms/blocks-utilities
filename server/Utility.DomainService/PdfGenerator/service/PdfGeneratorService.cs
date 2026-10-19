@@ -27,6 +27,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new MergePdfsResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("MergePdfsAsync started for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 // Send event to worker for async processing
@@ -56,6 +65,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new CreatePdfsFromHtmlResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("CreatePdfsFromHtmlAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 // Send event to worker
@@ -85,6 +103,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new ExtractTextFromPdfsResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("ExtractTextFromPdfsAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 // Send event to worker
@@ -114,6 +141,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new CreatePdfsFromHtmlUsingTEResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("CreatePdfsFromHtmlUsingTEAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 // Send event to worker
@@ -143,6 +179,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new CreatePdfsFromHtmlUsingTEBulkResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("CreatePdfsFromHtmlUsingTEBulkAsync started for MessageCoRelationId: {MessageCoRelationId}", LogSanitizer.Scrub(request.MessageCoRelationId));
 
                 // Send event to worker
@@ -172,6 +217,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new FixPdfsResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("FixPdfsAsync started for MessageCorrelationId: {MessageCorrelationId}", LogSanitizer.Scrub(request.MessageCorrelationId));
 
                 if (request.PdfInfos == null || !request.PdfInfos.Any())
@@ -210,6 +264,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new StampImageToPdfResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("StampImageToPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 // Send event to worker
@@ -239,6 +302,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new StampTextToPdfResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("StampTextToPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 // Send event to worker
@@ -268,6 +340,15 @@ namespace Utility.DomainService.PdfGenerator.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new StampIntoPdfResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("StampIntoPdfAsync started for OutputPdfFileId: {OutputPdfFileId}", LogSanitizer.Scrub(request.OutputPdfFileId));
 
                 // Send event to worker

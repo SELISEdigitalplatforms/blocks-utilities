@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Utility.DomainService.MagicLink.Models;
+using Utility.DomainService.MagicLink.Utilities;
 
 namespace Utility.DomainService.MagicLink.Service
 {
@@ -60,15 +61,23 @@ namespace Utility.DomainService.MagicLink.Service
             _configuration = configuration;
         }
 
+        /// <summary>
+        /// The IdP endpoint tokens are minted from. Its host is also the only host a minted token
+        /// may be sent to (see <see cref="MagicLinkActionExecutor.MayReceiveToken"/>).
+        /// </summary>
+        public static string ResolveTokenEndpoint(IConfiguration configuration)
+        {
+            ArgumentNullException.ThrowIfNull(configuration);
+            return configuration["AuthenticationTokenEndpoint"] ?? MagicLinkConstants.DefaultAuthenticationTokenEndpoint;
+        }
+
         public async Task<string?> GetTokenAsync(ClientCredential clientCredentials, string projectKey)
         {
             try
             {
                 _logger.LogInformation("Getting token for ClientId: {ClientId}", clientCredentials.ItemId);
 
-                // Get the authentication endpoint from configuration
-                var authEndpoint = _configuration["AuthenticationTokenEndpoint"]
-                    ?? "https://api.blocksdevelopers.com/idp/v1/Authentication/token";
+                var authEndpoint = ResolveTokenEndpoint(_configuration);
 
                 using var client = _httpClientFactory.CreateClient();
 

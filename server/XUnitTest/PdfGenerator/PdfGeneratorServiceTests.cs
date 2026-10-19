@@ -7,7 +7,7 @@ using Utility.DomainService.PdfGenerator.service;
 
 namespace XUnitTest.PdfGenerator
 {
-    public class PdfGeneratorServiceTests
+    public sealed class PdfGeneratorServiceTests : IDisposable
     {
         private readonly Mock<ILogger<PdfGeneratorService>> _logger;
         private readonly Mock<IMessageClient> _messageClient;
@@ -15,6 +15,11 @@ namespace XUnitTest.PdfGenerator
 
         public PdfGeneratorServiceTests()
         {
+            // The caller every request below comes from; services act on this tenant only
+            BlocksContext.SetContext(BlocksContext.Create(
+                "test-project", null, "user-1", true, null, "org-1",
+                DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
+
             _logger = new Mock<ILogger<PdfGeneratorService>>();
             _messageClient = new Mock<IMessageClient>();
 
@@ -22,6 +27,8 @@ namespace XUnitTest.PdfGenerator
                 _logger.Object,
                 _messageClient.Object);
         }
+
+        public void Dispose() => BlocksContext.SetContext(null);
 
         #region MergePdfsAsync
 

@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Utility.DomainService.TemplateEngine.Events;
 using Utility.DomainService.TemplateEngine.Utilities;
+using Utility.DomainService.Shared.Utilities;
 
 namespace Utility.DomainService.TemplateEngine.service
 {
@@ -26,6 +27,15 @@ namespace Utility.DomainService.TemplateEngine.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new RenderWithJsonResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's database and storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("RenderWithJsonAsync started for RenderedFileId: {RenderedFileId}", request.RenderedFileId);
 
                 // Validate JSON
@@ -65,6 +75,15 @@ namespace Utility.DomainService.TemplateEngine.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new RenderWithJsonBulkResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's database and storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("RenderWithJsonBulkAsync started for ReferenceId: {ReferenceId}", request.ReferenceId);
 
                 // Validate all JSON strings
@@ -107,6 +126,15 @@ namespace Utility.DomainService.TemplateEngine.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new GenerateRenderedFileResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's database and storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("GenerateRenderedFileAsync started for FileId: {FileId}", request.FileId);
 
                 // Send event to worker
@@ -136,6 +164,15 @@ namespace Utility.DomainService.TemplateEngine.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new GenerateRenderedFilesBulkResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's database and storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("GenerateRenderedFilesBulkAsync started with {Count} requests", request.GenerateRenderedFileRequests.Count);
 
                 // Send event to worker
@@ -164,6 +201,15 @@ namespace Utility.DomainService.TemplateEngine.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new CreateFileWithFilteredMongoQueryResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's database and storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("CreateFileWithFilteredMongoQueryAsync started for FileId: {FileId}", request.FileId);
 
                 // Send event to worker
@@ -193,6 +239,15 @@ namespace Utility.DomainService.TemplateEngine.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new CreateFileWithFilteredMongoQueryBulkResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's database and storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("CreateFileWithFilteredMongoQueryBulkAsync started");
 
                 // Send event to worker
@@ -221,6 +276,15 @@ namespace Utility.DomainService.TemplateEngine.service
         {
             try
             {
+                var projectKey = CallerTenant.Resolve(request.ProjectKey);
+                if (projectKey == null)
+                {
+                    return new CreateMultipleFileWithFilteredMongoQueryResponse { IsSuccess = false, Message = CallerTenant.MismatchMessage };
+                }
+
+                // The Worker opens this tenant's database and storage for the job
+                request.ProjectKey = projectKey;
+
                 _logger.LogInformation("CreateMultipleFileWithFilteredSqlQueryAsync started for RequestId: {RequestId}", request.RequestId);
 
                 // Send event to worker

@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using DomainService.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -6,10 +7,11 @@ using StorageDriver;
 using Utility.DomainService.PdfGenerator;
 using Utility.DomainService.PdfGenerator.service;
 using Utility.DomainService.PdfGenerator.Utilities;
+using Utility.DomainService.Shared.Utilities;
 
 namespace XUnitTest.PdfGenerator
 {
-    public class SinglePdfGeneratorServiceTests
+    public sealed class SinglePdfGeneratorServiceTests : IDisposable
     {
         private readonly Mock<PuppeteerSharpEngine> _engineMock;
         private readonly Mock<PdfStorageHelper> _storageMock;
@@ -17,6 +19,11 @@ namespace XUnitTest.PdfGenerator
 
         public SinglePdfGeneratorServiceTests()
         {
+            // The caller every request below comes from; services act on this tenant only
+            BlocksContext.SetContext(BlocksContext.Create(
+                "proj_1", null, "user-1", true, null, "org-1",
+                DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
+
             _engineMock = new Mock<PuppeteerSharpEngine>(
                 Mock.Of<ILogger<PuppeteerSharpEngine>>(),
                 Mock.Of<IConfiguration>());
@@ -29,6 +36,8 @@ namespace XUnitTest.PdfGenerator
 
             _loggerMock = new Mock<ILogger<SinglePdfGeneratorService>>();
         }
+
+        public void Dispose() => BlocksContext.SetContext(null);
 
         private SinglePdfGeneratorService CreateSut(TimeSpan? timeout = null)
         {
@@ -167,16 +176,35 @@ namespace XUnitTest.PdfGenerator
         }
 
         [Fact]
-        public async Task CreateSinglePdfFromHtmlAsync_RejectsMissingProjectKey_WithoutRendering()
+        public async Task CreateSinglePdfFromHtmlAsync_MissingProjectKey_SavesToCallerTenant()
         {
+            SetupSuccessfulRender();
+            SetupSuccessfulStorage();
             var sut = CreateSut();
             var request = ValidRequest();
             request.ProjectKey = " ";
 
             var result = await sut.CreateSinglePdfFromHtmlAsync(request);
 
+            Assert.True(result.IsSuccess);
+            _storageMock.Verify(s => s.SavePdfToStorage(
+                It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>?>(), It.IsAny<string>(),
+                "proj_1",
+                It.IsAny<string>(), It.IsAny<string?>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task CreateSinglePdfFromHtmlAsync_RejectsAnotherTenantsProjectKey_WithoutRendering()
+        {
+            var sut = CreateSut();
+            var request = ValidRequest();
+            request.ProjectKey = "other-tenant";
+
+            var result = await sut.CreateSinglePdfFromHtmlAsync(request);
+
             Assert.False(result.IsSuccess);
-            Assert.Equal("ProjectKey is required", result.Message);
+            Assert.Equal(CallerTenant.MismatchMessage, result.Message);
             Assert.Null(result.FileId);
             VerifyNoRenderOrStorage();
         }
