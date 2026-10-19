@@ -175,4 +175,31 @@ internal sealed class InMemoryCreditPurchases : ISubscriptionCreditPurchaseRepos
             .. All.Where(purchase => statuses.Contains(purchase.Status) && purchase.LastUpdatedAtUtc < olderThanUtc)
                 .Take(limit)
         ]);
+
+    public Task<SubscriptionCreditPurchase?> FindOpenCheckoutAsync(
+        string tenantId, string subscriptionId, CancellationToken cancellationToken) =>
+        Task.FromResult(All
+            .Where(purchase => purchase.SubscriptionId == subscriptionId &&
+                               purchase.PaymentPath == CreditPaymentPath.Checkout &&
+                               purchase.Status is CreditPurchaseStatus.Pending or CreditPurchaseStatus.AwaitingPayment)
+            .OrderByDescending(purchase => purchase.CreatedAtUtc)
+            .FirstOrDefault());
+
+    public Task<SubscriptionCreditPurchase?> FindCheckoutByPaymentAsync(
+        string tenantId, string paymentId, CancellationToken cancellationToken) =>
+        Task.FromResult(All.Find(purchase =>
+            purchase.PaymentId == paymentId && purchase.PaymentPath == CreditPaymentPath.Checkout));
+
+    public Task<IReadOnlyList<SubscriptionCreditPurchase>> ListCardAdoptionDueAsync(
+        string tenantId, DateTime createdAfterUtc, DateTime olderThanUtc, int limit, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SubscriptionCreditPurchase>>(
+        [
+            .. All.Where(purchase =>
+                    purchase.Status is CreditPurchaseStatus.Finalized or CreditPurchaseStatus.NeedsAttention &&
+                    purchase.PaymentPath == CreditPaymentPath.Checkout &&
+                    purchase.CardAdoptedAtUtc is null &&
+                    purchase.CreatedAtUtc > createdAfterUtc &&
+                    purchase.LastUpdatedAtUtc < olderThanUtc)
+                .Take(limit)
+        ]);
 }

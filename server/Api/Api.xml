@@ -141,7 +141,13 @@
             - UsageLimit: Maximum number of times the link can be used (0 = unlimited)
             - ExpiryLifeSpan: Link expiration in milliseconds (0 = no expiration)
             - Persistent: Whether the link should be permanent
-            - ProjectKey: Project/tenant key for multi-tenancy
+            - ProjectKey: Optional; the link always belongs to the caller's tenant, and a key naming
+              another tenant is refused (this applies to every endpoint here except Invoke)
+            - ClientCredential: Action type; a credential of the caller's tenant. A link carrying one
+              may only target the Blocks API host that issues its token
+            
+            Action requests are only sent to public addresses: a Uri resolving to a loopback,
+            private or link-local address (including cloud metadata) fails when the link is invoked.
             </remarks>
             <param name="request">The link creation request</param>
             <returns>Response containing the generated link ID and short URI</returns>

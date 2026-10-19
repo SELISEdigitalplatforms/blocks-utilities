@@ -116,6 +116,27 @@ namespace Worker.Consumers.MagicLink
 
             var projectKey = link.ProjectKey;
 
+            // Don't mint a token the executor would refuse to send anyway
+            if (!string.IsNullOrEmpty(link.ClientCredential) && !_actionExecutor.MayReceiveToken(link))
+            {
+                _logger.LogWarning("MagicLinkActionConsumer: Link with a client credential targets a host other than the Blocks API for LinkId={LinkId}",
+                    @event.LinkId);
+
+                await StoreVisitorUsageAsync(@event, false, 403, MagicLinkActionExecutor.TokenHostMismatchMessage);
+
+                if (@event.NotifyOnProcessEnding)
+                {
+                    await _notificationService.NotifyActionExecutedEvent(
+                        false,
+                        @event.LinkId,
+                        403,
+                        MagicLinkActionExecutor.TokenHostMismatchMessage,
+                        @event.SubscriptionFilterId,
+                        projectKey);
+                }
+                return;
+            }
+
             // Get token using ClientCredential if available
             string? token = null;
             if (!string.IsNullOrEmpty(link.ClientCredential))

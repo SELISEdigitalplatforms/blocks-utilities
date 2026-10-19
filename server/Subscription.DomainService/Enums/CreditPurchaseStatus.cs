@@ -5,8 +5,8 @@ namespace Subscription.DomainService.Enums;
 /// <summary>How far a credit purchase has got.</summary>
 /// <remarks>
 /// Written before the card is charged and advanced after each step, so a crash at any point leaves
-/// a record the recovery sweep can resume from. <see cref="Pending"/> and <see cref="Charged"/> are
-/// the only states it acts on.
+/// a record the recovery sweep can resume from. <see cref="Pending"/>, <see cref="AwaitingPayment"/>
+/// and <see cref="Charged"/> are the states it acts on.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CreditPurchaseStatus
@@ -24,5 +24,11 @@ public enum CreditPurchaseStatus
     Failed = 3,
 
     /// <summary>Unresolved past the alert deadline. An operator has to look at it.</summary>
-    NeedsAttention = 4
+    NeedsAttention = 4,
+
+    /// <summary>
+    /// A hosted checkout is open for the buyer to pay at, and the provider has not decided it yet.
+    /// Only a purchase on a subscription with no saved card reaches this (spec 003).
+    /// </summary>
+    AwaitingPayment = 5
 }

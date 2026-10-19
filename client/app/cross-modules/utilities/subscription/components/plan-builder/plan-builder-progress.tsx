@@ -23,6 +23,11 @@ export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProp
   // step behind them is validated - which is what makes it read as position rather than score.
   const progressPercent = totalSteps > 1 ? ((currentStep - 1) / (totalSteps - 1)) * 100 : 100;
 
+  // Columns and rail inset both follow the step count, so adding a step never wraps a node onto a
+  // second row. The rail runs between the first and last node centres: half a column in from each end.
+  const columnCount = Math.max(steps.length, 1);
+  const railInset = `${50 / columnCount}%`;
+
   return (
     <section
       aria-label="Plan creation progress"
@@ -56,13 +61,14 @@ export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProp
 
       <div className="relative">
         {/*
-          One continuous rail behind all five nodes, rather than a separate connector per step.
+          One continuous rail behind all nodes, rather than a separate connector per step.
           The nodes are centred in equal-width columns, so it spans from the first centre to the
           last - i.e. inset by half a column at each end.
         */}
         <div
           aria-hidden="true"
-          className="absolute left-[10%] right-[10%] top-4 h-0.5 -translate-y-1/2 overflow-hidden rounded-full bg-border"
+          className="absolute top-4 h-0.5 -translate-y-1/2 overflow-hidden rounded-full bg-border"
+          style={{ left: railInset, right: railInset }}
         >
           <div
             className="h-full rounded-full bg-gradient-to-r from-blocks-primary-500 to-blocks-secondary-500 transition-[width] duration-500 ease-out"
@@ -70,7 +76,10 @@ export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProp
           />
         </div>
 
-        <ol className="relative grid grid-cols-5">
+        <ol
+          className="relative grid"
+          style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
+        >
           {steps.map((step) => {
             const isCurrent = currentStep === step.id;
             const isComplete = completedSteps.includes(step.id);
@@ -108,7 +117,7 @@ export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProp
                   </span>
                   <span
                     className={cn(
-                      "hidden max-w-full truncate text-xs font-medium text-muted-foreground transition-colors duration-200 sm:block",
+                      "hidden max-w-full truncate px-1 text-xs font-medium text-muted-foreground transition-colors duration-200 md:block",
                       isComplete && !isCurrent && "text-foreground",
                       isCurrent && "font-semibold text-blocks-primary-600",
                     )}
@@ -122,7 +131,7 @@ export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProp
         </ol>
       </div>
 
-      <p className="mt-3 text-center text-sm font-semibold text-blocks-primary-600 sm:hidden">
+      <p className="mt-3 text-center text-sm font-semibold text-blocks-primary-600 md:hidden">
         {steps[currentStep - 1]?.title}
       </p>
     </section>

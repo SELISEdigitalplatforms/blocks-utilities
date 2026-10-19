@@ -25,6 +25,7 @@ import {
 import { SubscriptionOperationError } from "../services/subscription-simulation.service";
 import type {
   CreditGrant,
+  CreditPurchase,
   CreditQuote,
   MeterTerms,
   SimulatedSubscription,
@@ -43,6 +44,7 @@ const errorMessage = (error: unknown, fallback: string) =>
 const UNSETTLED_PURCHASE_CODES = new Set([
   "subscription_credits_purchase_in_flight",
   "subscription_credits_charge_unresolved",
+  "subscription_credits_checkout_unresolved",
 ]);
 
 /**
@@ -232,6 +234,10 @@ const BuyCreditsDialog = ({
   // changed request gets a new one instead of being refused as a reused key.
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [problem, setProblem] = useState<string | null>(null);
+  // A checkout purchase waiting for the buyer to pay (spec 003). Checked by resubmitting the same
+  // key, which is how the server is asked to look at the provider; never decided by this page.
+  const [awaiting, setAwaiting] = useState<CreditPurchase | null>(null);
+  const checkout = quote?.paymentPath === "Checkout";
   const preview = usePreviewCreditPurchase(subscription.subscriptionId);
   const purchase = usePurchaseCredits(subscription.subscriptionId);
 
@@ -244,6 +250,7 @@ const BuyCreditsDialog = ({
   });
 
   const edit = (apply: () => void) => {
+    if (awaiting) return;
     apply();
     setQuote(null);
     setProblem(null);
@@ -263,6 +270,16 @@ const BuyCreditsDialog = ({
     setProblem(null);
     try {
       const result = await purchase.mutateAsync({ ...request(), idempotencyKey });
+
+      if (result.status === "AwaitingPayment") {
+        // Opened only the first time; a later check must not keep spawning tabs.
+        if (!awaiting && result.checkoutUrl) {
+          window.open(result.checkoutUrl, "_blank", "noopener");
+        }
+        setAwaiting(result);
+        return;
+      }
+
       toast({
         title: result.replayed ? "Already bought" : "Credits bought",
         description: `${result.quote.quantity.toLocaleString()} credits for ${formatMoney(result.quote.totalMinor, result.quote.currencyCode)}.`,
@@ -275,6 +292,8 @@ const BuyCreditsDialog = ({
       // new one. Kept whenever the charge may still have gone through, where a retry under the
       // same key is exactly what stops it being charged twice.
       if (isSettledPurchaseFailure(error)) {
+        // An expired or declined checkout is over too: the next attempt is a new purchase.
+        setAwaiting(null);
         setIdempotencyKey(crypto.randomUUID());
       }
     }
@@ -286,7 +305,10 @@ const BuyCreditsDialog = ({
         <DialogHeader>
           <DialogTitle>Buy {meter.displayName || meter.meterKey} credits</DialogTitle>
           <DialogDescription>
-            Charged once to the subscription&apos;s saved card. Between{" "}
+            {checkout
+              ? "No card is saved, so this is paid at checkout, which saves the card for later top-ups. "
+              : "Charged once to the subscription's saved card. "}
+            Between{" "}
             {terms.minQuantity.toLocaleString()} and {terms.maxQuantity.toLocaleString()} credits.
           </DialogDescription>
         </DialogHeader>
@@ -354,6 +376,20 @@ const BuyCreditsDialog = ({
           </dl>
         )}
 
+        {awaiting && (
+          <div role="status" className="rounded-md border p-3 text-sm">
+            <p className="font-medium">Waiting for payment</p>
+            <p className="text-muted-foreground">
+              Credits are added once the payment provider confirms the payment.{" "}
+              {awaiting.checkoutUrl && (
+                <a href={awaiting.checkoutUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                  Open checkout
+                </a>
+              )}
+            </p>
+          </div>
+        )}
+
         {problem && (
           <p role="alert" className="text-sm text-destructive">
             {problem}
@@ -364,10 +400,15 @@ const BuyCreditsDialog = ({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          {quote ? (
+          {awaiting ? (
             <Button onClick={buy} disabled={purchase.isPending}>
               {purchase.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Buy for {formatMoney(quote.totalMinor, quote.currencyCode)}
+              Check payment
+            </Button>
+          ) : quote ? (
+            <Button onClick={buy} disabled={purchase.isPending}>
+              {purchase.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {checkout ? "Pay at checkout" : "Buy"} for {formatMoney(quote.totalMinor, quote.currencyCode)}
             </Button>
           ) : (
             <Button onClick={getQuote} disabled={preview.isPending}>

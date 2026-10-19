@@ -104,6 +104,25 @@ public sealed class SubscriptionCreditPurchase
 
     public CreditPurchaseStatus Status { get; set; } = CreditPurchaseStatus.Pending;
 
+    /// <summary>Stored card or hosted checkout. Every purchase before spec 003 is a stored-card one.</summary>
+    public CreditPaymentPath PaymentPath { get; set; } = CreditPaymentPath.StoredCard;
+
+    /// <summary>Where the buyer pays, while a checkout purchase is <see cref="CreditPurchaseStatus.AwaitingPayment"/>.</summary>
+    public string? CheckoutUrl { get; set; }
+
+    /// <summary>
+    /// When the provider stops accepting payment at <see cref="CheckoutUrl"/>. The recovery sweep
+    /// fails a purchase still undecided a grace period after this.
+    /// </summary>
+    public DateTime? CheckoutExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// When the card a checkout saved was offered to the billing account as its default -- set
+    /// whether it was adopted or the account already had one. Null on a checkout purchase means
+    /// the sweep still has to try: the provider can report the stored card after the payment.
+    /// </summary>
+    public DateTime? CardAdoptedAtUtc { get; set; }
+
     public string? PaymentId { get; set; }
 
     public string? GrantId { get; set; }

@@ -3,6 +3,7 @@ using FluentAssertions;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Models.HostedCheckout;
 using Payment.DomainService.Providers.Adyen;
+using Payment.DomainService.Providers.Stripe;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
@@ -92,6 +93,72 @@ public sealed class HostedCheckoutContractTests
         result.ShopperInteraction.Should().Be("Ecommerce");
         result.RecurringProcessingModel.Should()
             .Be("CardOnFile");
+    }
+
+    /// <summary>
+    /// A credit top-up checkout (spec 003) asks for its own lifetime, and every other caller keeps
+    /// the provider's default -- Stripe's 24 hours and Adyen's 1 hour.
+    /// </summary>
+    [Theory]
+    [InlineData(60, 60)]
+    [InlineData(5, 30)]
+    [InlineData(null, null)]
+    public void Stripe_session_expiry_is_sent_only_when_asked_for_and_kept_in_stripes_range(
+        int? askedMinutes,
+        int? expectedMinutes)
+    {
+        var before = DateTimeOffset.UtcNow;
+
+        var form = StripeInitiationRequestFactory.ReadForm(new StripeInitiationRequestFactory().Create(
+            new MakePaymentRequest { CheckoutExpiresInMinutes = askedMinutes },
+            new PaymentExecutionContext("tenant-1", "actor-1", "organization-1"),
+            new PaymentDetail { ItemId = "payment-1", TenantId = "tenant-1", CurrencyCode = "USD" },
+            new PaymentProvider { ProviderName = PaymentConstants.StripeProvider, MerchantId = "acct_1" },
+            "https://payments.example/return?state=signed",
+            "payment-reference",
+            "shopper-reference",
+            null,
+            includeStoredPaymentMethods: false,
+            minorUnits: 1000));
+
+        if (expectedMinutes is null)
+        {
+            form.Should().NotContainKey("expires_at");
+            return;
+        }
+
+        var expiresAt = DateTimeOffset.FromUnixTimeSeconds(long.Parse(form["expires_at"], System.Globalization.CultureInfo.InvariantCulture));
+        expiresAt.Should().BeCloseTo(before.AddMinutes(expectedMinutes.Value), TimeSpan.FromSeconds(5));
+    }
+
+    [Theory]
+    [InlineData(60)]
+    [InlineData(null)]
+    public void Adyen_session_expiry_is_sent_only_when_asked_for(int? askedMinutes)
+    {
+        var before = DateTimeOffset.UtcNow;
+
+        var session = AdyenInitiationRequestFactory.ReadSession(new AdyenInitiationRequestFactory().Create(
+            new MakePaymentRequest { CheckoutExpiresInMinutes = askedMinutes },
+            new PaymentExecutionContext("tenant-1", "actor-1", null),
+            new PaymentDetail { TenantId = "tenant-1", CurrencyCode = "EUR" },
+            new PaymentProvider { MerchantId = "merchant", CountryCode = "NL" },
+            "https://payments.example/return",
+            "payment-reference",
+            "shopper-reference",
+            null,
+            includeStoredPaymentMethods: false,
+            minorUnits: 100));
+
+        if (askedMinutes is null)
+        {
+            session.ExpiresAt.Should().BeNull();
+            JsonSerializer.Serialize(session).Should().NotContain("expiresAt");
+            return;
+        }
+
+        DateTimeOffset.Parse(session.ExpiresAt!, System.Globalization.CultureInfo.InvariantCulture)
+            .Should().BeCloseTo(before.AddMinutes(askedMinutes.Value), TimeSpan.FromSeconds(5));
     }
 
     [Fact]

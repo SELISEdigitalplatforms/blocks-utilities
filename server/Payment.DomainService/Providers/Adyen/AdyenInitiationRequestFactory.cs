@@ -110,6 +110,9 @@ public sealed class AdyenInitiationRequestFactory : IProviderInitiationRequestFa
                 ? shopperReference
                 : null,
             ShopperEmail = request.CustomerEmail,
+            ExpiresAt = request.CheckoutExpiresInMinutes is { } minutes
+                ? DateTimeOffset.UtcNow.AddMinutes(minutes).ToString("yyyy-MM-ddTHH:mm:ssK", System.Globalization.CultureInfo.InvariantCulture)
+                : null,
             ShopperInteraction = "Ecommerce"
         };
 

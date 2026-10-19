@@ -234,6 +234,22 @@ Every recorded usage call returns the live picture, which is also how you test e
   "overage": 0, "periodKey": "...", "periodStartUtc": "...", "periodEndUtc": "..." }
 ```
 
+### Purchasable credits and the minimum charge
+
+A credit purchase whose total (after any code and tax) is above zero but at or below
+`Subscription:MinimumSettlementChargeMinor` (default 50) is refused with
+`subscription_credits_below_minimum_charge`, at preview and at purchase, before any charge. Stripe
+does not decline a charge that small: it marks the invoice paid at zero and moves the amount onto the
+customer's balance, which the next invoice collects. Set `minQuantity × unit price` above the floor
+so the smallest purchase on offer can actually be bought.
+
+**Purchases that stuck before this guard.** A purchase in `NeedsAttention` with
+`subscription_invoice_amount_mismatch` and no payment record put its amount on the Stripe customer's
+balance. Check the customer in Stripe: if a later invoice's starting balance collected it, the
+customer has paid — grant the same credits (free grant, reason naming the purchase id) or refund
+that amount from the later charge. If the balance is still on the customer, zero it with a balance
+adjustment so it is never collected. Then mark the purchase `Failed`.
+
 ---
 
 ## 5. How usage is measured — aggregation

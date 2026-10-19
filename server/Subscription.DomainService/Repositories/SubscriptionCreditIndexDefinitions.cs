@@ -10,6 +10,7 @@ public static class SubscriptionCreditIndexDefinitions
     public const string GrantMaintenanceIndexName = "credit_grant_maintenance";
     public const string PurchaseStaleIndexName = "credit_purchase_stale";
     public const string PurchaseBySubscriptionIndexName = "credit_purchase_by_subscription";
+    public const string PurchaseByPaymentIndexName = "credit_purchase_by_payment";
 
     /// <remarks>
     /// One index serves both reads the ledger has: the gate's search for live grants in one bucket,
@@ -52,6 +53,13 @@ public static class SubscriptionCreditIndexDefinitions
                 .Ascending(purchase => purchase.TenantId)
                 .Ascending(purchase => purchase.SubscriptionId)
                 .Descending(purchase => purchase.CreatedAtUtc),
-            new CreateIndexOptions<SubscriptionCreditPurchase> { Name = PurchaseBySubscriptionIndexName })
+            new CreateIndexOptions<SubscriptionCreditPurchase> { Name = PurchaseBySubscriptionIndexName }),
+        // Backs the webhook fast path, which asks of every payment that moved whether a checkout
+        // purchase is waiting on it.
+        new(
+            Builders<SubscriptionCreditPurchase>.IndexKeys
+                .Ascending(purchase => purchase.TenantId)
+                .Ascending(purchase => purchase.PaymentId),
+            new CreateIndexOptions<SubscriptionCreditPurchase> { Name = PurchaseByPaymentIndexName })
     ];
 }

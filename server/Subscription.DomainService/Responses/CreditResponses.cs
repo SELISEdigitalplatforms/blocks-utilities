@@ -41,6 +41,12 @@ public sealed class CreditQuoteResponse
     /// Shown before buying, so a purchase late in a window is never a surprise.
     /// </summary>
     public DateTime? ExpiresAtUtc { get; init; }
+
+    /// <summary>
+    /// "StoredCard" when the saved card is charged during the request, or "Checkout" when the
+    /// billing account has no card and the buyer is sent to the provider's page to pay (spec 003).
+    /// </summary>
+    public string PaymentPath { get; init; } = nameof(Enums.CreditPaymentPath.StoredCard);
 }
 
 /// <summary>One grant of credits, with what is left of it.</summary>
@@ -87,12 +93,19 @@ public sealed class CreditPurchaseResponse
 {
     public string PurchaseId { get; init; } = string.Empty;
 
-    /// <summary>"Pending", "Charged", "Finalized", "Failed" or "NeedsAttention".</summary>
+    /// <summary>"Pending", "AwaitingPayment", "Charged", "Finalized", "Failed" or "NeedsAttention".</summary>
     public string Status { get; init; } = string.Empty;
 
     public CreditQuoteResponse Quote { get; init; } = new();
 
     public string? PaymentId { get; init; }
+
+    /// <summary>
+    /// Where the buyer pays, while the purchase is "AwaitingPayment". Credits are granted once the
+    /// provider confirms the payment, never on the buyer's return; resubmit the same idempotency
+    /// key to see how it ended.
+    /// </summary>
+    public string? CheckoutUrl { get; init; }
 
     public CreditGrantResponse? Grant { get; init; }
 

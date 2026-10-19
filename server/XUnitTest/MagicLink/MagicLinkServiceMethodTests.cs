@@ -13,7 +13,7 @@ using Utility.DomainService.MagicLink.Utilities;
 
 namespace XUnitTest.MagicLink
 {
-    public class MagicLinkServiceMethodTests
+    public sealed class MagicLinkServiceMethodTests : IDisposable
     {
         private readonly Mock<ILogger<MagicLinkService>> _mockLogger;
         private readonly Mock<IMagicLinkRepository> _mockRepository;
@@ -24,6 +24,11 @@ namespace XUnitTest.MagicLink
 
         public MagicLinkServiceMethodTests()
         {
+            // The caller every request below comes from; services act on this tenant only
+            BlocksContext.SetContext(BlocksContext.Create(
+                "test-project", null, "user-1", true, null, "org-1",
+                DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
+
             _mockLogger = new Mock<ILogger<MagicLinkService>>();
             _mockRepository = new Mock<IMagicLinkRepository>();
             _mockCacheClient = new Mock<ICacheClient>();
@@ -42,6 +47,8 @@ namespace XUnitTest.MagicLink
             );
         }
 
+        public void Dispose() => BlocksContext.SetContext(null);
+
         #region SendUsageEventAsync Tests
 
         [Fact]
@@ -51,7 +58,7 @@ namespace XUnitTest.MagicLink
             var usageEvent = new MagicLinkUsageEvent
             {
                 LinkId = "test-link-123",
-                ProjectKey = "project-abc",
+                ProjectKey = "test-project",
                 AccessedAt = DateTime.UtcNow,
                 VisitorIpAddress = "192.168.1.1"
             };
@@ -80,7 +87,7 @@ namespace XUnitTest.MagicLink
             var actionEvent = new MagicLinkActionEvent
             {
                 LinkId = "test-link-456",
-                ProjectKey = "project-xyz",
+                ProjectKey = "test-project",
                 SubscriptionFilterId = "sub-filter-123",
                 NotifyOnProcessEnding = true
             };

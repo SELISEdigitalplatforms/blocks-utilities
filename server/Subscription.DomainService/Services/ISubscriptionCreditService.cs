@@ -54,6 +54,15 @@ public interface ISubscriptionCreditService
     /// </summary>
     Task<int> RecoverStaleAsync(string tenantId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Settles the checkout purchases (spec 003) waiting on any of these payments, now that they
+    /// have moved. Run on the payment webhook tick, so a paid top-up is granted within moments.
+    /// </summary>
+    Task<int> SettleCheckoutsForPaymentsAsync(
+        string tenantId,
+        IReadOnlyCollection<string> paymentIds,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionOperationResult<IReadOnlyList<CreditPurchaseResponse>>> ListPurchasesAsync(
         string subscriptionId,
         string? organizationId,

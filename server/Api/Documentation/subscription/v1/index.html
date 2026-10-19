@@ -500,6 +500,7 @@
       <li><a href="#automatic-discounts" class="sub">Automatic price discounts</a></li>
       <li><a href="#quantity" class="sub">Quantity item</a></li>
       <li><a href="#meter" class="sub">Meter</a></li>
+      <li><a href="#meter-top-up" class="sub">Credit top-up terms</a></li>
       <li><a href="#entitlement" class="sub">Entitlement</a></li>
       <li><a href="#trial" class="sub">Trial</a></li>
       <li><a href="#billing-profile" class="sub">Billing profile</a></li>
@@ -862,6 +863,7 @@
             <tr><td>overageAllowed</td><td class="type">bool</td><td class="prose"><code>false</code> blocks past the allowance. <code>true</code> permits and records it. Must be <code>false</code> for a <code>Never</code> meter.</td></tr>
             <tr><td>thresholdPercents</td><td class="type">int[]</td><td class="prose">Percentages that raise a <code>UsageThresholdReached</code> event once per usage period, or once per subscription for a <code>Never</code> meter — for example 80 and 100. The worker forwards the event to the Blocks OS mail module using the subscription billing contact.</td></tr>
             <tr><td>rateTables</td><td class="type">array</td><td class="prose">What overage costs, per currency. <strong>Empty means overage is billed nothing.</strong></td></tr>
+            <tr><td>topUp</td><td class="type">object?</td><td class="prose">Puts this meter&apos;s credits on sale. Absent means its credits are never sold. See <a href="#meter-top-up">Credit top-up terms</a> and <a href="#api-credits">Credits</a>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -873,6 +875,41 @@
         <code>Periodic</code>. Record uploads as positive byte quantities and deletions as negative
         quantities. Negative usage is accepted only for <code>Never</code> meters and cannot reduce
         their balance below zero.
+      </p>
+
+      <h3 id="meter-top-up">Credit top-up terms</h3>
+      <p>
+        A meter&apos;s <code>topUp</code>: what one extra credit costs and how it may be bought. Only
+        checked while <code>enabled</code> is <code>true</code>, so an author can pause sales with
+        the terms half written. Refused with <code>subscription_meter_top_up_invalid</code>.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>enabled</td><td class="type">bool</td><td class="prose">Credits are on sale. <code>false</code> keeps the terms but sells nothing; an administrator can still grant credits.</td></tr>
+            <tr><td>unitPrices</td><td class="type">array</td><td class="prose">One <code>{ currencyCode, unitAmountMinor }</code> per currency: the price of <strong>one</strong> credit in minor units, positive. At least one when enabled, and each currency once. A subscription can buy only in its own currency.</td></tr>
+            <tr><td>minQuantity</td><td class="type">decimal</td><td class="prose">The smallest purchase, a whole number of at least <code>1</code>. Defaults to <code>1</code>.</td></tr>
+            <tr><td>maxQuantity</td><td class="type">decimal</td><td class="prose">The largest single purchase, a whole number not below <code>minQuantity</code>. <strong>Required when enabled</strong>: it bounds one charge to a stored card.</td></tr>
+            <tr><td>expiryPolicy</td><td class="type">int</td><td class="prose">When bought credits end: <code>0</code> <code>Periodic</code> with the usage window they were bought in, <code>2</code> <code>CarryForward</code> across renewals until the next plan change, <code>1</code> <code>Never</code>. Sent as the number; read back as the name.</td></tr>
+            <tr><td>taxRateBasisPoints</td><td class="type">int?</td><td class="prose"><code>0</code> to <code>10000</code>. Absent or zero is untaxed.</td></tr>
+            <tr><td>taxMode</td><td class="type">string?</td><td class="prose"><code>Exclusive</code> adds the tax to the price; <code>Inclusive</code> finds it inside the price. Required with a positive rate.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre><code>"topUp": {
+  "enabled": true,
+  "unitPrices": [{ "currencyCode": "USD", "unitAmountMinor": 10 }],
+  "minQuantity": 10,
+  "maxQuantity": 1000,
+  "expiryPolicy": 2,
+  "taxRateBasisPoints": 810,
+  "taxMode": "Inclusive"
+}</code></pre>
+      <p class="prose">
+        A subscription is quoted from its own copy of the plan, taken when it started or last
+        changed plan. Terms added to a plan later reach new subscriptions and plan changes, not
+        existing subscribers.
       </p>
 
       <h3 id="carry-forward">Carrying an unused allowance forward</h3>
@@ -2611,6 +2648,8 @@ GET /api/subscription-discounts?organizationId=org-1</code></pre>
           <tr><td><code>kind</code></td><td><code>0</code> Percent<br><code>1</code> FixedAmount</td><td>Exactly one of <code>percentBasisPoints</code> or <code>amountMinor</code> is supplied. A fixed amount also requires <code>currencyCode</code>.</td></tr>
           <tr><td><code>campaignKind</code></td><td><code>Standard</code><br><code>FirstAnnualPeriod</code><br><code>FreeOpeningCalendarPeriod</code></td><td>Standard is an ordinary reusable code. Campaign kinds add a redemption window and special billing-period behavior.</td></tr>
           <tr><td><code>campaignPrecedence</code></td><td><code>BestDiscount</code><br><code>ReplaceBuiltIn</code><br><code>Stack</code></td><td>Available for Standard codes and campaign offers. Chooses the larger reduction; suppresses built-in discounts; or stacks the code on the already-discounted subtotal. AMLora yearly campaigns use <code>ReplaceBuiltIn</code>.</td></tr>
+          <tr><td><code>scope</code></td><td><code>Subscription</code><br><code>CreditPurchase</code></td><td>What the code can be redeemed against. <code>Subscription</code>, the default and what every older code reads as, applies at signup and plan changes. <code>CreditPurchase</code> applies only to a <a href="#api-credits">credit purchase</a>: it must be a <code>Standard</code> code with no <code>durationPeriods</code> and no <code>applicablePriceIds</code> (<code>subscription_discount_credit_scope_invalid</code>). A code never crosses scopes.</td></tr>
+          <tr><td><code>applicableMeterKeys</code></td><td>string[]</td><td>Narrows a <code>CreditPurchase</code> code to these meters; empty means any meter. <code>applicablePlanCodes</code>, the validity window and <code>oneUsePerOrganization</code> apply to credit codes as well. Only a credit-purchase code can name meters (<code>subscription_discount_meter_scope_invalid</code>).</td></tr>
         </tbody>
       </table>
       <p class="prose">
@@ -4170,12 +4209,20 @@ POST /api/subscriptions
     "used": 12,
     "remaining": 138,
     "overage": 0,
+    "purchasedConsumed": 0,
+    "purchasedRemaining": 250,
     "replayed": false
   },
   "error": null,
   "meta": { "correlationId": "0HN…", "timestampUtc": "…", "replayed": false }
 }</code></pre>
           <p><code>replayed: true</code> means this call repeated one already recorded and changed nothing.</p>
+          <p class="prose">
+            <code>purchasedConsumed</code> is how much of <code>used</code> bought or granted credits
+            paid for this window; it is already part of <code>included</code>, so it is never overage.
+            <code>purchasedRemaining</code> is what this recorder can still spend from credits, and is
+            <code>null</code> for a meter that sells none. See <a href="#api-credits">Credits</a>.
+          </p>
           <h4>Returns</h4>
           <p><code>200</code> — including when <code>allowed</code> is <code>false</code> · <code>400</code> missing idempotency key, metadata too large, quantity finer than the meter's <code>quantityScale</code> · <code>404</code> no subscription, or the plan has no such meter.</p>
           <p class="prose">
@@ -4200,6 +4247,14 @@ POST /api/subscriptions
         <div class="endpoint-body">
           <p>Every meter's balance for the current period. Useful for a usage screen; not a gate.</p>
           <p>For the organization's own subscription only; per-person places are read with <a href="#api-members"><code>GET …/members</code></a> or <code>GET /api/subscription-usage/mine</code>.</p>
+          <p class="prose">
+            Bought credits appear here before any is spent: <code>purchasedRemaining</code> is what
+            the shared pool can still spend (a seat&apos;s own read, <code>…/mine</code>, adds that
+            seat&apos;s credits), and <code>purchasedConsumed</code> is what credits already paid for
+            this window, which <code>included</code> counts. <code>included</code> does not grow when
+            credits are bought, only as they are spent. With <code>readMode=projection</code>,
+            <code>purchasedConsumed</code> reads <code>0</code>; <code>included</code> still counts it.
+          </p>
           <h4>Returns</h4>
           <p><code>200</code> array of the same shape · <code>404</code> no subscription.</p>
         </div>
@@ -4388,62 +4443,217 @@ POST /api/subscriptions
   "taxMode": null,
   "discountCode": "topup20",
   "expiryPolicy": "Periodic",
-  "expiresAtUtc": "2026-11-01T00:00:00Z"
+  "expiresAtUtc": "2026-11-01T00:00:00Z",
+  "paymentPath": "StoredCard"
 }</code></pre>
           <p class="prose">
-            Checks everything the purchase checks and writes nothing. Show <code>expiresAtUtc</code>
+            Checks everything the purchase checks and writes nothing. <code>paymentPath</code> says
+            how it will be paid: <code>StoredCard</code> charges the saved card during the purchase;
+            <code>Checkout</code> means the billing account has no saved card, and the purchase will
+            send the buyer to the payment provider&apos;s page instead &mdash; say so before they
+            confirm. Show <code>expiresAtUtc</code>
             before the buyer confirms: credits that expire with the window and are bought near its
             end are usable only until then. Only a code created with scope
             <code>CreditPurchase</code> applies here, and only a code with scope
             <code>Subscription</code> applies at signup.
           </p>
           <h4>Returns</h4>
-          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code>, <code>subscription_credits_quantity_out_of_range</code>, <code>subscription_credits_seat_not_applicable</code>, <code>subscription_discount_not_applicable</code>, <code>subscription_discount_expired</code> &middot; <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code>, <code>subscription_credits_seat_not_found</code>, <code>subscription_discount_not_found</code> &middot; <code>409</code> the lifecycle refusals above, <code>subscription_credits_not_for_sale</code>, <code>subscription_credits_currency_not_priced</code>, <code>subscription_credits_no_payment_method</code>, <code>subscription_discount_already_redeemed</code>.</p>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code>, <code>subscription_credits_quantity_out_of_range</code>, <code>subscription_credits_seat_not_applicable</code>, <code>subscription_discount_not_applicable</code>, <code>subscription_discount_expired</code> &middot; <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code>, <code>subscription_credits_seat_not_found</code>, <code>subscription_discount_not_found</code> &middot; <code>409</code> the lifecycle refusals above, <code>subscription_credits_not_for_sale</code>, <code>subscription_credits_currency_not_priced</code>, <code>subscription_credits_no_payment_method</code> &mdash; no saved card and nothing to check out (a code took the total to zero), <code>subscription_discount_already_redeemed</code>.</p>
         </div>
       </div>
 
       <div class="endpoint" id="api-credits-purchase">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/credits</span></div>
         <div class="endpoint-body">
+          <p><strong>Call when:</strong> the buyer confirms a quote from the preview.</p>
           <h4>Body</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>meterKey</td><td class="type">string</td><td class="prose">The meter whose credits are bought. Up to 64 characters.</td></tr>
+                <tr><td>quantity</td><td class="type">decimal</td><td class="prose">Whole credits, within the meter&apos;s <code>minQuantity</code> and <code>maxQuantity</code>.</td></tr>
+                <tr><td>seatNumber</td><td class="type">int?</td><td class="prose">The seat the credits belong to on a seated plan. Leave out for the shared pool.</td></tr>
+                <tr><td>discountCode</td><td class="type">string?</td><td class="prose">A code with scope <code>CreditPurchase</code>.</td></tr>
+                <tr><td>idempotencyKey</td><td class="type">string</td><td class="prose"><strong>Required</strong>, up to 64 characters. One key per purchase attempt: create it with the quote, and reuse it for every retry of that attempt.</td></tr>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">The organization to act for, when the caller may manage more than one.</td></tr>
+              </tbody>
+            </table>
+          </div>
           <pre><code>{
   "meterKey": "ai-credit",
   "quantity": 100,
   "discountCode": "topup20",
   "idempotencyKey": "buy-7f3c2a"
 }</code></pre>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "purchaseId": "sub-1:buy-7f3c2a",
+  "status": "Finalized",
+  "quote": { "quantity": 100, "currencyCode": "USD", "grossMinor": 1000, "discountMinor": 200, "netMinor": 800, "taxMinor": 0, "totalMinor": 800, "expiryPolicy": "Periodic", "expiresAtUtc": "2026-11-01T00:00:00Z", "…": "as in the preview" },
+  "paymentId": "pay-41b9",
+  "grant": {
+    "grantId": "purchase:5c1e8f0a9b2d4c7e8f1a2b3c4d5e6f70",
+    "meterKey": "ai-credit",
+    "seatNumber": null,
+    "source": "Purchased",
+    "quantity": 100,
+    "remaining": 100,
+    "expiryPolicy": "Periodic",
+    "expiresAtUtc": "2026-11-01T00:00:00Z",
+    "status": "Active",
+    "grantedAtUtc": "2026-10-14T09:12:44Z",
+    "grantedByUserId": "user-1",
+    "reason": null,
+    "purchaseId": "sub-1:buy-7f3c2a",
+    "sourceGrantId": null
+  },
+  "failureCode": null,
+  "failureReason": null,
+  "createdAtUtc": "2026-10-14T09:12:41Z",
+  "replayed": false
+}</code></pre>
           <p class="prose">
-            Charges the subscription&apos;s saved card once and grants the credits. The response is
-            the purchase (<code>status</code> <code>Finalized</code>) with its <code>quote</code> and
-            the resulting <code>grant</code>. <code>idempotencyKey</code> is required: send the same
-            key and body again after a timeout and the first result comes back with
-            <code>replayed: true</code>, without a second charge. The invoice is issued in the
-            background once the payment settles and appears under
+            Charges the subscription&apos;s saved card once, in the subscription&apos;s currency, and
+            grants the credits. A code that takes the total to zero grants without a charge. The
+            invoice is issued in the background once the payment settles and appears under
             <a href="#api-documents">Invoices</a>.
           </p>
+          <p class="prose">
+            <strong>No saved card.</strong> When the billing account has no saved card, the purchase
+            opens a hosted checkout for the quoted total instead, and answers <code>200</code> with
+            <code>status: "AwaitingPayment"</code>, a <code>checkoutUrl</code> and no
+            <code>grant</code>. Send the buyer to <code>checkoutUrl</code>; it stays payable for 60
+            minutes. Paying there also saves the card, which becomes the account&apos;s default if it
+            still has none, so later top-ups are charged directly. The credits are granted once the
+            payment provider confirms the payment &mdash; never because the buyer came back. When they
+            do come back, send the same key and body again: the purchase is checked with the provider
+            and returned as it now stands. Keep the key until it is <code>Finalized</code> or
+            <code>Failed</code>. A checkout nobody pays ends <code>Failed</code>
+            (<code>subscription_credits_checkout_expired</code>) shortly after it expires, and a code
+            it reserved is given back. Only one checkout can be open on a subscription at a time.
+          </p>
+          <p class="prose">
+            <strong>Retrying.</strong> Send the same key and body again after a timeout and the first
+            result comes back with <code>replayed: true</code>, never a second charge. A replay of a
+            purchase still being settled returns it with its current <code>status</code>. Reusing a
+            key for a different body is refused. After a definite decline, start a new attempt with a
+            new key; after a timeout or <code>subscription_credits_charge_unresolved</code>, keep the
+            key, because the charge may still have gone through.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>status</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td><code>Pending</code></td><td class="prose">Recorded; the charge may or may not have reached the provider. Settled by the recovery sweep within minutes if its request did not finish it.</td></tr>
+                <tr><td><code>AwaitingPayment</code></td><td class="prose">No saved card: waiting for the buyer to pay at <code>checkoutUrl</code>. Nothing is granted yet.</td></tr>
+                <tr><td><code>Charged</code></td><td class="prose">The money moved; the grant, invoice or events are being finished. Always finished, never failed.</td></tr>
+                <tr><td><code>Finalized</code></td><td class="prose">Charged, granted, invoiced and announced. <code>grant</code> is present.</td></tr>
+                <tr><td><code>Failed</code></td><td class="prose">Not charged: declined, refused, or never reached the provider. <code>failureCode</code> and <code>failureReason</code> say why. A one-use code it reserved is usable again.</td></tr>
+                <tr><td><code>NeedsAttention</code></td><td class="prose">Still unresolved 24 hours later, or a checkout was paid but could not be granted (the subscription ended, the credits&apos; window had already closed, the amount did not match, or it was paid after it had failed). An operator has to look at it; it is never guessed at.</td></tr>
+              </tbody>
+            </table>
+          </div>
           <h4>Returns</h4>
-          <p><code>200</code> &middot; everything the preview returns &middot; <code>400</code> <code>subscription_credits_idempotency_key_required</code> &middot; <code>409</code> <code>subscription_credits_idempotency_conflict</code> &mdash; the key was used for a different purchase &middot; <code>422</code> the card was declined; nothing was granted &middot; <code>502</code> the provider failed.</p>
+          <p><code>200</code> &middot; everything the preview returns &middot; <code>400</code> <code>subscription_credits_idempotency_key_required</code>, <code>subscription_credits_amount_too_large</code> &middot; <code>409</code> <code>subscription_credits_idempotency_conflict</code> &mdash; the key was used for a different purchase; <code>subscription_credits_purchase_in_flight</code> &mdash; the same key is being processed right now, retry in a moment; <code>subscription_credits_checkout_in_progress</code> &mdash; another purchase on this subscription is waiting at its checkout; the error details carry its <code>purchaseId</code> and <code>checkoutUrl</code> &middot; <code>422</code> the card was declined; nothing was granted, and a replay of it answers the same &middot; <code>429</code> the provider refused for rate; nothing was charged &middot; <code>502</code> <code>503</code> <code>504</code> <code>subscription_credits_charge_unresolved</code> &mdash; the provider did not answer, so whether the card was charged is not known yet. The purchase stays <code>Pending</code> and any one-use code stays reserved until it is settled; retry with the same key to read the outcome. <code>subscription_credits_checkout_unresolved</code> is the same for a checkout the provider did not confirm opening.</p>
         </div>
       </div>
 
       <div class="endpoint" id="api-credits-list">
         <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/{subscriptionId}/credits</span></div>
         <div class="endpoint-body">
+          <p><strong>Call when:</strong> showing what credits a subscription, a seat or the pool holds.</p>
+          <h4>Query</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Parameter</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>meterKey</td><td class="type">string?</td><td class="prose">One meter only.</td></tr>
+                <tr><td>seatNumber</td><td class="type">int?</td><td class="prose">One seat only.</td></tr>
+                <tr><td>pool</td><td class="type">bool</td><td class="prose"><code>true</code> for the shared pool only.</td></tr>
+                <tr><td>status</td><td class="type">string?</td><td class="prose"><code>Active</code>, <code>Exhausted</code>, <code>Expired</code> or <code>Forfeited</code>.</td></tr>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">The organization to act for.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Sample response</h4>
+          <pre><code>[
+  {
+    "grantId": "purchase:5c1e8f0a9b2d4c7e8f1a2b3c4d5e6f70",
+    "meterKey": "ai-credit",
+    "seatNumber": null,
+    "source": "Purchased",
+    "quantity": 100,
+    "remaining": 100,
+    "expiryPolicy": "Periodic",
+    "expiresAtUtc": "2026-11-01T00:00:00Z",
+    "status": "Active",
+    "grantedAtUtc": "2026-10-14T09:12:44Z",
+    "grantedByUserId": "user-1",
+    "reason": null,
+    "purchaseId": "sub-1:buy-7f3c2a",
+    "sourceGrantId": null
+  }
+]</code></pre>
           <p class="prose">
-            The subscription&apos;s grants, newest first, each with <code>quantity</code>,
-            <code>remaining</code>, <code>expiresAtUtc</code> and a <code>status</code> of
-            <code>Active</code>, <code>Exhausted</code>, <code>Expired</code> or
-            <code>Forfeited</code>. Filter with <code>meterKey</code>, <code>seatNumber</code>,
-            <code>pool=true</code> for the shared pool only, and <code>status</code>.
-            <code>GET &hellip;/credits/purchases</code> lists the purchases themselves, failed ones
-            included.
+            The grants, newest first. <code>source</code> is <code>Purchased</code>,
+            <code>AdminGranted</code> or <code>Moved</code>; a moved grant names the grant it came
+            from in <code>sourceGrantId</code>, and an administrator&apos;s grant carries its
+            <code>reason</code>. <code>status</code> is the grant&apos;s status as of now: credits past
+            their expiry or forfeited by a plan change read as <code>Expired</code> or
+            <code>Forfeited</code> straight away, before any sweep has stored it.
           </p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>404</code> <code>subscription_not_found</code>.</p>
+        </div>
+      </div>
+
+      <div class="endpoint" id="api-credits-purchases">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscriptions/{subscriptionId}/credits/purchases</span></div>
+        <div class="endpoint-body">
+          <p><strong>Call when:</strong> showing purchase history, including attempts that failed or are still being settled.</p>
+          <h4>Query</h4>
+          <p><code>status</code> &mdash; <code>Pending</code>, <code>AwaitingPayment</code>, <code>Charged</code>, <code>Finalized</code>, <code>Failed</code> or <code>NeedsAttention</code> &middot; <code>organizationId</code>.</p>
+          <h4>Sample response</h4>
+          <pre><code>[
+  {
+    "purchaseId": "sub-1:buy-7f3c2a",
+    "status": "Finalized",
+    "quote": { "quantity": 100, "currencyCode": "USD", "totalMinor": 800, "…": "as in the preview" },
+    "paymentId": "pay-41b9",
+    "grant": null,
+    "failureCode": null,
+    "failureReason": null,
+    "createdAtUtc": "2026-10-14T09:12:41Z",
+    "replayed": false
+  },
+  {
+    "purchaseId": "sub-1:buy-2d91e0",
+    "status": "Failed",
+    "quote": { "quantity": 500, "currencyCode": "USD", "totalMinor": 5000, "…": "as in the preview" },
+    "paymentId": null,
+    "grant": null,
+    "failureCode": "card_declined",
+    "failureReason": "The card was declined.",
+    "createdAtUtc": "2026-10-13T16:40:02Z",
+    "replayed": false
+  }
+]</code></pre>
+          <p class="prose">
+            Newest first. <code>grant</code> is not filled in on the list; read it from
+            <code>GET &hellip;/credits</code> by <code>purchaseId</code>. A purchase the recovery sweep
+            failed reads <code>subscription_credits_charge_not_found</code> (it never reached the
+            provider) or <code>subscription_credits_charge_declined</code>.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>404</code> <code>subscription_not_found</code>.</p>
         </div>
       </div>
 
       <div class="endpoint" id="api-credits-grant">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/credits/grants</span></div>
         <div class="endpoint-body">
+          <p><strong>Call when:</strong> an administrator gives credits for free, as a goodwill gesture or compensation.</p>
           <h4>Body</h4>
           <pre><code>{
   "meterKey": "ai-credit",
@@ -4451,18 +4661,38 @@ POST /api/subscriptions
   "seatNumber": 2,
   "reason": "Outage on 12 October"
 }</code></pre>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "grantId": "3f0d6c2e-8a41-4f7b-9c55-1e2d3a4b5c6d",
+  "meterKey": "ai-credit",
+  "seatNumber": 2,
+  "source": "AdminGranted",
+  "quantity": 20,
+  "remaining": 20,
+  "expiryPolicy": "CarryForward",
+  "expiresAtUtc": null,
+  "status": "Active",
+  "grantedAtUtc": "2026-10-14T10:02:17Z",
+  "grantedByUserId": "admin-7",
+  "reason": "Outage on 12 October",
+  "purchaseId": null,
+  "sourceGrantId": null
+}</code></pre>
           <p class="prose">
-            Gives credits without a charge or an invoice. <code>reason</code> is required and is kept
-            on the grant and in the audit trail. The grant takes the meter&apos;s expiry policy, so the
-            meter must have credit terms, though its sales may be paused
-            (<code>subscription_credits_no_terms</code> otherwise).
+            Gives whole credits without a charge or an invoice. <code>reason</code> is required, up to
+            500 characters, and is kept on the grant and in the audit trail. The grant takes the
+            meter&apos;s expiry policy, so the meter must have credit terms, though its sales may be
+            paused. Each call creates a new grant: guard against a double click in the client.
           </p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code> (missing reason, quantity not whole), <code>subscription_credits_seat_not_applicable</code> &middot; <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code>, <code>subscription_credits_seat_not_found</code> &middot; <code>409</code> the lifecycle refusals above (<code>subscription_credits_trialing</code>, <code>subscription_credits_cancellation_scheduled</code>, <code>subscription_credits_not_allowed</code>), <code>subscription_credits_no_terms</code>.</p>
         </div>
       </div>
 
       <div class="endpoint" id="api-credits-move">
         <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscriptions/{subscriptionId}/credits/moves</span></div>
         <div class="endpoint-body">
+          <p><strong>Call when:</strong> an administrator hands unused credits from one seat to another, or between a seat and the shared pool.</p>
           <h4>Body</h4>
           <pre><code>{
   "meterKey": "ai-credit",
@@ -4470,15 +4700,43 @@ POST /api/subscriptions
   "fromSeatNumber": 1,
   "toSeatNumber": null
 }</code></pre>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "from": [
+    { "grantId": "purchase:5c1e8f0a…", "seatNumber": 1, "source": "Purchased", "quantity": 30, "remaining": 20, "status": "Active", "…": "" }
+  ],
+  "to": [
+    { "grantId": "9a7e…", "seatNumber": null, "source": "Moved", "quantity": 10, "remaining": 10, "expiresAtUtc": "2026-11-01T00:00:00Z", "sourceGrantId": "purchase:5c1e8f0a…", "…": "" }
+  ]
+}</code></pre>
           <p class="prose">
-            Seated plans only. Moves unused credits between a seat and the shared pool, or between two
-            seats. The credits that would lapse soonest move first, and each moved piece keeps its own
-            expiry. Refused whole with <code>subscription_credits_insufficient</code> when the giving
-            bucket holds less than <code>quantity</code>, and with
-            <code>subscription_credits_changed</code> when they were spent while moving &mdash; reload
-            and try again.
+            Seated plans only. A blank <code>fromSeatNumber</code> or <code>toSeatNumber</code> is the
+            shared pool; the two must differ. The credits that would lapse soonest move first, and
+            each moved piece keeps its own grant&apos;s expiry, so a move never extends or shortens
+            credits. <code>from</code> is each source grant as it is left; <code>to</code> is the new
+            grant made for each piece.
           </p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code> (same seat on both sides), <code>subscription_not_member_based</code> &middot; <code>404</code> <code>subscription_not_found</code>, <code>subscription_meter_not_found</code>, <code>subscription_credits_seat_not_found</code> &middot; <code>409</code> the lifecycle refusals above (<code>subscription_credits_trialing</code>, <code>subscription_credits_cancellation_scheduled</code>, <code>subscription_credits_not_allowed</code>), <code>subscription_credits_insufficient</code> &mdash; the giving side holds less than <code>quantity</code>; nothing moved, <code>subscription_credits_changed</code> &mdash; the credits were spent while moving; nothing moved, reload and try again.</p>
         </div>
+      </div>
+
+      <h4 id="api-credits-events">Credit events</h4>
+      <p class="prose">
+        Raised through the subscription outbox like the other lifecycle events, once per grant each.
+        Every one carries <code>meterKey</code>, <code>creditGrantId</code>, <code>seatNumber</code>
+        (null for the pool), <code>creditQuantity</code> and <code>creditRemaining</code>.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Event</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td><code>SubscriptionCreditsPurchased</code></td><td class="prose">A purchase is finished and its grant exists.</td></tr>
+            <tr><td><code>SubscriptionCreditsGranted</code></td><td class="prose">An administrator grants credits.</td></tr>
+            <tr><td><code>SubscriptionCreditsMoved</code></td><td class="prose">A moved piece lands; also carries <code>fromSeatNumber</code>.</td></tr>
+            <tr><td><code>SubscriptionCreditsExhausted</code></td><td class="prose">A grant&apos;s last credit is spent or moved away.</td></tr>
+          </tbody>
+        </table>
       </div>
 
       <h3 id="api-ent">Entitlements</h3>

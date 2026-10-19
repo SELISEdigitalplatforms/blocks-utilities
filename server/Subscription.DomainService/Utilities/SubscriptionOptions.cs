@@ -171,6 +171,19 @@ public sealed class SubscriptionOptions
     public int CreditPurchaseAlertAfterHours { get; set; } = 24;
 
     /// <summary>
+    /// How long the hosted checkout opened for a credit purchase with no saved card stays payable
+    /// (spec 003). Stripe accepts 30 minutes to 24 hours; the value is clamped to that range.
+    /// </summary>
+    public int CreditCheckoutSessionMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// How long past its checkout's expiry a credit purchase still undecided by the provider is
+    /// left before the sweep fails it and gives its discount code back. Covers a webhook that is
+    /// late for a payment made in the session's last minutes.
+    /// </summary>
+    public int CreditCheckoutExpiryGraceMinutes { get; set; } = 15;
+
+    /// <summary>
     /// How often each live credit grant is re-checked for expiry and forfeiture. Spending already
     /// refuses a grant that has lapsed or been forfeited the moment it has; this only brings the
     /// stored status into line for the history list and reports.
