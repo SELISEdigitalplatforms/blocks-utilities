@@ -39,13 +39,14 @@ public sealed class GetUsageReportRequest
     public DateTime? ToUtc { get; set; }
 
     /// <summary>
-    /// <c>day</c> or <c>month</c>. Anything else is refused rather than guessed at: a silent
+    /// <c>day</c>, <c>week</c> or <c>month</c>. Weeks start on Monday. Anything else is refused
+    /// rather than guessed at: a silent
     /// fallback to one granularity when the caller asked for the other produces a chart that is
     /// wrong without looking wrong.
     /// </summary>
     [Description(
-        "Bucket size: 'day' or 'month'. Defaults to 'month'. Any other value is refused rather " +
-        "than guessed at.")]
+        "Bucket size: 'day', 'week' (Monday-start) or 'month'. Defaults to 'month'. Any other " +
+        "value is refused rather than guessed at.")]
     public string? Granularity { get; set; }
 }
 
