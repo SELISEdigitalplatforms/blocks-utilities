@@ -68,7 +68,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
-            byMonth: true,
+            UsageReportGranularity.Month,
             CancellationToken.None);
 
         var marchStart = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -105,12 +105,40 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             March.Date,
             March.Date.AddDays(7),
-            byMonth: false,
+            UsageReportGranularity.Day,
             CancellationToken.None);
 
         buckets.Should().HaveCount(2);
         buckets.Select(bucket => bucket.BucketStartUtc)
             .Should().BeInAscendingOrder("a chart reads the buckets in the order they arrive");
+    }
+
+    [Fact]
+    public async Task Weekly_granularity_folds_a_week_into_its_monday()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        // 10 March 2026 is a Tuesday: the 15th is the Sunday that closes its week and the 16th
+        // is the next Monday.
+        await InsertUsageAsync(
+            UsageRecord(tenantId, "screenings", March, UsageEntryType.Consumption, 40m),
+            UsageRecord(tenantId, "screenings", March.AddDays(5), UsageEntryType.Consumption, 60m),
+            UsageRecord(tenantId, "screenings", March.AddDays(6), UsageEntryType.Consumption, 5m));
+
+        var buckets = await _reports.AggregateUsageAsync(
+            tenantId,
+            meterKey: null,
+            March.Date,
+            March.Date.AddDays(14),
+            UsageReportGranularity.Week,
+            CancellationToken.None);
+
+        var monday = new DateTime(2026, 3, 9, 0, 0, 0, DateTimeKind.Utc);
+
+        Quantity(buckets, "screenings", monday, UsageEntryType.Consumption)
+            .Should().Be(100m, "Tuesday and Sunday of the same week share one Monday-start bucket");
+        Quantity(buckets, "screenings", monday.AddDays(7), UsageEntryType.Consumption)
+            .Should().Be(5m, "the next Monday opens a new week");
     }
 
     [Fact]
@@ -127,7 +155,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             "screenings",
             March.Date,
             March.Date.AddDays(1),
-            byMonth: true,
+            UsageReportGranularity.Month,
             CancellationToken.None);
 
         buckets.Should().ContainSingle()
@@ -149,7 +177,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             March.Date,
             March.Date.AddDays(1),
-            byMonth: true,
+            UsageReportGranularity.Month,
             CancellationToken.None);
 
         buckets.Sum(bucket => bucket.Quantity).Should().Be(
@@ -492,7 +520,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             March.Date,
             March.Date.AddDays(1),
-            byMonth: true,
+            UsageReportGranularity.Month,
             CancellationToken.None);
 
         var usageIndexes = await IndexNamesAsync<SubscriptionUsageRecord>(

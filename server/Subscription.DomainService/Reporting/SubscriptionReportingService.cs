@@ -38,7 +38,16 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
     private const int MaximumDunningInvoices = 200;
 
     private const string DayGranularity = "day";
+    private const string WeekGranularity = "week";
     private const string MonthGranularity = "month";
+
+    private static readonly IReadOnlyDictionary<string, UsageReportGranularity> Granularities =
+        new Dictionary<string, UsageReportGranularity>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DayGranularity] = UsageReportGranularity.Day,
+            [WeekGranularity] = UsageReportGranularity.Week,
+            [MonthGranularity] = UsageReportGranularity.Month
+        };
 
     private static readonly SubscriptionStatus[] LiveStatuses =
     [
@@ -74,23 +83,15 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // Matched case-insensitively and then replaced by the canonical constant, so what comes
-        // back in the response is one of two fixed strings rather than whatever casing was sent.
-        var requested = request.Granularity ?? MonthGranularity;
-
-        var granularity =
-            string.Equals(requested, DayGranularity, StringComparison.OrdinalIgnoreCase)
-                ? DayGranularity
-                : string.Equals(requested, MonthGranularity, StringComparison.OrdinalIgnoreCase)
-                    ? MonthGranularity
-                    : requested;
-
-        if (granularity is not (DayGranularity or MonthGranularity))
+        // Matched case-insensitively and echoed back in canonical lowercase, so what comes back
+        // in the response is one of three fixed strings rather than whatever casing was sent.
+        if (!Granularities.TryGetValue(request.Granularity ?? MonthGranularity, out var granularity))
         {
             return Invalid<UsageReportResponse>(
                 correlationId,
                 nameof(request.Granularity),
-                $"Granularity must be '{DayGranularity}' or '{MonthGranularity}'.");
+                $"Granularity must be '{DayGranularity}', '{WeekGranularity}' or " +
+                $"'{MonthGranularity}'.");
         }
 
         if (!TryResolveWindow(
@@ -116,7 +117,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             request.MeterKey,
             window.FromUtc,
             window.ToUtc,
-            granularity == MonthGranularity,
+            granularity,
             cancellationToken);
 
         return SubscriptionOperationResult<UsageReportResponse>.Success(
@@ -124,7 +125,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             {
                 FromUtc = window.FromUtc,
                 ToUtc = window.ToUtc,
-                Granularity = granularity,
+                Granularity = granularity.ToString().ToLowerInvariant(),
                 Buckets = MapUsageBuckets(buckets)
             },
             correlationId);
