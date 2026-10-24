@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Blocks.Genesis.Entities.Data;
 using FluentAssertions;
 using DomainService.Storage;
 using Microsoft.Extensions.Configuration;
@@ -49,7 +50,7 @@ namespace XUnitTest.PdfGenerator
             _directories
                 .Setup(x => x.CreateDirectoryAsync(
                     It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
-                    It.IsAny<string?>(), It.IsAny<string[]?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                    It.IsAny<string?>(), It.IsAny<string[]?>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(result);
 
         private void UpdateReturns(DirectoryOperationResult result) =>
@@ -91,7 +92,7 @@ namespace XUnitTest.PdfGenerator
             }
 
             _directories.Verify(x => x.CreateDirectoryAsync(
-                Configured, null, Configured, null, Configured, null, null, It.IsAny<CancellationToken>()), Times.Once);
+                Configured, null, Configured, null, Configured, null, null, true, It.IsAny<CancellationToken>()), Times.Once);
             _repository.Verify(x => x.GetDefaultDirectoryByModuleNameAsync(
                 Configured, It.IsAny<CancellationToken>()), Times.Once);
         }
@@ -105,7 +106,7 @@ namespace XUnitTest.PdfGenerator
             (await Resolver().ResolveAsync(Logical, "Creator")).Should().Be("dir-locked");
 
             _directories.Verify(x => x.CreateDirectoryAsync(
-                Configured, null, Configured, null, Configured, null, "Creator", It.IsAny<CancellationToken>()), Times.Once);
+                Configured, null, Configured, null, Configured, null, "Creator", true, It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]

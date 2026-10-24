@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Blocks.Genesis.Entities.Data;
 using DomainService.Storage;
 using Microsoft.Extensions.Logging;
 using Utility.DomainService.Shared.Utilities;
@@ -6,7 +7,7 @@ using Newtonsoft.Json;
 using Storage.DomainService.Enums;
 using StorageDriver;
 using Utility.DomainService.Storage;
-using PlatformModuleName = Storage.DomainService.Shared.Enums.ModuleName;
+using PlatformModuleName = Blocks.Genesis.Entities.Data.ModuleName;
 
 namespace Utility.DomainService.PdfGenerator.service
 {
@@ -67,7 +68,7 @@ namespace Utility.DomainService.PdfGenerator.service
                 // Who, besides the storage ACL's own rules, may use the file. "Creator" confines it to
                 // the principal that uploaded it -- see StorageServiceIdentity.
                 ObjectAccessLevel = objectAccessLevel,
-                // The platform module (a fixed, numbered catalog -- see Storage.DomainService.Shared.Enums.ModuleName)
+                // The platform module (a fixed, numbered catalog -- see Blocks.Genesis.Entities.Data.ModuleName)
                 // this file is filed under, not the free-form directory lookup key of the same name.
                 ModuleName = string.IsNullOrEmpty(moduleName)
                     ? default
