@@ -35,7 +35,7 @@ describe("storage model", () => {
 describe("role model", () => {
   it("defines ResourceType values", () => {
     expect(ResourceType.Endpoint).toBe(1);
-    expect(ResourceType["Data protection"]).toBe(3);
+    expect(ResourceType["FE action"]).toBe(2);
   });
 });
 

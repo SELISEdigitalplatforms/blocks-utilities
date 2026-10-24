@@ -3,7 +3,7 @@ using DomainService.Storage;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
-using Storage.DomainService.Shared.Enums;
+using Blocks.Genesis.Entities.Data;
 using StorageDriver;
 using Subscription.DomainService.Services;
 using Utility.DomainService.PdfGenerator.service;
