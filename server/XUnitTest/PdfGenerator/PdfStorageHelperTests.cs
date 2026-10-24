@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using Blocks.Genesis.Entities.Data;
 using DomainService.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -207,7 +208,7 @@ namespace XUnitTest.PdfGenerator
                 .ReturnsAsync(new CompleteUploadResponse
                 {
                     IsSuccess = true,
-                    VerificationStatus = Storage.DomainService.Enums.FileVerificationStatus.Verified,
+                    VerificationStatus = FileVerificationStatus.Verified,
                 });
 
             var handler = new FakeHttpMessageHandler(
@@ -237,7 +238,7 @@ namespace XUnitTest.PdfGenerator
                 .ReturnsAsync(new CompleteUploadResponse
                 {
                     IsSuccess = true,
-                    VerificationStatus = Storage.DomainService.Enums.FileVerificationStatus.Rejected,
+                    VerificationStatus = FileVerificationStatus.Rejected,
                     RejectionReason = "real_file_type_mismatch",
                 });
 

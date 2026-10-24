@@ -1,3 +1,4 @@
+using Blocks.Genesis.Entities.Data;
 using System.Net;
 using DomainService.Storage;
 using Microsoft.Extensions.Logging;
@@ -146,7 +147,7 @@ namespace XUnitTest.TemplateEngine
                 .ReturnsAsync(new CompleteUploadResponse
                 {
                     IsSuccess = true,
-                    VerificationStatus = Storage.DomainService.Enums.FileVerificationStatus.Verified,
+                    VerificationStatus = FileVerificationStatus.Verified,
                 });
 
             var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
@@ -174,7 +175,7 @@ namespace XUnitTest.TemplateEngine
                 .ReturnsAsync(new CompleteUploadResponse
                 {
                     IsSuccess = true,
-                    VerificationStatus = Storage.DomainService.Enums.FileVerificationStatus.Rejected,
+                    VerificationStatus = FileVerificationStatus.Rejected,
                     RejectionReason = "real_file_type_mismatch",
                 });
 
