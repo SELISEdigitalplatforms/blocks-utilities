@@ -9,7 +9,7 @@
     <PackageVersion Include="FluentValidation.AspNetCore" Version="11.3.0" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageVersion Include="System.Drawing.Common" Version="8.0.13" />
-    <PackageVersion Include="SeliseBlocks.Genesis.OS" Version="4.2.2" />
+    <PackageVersion Include="SeliseBlocks.Genesis.OS" Version="4.4.4" />
     <!-- Platform secret management: metadata and audit in Mongo, values in Azure Key Vault.
          Requires SeliseBlocks.Genesis.OS >= 4.2.2, which the pin above satisfies. -->
     <PackageVersion Include="SeliseBlocks.Secrets.OS" Version="4.0.3" />
@@ -18,7 +18,7 @@
          is a package downgrade and fails the build. -->
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
     <PackageVersion Include="Azure.Security.KeyVault.Secrets" Version="4.11.0" />
-    <PackageVersion Include="SeliseBlocks.StorageDriver.OS" Version="4.1.2" />
+    <PackageVersion Include="SeliseBlocks.StorageDriver.OS" Version="4.2.0" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
     <PackageVersion Include="Microsoft.OpenApi" Version="2.11.0" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.16.16" />

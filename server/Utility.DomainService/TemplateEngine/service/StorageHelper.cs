@@ -1,4 +1,5 @@
 using Blocks.Genesis;
+using Blocks.Genesis.Entities.Data;
 using DomainService.Storage;
 using Microsoft.Extensions.Logging;
 using Utility.DomainService.Shared.Utilities;
