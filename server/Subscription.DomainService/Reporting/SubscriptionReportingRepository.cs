@@ -34,7 +34,7 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         string? meterKey,
         DateTime fromUtc,
         DateTime toUtc,
-        bool byMonth,
+        UsageReportGranularity granularity,
         CancellationToken cancellationToken)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
@@ -52,10 +52,10 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
                 Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.MeterKey, meterKey));
         }
 
-        // Always grouped by day, then folded into months here when months were asked for. One
-        // pipeline instead of two: a capped range is at most 366 days, so the widest possible
-        // result is a few hundred rows per meter, and a second grouping shape would be a second
-        // thing to get wrong for no measurable gain.
+        // Always grouped by day, then folded into weeks or months here when those were asked
+        // for. One pipeline instead of three: a capped range is at most 366 days, so the widest
+        // possible result is a few hundred rows per meter, and a second grouping shape would be a
+        // second thing to get wrong for no measurable gain.
         var grouped = await Records(tenantId)
             .Aggregate()
             .Match(Builders<SubscriptionUsageRecord>.Filter.And(filters))
@@ -80,14 +80,16 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
             .GroupBy(entry => new
             {
                 entry.Key.MeterKey,
-                BucketStartUtc = new DateTime(
-                    entry.Key.Year,
-                    entry.Key.Month,
-                    byMonth ? 1 : entry.Key.Day,
-                    0,
-                    0,
-                    0,
-                    DateTimeKind.Utc),
+                BucketStartUtc = BucketStart(
+                    new DateTime(
+                        entry.Key.Year,
+                        entry.Key.Month,
+                        entry.Key.Day,
+                        0,
+                        0,
+                        0,
+                        DateTimeKind.Utc),
+                    granularity),
                 entry.Key.EntryType
             })
             .Select(bucket => new UsageLedgerBucket(
@@ -99,6 +101,20 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
             .OrderBy(bucket => bucket.BucketStartUtc)
             .ThenBy(bucket => bucket.MeterKey, StringComparer.Ordinal)];
     }
+
+    /// <summary>
+    /// The calendar bucket a UTC day belongs to: the day itself, the Monday that starts its week,
+    /// or the first of its month.
+    /// </summary>
+    public static DateTime BucketStart(DateTime dayUtc, UsageReportGranularity granularity) =>
+        granularity switch
+        {
+            UsageReportGranularity.Week =>
+                dayUtc.AddDays(-(((int)dayUtc.DayOfWeek + 6) % 7)),
+            UsageReportGranularity.Month => new DateTime(
+                dayUtc.Year, dayUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc),
+            _ => dayUtc
+        };
 
     public async Task<IReadOnlyList<SubscriptionDetail>> ListByStatusAsync(
         string tenantId,
