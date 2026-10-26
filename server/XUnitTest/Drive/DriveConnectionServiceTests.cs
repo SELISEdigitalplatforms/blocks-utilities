@@ -64,10 +64,11 @@ public sealed class DriveConnectionServiceTests : IDisposable
             });
 
         var options = DriveTestSupport.Options();
+        var secrets = DriveTestSupport.Secrets();
         _service = new DriveConnectionService(
             _repository.Object,
-            new EntraOAuthClient(DriveTestSupport.Factory(_http), options, NullLogger<EntraOAuthClient>.Instance),
-            new DriveTokenProtector(options),
+            new EntraOAuthClient(DriveTestSupport.Factory(_http), options, secrets, NullLogger<EntraOAuthClient>.Instance),
+            new DriveTokenProtector(secrets),
             _tenants.Object,
             options,
             _clock,
@@ -233,7 +234,7 @@ public sealed class DriveConnectionServiceTests : IDisposable
     {
         await ConnectAsync();
         _http.On(HttpMethod.Post, "/oauth2/v2.0/token", HttpStatusCode.OK, DriveTestSupport.TokenJson(accessToken: "access-2", refreshToken: "refresh-2"));
-        var protector = new DriveTokenProtector(DriveTestSupport.Options());
+        var protector = new DriveTokenProtector(DriveTestSupport.Secrets());
 
         var cached = await _service.GetAccessTokenAsync(CancellationToken.None);
         _clock.Advance(TimeSpan.FromMinutes(59));
@@ -244,7 +245,7 @@ public sealed class DriveConnectionServiceTests : IDisposable
         refreshed.Value.Should().Be("access-2", because: "inside the 60 second skew the token is refreshed");
         again.Value.Should().Be("access-2");
         _http.Requests.Count(r => r.Body!.Contains("grant_type=refresh_token", StringComparison.Ordinal)).Should().Be(1);
-        protector.Unprotect(_stored!.RefreshTokenCiphertext).Should().Be("refresh-2",
+        (await protector.UnprotectAsync(_stored!.RefreshTokenCiphertext, CancellationToken.None)).Should().Be("refresh-2",
             because: "personal accounts rotate refresh tokens; the old one is dead after this call");
     }
 
@@ -268,8 +269,8 @@ public sealed class DriveConnectionServiceTests : IDisposable
         var options = DriveTestSupport.Options(o => o.ClientId = null);
         var service = new DriveConnectionService(
             _repository.Object,
-            new EntraOAuthClient(DriveTestSupport.Factory(_http), options, NullLogger<EntraOAuthClient>.Instance),
-            new DriveTokenProtector(options),
+            new EntraOAuthClient(DriveTestSupport.Factory(_http), options, DriveTestSupport.Secrets(), NullLogger<EntraOAuthClient>.Instance),
+            new DriveTokenProtector(DriveTestSupport.Secrets()),
             _tenants.Object,
             options,
             _clock,
@@ -280,6 +281,43 @@ public sealed class DriveConnectionServiceTests : IDisposable
         var result = await service.StartAsync(new StartConnectionRequest { ReturnUrl = "https://sign.example.com/done" }, CancellationToken.None);
 
         result.FailureKind.Should().Be(DriveFailureKind.NotConfigured);
+    }
+
+    [Fact]
+    public async Task Without_the_encryption_key_in_blocks_secrets_start_is_refused_as_not_configured()
+    {
+        var options = DriveTestSupport.Options();
+        var secrets = DriveTestSupport.Secrets(key: null);
+        var service = new DriveConnectionService(
+            _repository.Object,
+            new EntraOAuthClient(DriveTestSupport.Factory(_http), options, secrets, NullLogger<EntraOAuthClient>.Instance),
+            new DriveTokenProtector(secrets),
+            _tenants.Object,
+            options,
+            _clock,
+            _metrics,
+            new StartConnectionRequestValidator(),
+            NullLogger<DriveConnectionService>.Instance);
+
+        var result = await service.StartAsync(new StartConnectionRequest { ReturnUrl = "https://sign.example.com/done" }, CancellationToken.None);
+
+        result.FailureKind.Should().Be(DriveFailureKind.NotConfigured,
+            because: "a connection whose refresh token could not be encrypted must never be created");
+    }
+
+    [Fact]
+    public async Task The_callback_runs_as_the_project_that_started_the_flow()
+    {
+        _http.On(HttpMethod.Post, "/oauth2/v2.0/token", HttpStatusCode.OK, DriveTestSupport.TokenJson());
+        await _service.StartAsync(new StartConnectionRequest { ReturnUrl = "https://sign.example.com/done" }, CancellationToken.None);
+        DriveTestSupport.ClearCaller();
+
+        var outcome = await _service.CompleteAsync("code-1", _state!.ItemId, null, null, CancellationToken.None);
+
+        outcome.Status.Should().Be(ConnectionCallbackOutcome.Connected,
+            because: "Entra sends no tenant header; the project comes from the stored state");
+        _stored!.ProjectKey.Should().Be(DriveTestSupport.ProjectKey);
+        BlocksContext.GetContext().Should().BeNull(because: "the borrowed context must not leak past the callback");
     }
 
     [Fact]

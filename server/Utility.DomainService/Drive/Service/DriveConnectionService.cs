@@ -98,7 +98,7 @@ public sealed class DriveConnectionService : IDriveConnectionService
             return DriveResult<StartConnectionResponse>.Fail(DriveFailureKind.InvalidRequest, "returnUrl is not on one of the project's domains.");
         }
 
-        if (!_entra.IsConfigured || !_protector.IsConfigured)
+        if (!_entra.IsConfigured || !await _protector.IsConfiguredAsync(cancellationToken))
         {
             _logger.LogWarning("Drive connect refused: Entra client or token encryption key is not configured");
             return DriveResult<StartConnectionResponse>.Fail(DriveFailureKind.NotConfigured, "The drive integration is not configured.");
@@ -146,6 +146,26 @@ public sealed class DriveConnectionService : IDriveConnectionService
             return failed;
         }
 
+        // Entra calls back with no tenant header, but the secrets this exchange needs belong to
+        // the project that started it. The state says which; run the rest as that project.
+        var previous = BlocksContext.GetContext();
+        BlocksContext.SetContext(BlocksContext.Create(
+            stored.ProjectKey, null, stored.UserId, true, null, null,
+            DateTime.UtcNow.AddMinutes(5), null, null, null, null, null, null, null));
+        try
+        {
+            return await CompleteInContextAsync(code, stored, error, errorDescription, cancellationToken);
+        }
+        finally
+        {
+            BlocksContext.SetContext(previous);
+        }
+    }
+
+    private async Task<ConnectionCallbackOutcome> CompleteInContextAsync(
+        string? code, DriveOAuthState stored, string? error, string? errorDescription, CancellationToken cancellationToken)
+    {
+
         if (!string.IsNullOrEmpty(error))
         {
             return EntraOAuthClient.IsAdminConsentError(error, errorDescription)
@@ -175,7 +195,7 @@ public sealed class DriveConnectionService : IDriveConnectionService
             return Redirect(stored.ReturnUrl, ConnectionCallbackOutcome.Failed, "no_refresh_token");
         }
 
-        var ciphertext = _protector.Protect(token.RefreshToken);
+        var ciphertext = await _protector.ProtectAsync(token.RefreshToken, cancellationToken);
         if (ciphertext is null)
         {
             return Redirect(stored.ReturnUrl, ConnectionCallbackOutcome.Failed, "not_configured");
@@ -269,7 +289,7 @@ public sealed class DriveConnectionService : IDriveConnectionService
                 return NotConnected();
             }
 
-            var refreshToken = _protector.Unprotect(connection.RefreshTokenCiphertext);
+            var refreshToken = await _protector.UnprotectAsync(connection.RefreshTokenCiphertext, cancellationToken);
             if (refreshToken is null)
             {
                 _logger.LogError("Stored drive refresh token could not be decrypted; dropping connection");
@@ -299,7 +319,7 @@ public sealed class DriveConnectionService : IDriveConnectionService
             var now = _timeProvider.GetUtcNow().UtcDateTime;
             if (!string.IsNullOrEmpty(token.RefreshToken) && token.RefreshToken != refreshToken)
             {
-                var rotated = _protector.Protect(token.RefreshToken);
+                var rotated = await _protector.ProtectAsync(token.RefreshToken, cancellationToken);
                 if (rotated is not null)
                 {
                     connection.RefreshTokenCiphertext = rotated;

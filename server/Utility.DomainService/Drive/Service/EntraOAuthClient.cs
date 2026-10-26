@@ -71,21 +71,24 @@ public sealed class EntraOAuthClient : IEntraOAuthClient
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptions<DriveOptions> _options;
+    private readonly IDriveSecrets _secrets;
     private readonly ILogger<EntraOAuthClient> _logger;
 
     public EntraOAuthClient(
         IHttpClientFactory httpClientFactory,
         IOptions<DriveOptions> options,
+        IDriveSecrets secrets,
         ILogger<EntraOAuthClient> logger)
     {
         _httpClientFactory = httpClientFactory;
         _options = options;
+        _secrets = secrets;
         _logger = logger;
     }
 
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(_options.Value.ClientId)
-        && !string.IsNullOrWhiteSpace(_options.Value.ClientSecret)
+        && !string.IsNullOrWhiteSpace(_options.Value.ClientSecretSecretId)
         && !string.IsNullOrWhiteSpace(_options.Value.RedirectUrl);
 
     public (string AuthorizeUrl, string CodeVerifier) BuildAuthorizeUrl(string state)
@@ -140,8 +143,15 @@ public sealed class EntraOAuthClient : IEntraOAuthClient
     private async Task<EntraTokenResult> PostTokenAsync(Dictionary<string, string> form, CancellationToken cancellationToken)
     {
         var options = _options.Value;
+        var clientSecret = await _secrets.GetClientSecretAsync(cancellationToken);
+        if (string.IsNullOrEmpty(clientSecret))
+        {
+            _logger.LogWarning("Entra token request skipped: client secret not available from Blocks Secrets");
+            return new EntraTokenResult { Error = "not_configured", ErrorDescription = "The Entra client secret is not provisioned for this project." };
+        }
+
         form["client_id"] = options.ClientId ?? string.Empty;
-        form["client_secret"] = options.ClientSecret ?? string.Empty;
+        form["client_secret"] = clientSecret;
         form["scope"] = options.Scopes;
 
         var client = _httpClientFactory.CreateClient(HttpClientName);

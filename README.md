@@ -75,9 +75,12 @@ Signature app (spec: `docs/specs/004-drive-integration.md`). Nothing in the cons
   carries the admin-consent URL to show an IT admin.
 - Graph throttling is retried honoring `Retry-After`, then surfaced as 429 with the same header.
 
-Configuration: the `Drive` section in `appsettings*.json` (authority and Graph URLs, scopes, size
-and page limits) plus `Drive:ClientId`, `Drive:ClientSecret`, `Drive:RedirectUrl` and
-`Drive:TokenEncryptionKey` (base64 of 32 random bytes) in the MongoDB `Secrets` document. The
+Configuration: the `Drive` section in `appsettings*.json` holds `ClientId` and `RedirectUrl` of
+the Entra app, the authority and Graph URLs, scopes, size and page limits, and the **ids** of two
+Blocks Secrets: `ClientSecretSecretId` (the Entra client secret) and `TokenEncryptionKeySecretId`
+(base64 of 32 random bytes, the key refresh tokens are encrypted under). Create both secrets in
+the project's blocks-os console and put their ids here, exactly as `GeolocationApiKeySecretId`
+works; the values are read at runtime per project and cached for `SecretCacheSeconds`. The
 `StorageDirectories` map needs a `Blocks-Utilities-Drive-Imports` entry.
 
 ## Prerequisites
@@ -154,7 +157,7 @@ Deployment is driven by the workflows in `.github/workflows/`, not by a script i
 
 No secret values belong in this repository. The variables below are names only; set the values in your own environment.
 
-**Backend** (`server/Api/appsettings*.json`, `server/Worker/appsettings*.json`, plus the vault and the MongoDB-backed `Secrets` document): logging levels, `GeolocationApiUrl`, `GeolocationApiKeySecretId`, `GeolocationApiKeySecretName`, `GeolocationCacheSeconds`, `GeolocationProviderDelayMilliseconds`, `RootTenantId`, `ShortUrlBaseAddress`, `PdfToolPath`, `SnsConfigurationName`, and the `Payment` section (rate limits, lock and lease durations, webhook size and timeout budgets, currency minor units; the Worker adds outbox, webhook batch and reconciliation settings). The `Drive` section and its four secrets are described under [Drive](#drive).
+**Backend** (`server/Api/appsettings*.json`, `server/Worker/appsettings*.json`, plus the vault and the MongoDB-backed `Secrets` document): logging levels, `GeolocationApiUrl`, `GeolocationApiKeySecretId`, `GeolocationApiKeySecretName`, `GeolocationCacheSeconds`, `GeolocationProviderDelayMilliseconds`, `RootTenantId`, `ShortUrlBaseAddress`, `PdfToolPath`, `SnsConfigurationName`, and the `Payment` section (rate limits, lock and lease durations, webhook size and timeout budgets, currency minor units; the Worker adds outbox, webhook batch and reconciliation settings). The `Drive` section and its two Blocks Secrets ids are described under [Drive](#drive).
 
 **Frontend** (`client/.env`, template in `client/.env.example`): `BLOCKS_API_BASE_URL`, `BLOCKS_X_BLOCKS_KEY`, `BLOCKS_GOOGLE_SITE_KEY`, `BLOCKS_CONSTRUCT_URL`, `BLOCKS_IDP_BASE_URL`, `BLOCKS_OIDC_CLIENT_ID`.
 

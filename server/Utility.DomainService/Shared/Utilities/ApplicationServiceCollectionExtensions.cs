@@ -150,8 +150,8 @@ namespace DomainService.Utilities
 
         /// <summary>
         /// OneDrive / SharePoint integration (spec 004). Options bind from the <c>Drive</c>
-        /// section, which the Blocks Secrets document also contributes to, so the secret and
-        /// non-secret halves arrive through one object.
+        /// section; the two secret values are read from Blocks Secrets by the ids named there,
+        /// through the same <c>ISecretService</c> the geolocation key uses.
         /// </summary>
         private static void RegisterDriveServices(IServiceCollection services)
         {
@@ -163,6 +163,7 @@ namespace DomainService.Utilities
             services.AddHttpClient(Utility.DomainService.Drive.Service.EntraOAuthClient.HttpClientName);
 
             services.TryAddSingleton<Utility.DomainService.Drive.DriveMetrics>();
+            services.AddSingleton<Utility.DomainService.Drive.Service.IDriveSecrets, Utility.DomainService.Drive.Service.DriveSecrets>();
             services.AddSingleton<Utility.DomainService.Drive.Service.DriveTokenProtector>();
             services.AddSingleton<Utility.DomainService.Drive.Service.IDriveRepository, Utility.DomainService.Drive.Service.DriveRepository>();
             services.AddSingleton<Utility.DomainService.Drive.Service.IEntraOAuthClient, Utility.DomainService.Drive.Service.EntraOAuthClient>();

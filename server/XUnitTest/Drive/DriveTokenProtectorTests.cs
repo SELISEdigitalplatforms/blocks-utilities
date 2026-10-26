@@ -10,44 +10,44 @@ namespace XUnitTest.Drive;
 public sealed class DriveTokenProtectorTests
 {
     [Fact]
-    public void Protect_then_unprotect_round_trips_and_ciphertext_hides_the_token()
+    public async Task Protect_then_unprotect_round_trips_and_ciphertext_hides_the_token()
     {
-        var protector = new DriveTokenProtector(DriveTestSupport.Options());
+        var protector = new DriveTokenProtector(DriveTestSupport.Secrets());
 
-        var ciphertext = protector.Protect("refresh-token-value");
+        var ciphertext = await protector.ProtectAsync("refresh-token-value", CancellationToken.None);
 
         ciphertext.Should().NotBeNull();
         ciphertext.Should().NotContain("refresh-token-value",
             because: "a Mongo dump must not hand an attacker every user's drive");
-        protector.Unprotect(ciphertext!).Should().Be("refresh-token-value");
+        (await protector.UnprotectAsync(ciphertext!, CancellationToken.None)).Should().Be("refresh-token-value");
     }
 
     [Fact]
-    public void Two_protections_of_the_same_token_differ()
+    public async Task Two_protections_of_the_same_token_differ()
     {
-        var protector = new DriveTokenProtector(DriveTestSupport.Options());
+        var protector = new DriveTokenProtector(DriveTestSupport.Secrets());
 
-        protector.Protect("same").Should().NotBe(protector.Protect("same"),
+        (await protector.ProtectAsync("same", CancellationToken.None)).Should().NotBe(await protector.ProtectAsync("same", CancellationToken.None),
             because: "a fresh nonce per write keeps equal tokens from being recognizable as equal");
     }
 
     [Fact]
-    public void A_tampered_ciphertext_does_not_decrypt()
+    public async Task A_tampered_ciphertext_does_not_decrypt()
     {
-        var protector = new DriveTokenProtector(DriveTestSupport.Options());
-        var bytes = Convert.FromBase64String(protector.Protect("secret")!);
+        var protector = new DriveTokenProtector(DriveTestSupport.Secrets());
+        var bytes = Convert.FromBase64String((await protector.ProtectAsync("secret", CancellationToken.None))!);
         bytes[^1] ^= 0x01;
 
-        protector.Unprotect(Convert.ToBase64String(bytes)).Should().BeNull(
+        (await protector.UnprotectAsync(Convert.ToBase64String(bytes), CancellationToken.None)).Should().BeNull(
             because: "GCM is authenticated; an altered row must be rejected, not garbled");
     }
 
     [Fact]
-    public void Without_a_key_the_protector_reports_not_configured_and_protects_nothing()
+    public async Task Without_a_key_in_blocks_secrets_the_protector_reports_not_configured_and_protects_nothing()
     {
-        var protector = new DriveTokenProtector(DriveTestSupport.Options(o => o.TokenEncryptionKey = null));
+        var protector = new DriveTokenProtector(DriveTestSupport.Secrets(key: null));
 
-        protector.IsConfigured.Should().BeFalse();
-        protector.Protect("x").Should().BeNull(because: "a missing key must never fall back to plaintext");
+        (await protector.IsConfiguredAsync(CancellationToken.None)).Should().BeFalse();
+        (await protector.ProtectAsync("x", CancellationToken.None)).Should().BeNull(because: "a missing key must never fall back to plaintext");
     }
 }

@@ -4,6 +4,7 @@ using Blocks.Genesis;
 using Microsoft.Extensions.Options;
 using Moq;
 using Utility.DomainService.Drive;
+using Utility.DomainService.Drive.Service;
 using XUnitTest.Payment;
 
 namespace XUnitTest.Drive;
@@ -90,14 +91,23 @@ internal static class DriveTestSupport
         var options = new DriveOptions
         {
             ClientId = "client-id",
-            ClientSecret = "client-secret",
+            ClientSecretSecretId = "secret-id-client",
             RedirectUrl = "https://utilities.test/api/drive/connections/callback",
-            TokenEncryptionKey = Key,
+            TokenEncryptionKeySecretId = "secret-id-key",
             MaxRetries = 3,
             DefaultRetryAfterSeconds = 1,
         };
         configure?.Invoke(options);
         return Microsoft.Extensions.Options.Options.Create(options);
+    }
+
+    /// <summary>Blocks Secrets as the tests see it: the two values, or none when not provisioned.</summary>
+    public static IDriveSecrets Secrets(string? clientSecret = "client-secret", string? key = Key)
+    {
+        var secrets = new Mock<IDriveSecrets>();
+        secrets.Setup(s => s.GetClientSecretAsync(It.IsAny<CancellationToken>())).ReturnsAsync(clientSecret);
+        secrets.Setup(s => s.GetTokenEncryptionKeyAsync(It.IsAny<CancellationToken>())).ReturnsAsync(key);
+        return secrets.Object;
     }
 
     public static IHttpClientFactory Factory(ScriptedHttpHandler handler)

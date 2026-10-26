@@ -17,7 +17,7 @@ public sealed class EntraOAuthClientTests
 
     public EntraOAuthClientTests()
     {
-        _client = new EntraOAuthClient(DriveTestSupport.Factory(_http), DriveTestSupport.Options(), NullLogger<EntraOAuthClient>.Instance);
+        _client = new EntraOAuthClient(DriveTestSupport.Factory(_http), DriveTestSupport.Options(), DriveTestSupport.Secrets(), NullLogger<EntraOAuthClient>.Instance);
     }
 
     [Fact]
@@ -85,6 +85,17 @@ public sealed class EntraOAuthClientTests
 
         result.GrantInvalid.Should().BeTrue(because: "the user must reconnect; retrying would never succeed");
         result.AdminConsentRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Without_a_client_secret_in_blocks_secrets_no_token_request_is_made()
+    {
+        var client = new EntraOAuthClient(DriveTestSupport.Factory(_http), DriveTestSupport.Options(), DriveTestSupport.Secrets(clientSecret: null), NullLogger<EntraOAuthClient>.Instance);
+
+        var result = await client.RefreshAsync("refresh-1", CancellationToken.None);
+
+        result.Error.Should().Be("not_configured");
+        _http.Requests.Should().BeEmpty(because: "a request without the secret would only burn an Entra failure");
     }
 
     [Fact]

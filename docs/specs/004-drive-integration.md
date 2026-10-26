@@ -1,6 +1,6 @@
 # Spec 004: OneDrive / SharePoint Drive Integration
 
-**Status:** Approved (2026-10-26), amended 2026-10-26: encryption key from Blocks Secrets, tenant domain fields confirmed
+**Status:** Approved (2026-10-26), amended 2026-10-26: secrets read from Blocks Secrets by id at runtime, tenant domain fields confirmed
 **Date:** 2026-10-26
 **Reference implementation studied:** `l3-net-generic-dms/src/DriveIntegrations` (origin/main @ c562910)
 
@@ -36,8 +36,8 @@ chosen drive folder. No console UI is involved.
 - Upload one or more Blocks Storage files to a drive folder, conflict behavior `rename`,
   per-file results.
 - Streaming for import and upload, Graph upload sessions above 4 MB, size cap 250 MB (configurable).
-- Refresh token encrypted at rest with AES-GCM under a single `Drive:TokenEncryptionKey` held in
-  Blocks Secrets; access token held in memory only.
+- Refresh token encrypted at rest with AES-GCM under a key held in Blocks Secrets and named by
+  `Drive:TokenEncryptionKeySecretId`; access token held in memory only.
 - Bounded retry on Graph `429`/`503` honoring `Retry-After`, max 3, then a `DRIVE_THROTTLED` result.
 - OpenTelemetry metrics and Genesis logging.
 - Backend only: new `Utility.DomainService/Drive/` capability, one Api controller, tests.
@@ -191,11 +191,16 @@ and the response says so via a `sortApplied: false` flag.
 
 - **Microsoft Entra ID** (`https://login.microsoftonline.com/common/oauth2/v2.0/{authorize,token}`),
   authorization code flow with PKCE and client secret. Config:
-  - Blocks Secrets (`Secrets` collection, merged into `IConfiguration`): `Drive:ClientId`,
-    `Drive:ClientSecret`, `Drive:RedirectUrl`, `Drive:TokenEncryptionKey` (32 random bytes, base64).
-  - appsettings `Drive` section: `AuthorityBaseUrl`, `GraphBaseUrl`, `Scopes`, `MaxFileSizeBytes`
+  - Blocks Secrets (blocks-os secret store, read at runtime through `ISecretService` for the
+    calling project, like `GeolocationApiKeySecretId`): the Entra client secret and the token
+    encryption key (32 random bytes, base64). Their ids go in configuration; values are cached
+    per project for `SecretCacheSeconds` (300).
+  - appsettings `Drive` section: `ClientId`, `RedirectUrl`, `ClientSecretSecretId`,
+    `TokenEncryptionKeySecretId`, `AuthorityBaseUrl`, `GraphBaseUrl`, `Scopes`, `MaxFileSizeBytes`
     (250 MB), `UploadChunkSizeBytes` (10 MB), `MaxUploadFilesPerRequest` (20), `StateTtlMinutes`
     (10), `MaxRetries` (3), `DefaultPageSize` (50).
+  - The callback arrives with no tenant header, so it runs under the project recorded in the
+    OAuth state for the duration of the token exchange; that is what lets the secrets resolve.
 - **Microsoft Graph v1.0**: `/me/followedSites`, `/sites?search=`, `/sites/{id}/drive`,
   `/me/drive/root`, `/drives/{d}/items/{id}/children`, `.../search(q=)`, `POST .../children`,
   `GET /drives/{d}/items/{id}` plus `@microsoft.graph.downloadUrl`, `PUT .../content` (≤ 4 MB),
@@ -203,7 +208,8 @@ and the response says so via a `sortApplied: false` flag.
 - **Blocks Storage**: existing `StorageHelperBase`-based helper for reading a file stream by
   `fileId` and for saving a stream under the caller's project.
 - **AES-GCM**: a small `DriveTokenProtector` in the Drive module, same payload layout as Payment's
-  protector, keyed from `Drive:TokenEncryptionKey`. No dependency on Payment or Key Vault.
+  protector, keyed from the Blocks secret `Drive:TokenEncryptionKeySecretId` names. No dependency
+  on Payment or Key Vault.
 - **Genesis tenant data**: `Tenant.ApplicationDomain` and `Tenant.AllowedCorsOrigins` via `ITenants`
   for `returnUrl` validation.
 
@@ -288,8 +294,8 @@ and the response says so via a `sortApplied: false` flag.
   `code`, `access_token`, `refresh_token`, or `client_secret` values.
 - AC-30 Given a request with a bearer token for user A, when any endpoint is called, then only user
   A's connection row is read or written, regardless of body contents.
-- AC-31 Given `Drive:ClientId` is missing from configuration, when `POST connections`, then 503 and
-  a single warning log.
+- AC-31 Given `Drive:ClientId` is missing from configuration, or either Blocks secret is not
+  provisioned for the project, when `POST connections`, then 503 and a warning log.
 
 ## Deferred Decisions
 

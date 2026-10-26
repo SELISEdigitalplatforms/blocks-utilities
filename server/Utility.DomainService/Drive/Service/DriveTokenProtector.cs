@@ -1,11 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Extensions.Options;
 
 namespace Utility.DomainService.Drive.Service;
 
 /// <summary>
-/// AES-GCM for refresh tokens at rest, keyed from <see cref="DriveOptions.TokenEncryptionKey"/>.
+/// AES-GCM for refresh tokens at rest, keyed from the Blocks secret
+/// <see cref="DriveOptions.TokenEncryptionKeySecretId"/> names.
 /// </summary>
 /// <remarks>
 /// Same payload layout as the payment protector (nonce, then tag, then ciphertext, one base64
@@ -19,15 +19,16 @@ public sealed class DriveTokenProtector
     private const int NonceSize = 12;
     private const int TagSize = 16;
 
-    private readonly IOptions<DriveOptions> _options;
+    private readonly IDriveSecrets _secrets;
 
-    public DriveTokenProtector(IOptions<DriveOptions> options) => _options = options;
+    public DriveTokenProtector(IDriveSecrets secrets) => _secrets = secrets;
 
-    public bool IsConfigured => TryGetKey(out _);
+    public async Task<bool> IsConfiguredAsync(CancellationToken cancellationToken) =>
+        TryParseKey(await _secrets.GetTokenEncryptionKeyAsync(cancellationToken), out _);
 
-    public string? Protect(string plaintext)
+    public async Task<string?> ProtectAsync(string plaintext, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(plaintext) || !TryGetKey(out var key))
+        if (string.IsNullOrEmpty(plaintext) || !TryParseKey(await _secrets.GetTokenEncryptionKeyAsync(cancellationToken), out var key))
         {
             return null;
         }
@@ -56,9 +57,9 @@ public sealed class DriveTokenProtector
         }
     }
 
-    public string? Unprotect(string ciphertext)
+    public async Task<string?> UnprotectAsync(string ciphertext, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(ciphertext) || !TryGetKey(out var key))
+        if (string.IsNullOrEmpty(ciphertext) || !TryParseKey(await _secrets.GetTokenEncryptionKeyAsync(cancellationToken), out var key))
         {
             return null;
         }
@@ -90,10 +91,9 @@ public sealed class DriveTokenProtector
         }
     }
 
-    private bool TryGetKey(out byte[] key)
+    private static bool TryParseKey(string? encoded, out byte[] key)
     {
         key = [];
-        var encoded = _options.Value.TokenEncryptionKey;
         if (string.IsNullOrWhiteSpace(encoded))
         {
             return false;

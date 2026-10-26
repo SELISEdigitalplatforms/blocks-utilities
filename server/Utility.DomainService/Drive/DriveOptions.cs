@@ -4,11 +4,11 @@ namespace Utility.DomainService.Drive;
 /// Settings for the OneDrive / SharePoint integration (spec 004).
 /// </summary>
 /// <remarks>
-/// Bound from the <c>Drive</c> section. The non-secret values live in <c>appsettings*.json</c>;
-/// <see cref="ClientId"/>, <see cref="ClientSecret"/>, <see cref="RedirectUrl"/> and
-/// <see cref="TokenEncryptionKey"/> come from the Blocks Secrets document that
-/// <c>AddMongoDbConfiguration</c> merges into the same section at startup, so one options object
-/// sees both without the code having to know which store a value came from.
+/// Bound from the <c>Drive</c> section of <c>appsettings*.json</c>. Nothing here is a secret:
+/// the two secret values (Entra client secret, token encryption key) live in Blocks Secrets and
+/// are named by id in <see cref="ClientSecretSecretId"/> and
+/// <see cref="TokenEncryptionKeySecretId"/>, the same way <c>GeolocationApiKeySecretId</c> names
+/// the geolocation key. See <see cref="Service.DriveSecrets"/>.
 /// </remarks>
 public sealed class DriveOptions
 {
@@ -17,13 +17,17 @@ public sealed class DriveOptions
     /// <summary>Entra app (client) id of the platform-owned multi-tenant registration.</summary>
     public string? ClientId { get; set; }
 
-    public string? ClientSecret { get; set; }
+    /// <summary>Blocks Secrets id of the Entra client secret.</summary>
+    public string? ClientSecretSecretId { get; set; }
 
     /// <summary>Absolute URL of the callback endpoint as registered on the Entra app.</summary>
     public string? RedirectUrl { get; set; }
 
-    /// <summary>Base64 of 32 random bytes; the AES-GCM key refresh tokens are stored under.</summary>
-    public string? TokenEncryptionKey { get; set; }
+    /// <summary>Blocks Secrets id of the AES-GCM key (base64 of 32 random bytes) refresh tokens are stored under.</summary>
+    public string? TokenEncryptionKeySecretId { get; set; }
+
+    /// <summary>How long a secret value read from Blocks Secrets is reused before being read again.</summary>
+    public int SecretCacheSeconds { get; set; } = 300;
 
     /// <summary>
     /// Identifier stored beside every ciphertext so a second key can be introduced later without
