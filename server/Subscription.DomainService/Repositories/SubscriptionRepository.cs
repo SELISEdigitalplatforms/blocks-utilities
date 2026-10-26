@@ -357,6 +357,53 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                     orderId)))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<long> AdoptMeterTopUpAsync(
+        string tenantId,
+        string planId,
+        string meterKey,
+        MeterTopUpTerms terms,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(terms);
+
+        // "TopUp == null" matches a snapshot that holds an explicit null and one written before
+        // the field existed, which is what makes this safe to run on every edit: a meter whose
+        // terms are already recorded is never selected, so nothing recorded is ever overwritten.
+        var filter = Builders<SubscriptionDetail>.Filter.And(
+            TenantFilter(tenantId),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.Plan.PlanId,
+                planId),
+            Builders<SubscriptionDetail>.Filter.In(
+                subscription => subscription.Status,
+                LiveStatuses),
+            Builders<SubscriptionDetail>.Filter.ElemMatch(
+                subscription => subscription.Plan.Meters,
+                meter => meter.MeterKey == meterKey && meter.TopUp == null));
+
+        var update = Builders<SubscriptionDetail>.Update
+            .Set("Plan.Meters.$[meter].TopUp", terms.Clone())
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow);
+
+        var options = new UpdateOptions
+        {
+            ArrayFilters =
+            [
+                new BsonDocumentArrayFilterDefinition<PlanMeter>(
+                    new BsonDocument("meter.MeterKey", meterKey))
+            ]
+        };
+
+        var result = await Subscriptions(tenantId).UpdateManyAsync(
+            filter,
+            update,
+            options,
+            cancellationToken);
+
+        return result.ModifiedCount;
+    }
+
     public async Task<bool> AnySubscriberAsync(
         string tenantId,
         string planId,
