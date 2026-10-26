@@ -682,7 +682,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
             DiscountId = discount?.ItemId,
             DiscountVersion = discount?.Version ?? 0,
             ExpiryPolicy = terms.ExpiryPolicy,
-            ExpiresAtUtc = ExpiryOf(subscription, meter, terms.ExpiryPolicy, now),
+            ExpiresAtUtc = ExpiryOf(subscription, meter, terms, now),
             PaymentPath = path,
             CreatedAtUtc = now,
             LastUpdatedAtUtc = now
@@ -847,7 +847,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
             Quantity = request.Quantity,
             Remaining = request.Quantity,
             ExpiryPolicy = terms.ExpiryPolicy,
-            ExpiresAtUtc = ExpiryOf(subscription, meter, terms.ExpiryPolicy, now),
+            ExpiresAtUtc = ExpiryOf(subscription, meter, terms, now),
             GrantedAtUtc = now,
             GrantedByUserId = context.UserId ?? string.Empty,
             Reason = request.Reason.Trim(),
@@ -1500,18 +1500,28 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
 
     /// <summary>
     /// When credits granted now stop being usable: the end of the meter's current usage window for
-    /// credits that expire with it, and never for the other two policies.
+    /// credits that expire with it, the end of a fixed lifetime when the terms set one, the
+    /// earlier of the two when both apply, and never otherwise.
     /// </summary>
     private static DateTime? ExpiryOf(
         SubscriptionDetail subscription,
         PlanMeter meter,
-        MeterResetPolicy policy,
-        DateTime nowUtc) =>
-        policy == MeterResetPolicy.Periodic &&
-        MeterPeriodResolver.TryGetPeriod(subscription, meter, nowUtc, out var period) &&
-        period.EndUtc != DateTime.MaxValue
-            ? period.EndUtc
-            : null;
+        MeterTopUpTerms terms,
+        DateTime nowUtc)
+    {
+        DateTime? windowEnd =
+            terms.ExpiryPolicy == MeterResetPolicy.Periodic &&
+            MeterPeriodResolver.TryGetPeriod(subscription, meter, nowUtc, out var period) &&
+            period.EndUtc != DateTime.MaxValue
+                ? period.EndUtc
+                : null;
+
+        DateTime? lifetimeEnd = terms.ExpiresAfter?.EndFrom(nowUtc);
+
+        return windowEnd is { } window && lifetimeEnd is { } lifetime
+            ? (window < lifetime ? window : lifetime)
+            : windowEnd ?? lifetimeEnd;
+    }
 
     // ---- events, audit and mapping --------------------------------------------------------
 

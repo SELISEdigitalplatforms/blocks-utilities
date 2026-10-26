@@ -120,6 +120,13 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                             MinQuantity = topUp.MinQuantity,
                             MaxQuantity = topUp.MaxQuantity,
                             ExpiryPolicy = topUp.ExpiryPolicy.ToString(),
+                            ExpiresAfter = topUp.ExpiresAfter is { } lifetime
+                                ? new CreditExpiryDurationResponse
+                                {
+                                    Count = lifetime.Count,
+                                    Unit = lifetime.Unit.ToString()
+                                }
+                                : null,
                             TaxRateBasisPoints = topUp.TaxRateBasisPoints,
                             TaxMode = topUp.TaxMode?.ToString()
                         }

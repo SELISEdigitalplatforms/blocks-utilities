@@ -109,7 +109,9 @@ export const CreditsCard = ({
                 {meter.creditPurchase
                   ? `${meter.creditPurchase.unitAmount} ${meter.creditPurchase.currencyCode} per credit, ` +
                     `${meter.creditPurchase.minQuantity.toLocaleString()}–${meter.creditPurchase.maxQuantity.toLocaleString()} per purchase. ` +
-                    `Credits ${EXPIRY_LABEL[meter.creditPurchase.expiryPolicy]}.`
+                    (meter.creditPurchase.expiresAfter
+                      ? `Credits last ${meter.creditPurchase.expiresAfter.count} ${meter.creditPurchase.expiresAfter.unit.toLowerCase()}${meter.creditPurchase.expiresAfter.count === 1 ? "" : "s"} from purchase.`
+                      : `Credits ${EXPIRY_LABEL[meter.creditPurchase.expiryPolicy]}.`)
                   : `Credits for this meter are not for sale in ${subscription.currencyCode}.`}
               </p>
             </div>

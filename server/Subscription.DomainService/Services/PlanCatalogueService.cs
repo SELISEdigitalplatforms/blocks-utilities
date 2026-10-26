@@ -1379,6 +1379,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                         MinQuantity = topUp.MinQuantity,
                         MaxQuantity = topUp.MaxQuantity,
                         ExpiryPolicy = topUp.ExpiryPolicy,
+                        ExpiresAfter = topUp.ExpiresAfter is { } lifetime
+                            ? new CreditExpiryDuration { Count = lifetime.Count, Unit = lifetime.Unit }
+                            : null,
                         // Zero and absent both mean untaxed, so a mode is only kept beside a rate.
                         TaxRateBasisPoints = topUp.TaxRateBasisPoints,
                         TaxMode = topUp.TaxRateBasisPoints > 0 ? topUp.TaxMode : null

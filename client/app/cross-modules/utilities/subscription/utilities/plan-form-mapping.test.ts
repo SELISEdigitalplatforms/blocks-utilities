@@ -208,6 +208,68 @@ describe("toUpdatePlanRequest", () => {
   });
 });
 
+describe("credit expiry", () => {
+  const withCredits = (topUp: NonNullable<SubscriptionPlan["meters"][number]["topUp"]>) =>
+    storedPlan({
+      meters: storedPlan().meters.map((meter) => ({ ...meter, topUp })),
+    });
+
+  const terms = {
+    enabled: true,
+    unitPrices: [{ currencyCode: "EUR", unitAmountMinor: 10 }],
+    minQuantity: 1,
+    maxQuantity: 500,
+    taxRateBasisPoints: null,
+    taxMode: null,
+  };
+
+  it("reopens a fixed lifetime as the form's own fourth choice", () => {
+    const values = planToFormValues(
+      withCredits({ ...terms, expiryPolicy: "Never", expiresAfter: { count: 30, unit: "Day" } }),
+    );
+
+    expect(values.meterCredits[0]).toMatchObject({
+      expiryPolicy: 3,
+      expiresAfterCount: 30,
+      expiresAfterUnit: 1,
+    });
+  });
+
+  it("sends the fourth choice as a never-expiring grant capped by the lifetime", () => {
+    const values = planToFormValues(
+      withCredits({ ...terms, expiryPolicy: "Never", expiresAfter: { count: 6, unit: "Month" } }),
+    );
+
+    const request = toUpdatePlanRequest(values, "org-1");
+
+    expect(request.meters[0].topUp).toMatchObject({
+      expiryPolicy: 1,
+      expiresAfter: { count: 6, unit: 3 },
+    });
+  });
+
+  it("sends no lifetime for the three policies that need none", () => {
+    const values = planToFormValues(withCredits({ ...terms, expiryPolicy: "CarryForward" }));
+
+    const request = toUpdatePlanRequest(values, "org-1");
+
+    expect(request.meters[0].topUp).toMatchObject({ expiryPolicy: 2 });
+    expect(request.meters[0].topUp?.expiresAfter).toBeUndefined();
+  });
+
+  it("refuses the fourth choice without a length", () => {
+    const values = planToFormValues(
+      withCredits({ ...terms, expiryPolicy: "Never", expiresAfter: { count: 30, unit: "Day" } }),
+    );
+    values.meterCredits[0].expiresAfterCount = undefined;
+
+    const result = createSubscriptionPlanSchema.safeParse(values);
+
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain("expiresAfterCount");
+  });
+});
+
 describe("quantity discount bands", () => {
   const stored = (
     tiers?: { minimumQuantity: number; maximumQuantity: number | null; discountBasisPoints: number }[],

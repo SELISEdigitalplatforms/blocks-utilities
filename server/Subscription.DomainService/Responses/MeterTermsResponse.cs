@@ -80,6 +80,9 @@ public sealed class CreditPurchaseTermsResponse
     /// <summary>"Periodic", "CarryForward" or "Never".</summary>
     public string ExpiryPolicy { get; init; } = string.Empty;
 
+    /// <summary>A fixed lifetime from purchase, or null when the policy alone decides.</summary>
+    public CreditExpiryDurationResponse? ExpiresAfter { get; init; }
+
     public int? TaxRateBasisPoints { get; init; }
 
     public string? TaxMode { get; init; }

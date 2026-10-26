@@ -18,6 +18,7 @@ import {
 } from "../utilities/meter-quantity";
 import { MAX_PACE_LIMITS, spanHours } from "../utilities/pace-limits";
 import { TAX_MODES } from "../utilities/subscription-tax";
+import { FIXED_CREDIT_EXPIRY } from "../models/subscription-plan.model";
 import {
   isRepresentableInMinorUnits,
   minorUnitExponent,
@@ -188,8 +189,15 @@ const meterCreditSchema = z
     maxQuantity: blankAsUndefined(
       z.coerce.number().int("Credits are bought in whole numbers.").positive().optional(),
     ),
-    /** METER_RESET_POLICY, read for a grant: 0 ends with the window, 2 carries forward, 1 never ends. */
-    expiryPolicy: z.coerce.number().int().min(0).max(2).default(0),
+    /**
+     * METER_RESET_POLICY, read for a grant: 0 ends with the window, 2 carries forward, 1 never
+     * ends — or FIXED_CREDIT_EXPIRY (3), a form-only choice that sends Never plus a lifetime.
+     */
+    expiryPolicy: z.coerce.number().int().min(0).max(FIXED_CREDIT_EXPIRY).default(0),
+    /** How long bought credits last, with FIXED_CREDIT_EXPIRY. Whole units, at least one. */
+    expiresAfterCount: blankAsUndefined(z.coerce.number().int().positive().optional()),
+    /** CREDIT_EXPIRY_UNIT. Days unless the author picks otherwise. */
+    expiresAfterUnit: z.coerce.number().int().min(0).max(4).default(1),
     taxPercent: blankAsUndefined(
       z.coerce
         .number()
@@ -249,6 +257,14 @@ const meterCreditSchema = z
         });
       }
     });
+
+    if (credit.expiryPolicy === FIXED_CREDIT_EXPIRY && !credit.expiresAfterCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expiresAfterCount"],
+        message: "Say how long the credits last, as a whole number of at least one.",
+      });
+    }
 
     // Required: it is what bounds one charge to a stored card.
     if (credit.maxQuantity === undefined || credit.maxQuantity < credit.minQuantity) {

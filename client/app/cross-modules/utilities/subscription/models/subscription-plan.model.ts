@@ -24,6 +24,23 @@ export const METER_RESET_POLICY = {
   CarryForward: 2,
 } as const;
 
+/** The unit a fixed credit lifetime is counted in. Mirrors the server's CreditExpiryUnit. */
+export const CREDIT_EXPIRY_UNIT = {
+  Hour: 0,
+  Day: 1,
+  Week: 2,
+  Month: 3,
+  Year: 4,
+} as const;
+
+export type CreditExpiryUnitName = keyof typeof CREDIT_EXPIRY_UNIT;
+
+/**
+ * A fourth choice in the credits form only: "after a fixed time". Not a server policy — it is sent
+ * as Never plus an `expiresAfter` lifetime, and read back from one.
+ */
+export const FIXED_CREDIT_EXPIRY = 3;
+
 export const ENTITLEMENT_LIMIT_KIND = {
   Boolean: 0,
   Count: 1,
@@ -184,6 +201,8 @@ export interface PlanMeterTopUp {
   minQuantity: number;
   maxQuantity: number;
   expiryPolicy: MeterResetPolicyName;
+  /** A fixed lifetime from purchase, or null when the policy alone decides. */
+  expiresAfter?: { count: number; unit: CreditExpiryUnitName } | null;
   taxRateBasisPoints: number | null;
   taxMode: "Exclusive" | "Inclusive" | null;
 }
@@ -392,6 +411,8 @@ export interface CreatePlanMeterRequest {
     maxQuantity: number;
     /** METER_RESET_POLICY, read for a grant. */
     expiryPolicy: number;
+    /** CREDIT_EXPIRY_UNIT. A grant ends at this or at the policy's end, whichever is first. */
+    expiresAfter?: { count: number; unit: number };
     taxRateBasisPoints?: number;
     taxMode?: "Exclusive" | "Inclusive";
   };
