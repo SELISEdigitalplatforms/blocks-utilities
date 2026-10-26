@@ -65,6 +65,81 @@
             </para>
             </remarks>
         </member>
+        <member name="T:Api.Controllers.DriveController">
+            <summary>
+            OneDrive and SharePoint for the calling user: connect a Microsoft account, browse it, create
+            folders, import files into Blocks Storage, and push Blocks Storage files into it (spec 004).
+            </summary>
+            <remarks>
+            API only; nothing in the console shows it. The consumer is the SELISE Signature app, which
+            lets a user pick a PDF from their drive and later save the signed archive back. Every
+            endpoint acts on the connection of the user in the bearer token inside the project in
+            <c>x-blocks-key</c>; no request can name another user. The callback is the one anonymous
+            action because Entra calls it, and it trusts nothing from the query but <c>code</c> and
+            <c>state</c>.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.DriveController.#ctor(Utility.DomainService.Drive.Service.IDriveConnectionService,Utility.DomainService.Drive.Service.IDriveService)">
+            <summary>Initializes a new instance of the <see cref="T:Api.Controllers.DriveController"/> class.</summary>
+        </member>
+        <member name="M:Api.Controllers.DriveController.StartConnection(Utility.DomainService.Drive.Models.StartConnectionRequest,System.Threading.CancellationToken)">
+            <summary>
+            Starts connecting the caller's Microsoft account. Returns the Entra authorize URL to send
+            the browser to, or <c>connected: true</c> when a connection already exists.
+            </summary>
+            <remarks>
+            <c>returnUrl</c> is where the browser lands after Entra, with <c>?driveStatus=connected</c>,
+            <c>failed&amp;reason=...</c> or <c>admin_consent_required</c> appended. It must be on one of
+            the project's registered domains; anything else is refused so the callback cannot become an
+            open redirect. The state behind the URL is single use and expires after ten minutes.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.DriveController.Callback(System.String,System.String,System.String,System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Where Entra sends the browser after consent. Finishes the connection and redirects to the
+            caller's <c>returnUrl</c>.
+            </summary>
+            <remarks>
+            Anonymous by necessity. 400 only when there is nowhere safe to redirect: an unknown, replayed
+            or expired state. Every other outcome, including a refused consent, goes back to the
+            <c>returnUrl</c> stored with the state so the signature app can tell the user. An
+            admin-consent round trip (<c>admin_consent=True</c>, no state) gets a plain text page, because
+            it was an IT admin in a separate browser, not the user's flow.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.DriveController.GetConnection(System.Threading.CancellationToken)">
+            <summary>Whether the caller has a connection, and the admin-consent URL to show an IT admin if needed.</summary>
+        </member>
+        <member name="M:Api.Controllers.DriveController.Disconnect(System.Threading.CancellationToken)">
+            <summary>Forgets the caller's connection. The next operation will say <c>drive_not_connected</c>.</summary>
+        </member>
+        <member name="M:Api.Controllers.DriveController.ListSites(Utility.DomainService.Drive.Models.ListSitesRequest,System.Threading.CancellationToken)">
+            <summary>
+            SharePoint sites the caller can browse. With <c>search</c>, sites matching the text;
+            without, the sites the user follows.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.DriveController.ListItems(Utility.DomainService.Drive.Models.ListItemsRequest,System.Threading.CancellationToken)">
+            <summary>
+            Children of a folder (or the drive root), or a search within it. Forward-only paging through
+            <c>cursor</c>; Graph cannot sort search results, and <c>sortApplied</c> says when it did not.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.DriveController.CreateFolder(Utility.DomainService.Drive.Models.CreateFolderRequest,System.Threading.CancellationToken)">
+            <summary>Creates a folder. A name that already exists is a 409, never a silent rename.</summary>
+        </member>
+        <member name="M:Api.Controllers.DriveController.Import(Utility.DomainService.Drive.Models.ImportFileRequest,System.Threading.CancellationToken)">
+            <summary>
+            Copies a drive file into Blocks Storage under the caller's project and returns the new
+            file id. Streamed; refused up front when the drive reports a size over the limit.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.DriveController.Upload(Utility.DomainService.Drive.Models.UploadFilesRequest,System.Threading.CancellationToken)">
+            <summary>
+            Pushes Blocks Storage files into a drive folder. One result per file; a failure in one does
+            not undo the others, and a name clash is resolved by Graph renaming the new file.
+            </summary>
+        </member>
         <member name="T:Api.Controllers.EntitlementsController">
             <summary>
             What the caller's organization may do. Served under <c>/api/entitlements</c>.
@@ -1640,6 +1715,27 @@
             for the same kinds of failure: a client that has learned how one part of this API reports a
             validation error or a missing record should not have to learn it again here.
             </remarks>
+        </member>
+        <member name="T:Api.Utilities.DriveApiResults">
+            <summary>
+            Maps a drive result onto an HTTP response.
+            </summary>
+            <remarks>
+            Same shape and the same status codes for the same kinds of failure as
+            <see cref="T:Api.Utilities.GeolocationApiResults"/>. Two kinds deserve a note: <c>NotConnected</c> is 401
+            rather than 404 because the fix is on the auth side (reconnect), and <c>Throttled</c> is 429
+            with a <c>Retry-After</c> header so a client's generic back-off logic works without reading
+            the body.
+            </remarks>
+        </member>
+        <member name="M:Api.Utilities.DriveApiResults.ToActionResult``1(Utility.DomainService.Drive.DriveResult{``0},System.String,System.Int32)">
+            <summary>Wraps a success in the envelope with <paramref name="successStatus"/>, or a failure with the matching status and error code.</summary>
+        </member>
+        <member name="M:Api.Utilities.DriveApiResults.StatusCodeFor(Utility.DomainService.Drive.DriveFailureKind)">
+            <summary>The HTTP status for a failure kind.</summary>
+        </member>
+        <member name="M:Api.Utilities.DriveApiResults.ErrorCodeFor(Utility.DomainService.Drive.DriveFailureKind)">
+            <summary>The machine-readable error code for a failure kind.</summary>
         </member>
         <member name="T:Api.Utilities.GeolocationApiResults">
             <summary>

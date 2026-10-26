@@ -144,6 +144,38 @@ namespace DomainService.Utilities
 
             // Workflow Services (registered via extension method)
             services.AddSingleton<IClientCredentialTokenService, ClientCredentialTokenService>();
+
+            RegisterDriveServices(services);
+        }
+
+        /// <summary>
+        /// OneDrive / SharePoint integration (spec 004). Options bind from the <c>Drive</c>
+        /// section, which the Blocks Secrets document also contributes to, so the secret and
+        /// non-secret halves arrive through one object.
+        /// </summary>
+        private static void RegisterDriveServices(IServiceCollection services)
+        {
+            services.AddOptions<Utility.DomainService.Drive.DriveOptions>()
+                .BindConfiguration(Utility.DomainService.Drive.DriveOptions.SectionName);
+
+            // Separate clients so a policy on Graph traffic never touches the token endpoint.
+            services.AddHttpClient(Utility.DomainService.Drive.Service.GraphClient.HttpClientName);
+            services.AddHttpClient(Utility.DomainService.Drive.Service.EntraOAuthClient.HttpClientName);
+
+            services.TryAddSingleton<Utility.DomainService.Drive.DriveMetrics>();
+            services.AddSingleton<Utility.DomainService.Drive.Service.DriveTokenProtector>();
+            services.AddSingleton<Utility.DomainService.Drive.Service.IDriveRepository, Utility.DomainService.Drive.Service.DriveRepository>();
+            services.AddSingleton<Utility.DomainService.Drive.Service.IEntraOAuthClient, Utility.DomainService.Drive.Service.EntraOAuthClient>();
+            services.AddSingleton<Utility.DomainService.Drive.Service.IGraphClient, Utility.DomainService.Drive.Service.GraphClient>();
+            services.AddSingleton<Utility.DomainService.Drive.Service.IDriveStorageBridge, Utility.DomainService.Drive.Service.DriveStorageBridge>();
+            services.AddSingleton<Utility.DomainService.Drive.Service.IDriveConnectionService, Utility.DomainService.Drive.Service.DriveConnectionService>();
+            services.AddSingleton<Utility.DomainService.Drive.Service.IDriveService, Utility.DomainService.Drive.Service.DriveService>();
+
+            services.AddTransient<IValidator<Utility.DomainService.Drive.Models.StartConnectionRequest>, Utility.DomainService.Drive.Validators.StartConnectionRequestValidator>();
+            services.AddTransient<IValidator<Utility.DomainService.Drive.Models.ListItemsRequest>, Utility.DomainService.Drive.Validators.ListItemsRequestValidator>();
+            services.AddTransient<IValidator<Utility.DomainService.Drive.Models.CreateFolderRequest>, Utility.DomainService.Drive.Validators.CreateFolderRequestValidator>();
+            services.AddTransient<IValidator<Utility.DomainService.Drive.Models.ImportFileRequest>, Utility.DomainService.Drive.Validators.ImportFileRequestValidator>();
+            services.AddTransient<IValidator<Utility.DomainService.Drive.Models.UploadFilesRequest>, Utility.DomainService.Drive.Validators.UploadFilesRequestValidator>();
         }
     }
 }
