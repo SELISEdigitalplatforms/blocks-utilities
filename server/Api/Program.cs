@@ -124,6 +124,7 @@ services.RegisterUtilityServices();
 services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics
         .AddMeter(UsageProjectionMetrics.MeterName)
+        .AddMeter(Utility.DomainService.Drive.DriveMetrics.MeterName)
         .AddOtlpExporter());
 
 var app = builder.Build();
