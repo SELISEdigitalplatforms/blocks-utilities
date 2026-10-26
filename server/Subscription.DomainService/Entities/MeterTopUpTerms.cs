@@ -18,7 +18,10 @@ namespace Subscription.DomainService.Entities;
 /// </para>
 /// <para>
 /// Snapshotted onto the subscription with the rest of the plan, so a price raised in the catalogue
-/// reaches new subscribers only. A purchase is quoted from the subscriber's own copy.
+/// reaches new subscribers only. A purchase is quoted from the subscriber's own copy. The one
+/// exception is a snapshot with no terms at all: when the catalogue starts selling credits on the
+/// meter, live subscriptions adopt the new terms — see
+/// <c>ISubscriptionRepository.AdoptMeterTopUpAsync</c>.
 /// </para>
 /// </remarks>
 [BsonIgnoreExtraElements]

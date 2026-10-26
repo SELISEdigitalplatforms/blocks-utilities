@@ -993,6 +993,92 @@ public sealed class PlanCatalogueServiceTests
     }
 
     /// <summary>
+    /// Starting to sell credits on a sold plan reaches the subscribers already on it. Without this
+    /// an existing customer is told the credits are "not for sale" while a newer one beside them
+    /// can buy, and nothing short of a plan change or a data patch can fix it.
+    /// </summary>
+    [Fact]
+    public async Task An_edit_that_starts_selling_credits_offers_them_to_existing_subscribers()
+    {
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var edited = EditedPlan();
+        edited.Meters[0].TopUp = new MeterTopUpRequest
+        {
+            Enabled = true,
+            UnitPrices = [new MeterTopUpPriceRequest { CurrencyCode = "chf", UnitAmountMinor = 125 }],
+            MinQuantity = 50,
+            MaxQuantity = 500
+        };
+
+        var result = await Service().UpdatePlanAsync("plan-1", edited, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscriptions.Verify(
+            repository => repository.AdoptMeterTopUpAsync(
+                TenantId,
+                "plan-1",
+                "screening",
+                It.Is<MeterTopUpTerms>(terms =>
+                    terms.Enabled && terms.MaxQuantity == 500 && terms.UnitPrices[0].CurrencyCode == "CHF"),
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the stored plan's id and the normalized terms are what existing snapshots must adopt");
+    }
+
+    [Fact]
+    public async Task An_edit_that_sells_no_credits_touches_no_subscriber()
+    {
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await Service().UpdatePlanAsync("plan-1", EditedPlan(), "corr-1", CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.AdoptMeterTopUpAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<MeterTopUpTerms>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "an edit with nothing new to offer must not reach into subscriptions at all");
+    }
+
+    [Fact]
+    public async Task A_refused_edit_offers_nothing_to_subscribers()
+    {
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var edited = EditedPlan();
+        edited.Meters[0].TopUp = new MeterTopUpRequest
+        {
+            Enabled = true,
+            UnitPrices = [new MeterTopUpPriceRequest { CurrencyCode = "CHF", UnitAmountMinor = 125 }],
+            MinQuantity = 50,
+            MaxQuantity = 500
+        };
+
+        var result = await Service().UpdatePlanAsync("plan-1", edited, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        _subscriptions.Verify(
+            repository => repository.AdoptMeterTopUpAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<MeterTopUpTerms>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "terms the catalogue refused to record must not be offered to anyone");
+    }
+
+    /// <summary>
     /// The replaced version is kept before the write that replaces it. The other order would let
     /// a crash between the two erase a version some subscriber is still billed from.
     /// </summary>
