@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Api.Utilities;
@@ -49,6 +50,7 @@ namespace Api.Controllers
         [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(ApiResponse<IpLookup[]>), StatusCodes.Status404NotFound)]
+        [ProtectedEndPoint("blocks-utilities::geolocation::read")]
         public async Task<IActionResult> LocateIp(
             [FromQuery] LocateIpRequest request,
             CancellationToken cancellationToken)

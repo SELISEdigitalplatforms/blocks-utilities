@@ -1,4 +1,5 @@
 using Api.Utilities;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -54,6 +55,7 @@ public sealed class PdfSignatureValidationsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<ValidatePdfSignaturesBatchResponse>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("blocks-utilities::pdf-signature-validation::manage")]
     public async Task<IActionResult> Validate(
         [FromBody] ValidatePdfSignaturesRequest request,
         CancellationToken cancellationToken)
@@ -81,6 +83,7 @@ public sealed class PdfSignatureValidationsController : ControllerBase
         typeof(ApiResponse<PdfSignatureValidationStatusBatchResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::pdf-signature-validation::read")]
     public async Task<IActionResult> GetStatus(
         [FromBody] GetPdfSignatureValidationStatusRequest request,
         CancellationToken cancellationToken)
