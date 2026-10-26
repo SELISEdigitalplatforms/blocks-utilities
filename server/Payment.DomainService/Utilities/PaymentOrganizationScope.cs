@@ -1,3 +1,5 @@
+using Payment.DomainService.Entities;
+
 namespace Payment.DomainService.Utilities;
 
 /// <summary>
@@ -39,5 +41,34 @@ public static class PaymentOrganizationScope
             contextOrganizationId.Trim(),
             console,
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Whether a caller may act on, or read the refunds and captures of, an existing payment.
+    /// </summary>
+    /// <remarks>
+    /// The listing's rule applied to a single payment: an organization reaches its own payments
+    /// and the ones made before organizations existed, a caller with no organization is scoped to
+    /// the whole tenant, and the console reaches any organization because its payment page can
+    /// name one. Without it, anyone in the tenant holding a payment identifier could refund or
+    /// capture another organization's money.
+    /// </remarks>
+    /// <param name="payment">The payment, already loaded for the caller's tenant.</param>
+    /// <param name="contextOrganizationId">The organization from the caller's token.</param>
+    /// <param name="options">Supplies the console's organization identifier.</param>
+    public static bool MayAccess(
+        PaymentDetail payment,
+        string? contextOrganizationId,
+        PaymentOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(payment);
+
+        return string.IsNullOrWhiteSpace(contextOrganizationId) ||
+            string.IsNullOrWhiteSpace(payment.OrganizationId) ||
+            string.Equals(
+                payment.OrganizationId,
+                contextOrganizationId.Trim(),
+                StringComparison.Ordinal) ||
+            RequestMayNameOrganization(contextOrganizationId, options);
     }
 }

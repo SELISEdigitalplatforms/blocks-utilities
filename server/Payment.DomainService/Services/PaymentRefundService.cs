@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -18,6 +19,7 @@ public sealed class PaymentRefundService :
     private readonly IPaymentRefundInitiationService _initiation;
     private readonly IPaymentRefundRepository _refunds;
     private readonly IPaymentRefundResponseMapper _responses;
+    private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public PaymentRefundService(
         IPaymentExecutionContextResolver contextResolver,
@@ -26,7 +28,8 @@ public sealed class PaymentRefundService :
         IPaymentRefundReservationService reservations,
         IPaymentRefundInitiationService initiation,
         IPaymentRefundRepository refunds,
-        IPaymentRefundResponseMapper responses)
+        IPaymentRefundResponseMapper responses,
+        IOptionsMonitor<PaymentOptions> options)
     {
         _contextResolver = contextResolver;
         _preflight = preflight;
@@ -35,6 +38,7 @@ public sealed class PaymentRefundService :
         _initiation = initiation;
         _refunds = refunds;
         _responses = responses;
+        _options = options;
     }
 
     public async Task<PaymentRefundOperationResult>
@@ -134,12 +138,17 @@ public sealed class PaymentRefundService :
                 correlationId);
         }
 
+        var context = contextResolution.Context!;
         var payment =
             await _refunds.GetPaymentByRefundIdAsync(
-                contextResolution.Context!.TenantId,
+                context.TenantId,
                 refundId,
                 cancellationToken);
-        var refund = payment?.ItemId == paymentDetailId
+        var refund = payment?.ItemId == paymentDetailId &&
+            PaymentOrganizationScope.MayAccess(
+                payment,
+                context.OrganizationId,
+                _options.CurrentValue)
             ? payment.Refunds.FirstOrDefault(
                 item => item.RefundId == refundId)
             : null;
@@ -175,12 +184,17 @@ public sealed class PaymentRefundService :
                     correlationId));
         }
 
+        var context = contextResolution.Context!;
         var payment = await _refunds.GetPaymentAsync(
-            contextResolution.Context!.TenantId,
+            context.TenantId,
             paymentDetailId,
             cancellationToken);
 
-        if (payment == null)
+        if (payment == null ||
+            !PaymentOrganizationScope.MayAccess(
+                payment,
+                context.OrganizationId,
+                _options.CurrentValue))
         {
             return (null, NotFound(correlationId));
         }

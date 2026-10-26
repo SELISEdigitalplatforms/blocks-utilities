@@ -193,19 +193,28 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             // in PendingUsagePeriods and let the next sweep pass find it again; there is no
             // bespoke retry to schedule, since this loop already runs on its own periodic cadence.
             //
-            // Gated only when a closure record actually exists for this period. A plan change's
-            // own outgoing window never creates one — closure coordination exists for cancellation
-            // specifically — so "no record" there still means "always ready", exactly as before
-            // this mechanism existed. A cancellation-originated window always has one by the time
-            // it is queued here, since reserving it is what the write that queued it required to
-            // succeed; a record that exists but has not yet reached Closing (still CloseReserved,
-            // in the brief gap between the subscription transition committing and this loop's own
-            // pass, or one from an attempt that never actually committed) must not be rated either
-            // — only "Closing, and no writer still holding it open" is actually ready.
+            // Gated only when a closure record actually exists for this period; "no record" means
+            // no usage was ever written to it, so it is always ready. A cancellation-originated
+            // window always has one by the time it is queued here, since reserving it is what the
+            // write that queued it required to succeed; a record still CloseReserved (in the brief
+            // gap between the subscription transition committing and this loop's own pass, or one
+            // from an attempt that never actually committed) must not be rated — only "Closing,
+            // and no writer still holding it open" is actually ready.
             if (_closures is not null)
             {
                 var closure = await _closures.GetAsync(
                     subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
+
+                // Every usage write lazily creates its period's record as Open, and nothing but
+                // cancellation ever moves it on — so a window a plan change detached is still Open
+                // here, and skipping it until Closing left it unrated forever. It is already
+                // detached, so this loop closes it itself: no new writer gets in, and the writer
+                // check below waits out one admitted before the swap.
+                if (closure is not null)
+                {
+                    closure = await CloseDetachedWindowAsync(
+                        subscription, pending, closure, cancellationToken);
+                }
 
                 if (closure is not null)
                 {
@@ -392,6 +401,49 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         }
 
         return periodsClosed;
+    }
+
+    /// <summary>
+    /// Moves a detached window's Open closure record to Closing through the same reserve/commit
+    /// protocol cancellation uses, and returns the record as it now stands. A record some other
+    /// operation holds comes back untouched — still CloseReserved, it is skipped this pass.
+    /// </summary>
+    private async Task<UsagePeriodClosure?> CloseDetachedWindowAsync(
+        SubscriptionDetail subscription,
+        PendingUsagePeriod pending,
+        UsagePeriodClosure closure,
+        CancellationToken cancellationToken)
+    {
+        // Deterministic, so a pass after a crash between reserve and commit resumes its own
+        // reservation — cancellation's stale-reservation recovery leaves one of these alone.
+        var closeOperationId = $"pending-window-close:{subscription.ItemId}:{pending.PeriodKey}";
+        var ours = closure.State == UsagePeriodClosureState.Open ||
+            (closure.State == UsagePeriodClosureState.CloseReserved &&
+                closure.CloseOperationId == closeOperationId);
+
+        if (!ours)
+        {
+            return closure;
+        }
+
+        if (await _closures!.TryReserveClosingAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                pending.PeriodKey,
+                pending.PeriodEndUtc,
+                closeOperationId,
+                cancellationToken) == ClosureReservationOutcome.Reserved)
+        {
+            await _closures.TryCommitClosingAsync(
+                subscription.TenantId,
+                subscription.ItemId,
+                pending.PeriodKey,
+                closeOperationId,
+                cancellationToken);
+        }
+
+        return await _closures.GetAsync(
+            subscription.TenantId, subscription.ItemId, pending.PeriodKey, cancellationToken);
     }
 
     /// <summary>
