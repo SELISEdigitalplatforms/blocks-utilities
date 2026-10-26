@@ -184,6 +184,17 @@ public sealed class DriveConnectionServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task An_unknown_error_value_is_never_reflected_into_the_redirect()
+    {
+        await _service.StartAsync(new StartConnectionRequest { ReturnUrl = "https://sign.example.com/done" }, CancellationToken.None);
+
+        var outcome = await _service.CompleteAsync(null, _state!.ItemId, "<script>alert(1)</script>", "x", CancellationToken.None);
+
+        outcome.RedirectUrl.Should().Be("https://sign.example.com/done?driveStatus=failed&reason=provider_error",
+            because: "the callback is anonymous; its query string must not shape where or how the browser is sent on");
+    }
+
+    [Fact]
     public async Task AC6_AC7_status_reflects_the_connection_and_disconnect_removes_it()
     {
         await ConnectAsync();

@@ -170,7 +170,7 @@ public sealed class DriveConnectionService : IDriveConnectionService
         {
             return EntraOAuthClient.IsAdminConsentError(error, errorDescription)
                 ? Redirect(stored.ReturnUrl, ConnectionCallbackOutcome.AdminConsentRequired)
-                : Redirect(stored.ReturnUrl, ConnectionCallbackOutcome.Failed, error);
+                : Redirect(stored.ReturnUrl, ConnectionCallbackOutcome.Failed, KnownReason(error));
         }
 
         if (string.IsNullOrWhiteSpace(code))
@@ -186,7 +186,7 @@ public sealed class DriveConnectionService : IDriveConnectionService
 
         if (!token.IsSuccess)
         {
-            return Redirect(stored.ReturnUrl, ConnectionCallbackOutcome.Failed, token.Error ?? "token_exchange_failed");
+            return Redirect(stored.ReturnUrl, ConnectionCallbackOutcome.Failed, KnownReason(token.Error));
         }
 
         if (string.IsNullOrEmpty(token.RefreshToken))
@@ -431,6 +431,18 @@ public sealed class DriveConnectionService : IDriveConnectionService
 
         return string.Equals(host, candidateHost, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// The reasons a caller can be told, as a closed set. Entra's <c>error</c> arrives on the
+    /// query string of an anonymous endpoint, so it is never echoed into the redirect: anything
+    /// outside the set becomes <c>provider_error</c>, and the real value stays in the log.
+    /// </summary>
+    private static readonly string[] KnownReasons =
+        ["access_denied", "invalid_grant", "invalid_request", "invalid_client", "unauthorized_client",
+         "server_error", "temporarily_unavailable", "not_configured", "invalid_response", "unreachable"];
+
+    private static string KnownReason(string? error) =>
+        error is not null && KnownReasons.Contains(error, StringComparer.Ordinal) ? error : "provider_error";
 
     private static ConnectionCallbackOutcome Redirect(string returnUrl, string status, string? reason = null)
     {
