@@ -437,12 +437,21 @@ public sealed class DriveConnectionService : IDriveConnectionService
     /// query string of an anonymous endpoint, so it is never echoed into the redirect: anything
     /// outside the set becomes <c>provider_error</c>, and the real value stays in the log.
     /// </summary>
-    private static readonly string[] KnownReasons =
-        ["access_denied", "invalid_grant", "invalid_request", "invalid_client", "unauthorized_client",
-         "server_error", "temporarily_unavailable", "not_configured", "invalid_response", "unreachable"];
-
-    private static string KnownReason(string? error) =>
-        error is not null && KnownReasons.Contains(error, StringComparer.Ordinal) ? error : "provider_error";
+    private static string KnownReason(string? error) => error switch
+    {
+        // Literals on purpose, not the input: the value that reaches the URL is always one of ours.
+        "access_denied" => "access_denied",
+        "invalid_grant" => "invalid_grant",
+        "invalid_request" => "invalid_request",
+        "invalid_client" => "invalid_client",
+        "unauthorized_client" => "unauthorized_client",
+        "server_error" => "server_error",
+        "temporarily_unavailable" => "temporarily_unavailable",
+        "not_configured" => "not_configured",
+        "invalid_response" => "invalid_response",
+        "unreachable" => "unreachable",
+        _ => "provider_error",
+    };
 
     private static ConnectionCallbackOutcome Redirect(string returnUrl, string status, string? reason = null)
     {
