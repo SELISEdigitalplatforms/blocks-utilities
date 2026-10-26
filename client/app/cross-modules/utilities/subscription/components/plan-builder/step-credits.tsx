@@ -16,7 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui-kits/select/select";
-import { METER_RESET_POLICY } from "../../models/subscription-plan.model";
+import { SUBSCRIPTION_CURRENCY_OPTIONS } from "../../constants/subscription.constants";
+import {
+  CREDIT_EXPIRY_UNIT,
+  FIXED_CREDIT_EXPIRY,
+  METER_RESET_POLICY,
+} from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { TAX_MODE_OPTIONS } from "../../utilities/subscription-tax";
 import { CardListItem, CardListShell } from "./card-list-shell";
@@ -39,6 +44,20 @@ export const CREDIT_EXPIRY_OPTIONS: { value: number; label: string; description:
     label: "Never expire",
     description: "Credits last as long as the subscription and this meter do.",
   },
+  {
+    value: FIXED_CREDIT_EXPIRY,
+    label: "After a fixed time",
+    description: "Credits last a set time from the moment they are bought, whatever the billing calendar does.",
+  },
+];
+
+/** The units a fixed lifetime can be counted in, in the order a person would list them. */
+export const CREDIT_EXPIRY_UNIT_OPTIONS: { value: number; label: string }[] = [
+  { value: CREDIT_EXPIRY_UNIT.Hour, label: "Hours" },
+  { value: CREDIT_EXPIRY_UNIT.Day, label: "Days" },
+  { value: CREDIT_EXPIRY_UNIT.Week, label: "Weeks" },
+  { value: CREDIT_EXPIRY_UNIT.Month, label: "Months" },
+  { value: CREDIT_EXPIRY_UNIT.Year, label: "Years" },
 ];
 
 /**
@@ -82,6 +101,8 @@ export const StepCredits = () => {
               minQuantity: 1,
               maxQuantity: 10_000,
               expiryPolicy: METER_RESET_POLICY.Periodic,
+              expiresAfterCount: undefined,
+              expiresAfterUnit: CREDIT_EXPIRY_UNIT.Day,
               taxPercent: undefined,
               taxMode: "Exclusive",
             })
@@ -170,9 +191,20 @@ const CreditFields = ({
               name={`meterCredits.${index}.prices.${priceIndex}.currencyCode`}
               render={({ field }) => (
                 <FormItem>
-                  <FormControl>
-                    <Input {...field} aria-label="Currency" maxLength={3} placeholder="USD" />
-                  </FormControl>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger aria-label="Currency">
+                        <SelectValue placeholder="Currency" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {SUBSCRIPTION_CURRENCY_OPTIONS.map((currency) => (
+                        <SelectItem key={currency.code} value={currency.code}>
+                          {currency.code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
@@ -282,6 +314,48 @@ const CreditFields = ({
           )}
         />
       </div>
+
+      {expiry === FIXED_CREDIT_EXPIRY && (
+        <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-2 sm:max-w-sm">
+          <FormField
+            control={control}
+            name={`meterCredits.${index}.expiresAfterCount`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-xs">Credits last</FormLabel>
+                <FormControl>
+                  <Input {...field} value={field.value ?? ""} aria-label="Credits last" type="number" min={1} step={1} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name={`meterCredits.${index}.expiresAfterUnit`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-xs">&nbsp;</FormLabel>
+                <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
+                  <FormControl>
+                    <SelectTrigger aria-label="Lifetime unit">
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {CREDIT_EXPIRY_UNIT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={String(option.value)}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField

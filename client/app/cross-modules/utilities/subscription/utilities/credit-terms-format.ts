@@ -10,9 +10,30 @@ export interface CreditTermsSummary {
   maxQuantity?: number | null;
   /** The form holds the number, a stored plan the name. */
   expiryPolicy: number | string;
+  /** A fixed lifetime from purchase; the form holds the unit's number, a stored plan its name. */
+  expiresAfter?: { count: number; unit: number | string } | null;
   taxRateBasisPoints?: number | null;
   taxMode?: string | null;
 }
+
+const UNIT: Record<string, string> = {
+  "0": "hour",
+  Hour: "hour",
+  "1": "day",
+  Day: "day",
+  "2": "week",
+  Week: "week",
+  "3": "month",
+  Month: "month",
+  "4": "year",
+  Year: "year",
+};
+
+/** "30 days", "1 month": a fixed credit lifetime as a reader would say it. */
+export const describeCreditLifetime = (lifetime: { count: number; unit: number | string }): string => {
+  const unit = UNIT[String(lifetime.unit)] ?? "day";
+  return `${lifetime.count.toLocaleString()} ${unit}${lifetime.count === 1 ? "" : "s"}`;
+};
 
 const EXPIRY: Record<string, string> = {
   "0": "expire with the usage window",
@@ -45,7 +66,9 @@ export const describeCreditTerms = (credit: CreditTermsSummary): string => {
   const parts = [
     `${prices} per credit`,
     bounds,
-    `credits ${EXPIRY[String(credit.expiryPolicy)] ?? "expire with the usage window"}`,
+    credit.expiresAfter
+      ? `credits last ${describeCreditLifetime(credit.expiresAfter)} from purchase`
+      : `credits ${EXPIRY[String(credit.expiryPolicy)] ?? "expire with the usage window"}`,
     ...(tax ? [tax] : []),
   ];
 

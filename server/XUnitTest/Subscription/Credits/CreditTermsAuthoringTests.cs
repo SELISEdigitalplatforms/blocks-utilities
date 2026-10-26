@@ -98,20 +98,97 @@ public sealed class CreditTermsAuthoringTests
     }
 
     [Fact]
+    public async Task A_fixed_credit_lifetime_is_accepted()
+    {
+        var topUp = TopUp();
+        topUp.ExpiresAfter = new CreditExpiryDurationRequest { Count = 90, Unit = CreditExpiryUnit.Day };
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(PlanWith(topUp));
+
+        result.IsValid.Should().BeTrue(
+            "credits that last a set time are an ordinary offer: {0}",
+            string.Join("; ", result.Errors.Select(error => error.ErrorMessage)));
+    }
+
+    [Fact]
+    public async Task A_zero_length_credit_lifetime_is_refused()
+    {
+        var topUp = TopUp();
+        topUp.ExpiresAfter = new CreditExpiryDurationRequest { Count = 0, Unit = CreditExpiryUnit.Month };
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(PlanWith(topUp));
+
+        result.IsValid.Should().BeFalse("credits that expire the instant they are bought are a trap, not an offer");
+    }
+
+    [Fact]
+    public async Task An_unknown_credit_lifetime_unit_is_refused()
+    {
+        var topUp = TopUp();
+        topUp.ExpiresAfter = new CreditExpiryDurationRequest { Count = 1, Unit = (CreditExpiryUnit)9 };
+
+        var result = await new PlanDefinitionRequestValidator().ValidateAsync(PlanWith(topUp));
+
+        result.IsValid.Should().BeFalse("a unit the expiry arithmetic cannot read must be refused at authoring, not at purchase");
+    }
+
+    [Fact]
+    public void A_month_long_lifetime_follows_the_calendar_rather_than_counting_days()
+    {
+        var lifetime = new CreditExpiryDuration { Count = 1, Unit = CreditExpiryUnit.Month };
+
+        lifetime.EndFrom(new DateTime(2026, 1, 31, 9, 0, 0, DateTimeKind.Utc))
+            .Should().Be(new DateTime(2026, 2, 28, 9, 0, 0, DateTimeKind.Utc),
+                "a month from the 31st lands on the last day of February, the same rule a billing period follows");
+    }
+
+    [Fact]
+    public void A_week_long_lifetime_is_seven_days()
+    {
+        var lifetime = new CreditExpiryDuration { Count = 2, Unit = CreditExpiryUnit.Week };
+
+        lifetime.EndFrom(new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc))
+            .Should().Be(new DateTime(2026, 3, 15, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public void A_subscriber_is_told_the_fixed_lifetime_of_the_credits_on_offer()
+    {
+        var subscription = SubscriptionWith(new MeterTopUpTerms
+        {
+            Enabled = true,
+            UnitPrices = [new MeterTopUpPrice { CurrencyCode = "CHF", UnitAmountMinor = 10 }],
+            MaxQuantity = 1_000,
+            ExpiryPolicy = MeterResetPolicy.Never,
+            ExpiresAfter = new CreditExpiryDuration { Count = 6, Unit = CreditExpiryUnit.Month }
+        });
+
+        var credit = PricedMapper().ToResponse(subscription).Meters.Single().CreditPurchase;
+
+        credit!.ExpiresAfter.Should().NotBeNull("a buyer has to see how long the credits last before paying");
+        credit.ExpiresAfter!.Count.Should().Be(6);
+        credit.ExpiresAfter.Unit.Should().Be("Month");
+    }
+
+    [Fact]
     public void A_snapshot_of_credit_terms_does_not_share_its_prices_with_the_catalogue()
     {
         var catalogue = new MeterTopUpTerms
         {
             Enabled = true,
             UnitPrices = [new MeterTopUpPrice { CurrencyCode = "CHF", UnitAmountMinor = 10 }],
-            MaxQuantity = 1_000
+            MaxQuantity = 1_000,
+            ExpiresAfter = new CreditExpiryDuration { Count = 30, Unit = CreditExpiryUnit.Day }
         };
 
         var snapshot = catalogue.Clone();
         catalogue.UnitPrices[0].UnitAmountMinor = 99;
+        catalogue.ExpiresAfter!.Count = 7;
 
         snapshot.UnitPrices[0].UnitAmountMinor.Should().Be(10,
             "a catalogue price rise must never reprice a subscriber who already holds the plan");
+        snapshot.ExpiresAfter!.Count.Should().Be(30,
+            "shortening the lifetime in the catalogue must not shorten what a subscriber already bought");
     }
 
     // ---- what a subscriber is shown -------------------------------------------------------

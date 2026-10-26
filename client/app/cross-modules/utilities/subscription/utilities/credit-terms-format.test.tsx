@@ -57,6 +57,15 @@ describe("describeCreditTerms", () => {
     expect(describeCreditTerms(credit({ expiryPolicy: 1 }))).toContain("credits never expire");
   });
 
+  it("states a fixed lifetime in place of the policy, with the unit a reader would use", () => {
+    expect(describeCreditTerms(credit({ expiryPolicy: 1, expiresAfter: { count: 30, unit: 1 } }))).toContain(
+      "credits last 30 days from purchase",
+    );
+    expect(
+      describeCreditTerms(credit({ expiryPolicy: "Never", expiresAfter: { count: 1, unit: "Month" } })),
+    ).toContain("credits last 1 month from purchase");
+  });
+
   it("says whether the tax is inside the price or added to it", () => {
     expect(describeCreditTerms(credit({ taxRateBasisPoints: 810, taxMode: "Inclusive" }))).toContain(
       "8.1% tax included",

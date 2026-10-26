@@ -96,11 +96,25 @@ public sealed class MeterTopUpRequest
     /// <summary>Periodic expires with the usage window, CarryForward rolls until a plan change, Never does not expire.</summary>
     public MeterResetPolicy ExpiryPolicy { get; set; } = MeterResetPolicy.Periodic;
 
+    /// <summary>
+    /// A fixed lifetime from issue — "30 days", "1 year" — or null for none. Combined with the
+    /// policy, the earlier end wins.
+    /// </summary>
+    public CreditExpiryDurationRequest? ExpiresAfter { get; set; }
+
     /// <summary>Basis points out of 10,000. Null or zero is untaxed.</summary>
     public int? TaxRateBasisPoints { get; set; }
 
     /// <summary>Required with a positive rate.</summary>
     public TaxMode? TaxMode { get; set; }
+}
+
+public sealed class CreditExpiryDurationRequest
+{
+    /// <summary>At least one.</summary>
+    public int Count { get; set; }
+
+    public CreditExpiryUnit Unit { get; set; }
 }
 
 public sealed class MeterTopUpPriceRequest
