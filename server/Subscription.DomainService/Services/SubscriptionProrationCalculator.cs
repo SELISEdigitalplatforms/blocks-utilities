@@ -58,10 +58,8 @@ public static class SubscriptionProrationCalculator
             return new ProrationOutcome(0, subscription.CreditBalanceMinor);
         }
 
-        var remainingTicks = Math.Clamp(
-            (subscription.CurrentPeriodEndUtc - nowUtc).Ticks,
-            0,
-            totalTicks);
+        var remainingTicks = RemainingTicks(
+            subscription.CurrentPeriodStartUtc, subscription.CurrentPeriodEndUtc, nowUtc);
 
         // The outgoing period's own calendar fraction, when it has one — a plan change replaces
         // CurrentPeriodStartUtc/EndUtc, so this cannot be read from InitialChargeProrated or the
@@ -163,10 +161,7 @@ public static class SubscriptionProrationCalculator
 
         var oldRemainingValue = Prorate(oldTaxInclusive, remainingTicks, totalTicks);
         var targetTotalTicks = (targetPeriodEndUtc - targetPeriodStartUtc).Ticks;
-        var targetRemainingTicks = Math.Clamp(
-            (targetPeriodEndUtc - nowUtc).Ticks,
-            0,
-            Math.Max(0, targetTotalTicks));
+        var targetRemainingTicks = RemainingTicks(targetPeriodStartUtc, targetPeriodEndUtc, nowUtc);
 
         // A day-counted target is already exactly the period being bought — it runs from now to
         // the next boundary — so scaling it again by the time left in it would prorate it twice.
@@ -441,6 +436,23 @@ public static class SubscriptionProrationCalculator
     /// floating-point ratio, which the rest of this module's money arithmetic deliberately never
     /// does.
     /// </remarks>
+    /// <summary>How much of a period is still ahead of <paramref name="nowUtc"/>.</summary>
+    /// <remarks>
+    /// The whole period while <paramref name="nowUtc"/> is still inside its first minute. A
+    /// schedule anchors to the whole minute (BillingSchedule.AnchorMinutesFromMidnight), so a
+    /// period opened at 06:31:01.5 starts at 06:31:00 — those seconds are rounding in the anchor,
+    /// not time anyone has had on the plan, and Prorate's floor turned them into a lost cent on
+    /// both sides: a $0 -> $49.00 upgrade was invoiced 4899.
+    /// </remarks>
+    private static long RemainingTicks(DateTime startUtc, DateTime endUtc, DateTime nowUtc)
+    {
+        var totalTicks = Math.Max(0, (endUtc - startUtc).Ticks);
+
+        return nowUtc - startUtc < TimeSpan.FromMinutes(1)
+            ? totalTicks
+            : Math.Clamp((endUtc - nowUtc).Ticks, 0, totalTicks);
+    }
+
     private static long Prorate(long amountMinor, long remainingTicks, long totalTicks) =>
         (long)((Int128)amountMinor * remainingTicks / totalTicks);
 

@@ -38,7 +38,7 @@ public sealed class SubscriptionReportsController : ControllerBase
         _reports = reports;
 
     /// <summary>
-    /// Metered volume over a window, bucketed by day or month.
+    /// Metered volume over a window, bucketed by day, week or month.
     /// </summary>
     /// <remarks>
     /// <c>meterKey</c> selects one meter and defaults to all of them. It is a parameter because a

@@ -37,7 +37,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<string?>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
-                It.IsAny<bool>(),
+                It.IsAny<UsageReportGranularity>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
@@ -266,7 +266,7 @@ public sealed class SubscriptionReportingServiceTests
                 null,
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
-                It.IsAny<bool>(),
+                It.IsAny<UsageReportGranularity>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
@@ -289,6 +289,22 @@ public sealed class SubscriptionReportingServiceTests
         bucket.RecordCount.Should().Be(14);
     }
 
+    [Theory]
+    [InlineData("2026-03-09", "2026-03-09")]
+    [InlineData("2026-03-10", "2026-03-09")]
+    [InlineData("2026-03-15", "2026-03-09")]
+    [InlineData("2026-03-01", "2026-02-23")]
+    public void A_week_bucket_starts_on_the_monday_on_or_before_the_day(string day, string monday)
+    {
+        var dayUtc = DateTime.SpecifyKind(DateTime.Parse(day, null), DateTimeKind.Utc);
+
+        SubscriptionReportingRepository
+            .BucketStart(dayUtc, UsageReportGranularity.Week)
+            .Should().Be(
+                DateTime.SpecifyKind(DateTime.Parse(monday, null), DateTimeKind.Utc),
+                "a week that crosses a month boundary must still start on its Monday");
+    }
+
     [Fact]
     public async Task A_granularity_the_endpoint_does_not_understand_is_refused()
     {
@@ -304,6 +320,7 @@ public sealed class SubscriptionReportingServiceTests
 
     [Theory]
     [InlineData("DAY", "day")]
+    [InlineData("Week", "week")]
     [InlineData("Month", "month")]
     public async Task Granularity_is_matched_whatever_its_casing(string sent, string expected)
     {
@@ -337,7 +354,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<string?>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
-                It.IsAny<bool>(),
+                It.IsAny<UsageReportGranularity>(),
                 It.IsAny<CancellationToken>()),
             Times.Never,
             "an unbounded range is a full ledger scan and must be refused, not merely slow");
@@ -367,7 +384,7 @@ public sealed class SubscriptionReportingServiceTests
                 null,
                 new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
                 new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
-                true,
+                UsageReportGranularity.Month,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

@@ -1,12 +1,14 @@
 using FluentAssertions;
 using FluentValidation;
 using FluentValidation.Results;
+using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace XUnitTest.Payment;
 
@@ -32,7 +34,8 @@ public sealed class PaymentRefundPreflightServiceTests
 
     private PaymentRefundPreflightService CreateService() => new(
         _validator.Object, _minorUnits.Object, _rateLimiter.Object,
-        _refunds.Object, _payments.Object, _providers.Object, _strategies.Object);
+        _refunds.Object, _payments.Object, _providers.Object, _strategies.Object,
+        Mock.Of<IOptionsMonitor<PaymentOptions>>(m => m.CurrentValue == new PaymentOptions()));
 
     private static CreatePaymentRefundRequest Request(decimal amount = 10) => new() { Amount = amount };
 

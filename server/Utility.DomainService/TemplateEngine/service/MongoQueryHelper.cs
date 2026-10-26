@@ -15,6 +15,16 @@ namespace Utility.DomainService.TemplateEngine.service
     [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]
     public class MongoQueryHelper
     {
+        /// <summary>
+        /// The most documents one query may bring into memory, paged or not.
+        /// </summary>
+        /// <remarks>
+        /// Every matched document is held, converted and rendered in this process, so a caller asking
+        /// for a whole collection (or a page of <c>int.MaxValue</c>) could exhaust the host's memory.
+        /// </remarks>
+        // ponytail: fixed cap, make it configurable if a tenant's real exports outgrow it
+        public const int MaxDocumentsPerQuery = 10_000;
+
         private static readonly Regex EntityNamePattern = new("^[A-Za-z][A-Za-z0-9_]*$", RegexOptions.CultureInvariant);
 
         private static readonly HashSet<string> ForbiddenOperators = new(StringComparer.Ordinal)
@@ -112,7 +122,7 @@ namespace Utility.DomainService.TemplateEngine.service
 
                 // Execute query with pagination
                 var pageNumber = queryData.PageNumber ?? 0;
-                var pageLimit = queryData.PageLimit ?? 100;
+                var pageLimit = Math.Clamp(queryData.PageLimit ?? 100, 1, MaxDocumentsPerQuery);
 
                 var documents = await collection.Find(filter)
                     .Sort(sortDefinition)
@@ -140,10 +150,18 @@ namespace Utility.DomainService.TemplateEngine.service
             {
                 var (collection, filter, sortDefinition) = GetMongoQueryComponents(queryData, tenantId);
 
-                // Execute query without pagination
+                // One past the cap tells "exactly the cap" apart from "more than the cap"
                 var documents = await collection.Find(filter)
                     .Sort(sortDefinition)
+                    .Limit(MaxDocumentsPerQuery + 1)
                     .ToListAsync();
+
+                // Refused rather than truncated: a generated file silently missing rows reads as complete
+                if (documents.Count > MaxDocumentsPerQuery)
+                {
+                    throw new InvalidOperationException(
+                        $"The query matches more than {MaxDocumentsPerQuery} documents; narrow it or page through it.");
+                }
 
                 return ConvertBsonDocumentsToObjects(documents, queryData.EntityName, " (no pagination)");
             }

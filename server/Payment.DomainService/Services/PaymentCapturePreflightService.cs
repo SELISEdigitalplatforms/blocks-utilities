@@ -1,8 +1,10 @@
 using FluentValidation;
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Services;
 
@@ -15,6 +17,7 @@ public sealed class PaymentCapturePreflightService :
     private readonly IPaymentCaptureRepository _captures;
     private readonly IPaymentRepository _payments;
     private readonly IPaymentProviderCache _providers;
+    private readonly IOptionsMonitor<PaymentOptions> _options;
 
     public PaymentCapturePreflightService(
         IValidator<CreatePaymentCaptureRequest> validator,
@@ -22,7 +25,8 @@ public sealed class PaymentCapturePreflightService :
         IPaymentRateLimiter rateLimiter,
         IPaymentCaptureRepository captures,
         IPaymentRepository payments,
-        IPaymentProviderCache providers)
+        IPaymentProviderCache providers,
+        IOptionsMonitor<PaymentOptions> options)
     {
         _validator = validator;
         _minorUnits = minorUnits;
@@ -30,6 +34,7 @@ public sealed class PaymentCapturePreflightService :
         _captures = captures;
         _payments = payments;
         _providers = providers;
+        _options = options;
     }
 
     public async Task<PaymentCapturePreflightResult> ExecuteAsync(
@@ -87,7 +92,11 @@ public sealed class PaymentCapturePreflightService :
             paymentDetailId,
             cancellationToken);
 
-        if (payment == null)
+        if (payment == null ||
+            !PaymentOrganizationScope.MayAccess(
+                payment,
+                context.OrganizationId,
+                _options.CurrentValue))
         {
             return Failed(
                 PaymentFailureKind.NotFound,

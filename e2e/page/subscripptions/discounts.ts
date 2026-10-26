@@ -262,3 +262,161 @@ export async function verifyAllOfferTypesAreSelectable(page: Page): Promise<void
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("button", { name: "New discount" })).toBeVisible();
 }
+
+/**
+ * Discounts (#549): sticky progress + action bars on Eligibility, and edit Save changes.
+ * Layout-dependent — uses viewport resize + scroll; asserts data-stuck and z-order of Select.
+ */
+export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
+  // Tall viewport first so Identity fits without pinning the action bar.
+  await page.setViewportSize({ width: 1440, height: 1200 });
+  await page.getByRole("button", { name: "New discount" }).click();
+  await expect(page.getByRole("region", { name: "Discount creation progress" })).toBeVisible();
+  await expect(page.getByTestId("campaign-builder-actions")).toHaveAttribute("data-stuck", "false");
+  await expect(page.getByRole("region", { name: "Discount creation progress" })).toHaveAttribute(
+    "data-stuck",
+    "false",
+  );
+
+  await fillIdentityStepAndAdvance(page, `sticky-${Date.now()}`, "Sticky test");
+  await fillBenefitStepAndAdvance(page, "10");
+  await expect(page.getByRole("heading", { name: "Eligibility" })).toBeVisible();
+
+  // Utilities shell scrolls an inner overflow-y-auto region (not window). CSS sticky pins to
+  // that scrollport (~60px below the app chrome). useStickyActionBar's bottom IO reports
+  // data-stuck=true there; useStickyStepper's top IO (viewport root, top<=1px) does not —
+  // same limitation as plan-builder. Prove progress pin visually; prove action bar via data-stuck.
+  await page.setViewportSize({ width: 1440, height: 480 });
+  await page.evaluate(() => {
+    const progress = document.querySelector('[aria-label="Discount creation progress"]');
+    if (!(progress instanceof HTMLElement)) return;
+    let scroll: HTMLElement | null = null;
+    let node: HTMLElement | null = progress.parentElement;
+    while (node) {
+      const oy = getComputedStyle(node).overflowY;
+      if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
+        scroll = node;
+        break;
+      }
+      node = node.parentElement;
+    }
+    if (!scroll) return;
+    const portTop = () => scroll!.getBoundingClientRect().top;
+    for (let i = 0; i < 50; i++) {
+      const top = progress.getBoundingClientRect().top;
+      if (Math.abs(top - portTop()) <= 1) break;
+      scroll.scrollTop += Math.min(160, Math.max(24, top - portTop()));
+    }
+  });
+
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const progress = document.querySelector('[aria-label="Discount creation progress"]');
+          if (!(progress instanceof HTMLElement)) return null;
+          let scroll: HTMLElement | null = null;
+          let node: HTMLElement | null = progress.parentElement;
+          while (node) {
+            const oy = getComputedStyle(node).overflowY;
+            if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
+              scroll = node;
+              break;
+            }
+            node = node.parentElement;
+          }
+          if (!scroll) return null;
+          return Math.abs(progress.getBoundingClientRect().top - scroll.getBoundingClientRect().top) <= 1;
+        }),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+
+  // Hold the pin while scrolling further — catalogue content moves under the progress bar.
+  const pinnedTop = await page.evaluate(() => {
+    const progress = document.querySelector('[aria-label="Discount creation progress"]');
+    let scroll: HTMLElement | null = null;
+    let node = progress?.parentElement ?? null;
+    while (node) {
+      const oy = getComputedStyle(node).overflowY;
+      if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
+        scroll = node;
+        break;
+      }
+      node = node.parentElement;
+    }
+    if (scroll) scroll.scrollTop += 120;
+    return progress?.getBoundingClientRect().top ?? -1;
+  });
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const progress = document.querySelector('[aria-label="Discount creation progress"]');
+        let scroll: HTMLElement | null = null;
+        let node = progress?.parentElement ?? null;
+        while (node) {
+          const oy = getComputedStyle(node).overflowY;
+          if ((oy === "auto" || oy === "scroll" || oy === "overlay") && node.scrollHeight > node.clientHeight + 1) {
+            scroll = node;
+            break;
+          }
+          node = node.parentElement;
+        }
+        if (!progress || !scroll) return false;
+        return Math.abs(progress.getBoundingClientRect().top - scroll.getBoundingClientRect().top) <= 1;
+      }),
+    )
+    .toBe(true);
+  expect(pinnedTop).toBeGreaterThanOrEqual(0);
+
+  await expect
+    .poll(async () => page.getByTestId("campaign-builder-actions").getAttribute("data-stuck"), {
+      timeout: 15_000,
+    })
+    .toBe("true");
+
+  // H6: clicking Identity in the pinned progress bar navigates back.
+  // Completed steps render a Check icon (not the digit), so match by step title.
+  await page
+    .getByRole("region", { name: "Discount creation progress" })
+    .getByRole("button", { name: /Identity/i })
+    .click();
+  await expect(page.getByLabel(/Code/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.setViewportSize({ width: 1440, height: 800 });
+}
+
+export async function verifyEditSubmitLabelIsSaveChanges(page: Page, name: string, code: string): Promise<void> {
+  const row = discountCatalogueRow(page, name, code);
+  if (!(await row.isVisible().catch(() => false))) {
+    return;
+  }
+  await row.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("region", { name: "Discount creation progress" })).toBeVisible();
+  // Walk to Review if not already there.
+  for (let i = 0; i < 3; i++) {
+    const save = page.getByRole("button", { name: "Save changes" });
+    if (await save.isVisible().catch(() => false)) break;
+    const next = page.getByRole("button", { name: "Next" });
+    if (await next.isEnabled().catch(() => false)) {
+      await next.click();
+    } else {
+      break;
+    }
+  }
+  await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create discount" })).toHaveCount(0);
+  // Walk back to step 1 so Cancel dismisses the wizard (Back on steps 2–4).
+  // Scope to the action bar — "Back to console" also matches a bare name: "Back".
+  const actions = page.getByTestId("campaign-builder-actions");
+  for (let i = 0; i < 4; i++) {
+    const cancel = actions.getByRole("button", { name: "Cancel" });
+    if (await cancel.isVisible().catch(() => false)) {
+      await cancel.click();
+      break;
+    }
+    await actions.getByRole("button", { name: "Back" }).click();
+  }
+}
+

@@ -33,7 +33,7 @@ public interface ISubscriptionReportingRepository
         string? meterKey,
         DateTime fromUtc,
         DateTime toUtc,
-        bool byMonth,
+        UsageReportGranularity granularity,
         CancellationToken cancellationToken);
 
     /// <summary>Every subscription in the tenant holding one of the given statuses.</summary>
