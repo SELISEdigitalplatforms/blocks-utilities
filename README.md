@@ -59,7 +59,7 @@ repository. How a message looks, and where it is finally sent, belongs to the ma
 ## Drive
 
 API-only integration with OneDrive and SharePoint through Microsoft Graph, built for the SELISE
-Signature app (spec: `docs/specs/004-drive-integration.md`). Nothing in the console shows it.
+Signature app (spec: `docs/specs/004-drive-integration/README.md`). Nothing in the console shows it.
 
 - One platform-owned, **multi-tenant** Entra app registration. Users from any Microsoft
   organization or personal account consent to it with delegated permissions; the backend never
