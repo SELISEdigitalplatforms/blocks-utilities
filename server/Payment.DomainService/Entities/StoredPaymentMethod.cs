@@ -71,6 +71,7 @@ public sealed class StoredPaymentMethod
     public string? LastFour { get; set; }
     public string? ExpiryMonth { get; set; }
     public string? ExpiryYear { get; set; }
+    public string? HolderName { get; set; }
 
     /// <summary>
     /// The <see cref="Utilities.CardExpiry.Key"/> this card's approaching-expiry notice was sent

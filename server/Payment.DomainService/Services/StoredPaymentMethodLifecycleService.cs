@@ -98,6 +98,7 @@ public sealed class StoredPaymentMethodLifecycleService :
         method.LastFour = detail.LastFour;
         method.ExpiryMonth = detail.ExpiryMonth;
         method.ExpiryYear = detail.ExpiryYear;
+        method.HolderName = detail.HolderName ?? method.HolderName;
         method.FundingSource = detail.FundingSource;
         method.IssuerCountry = detail.IssuerCountry;
 
@@ -579,6 +580,7 @@ public sealed class StoredPaymentMethodLifecycleService :
             LastFour = payload.LastFour,
             ExpiryMonth = payload.ExpiryMonth,
             ExpiryYear = payload.ExpiryYear,
+            HolderName = payload.HolderName,
             FundingSource = payload.FundingSource,
             IssuerCountry = payload.IssuerCountry,
             Status = PaymentMethodStatus.Active,

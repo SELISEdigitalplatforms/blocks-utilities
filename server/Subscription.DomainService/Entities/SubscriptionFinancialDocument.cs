@@ -383,12 +383,13 @@ public sealed class FinancialDocumentLine
 }
 
 /// <summary>
-/// The masked card a charge was taken from: its network and last four digits, nothing more.
+/// The masked card a charge was taken from: its network, last four digits and expiry, nothing more.
 /// </summary>
 /// <remarks>
-/// Deliberately no expiry, no holder name and no token. Brand and last four are what a subscriber
-/// recognises their card by and what a receipt conventionally prints; anything beyond that turns a
-/// document mailed as a PDF into a copy of card data it has no need to carry.
+/// Deliberately no token and no number beyond the last four. Brand, last four and expiry are what a
+/// subscriber recognises their card by, and together with the billing contact printed beside them
+/// let a customer match the invoice to a card statement. Expiry is null where the provider did not
+/// report one; the document then says nothing about it rather than guessing.
 /// </remarks>
 [BsonIgnoreExtraElements]
 public sealed class FinancialDocumentPaymentCard
@@ -397,6 +398,15 @@ public sealed class FinancialDocumentPaymentCard
     public string? Brand { get; set; }
 
     public string LastFour { get; set; } = string.Empty;
+
+    /// <summary>Two digits, as the provider reported it. Null when not reported.</summary>
+    public string? ExpiryMonth { get; set; }
+
+    /// <summary>Two or four digits, as the provider reported it. Null when not reported.</summary>
+    public string? ExpiryYear { get; set; }
+
+    /// <summary>The name on the card, as the provider reported it. Null when not reported.</summary>
+    public string? HolderName { get; set; }
 }
 
 /// <summary>
