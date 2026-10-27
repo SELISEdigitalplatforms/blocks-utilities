@@ -252,6 +252,7 @@ public sealed class AdyenWebhookNormalizer : IWebhookNormalizer
             LastFour = SafeLastFour(lastFour),
             ExpiryMonth = expiryParts?.Length == 2 ? expiryParts[0] : null,
             ExpiryYear = expiryParts?.Length == 2 ? expiryParts[1] : null,
+            HolderName = Get(item.AdditionalData, "cardHolderName"),
             FundingSource = Get(item.AdditionalData, "fundingSource"),
             IssuerCountry = Get(item.AdditionalData, "issuerCountry"),
             IssuerName = Get(item.AdditionalData, "issuerName"),

@@ -71,6 +71,7 @@ public sealed class StoredPaymentMethod
     public string? LastFour { get; set; }
     public string? ExpiryMonth { get; set; }
     public string? ExpiryYear { get; set; }
+    public string? HolderName { get; set; }
     public string? FundingSource { get; set; }
     public string? IssuerCountry { get; set; }
     public PaymentMethodStatus Status { get; set; } = PaymentMethodStatus.Active;

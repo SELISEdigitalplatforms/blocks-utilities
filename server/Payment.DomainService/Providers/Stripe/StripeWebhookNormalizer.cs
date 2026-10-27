@@ -195,6 +195,11 @@ public sealed class StripeWebhookNormalizer : IWebhookNormalizer
             LastFour = card.ValueKind == JsonValueKind.Object
                 ? GetString(card, "last4")
                 : null,
+            // Only a Charge carries billing_details; a PaymentIntent event yields none, exactly as
+            // last4 above. The stored-card detail gateway backfills it from the PaymentMethod.
+            HolderName = subject.TryGetProperty("billing_details", out var billing)
+                ? GetString(billing, "name")
+                : null,
             ProviderFailureCode = ReadFailureCode(subject)
         };
     }
