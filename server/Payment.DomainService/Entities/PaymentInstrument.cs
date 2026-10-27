@@ -12,6 +12,9 @@ public sealed class PaymentInstrument
     public string? LastFour { get; set; }
     public string? ExpiryMonth { get; set; }
     public string? ExpiryYear { get; set; }
+
+    /// <summary>The name on the card that paid, as the provider reported it.</summary>
+    public string? HolderName { get; set; }
     public string? FundingSource { get; set; }
     public string? IssuerCountry { get; set; }
     public string? IssuerName { get; set; }

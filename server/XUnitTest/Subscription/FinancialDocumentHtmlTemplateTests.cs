@@ -680,7 +680,7 @@ public sealed class FinancialDocumentHtmlTemplateTests
             new FinancialDocumentPaymentCard { Brand = "visa", LastFour = "4242" });
 
         html.Should().Contain(
-            "<div class=\"card\"><div class=\"strong\">Payment method</div><div>Visa •••• 4242</div></div>");
+            "<div class=\"card\"><div class=\"strong\">Payment method</div><div>Visa •••• 4242</div>");
         html.IndexOf("class=\"card\"", StringComparison.Ordinal)
             .Should().BeGreaterThan(
                 html.IndexOf("<table class=\"totals\">", StringComparison.Ordinal),
@@ -704,14 +704,49 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
-    public void Only_the_last_four_digits_of_the_card_are_ever_printed()
+    public void The_card_expiry_and_the_payer_follow_the_masked_number()
     {
-        var html = Render(document => document.PaymentCard =
-            new FinancialDocumentPaymentCard { Brand = "visa", LastFour = "4242" });
+        var html = Render(document =>
+        {
+            document.PaymentCard = new FinancialDocumentPaymentCard
+            {
+                Brand = "visa",
+                LastFour = "4242",
+                ExpiryMonth = "03",
+                ExpiryYear = "2030"
+            };
+            document.BillingContact.Name = "Dana Payer";
+        });
 
-        html.Should().NotContainAny(
-            ["Expires", "4242 4242"],
-            "a mailed PDF has no need of card data beyond what identifies the card to its holder");
+        html.Should().Contain(
+            "<div>Visa •••• 4242</div><div>Expires 03/30</div><div>Payer: Dana Payer</div>",
+            "a customer matches an invoice to a statement by last four, expiry and name");
+    }
+
+    [Fact]
+    public void The_cardholder_is_named_over_the_billing_contact_when_the_provider_reported_one()
+    {
+        var html = Render(document =>
+        {
+            document.PaymentCard = new FinancialDocumentPaymentCard
+            {
+                Brand = "visa",
+                LastFour = "4242",
+                HolderName = "Dana Holder"
+            };
+            document.BillingContact.Name = "Someone Else";
+        });
+
+        html.Should().Contain("<div>Cardholder: Dana Holder</div>");
+        html.Should().NotContain("Payer:", "the cardholder is the better identification of the two");
+    }
+
+    [Fact]
+    public void A_card_whose_expiry_was_not_reported_prints_none()
+    {
+        Render(document => document.PaymentCard =
+                new FinancialDocumentPaymentCard { Brand = "visa", LastFour = "4242" })
+            .Should().NotContain("Expires", "a guessed expiry is worse than none");
     }
 
     [Fact]

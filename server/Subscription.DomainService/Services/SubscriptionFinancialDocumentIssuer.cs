@@ -289,6 +289,20 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         SubscriptionDetail subscription,
         CancellationToken cancellationToken)
     {
+        // The card the provider reported on the charge itself is the card that paid, whatever
+        // the account holds now. Only a charge that reported none falls back to the saved card.
+        if (payment.PaymentInstrument is { } paid && IsLastFour(paid.LastFour))
+        {
+            return new FinancialDocumentPaymentCard
+            {
+                Brand = paid.Brand,
+                LastFour = paid.LastFour!,
+                ExpiryMonth = paid.ExpiryMonth,
+                ExpiryYear = paid.ExpiryYear,
+                HolderName = paid.HolderName
+            };
+        }
+
         if (_storedMethods is null)
         {
             return null;
@@ -322,8 +336,15 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
             // Four digits or nothing. A value of any other shape is not a card's last four, and
             // printing it beside the mask would put something unverified on a financial record.
-            return method?.LastFour is { Length: 4 } lastFour && lastFour.All(char.IsAsciiDigit)
-                ? new FinancialDocumentPaymentCard { Brand = method.Brand, LastFour = lastFour }
+            return method is not null && IsLastFour(method.LastFour)
+                ? new FinancialDocumentPaymentCard
+                {
+                    Brand = method.Brand,
+                    LastFour = method.LastFour!,
+                    ExpiryMonth = method.ExpiryMonth,
+                    ExpiryYear = method.ExpiryYear,
+                    HolderName = method.HolderName
+                }
                 : null;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -333,6 +354,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             return null;
         }
     }
+
+    private static bool IsLastFour(string? value) =>
+        value is { Length: 4 } && value.All(char.IsAsciiDigit);
 
     public async Task<int> IssueForSubscriptionAsync(
         string tenantId,
