@@ -72,6 +72,18 @@ public sealed class MeterTopUpRequestValidator : AbstractValidator<MeterTopUpReq
             .WithMessage("Credits expire with the usage window, carry forward, or never expire.")
             .WithErrorCode(ErrorCode);
 
+        RuleFor(terms => terms.ExpiresAfter!.Count)
+            .GreaterThanOrEqualTo(1)
+            .When(terms => terms.ExpiresAfter is not null)
+            .WithMessage("A fixed credit lifetime is at least one hour, day, week, month or year.")
+            .WithErrorCode(ErrorCode);
+
+        RuleFor(terms => terms.ExpiresAfter!.Unit)
+            .IsInEnum()
+            .When(terms => terms.ExpiresAfter is not null)
+            .WithMessage("A credit lifetime is counted in hours, days, weeks, months or years.")
+            .WithErrorCode(ErrorCode);
+
         RuleFor(terms => terms.TaxRateBasisPoints!.Value)
             .InclusiveBetween(0, 10_000)
             .When(terms => terms.TaxRateBasisPoints.HasValue)

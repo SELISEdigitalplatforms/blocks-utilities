@@ -829,6 +829,8 @@ export interface CreditPurchaseTerms {
   minQuantity: number;
   maxQuantity: number;
   expiryPolicy: "Periodic" | "CarryForward" | "Never";
+  /** A fixed lifetime from purchase, or null when the policy alone decides. */
+  expiresAfter?: { count: number; unit: "Hour" | "Day" | "Week" | "Month" | "Year" } | null;
   taxRateBasisPoints: number | null;
   taxMode: "Exclusive" | "Inclusive" | null;
 }

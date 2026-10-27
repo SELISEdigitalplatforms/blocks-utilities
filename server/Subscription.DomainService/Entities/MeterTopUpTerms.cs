@@ -18,7 +18,10 @@ namespace Subscription.DomainService.Entities;
 /// </para>
 /// <para>
 /// Snapshotted onto the subscription with the rest of the plan, so a price raised in the catalogue
-/// reaches new subscribers only. A purchase is quoted from the subscriber's own copy.
+/// reaches new subscribers only. A purchase is quoted from the subscriber's own copy. The one
+/// exception is a snapshot with no terms at all: when the catalogue starts selling credits on the
+/// meter, live subscriptions adopt the new terms — see
+/// <c>ISubscriptionRepository.AdoptMeterTopUpAsync</c>.
 /// </para>
 /// </remarks>
 [BsonIgnoreExtraElements]
@@ -56,6 +59,12 @@ public sealed class MeterTopUpTerms
     /// </remarks>
     public MeterResetPolicy ExpiryPolicy { get; set; } = MeterResetPolicy.Periodic;
 
+    /// <summary>
+    /// A fixed lifetime from the moment credits are issued, or null for none. A grant ends at this
+    /// or at what <see cref="ExpiryPolicy"/> says, whichever comes first.
+    /// </summary>
+    public CreditExpiryDuration? ExpiresAfter { get; set; }
+
     /// <summary>Basis points out of 10,000. Null or zero is untaxed.</summary>
     public int? TaxRateBasisPoints { get; set; }
 
@@ -82,6 +91,7 @@ public sealed class MeterTopUpTerms
         MinQuantity = MinQuantity,
         MaxQuantity = MaxQuantity,
         ExpiryPolicy = ExpiryPolicy,
+        ExpiresAfter = ExpiresAfter?.Clone(),
         TaxRateBasisPoints = TaxRateBasisPoints,
         TaxMode = TaxMode
     };

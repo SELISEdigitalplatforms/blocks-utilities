@@ -9,6 +9,7 @@ Utilities service of the SELISE `<Blocks/>` platform. It bundles the cross-cutti
 - **PDF generation**: server-side PDF rendering, stamping, and conversion of word-processing documents to PDF
 - **Sequences and identifiers**: ordered, unique identifier generation
 - **Geolocation**: IP geolocation lookups through a third-party provider
+- **Drive**: OneDrive and SharePoint for a connected user — browse, search, create folders, import into Blocks Storage and push Blocks Storage files back out — see [Drive](#drive) below
 - **Mail requests**: billing email is composed here and **published to the platform's mail service** for delivery — see [Mail](#mail) below
 
 The repository ships a web console (React) for managing these utilities and an HTTP API plus a background worker (both .NET) that implement them.
@@ -54,6 +55,33 @@ mail listener, which owns the templates, the transport and the sending:
 
 There is therefore no SMTP configuration, no mail template store and no template editor in this
 repository. How a message looks, and where it is finally sent, belongs to the mail service.
+
+## Drive
+
+API-only integration with OneDrive and SharePoint through Microsoft Graph, built for the SELISE
+Signature app (spec: `docs/specs/004-drive-integration/README.md`). Nothing in the console shows it.
+
+- One platform-owned, **multi-tenant** Entra app registration. Users from any Microsoft
+  organization or personal account consent to it with delegated permissions; the backend never
+  sees more than the user could open themselves.
+- One connection per user per project. `POST api/drive/connections` returns the Entra authorize
+  URL (PKCE); Entra calls `GET api/drive/connections/callback`, which stores the refresh token
+  encrypted and redirects to the caller's `returnUrl` with `?driveStatus=connected|failed|admin_consent_required`.
+  `returnUrl` must be on one of the project's registered domains.
+- `GET sites`, `GET items` (browse, search, sort, forward-only `cursor` paging), `POST folders`,
+  `POST imports` (drive file into Blocks Storage, returns the new `fileId`), `POST uploads`
+  (Blocks Storage files into a drive folder, per-file results, Graph renames on a name clash).
+- Organizations that require admin consent get `admin_consent_required`; `GET connections/me`
+  carries the admin-consent URL to show an IT admin.
+- Graph throttling is retried honoring `Retry-After`, then surfaced as 429 with the same header.
+
+Configuration: the `Drive` section in `appsettings*.json` holds `ClientId` and `RedirectUrl` of
+the Entra app, the authority and Graph URLs, scopes, size and page limits, and the **ids** of two
+Blocks Secrets: `ClientSecretSecretId` (the Entra client secret) and `TokenEncryptionKeySecretId`
+(base64 of 32 random bytes, the key refresh tokens are encrypted under). Create both secrets in
+the project's blocks-os console and put their ids here, exactly as `GeolocationApiKeySecretId`
+works; the values are read at runtime per project and cached for `SecretCacheSeconds`. The
+`StorageDirectories` map needs a `Blocks-Utilities-Drive-Imports` entry.
 
 ## Prerequisites
 
@@ -129,7 +157,7 @@ Deployment is driven by the workflows in `.github/workflows/`, not by a script i
 
 No secret values belong in this repository. The variables below are names only; set the values in your own environment.
 
-**Backend** (`server/Api/appsettings*.json`, `server/Worker/appsettings*.json`, plus the vault and the MongoDB-backed `Secrets` document): logging levels, `GeolocationApiUrl`, `GeolocationApiKeySecretId`, `GeolocationApiKeySecretName`, `GeolocationCacheSeconds`, `GeolocationProviderDelayMilliseconds`, `RootTenantId`, `ShortUrlBaseAddress`, `PdfToolPath`, `SnsConfigurationName`, and the `Payment` section (rate limits, lock and lease durations, webhook size and timeout budgets, currency minor units; the Worker adds outbox, webhook batch and reconciliation settings).
+**Backend** (`server/Api/appsettings*.json`, `server/Worker/appsettings*.json`, plus the vault and the MongoDB-backed `Secrets` document): logging levels, `GeolocationApiUrl`, `GeolocationApiKeySecretId`, `GeolocationApiKeySecretName`, `GeolocationCacheSeconds`, `GeolocationProviderDelayMilliseconds`, `RootTenantId`, `ShortUrlBaseAddress`, `PdfToolPath`, `SnsConfigurationName`, and the `Payment` section (rate limits, lock and lease durations, webhook size and timeout budgets, currency minor units; the Worker adds outbox, webhook batch and reconciliation settings). The `Drive` section and its two Blocks Secrets ids are described under [Drive](#drive).
 
 **Frontend** (`client/.env`, template in `client/.env.example`): `BLOCKS_API_BASE_URL`, `BLOCKS_X_BLOCKS_KEY`, `BLOCKS_GOOGLE_SITE_KEY`, `BLOCKS_CONSTRUCT_URL`, `BLOCKS_IDP_BASE_URL`, `BLOCKS_OIDC_CLIENT_ID`.
 
