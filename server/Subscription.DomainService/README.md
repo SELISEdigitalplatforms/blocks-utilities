@@ -183,6 +183,15 @@ ones and their past invoices included — keeps billing from the copy it took at
 through `ChangePlanAsync`, which re-snapshots. There is no bulk "move everyone to the latest
 version" yet; that would be a deliberate, separate operation.
 
+One deliberate, additive exception: purchasable credits (`PlanMeter.TopUp`). When an edit starts
+selling credits on a meter, every live subscription on the plan whose snapshot has no terms for
+that meter adopts them (`ISubscriptionRepository.AdoptMeterTopUpAsync`, called from
+`UpdatePlanAsync` after the plan write). Credit terms change nothing a subscriber already pays, so
+starting to sell them is an offer to everyone on the plan. A snapshot that already holds terms is
+never touched — a changed price, a new currency, a paused or withdrawn sale all reach new
+subscribers only, like every other edit. The adoption is idempotent and runs on every edit, so a
+failure after the plan write is repaired by the next one.
+
 Before any write moves the version on — an edit, a meter-rate change, or archiving — the version
 being replaced is copied, read-only, into `SubscriptionPlanVersions`. The id is
 `{planId}:{version}`, so a retried or raced copy of the same version is refused by the key and the

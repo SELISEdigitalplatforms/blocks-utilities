@@ -291,6 +291,41 @@ public sealed class SubscriptionCreditServiceTests
             "a buyer late in a window has to be told the credits end with it");
     }
 
+    [Fact]
+    public async Task A_fixed_lifetime_ends_credits_that_many_days_after_the_purchase()
+    {
+        _subscription.Plan.Meters[0].TopUp!.ExpiryPolicy = MeterResetPolicy.Never;
+        _subscription.Plan.Meters[0].TopUp!.ExpiresAfter = new CreditExpiryDuration { Count = 30, Unit = CreditExpiryUnit.Day };
+
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.ExpiresAtUtc.Should().Be(Now.UtcDateTime.AddDays(30),
+            "credits sold for a set time must end that long after they were bought, whatever the billing calendar does");
+    }
+
+    [Fact]
+    public async Task A_fixed_lifetime_longer_than_the_window_still_ends_with_the_window()
+    {
+        _subscription.Plan.Meters[0].TopUp!.ExpiresAfter = new CreditExpiryDuration { Count = 1, Unit = CreditExpiryUnit.Year };
+
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(), "corr-1", CancellationToken.None);
+
+        result.Value!.ExpiresAtUtc.Should().Be(new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc),
+            "window-bound credits are lost with the window; a lifetime only ever shortens that, never extends it");
+    }
+
+    [Fact]
+    public async Task A_fixed_lifetime_shorter_than_the_window_ends_the_credits_first()
+    {
+        _subscription.Plan.Meters[0].TopUp!.ExpiresAfter = new CreditExpiryDuration { Count = 6, Unit = CreditExpiryUnit.Hour };
+
+        var result = await Service().PreviewAsync(SubscriptionId, Buy(), "corr-1", CancellationToken.None);
+
+        result.Value!.ExpiresAtUtc.Should().Be(Now.UtcDateTime.AddHours(6),
+            "whichever end comes first is the one the subscriber has to be told about");
+    }
+
     // ---- purchase -------------------------------------------------------------------------
 
     [Fact]

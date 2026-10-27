@@ -322,6 +322,30 @@ public interface ISubscriptionRepository
         string periodKey,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Copies a meter's purchasable-credit terms onto every live subscription on the plan whose
+    /// snapshot has none for that meter, and returns how many it reached.
+    /// </summary>
+    /// <remarks>
+    /// The one deliberate exception to the snapshot rule. Credit terms are additive — they change
+    /// nothing about what a subscriber already pays — so an author who starts selling credits on
+    /// a plan that is already sold is offering them to existing subscribers too. A snapshot that
+    /// already holds terms is never touched, whatever the catalogue says now: a changed price or a
+    /// withdrawn sale reaches new subscribers only, like every other edit. Idempotent, so a plan
+    /// edit may call it on every meter that sells credits without diffing versions.
+    /// <para>
+    /// Bumps <c>Version</c> on each subscription it writes, so a plan or quantity change in flight
+    /// against the old snapshot fails its compare-and-set and re-reads instead of writing the
+    /// snapshot it holds back over the terms.
+    /// </para>
+    /// </remarks>
+    Task<long> AdoptMeterTopUpAsync(
+        string tenantId,
+        string planId,
+        string meterKey,
+        MeterTopUpTerms terms,
+        CancellationToken cancellationToken);
+
     /// <summary>Whether anything has ever subscribed to a plan, whatever became of it since.</summary>
     /// <remarks>
     /// Any status counts, cancelled included. Subscribing copies the plan's terms onto the

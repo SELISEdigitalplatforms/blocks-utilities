@@ -1,7 +1,9 @@
 import { TENANT_WIDE_ORGANIZATION } from "../constants/subscription.constants";
 import {
   BILLING_INTERVAL,
+  CREDIT_EXPIRY_UNIT,
   ENTITLEMENT_LIMIT_KIND,
+  FIXED_CREDIT_EXPIRY,
   METER_AGGREGATION,
   METER_RESET_POLICY,
   METER_SUB_LIMIT_BEHAVIOUR,
@@ -123,7 +125,14 @@ const toTopUp = (credit: CreateSubscriptionPlanFormValues["meterCredits"][number
           })),
         minQuantity: credit.minQuantity,
         maxQuantity: credit.maxQuantity ?? 0,
-        expiryPolicy: credit.expiryPolicy,
+        // "After a fixed time" is the form's own choice: on the wire it is a never-expiring grant
+        // capped by a lifetime, which is what the server's earlier-end-wins rule makes of it.
+        expiryPolicy:
+          credit.expiryPolicy === FIXED_CREDIT_EXPIRY ? METER_RESET_POLICY.Never : credit.expiryPolicy,
+        expiresAfter:
+          credit.expiryPolicy === FIXED_CREDIT_EXPIRY && credit.expiresAfterCount
+            ? { count: credit.expiresAfterCount, unit: credit.expiresAfterUnit }
+            : undefined,
         // A mode only beside a rate, exactly as a price's tax is sent.
         taxRateBasisPoints: credit.taxPercent ? toBasisPoints(credit.taxPercent) : undefined,
         taxMode: credit.taxPercent ? credit.taxMode : undefined,
@@ -158,6 +167,9 @@ const aggregationValue = (name: string): number =>
 
 const resetPolicyValue = (name?: string): number =>
   METER_RESET_POLICY[name as keyof typeof METER_RESET_POLICY] ?? METER_RESET_POLICY.Periodic;
+
+const expiryUnitValue = (name?: string): number =>
+  CREDIT_EXPIRY_UNIT[name as keyof typeof CREDIT_EXPIRY_UNIT] ?? CREDIT_EXPIRY_UNIT.Day;
 
 const combinationPolicyValue = (name?: string): number =>
   name === "Stack" ? 2 : name === "QuantityOnly" ? 1 : 0;
@@ -282,7 +294,11 @@ export const planToFormValues = (
       })),
       minQuantity: meter.topUp!.minQuantity,
       maxQuantity: meter.topUp!.maxQuantity || undefined,
-      expiryPolicy: resetPolicyValue(meter.topUp!.expiryPolicy),
+      expiryPolicy: meter.topUp!.expiresAfter
+        ? FIXED_CREDIT_EXPIRY
+        : resetPolicyValue(meter.topUp!.expiryPolicy),
+      expiresAfterCount: meter.topUp!.expiresAfter?.count,
+      expiresAfterUnit: expiryUnitValue(meter.topUp!.expiresAfter?.unit),
       taxPercent: meter.topUp!.taxRateBasisPoints
         ? fromBasisPoints(meter.topUp!.taxRateBasisPoints)
         : undefined,

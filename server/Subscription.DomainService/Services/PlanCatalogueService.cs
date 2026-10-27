@@ -1,5 +1,6 @@
 ﻿using FluentValidation;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -224,6 +225,8 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(plan.Code),
             correlationId);
+
+        await AdoptNewCreditTermsAsync(context.TenantId, plan.ItemId, edited, correlationId, cancellationToken);
 
         return await GetPlanAsync(
             plan.ItemId,
@@ -1175,6 +1178,61 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     /// response cannot be used to confirm that an identifier exists somewhere else.
     /// </summary>
     /// <summary>
+    /// Offers the plan's purchasable credits to subscribers whose snapshot was taken before the
+    /// meter sold any.
+    /// </summary>
+    /// <remarks>
+    /// The one additive exception to "an edit reaches nobody already on the plan": credit terms
+    /// change nothing a subscriber already pays, so starting to sell them is an offer to everyone
+    /// on the plan, not just the next signup. Only a snapshot with no terms for the meter is
+    /// written — see <see cref="ISubscriptionRepository.AdoptMeterTopUpAsync"/> — so a later
+    /// change or withdrawal of those terms still reaches new subscribers only, and calling this
+    /// on every edit is a no-op once everyone holds a copy.
+    /// <para>
+    /// Runs after the plan write and outside its compare-and-set, as one idempotent server-side
+    /// update per meter. A failure here leaves the catalogue correct and the next edit of the
+    /// plan fills whoever was missed, so it is logged rather than failing the edit.
+    /// </para>
+    /// </remarks>
+    private async Task AdoptNewCreditTermsAsync(
+        string tenantId,
+        string planId,
+        Plan edited,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        foreach (var meter in edited.Meters.Where(meter => meter.TopUp is not null))
+        {
+            try
+            {
+                var adopted = await _subscriptions.AdoptMeterTopUpAsync(
+                    tenantId, planId, meter.MeterKey, meter.TopUp!, cancellationToken);
+
+                if (adopted > 0)
+                {
+                    _logger.LogInformation(
+                        "Credit terms adopted by existing subscribers TenantId={TenantId} PlanHash={PlanHash} MeterKey={MeterKey} Count={Count} CorrelationId={CorrelationId}",
+                        PaymentLogValue.Id(tenantId),
+                        PaymentLogValue.Hash(planId),
+                        PaymentLogValue.Label(meter.MeterKey),
+                        adopted,
+                        correlationId);
+                }
+            }
+            catch (MongoException exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Credit terms could not be offered to existing subscribers TenantId={TenantId} PlanHash={PlanHash} MeterKey={MeterKey} CorrelationId={CorrelationId}",
+                    PaymentLogValue.Id(tenantId),
+                    PaymentLogValue.Hash(planId),
+                    PaymentLogValue.Label(meter.MeterKey),
+                    correlationId);
+            }
+        }
+    }
+
+    /// <summary>
     /// Refuses any catalogue change to an archived plan, or null when the plan is still open.
     /// </summary>
     /// <remarks>
@@ -1321,6 +1379,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                         MinQuantity = topUp.MinQuantity,
                         MaxQuantity = topUp.MaxQuantity,
                         ExpiryPolicy = topUp.ExpiryPolicy,
+                        ExpiresAfter = topUp.ExpiresAfter is { } lifetime
+                            ? new CreditExpiryDuration { Count = lifetime.Count, Unit = lifetime.Unit }
+                            : null,
                         // Zero and absent both mean untaxed, so a mode is only kept beside a rate.
                         TaxRateBasisPoints = topUp.TaxRateBasisPoints,
                         TaxMode = topUp.TaxRateBasisPoints > 0 ? topUp.TaxMode : null

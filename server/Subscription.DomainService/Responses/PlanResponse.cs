@@ -255,10 +255,21 @@ public sealed class PlanMeterTopUpResponse
     /// <summary>"Periodic", "CarryForward" or "Never", read for a grant.</summary>
     public string ExpiryPolicy { get; init; } = string.Empty;
 
+    /// <summary>A fixed lifetime from issue, or null when the policy alone decides.</summary>
+    public CreditExpiryDurationResponse? ExpiresAfter { get; init; }
+
     public int? TaxRateBasisPoints { get; init; }
 
     /// <summary>"Exclusive" or "Inclusive". Null when untaxed.</summary>
     public string? TaxMode { get; init; }
+}
+
+public sealed class CreditExpiryDurationResponse
+{
+    public int Count { get; init; }
+
+    /// <summary>"Hour", "Day", "Week", "Month" or "Year".</summary>
+    public string Unit { get; init; } = string.Empty;
 }
 
 public sealed class PlanMeterTopUpPriceResponse
