@@ -47,4 +47,16 @@ public sealed record PaymentExecutionContext(
     /// </para>
     /// </remarks>
     public bool ChargesOnBehalfOfAccount { get; init; }
+
+    /// <summary>
+    /// The organization whose account the charge is for, when <see cref="ChargesOnBehalfOfAccount"/>.
+    /// </summary>
+    /// <remarks>
+    /// The shopper check is satisfied by the card's own reference on an account charge, so this
+    /// is the one thing left that ties the card to the payer: a card is filed under the
+    /// organization that saved it, and an account may only present a card filed under its own.
+    /// A billing account pointed at another organization's card -- by a bad adoption, a repair,
+    /// or a hand edit -- is refused here rather than charged.
+    /// </remarks>
+    public string? AccountOrganizationId { get; init; }
 }

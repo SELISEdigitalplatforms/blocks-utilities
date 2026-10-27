@@ -19,8 +19,9 @@ The module never writes email text. **No template for the purpose and language m
 | [Billing-contact notices](#billing-contact-notices) | `subscription_quantity_changed`, `subscription_plan_changed`, `subscription_cancellation_requested`, `subscription_canceled`, `subscription_cancellation_withdrawn` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
 | [Member notices](#member-notices) | `subscription_member_assigned`, `subscription_member_removed` | `SubscriptionNotificationEmailService` | same consumer |
 | [Usage warning](#usage-warning) | `subscription_usage_threshold` | `UsageThresholdEmailService` | same consumer |
+| [Card expiry](#card-expiry) | `subscription_payment_method_expiring` | `PaymentMethodExpiryEmailService` | Worker work queue, `PaymentMethodExpiryNotice` work type |
 
-Eleven purposes in total. Nothing else in this repository sends email.
+Twelve purposes in total. Nothing else in this repository sends email.
 
 ## The wire payload
 
@@ -330,6 +331,62 @@ already announced in September.
 }
 ```
 
+## Card expiry
+
+One email, `subscription_payment_method_expiring`, from the repair sweep rather than from an
+event: there is no event for a date approaching.
+
+**Sent when** an active stored card's expiry month ends within `PaymentMethodExpiryNoticeDays`
+(default 30) of now, measured to the last day of that month, **and** a billing account charges
+that card as its default. A card no account charges is marked as noticed without a mail, so it
+stops coming back. Each card is told **once per expiry**: the month it was announced for is
+recorded on the card, and a card re-saved with a later expiry is simply a new match.
+
+**Recipient.** The `BillingEmail` of the billing account whose default the card is.
+
+**Language.** Billing profile's *Email language*, else the billing account's language, else
+`en-US`. Same rule as the billing-contact notices.
+
+**Placeholders.** Same six keys in subject and body:
+
+| Key | Value |
+| --- | --- |
+| `DisplayName` | The billing contact's name, else their address |
+| `Brand`, `LastFour` | The card as the provider reported it (`visa`, `4242`) |
+| `ExpiryMonth`, `ExpiryYear` | Zero-padded (`03`, `2030`), whatever spelling the provider stored |
+| `ExpiryDate` | The last day the card works, `yyyy-MM-dd` |
+
+**Full payload example**:
+
+```json
+{
+  "To": ["accounts@acme.example"],
+  "Cc": [], "Bcc": [], "ReplyTo": [], "Attachments": [],
+  "Purpose": "subscription_payment_method_expiring",
+  "Language": "de-CH",
+  "SubjectDataContext": {
+    "DisplayName": "Dana Keller",
+    "Brand": "visa",
+    "LastFour": "4242",
+    "ExpiryMonth": "03",
+    "ExpiryYear": "2030",
+    "ExpiryDate": "2030-03-31"
+  },
+  "BodyDataContext": {
+    "DisplayName": "Dana Keller",
+    "Brand": "visa",
+    "LastFour": "4242",
+    "ExpiryMonth": "03",
+    "ExpiryYear": "2030",
+    "ExpiryDate": "2030-03-31"
+  },
+  "CorrelationId": "card-expiry-<stored method id>-2030-03"
+}
+```
+
+The subscriber replaces the card through the same `POST /subscriptions/{id}/payment-method/setup`
+session used to add a first one; the new card becomes the default once the provider confirms it.
+
 ## Languages
 
 The mail module matches `Language` **exactly** and has **no fallback**. A request for `de-CH`
@@ -339,11 +396,12 @@ does not use an `en-US` template; it is dropped silently.
 | --- | --- |
 | Financial documents | `en-US`, always |
 | Usage warning | `en-US`, always |
+| Card expiry | billing profile's *Email language*, else the billing account's language, else `en-US` |
 | Billing-contact notices | billing profile's *Email language*, else the subscription's creation language, else `en-US` |
 | Member notices | member's IAM language, else `en-US` |
 
-So every tenant needs `en-US` templates for all eleven purposes, plus the seven notice purposes in
-every language its billing contacts and members have set.
+So every tenant needs `en-US` templates for all twelve purposes, plus the seven notice purposes
+and the card expiry purpose in every language its billing contacts and members have set.
 
 ## Why an email did not arrive
 
@@ -359,6 +417,7 @@ Decided on this side, and recorded as a mail delivery report (see [tracing/](../
 | `SubscriptionNotification` | `NotAttempted` / `member_email_missing` | IAM gave no address for the member. |
 | `SubscriptionNotification` | `NotAttempted` / `seat_change_not_applied` | The seat change the event describes never landed. |
 | `UsageThreshold` | *(no report)* | Subscription or billing email missing: logged as a warning only. |
+| `PaymentMethodExpiry` | *(no report)* | No billing account charges the card, or the account has no email: logged and the card marked as noticed. An unreadable expiry is logged and left unmarked. |
 
 `Published` means the queue accepted the message, nothing more. Rendering, template lookup, SES
 submission, bounces and filtering are the mail module's record, keyed by the same `CorrelationId`.
@@ -379,5 +438,6 @@ Decided on the mail module's side, with nothing recorded here:
 | Documents | `server/Subscription.DomainService/Services/SubscriptionFinancialDocumentDeliveryService.cs` |
 | Notices (billing contact and member) | `server/Subscription.DomainService/Services/SubscriptionNotificationEmailService.cs` |
 | Usage warning | `server/Subscription.DomainService/Services/UsageThresholdEmailService.cs` |
+| Card expiry | `server/Subscription.DomainService/Services/PaymentMethodExpiryEmailService.cs`, announced by `Scheduling/SubscriptionRepairAnnouncer.cs` |
 | Worker consumer for the notices and the warning | `server/Worker/Consumers/Subscription/SubscriptionLifecycleMailConsumer.cs` |
 | Language rules | `server/Subscription.DomainService/Utilities/MailLanguage.cs` |

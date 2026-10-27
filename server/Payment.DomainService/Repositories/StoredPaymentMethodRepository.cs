@@ -5,6 +5,7 @@ using MongoDB.Driver;
 using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Repositories;
 
@@ -494,6 +495,60 @@ public sealed class StoredPaymentMethodRepository : IStoredPaymentMethodReposito
                 .Set(
                     method => method.UpdatedAtUtc,
                     DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+    public Task<List<StoredPaymentMethod>> ListExpiringAsync(
+        string tenantId,
+        IReadOnlyCollection<CardExpiry> expiries,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(expiries);
+
+        if (expiries.Count == 0)
+        {
+            return Task.FromResult(new List<StoredPaymentMethod>());
+        }
+
+        // ponytail: no index on expiry; a tenant's active cards are few and the sweep is daily.
+        // Add a compound index on Status + ExpiryYear + ExpiryMonth if this ever shows in slow logs.
+        return Collection(tenantId)
+            .Find(BuildExpiringFilter(tenantId, expiries))
+            .SortBy(method => method.CreatedAtUtc)
+            .Limit(Math.Clamp(limit, 1, 500))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// The filter behind <see cref="ListExpiringAsync"/>, separated so it can be asserted
+    /// without a database.
+    /// </summary>
+    public static FilterDefinition<StoredPaymentMethod> BuildExpiringFilter(
+        string tenantId,
+        IReadOnlyCollection<CardExpiry> expiries)
+    {
+        var filter = Builders<StoredPaymentMethod>.Filter;
+
+        return filter.And(
+            filter.Eq(method => method.TenantId, tenantId),
+            filter.Eq(method => method.Status, PaymentMethodStatus.Active),
+            filter.Or(expiries.Select(expiry => filter.And(
+                filter.In(method => method.ExpiryYear, expiry.YearSpellings),
+                filter.In(method => method.ExpiryMonth, expiry.MonthSpellings),
+                // $ne also matches a missing or null field, which is every card never noticed.
+                filter.Ne(method => method.ExpiryNoticeSentForExpiry, expiry.Key)))));
+    }
+
+    public Task MarkExpiryNoticeSentAsync(
+        string tenantId,
+        string itemId,
+        string expiryKey,
+        CancellationToken cancellationToken) =>
+        Collection(tenantId).UpdateOneAsync(
+            method => method.TenantId == tenantId && method.ItemId == itemId,
+            Builders<StoredPaymentMethod>.Update
+                .Set(method => method.ExpiryNoticeSentForExpiry, expiryKey)
+                .Set(method => method.UpdatedAtUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
 
     public Task<List<StoredPaymentMethod>> GetDueRemovalCandidatesAsync(

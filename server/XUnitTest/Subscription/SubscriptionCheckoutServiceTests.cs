@@ -1298,21 +1298,32 @@ public sealed class SubscriptionCheckoutServiceTests
         result.Value!.PendingCheckout!.Purpose.Should().Be("PaymentMethodSetup");
     }
 
+    /// <summary>
+    /// A card on file used to be refused with payment_method_already_stored, which left a
+    /// subscriber whose card was expiring with no way to replace it short of removing it first
+    /// and running the next renewal with nothing to charge.
+    /// </summary>
     [Fact]
-    public async Task A_subscription_that_already_has_a_card_is_not_sent_to_collect_another()
+    public async Task A_subscription_that_already_has_a_card_can_open_a_session_to_replace_it()
     {
-        _subscription.Status = SubscriptionStatus.Trialing;
+        _subscription.Status = SubscriptionStatus.Active;
         GivenSubscriptionById(_subscription);
+        GivenSetupSessionOpens();
         _billingAccounts
             .Setup(repository => repository.GetAsync(
                 TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BillingAccount { DefaultPaymentMethodId = "method-1" });
+            .ReturnsAsync(new BillingAccount
+            {
+                ProviderName = PaymentConstants.StripeProvider,
+                DefaultPaymentMethodId = "method-1"
+            });
 
         var result = await Service().StartPaymentMethodSetupAsync(
             _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
 
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be("payment_method_already_stored");
+        result.IsSuccess.Should().BeTrue(
+            "a subscriber must be able to replace an expiring card without first removing it");
+        result.Value!.PendingCheckout!.Purpose.Should().Be("PaymentMethodSetup");
     }
 
     /// <summary>

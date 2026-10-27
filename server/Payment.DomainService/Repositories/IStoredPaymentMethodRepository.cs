@@ -1,5 +1,6 @@
 using Payment.DomainService.Entities;
 using Payment.DomainService.Services;
+using Payment.DomainService.Utilities;
 
 namespace Payment.DomainService.Repositories;
 
@@ -113,6 +114,28 @@ public interface IStoredPaymentMethodRepository
         string tenantId,
         string itemId,
         string leaseId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Active cards expiring in any of the given months that have not yet been told so.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the stored month and year strings rather than on a parsed date, because that
+    /// is what the record holds and a backfill for the sake of one sweep is not worth its risk.
+    /// A card whose <see cref="StoredPaymentMethod.ExpiryNoticeSentForExpiry"/> names the same
+    /// month is excluded, which is what makes the sweep send once per expiry.
+    /// </remarks>
+    Task<List<StoredPaymentMethod>> ListExpiringAsync(
+        string tenantId,
+        IReadOnlyCollection<CardExpiry> expiries,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>Records that the approaching-expiry notice for <paramref name="expiryKey"/> went out.</summary>
+    Task MarkExpiryNoticeSentAsync(
+        string tenantId,
+        string itemId,
+        string expiryKey,
         CancellationToken cancellationToken);
 
     Task<List<StoredPaymentMethod>> GetDueRemovalCandidatesAsync(

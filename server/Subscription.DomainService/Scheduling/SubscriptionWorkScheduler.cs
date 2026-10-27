@@ -306,6 +306,8 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         SubscriptionWorkType.UsageProjectionRefresh => 95,
         // Bookkeeping: spending already refuses a lapsed grant, so this only tidies stored status.
         SubscriptionWorkType.CreditGrantMaintenance => 97,
+        // A courtesy a month ahead of the renewal it protects; never ahead of that renewal.
+        SubscriptionWorkType.PaymentMethodExpiryNotice => 98,
         _ => 100
     };
 }

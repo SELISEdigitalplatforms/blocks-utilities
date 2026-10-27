@@ -454,6 +454,16 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
                     providerName)))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<BillingAccount?> FindByDefaultPaymentMethodAsync(
+        string tenantId,
+        string paymentMethodId,
+        CancellationToken cancellationToken) =>
+        await Accounts(tenantId)
+            .Find(account =>
+                account.TenantId == tenantId &&
+                account.DefaultPaymentMethodId == paymentMethodId)
+            .FirstOrDefaultAsync(cancellationToken);
+
     private IMongoCollection<BillingAccount> Accounts(string tenantId) =>
         SubscriptionCollections.Of<BillingAccount>(
             _dbContextProvider,

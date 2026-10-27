@@ -71,6 +71,13 @@ public sealed class StoredPaymentMethod
     public string? LastFour { get; set; }
     public string? ExpiryMonth { get; set; }
     public string? ExpiryYear { get; set; }
+
+    /// <summary>
+    /// The <see cref="Utilities.CardExpiry.Key"/> this card's approaching-expiry notice was sent
+    /// for, so the sweep sends it once. Compared against the card's current expiry rather than
+    /// cleared, so a card re-saved with a later expiry simply stops matching and is noticed again.
+    /// </summary>
+    public string? ExpiryNoticeSentForExpiry { get; set; }
     public string? FundingSource { get; set; }
     public string? IssuerCountry { get; set; }
     public PaymentMethodStatus Status { get; set; } = PaymentMethodStatus.Active;
