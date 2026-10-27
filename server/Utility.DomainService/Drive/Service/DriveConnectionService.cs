@@ -441,8 +441,12 @@ public sealed class DriveConnectionService : IDriveConnectionService
         ["access_denied", "invalid_grant", "invalid_request", "invalid_client", "unauthorized_client",
          "server_error", "temporarily_unavailable", "not_configured", "invalid_response", "unreachable"];
 
+    // Returns the entry from the closed set, never the query value itself, even when the two are
+    // equal: the redirect is then built from strings this file owns, and no byte of the anonymous
+    // request reaches the Location header.
     private static string KnownReason(string? error) =>
-        error is not null && KnownReasons.Contains(error, StringComparer.Ordinal) ? error : "provider_error";
+        Array.Find(KnownReasons, known => string.Equals(known, error, StringComparison.Ordinal))
+            ?? "provider_error";
 
     private static ConnectionCallbackOutcome Redirect(string returnUrl, string status, string? reason = null)
     {
