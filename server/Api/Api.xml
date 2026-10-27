@@ -65,6 +65,34 @@
             </para>
             </remarks>
         </member>
+        <member name="T:Api.Controllers.DriveCallbackController">
+            <summary>
+            The Entra redirect target for the drive connection flow (spec 004).
+            </summary>
+            <remarks>
+            Deliberately outside the <c>api</c> prefix, like the payment and SMS webhooks. Genesis's tenant
+            validation middleware guards everything under <c>api/</c> and refuses any <c>Origin</c> or
+            <c>Referer</c> that is not one of the project's registered domains; Entra's redirect arrives
+            with a <c>login.microsoftonline.com</c> referer and was answered 406 before this action ran.
+            The route is the <c>Drive:RedirectUrl</c> path and must match the Entra app registration.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.DriveCallbackController.#ctor(Utility.DomainService.Drive.Service.IDriveConnectionService)">
+            <summary>Initializes a new instance of the <see cref="T:Api.Controllers.DriveCallbackController"/> class.</summary>
+        </member>
+        <member name="M:Api.Controllers.DriveCallbackController.Callback(System.String,System.String,System.String,System.String,System.String,System.Threading.CancellationToken)">
+            <summary>
+            Where Entra sends the browser after consent. Finishes the connection and redirects to the
+            caller's <c>returnUrl</c>.
+            </summary>
+            <remarks>
+            Anonymous by necessity. 400 only when there is nowhere safe to redirect: an unknown, replayed
+            or expired state. Every other outcome, including a refused consent, goes back to the
+            <c>returnUrl</c> stored with the state so the signature app can tell the user. An
+            admin-consent round trip (<c>admin_consent=True</c>, no state) gets a plain text page, because
+            it was an IT admin in a separate browser, not the user's flow.
+            </remarks>
+        </member>
         <member name="T:Api.Controllers.DriveController">
             <summary>
             OneDrive and SharePoint for the calling user: connect a Microsoft account, browse it, create
@@ -74,9 +102,8 @@
             API only; nothing in the console shows it. The consumer is the SELISE Signature app, which
             lets a user pick a PDF from their drive and later save the signed archive back. Every
             endpoint acts on the connection of the user in the bearer token inside the project in
-            <c>x-blocks-key</c>; no request can name another user. The callback is the one anonymous
-            action because Entra calls it, and it trusts nothing from the query but <c>code</c> and
-            <c>state</c>.
+            <c>x-blocks-key</c>; no request can name another user. The Entra callback lives in
+            <see cref="T:Api.Controllers.DriveCallbackController"/>, outside the <c>api</c> prefix.
             </remarks>
         </member>
         <member name="M:Api.Controllers.DriveController.#ctor(Utility.DomainService.Drive.Service.IDriveConnectionService,Utility.DomainService.Drive.Service.IDriveService)">
@@ -92,19 +119,6 @@
             <c>failed&amp;reason=...</c> or <c>admin_consent_required</c> appended. It must be on one of
             the project's registered domains; anything else is refused so the callback cannot become an
             open redirect. The state behind the URL is single use and expires after ten minutes.
-            </remarks>
-        </member>
-        <member name="M:Api.Controllers.DriveController.Callback(System.String,System.String,System.String,System.String,System.String,System.Threading.CancellationToken)">
-            <summary>
-            Where Entra sends the browser after consent. Finishes the connection and redirects to the
-            caller's <c>returnUrl</c>.
-            </summary>
-            <remarks>
-            Anonymous by necessity. 400 only when there is nowhere safe to redirect: an unknown, replayed
-            or expired state. Every other outcome, including a refused consent, goes back to the
-            <c>returnUrl</c> stored with the state so the signature app can tell the user. An
-            admin-consent round trip (<c>admin_consent=True</c>, no state) gets a plain text page, because
-            it was an IT admin in a separate browser, not the user's flow.
             </remarks>
         </member>
         <member name="M:Api.Controllers.DriveController.GetConnection(System.Threading.CancellationToken)">

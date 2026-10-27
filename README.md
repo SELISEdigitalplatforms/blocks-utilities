@@ -65,7 +65,7 @@ Signature app (spec: `docs/specs/004-drive-integration/README.md`). Nothing in t
   organization or personal account consent to it with delegated permissions; the backend never
   sees more than the user could open themselves.
 - One connection per user per project. `POST api/drive/connections` returns the Entra authorize
-  URL (PKCE); Entra calls `GET api/drive/connections/callback`, which stores the refresh token
+  URL (PKCE); Entra calls `GET drive/connections/callback` (outside the `api` prefix, so the Genesis origin check does not block the Entra referer), which stores the refresh token
   encrypted and redirects to the caller's `returnUrl` with `?driveStatus=connected|failed|admin_consent_required`.
   `returnUrl` must be on one of the project's registered domains.
 - `GET sites`, `GET items` (browse, search, sort, forward-only `cursor` paging), `POST folders`,
