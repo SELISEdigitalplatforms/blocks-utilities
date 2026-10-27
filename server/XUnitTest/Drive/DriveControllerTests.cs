@@ -12,8 +12,7 @@ using Utility.DomainService.Drive.Service;
 namespace XUnitTest.Drive;
 
 /// <summary>
-/// Guards the status codes and envelope the drive endpoints hand back, and the callback's
-/// redirect-or-400 rule. A client that checks status codes must see a 401 for "reconnect", a 429
+/// Guards the status codes and envelope the drive endpoints hand back. A client that checks status codes must see a 401 for "reconnect", a 429
 /// with Retry-After for throttling, and never a 200 with the failure hidden in the body.
 /// </summary>
 public sealed class DriveControllerTests
@@ -73,30 +72,6 @@ public sealed class DriveControllerTests
 
         result!.StatusCode.Should().Be(StatusCodes.Status201Created);
         result.Value.Should().BeOfType<ApiResponse<DriveItemSummary>>().Subject.Data.Should().BeSameAs(item);
-    }
-
-    [Fact]
-    public async Task The_callback_redirects_when_the_service_has_a_return_url_and_400s_otherwise()
-    {
-        _connections.Setup(c => c.CompleteAsync("code", "good", null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ConnectionCallbackOutcome { RedirectUrl = "https://sign.example.com/done?driveStatus=connected", Status = "connected" });
-        _connections.Setup(c => c.CompleteAsync(It.IsAny<string?>(), "bad", null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ConnectionCallbackOutcome { Status = "failed" });
-
-        var good = await _controller.Callback("code", "good", null, null, null, CancellationToken.None);
-        var bad = await _controller.Callback("code", "bad", null, null, null, CancellationToken.None);
-
-        good.Should().BeOfType<RedirectResult>().Subject.Url.Should().Be("https://sign.example.com/done?driveStatus=connected");
-        bad.Should().BeOfType<BadRequestObjectResult>(because: "there is no trusted place to send an unknown state");
-    }
-
-    [Fact]
-    public async Task An_admin_consent_round_trip_without_state_gets_a_plain_page_and_touches_no_state()
-    {
-        var result = await _controller.Callback(null, null, null, null, "True", CancellationToken.None);
-
-        result.Should().BeOfType<ContentResult>().Subject.Content.Should().Contain("Admin consent recorded");
-        _connections.Verify(c => c.CompleteAsync(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

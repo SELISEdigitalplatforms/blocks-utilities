@@ -16,9 +16,8 @@ namespace Api.Controllers;
 /// API only; nothing in the console shows it. The consumer is the SELISE Signature app, which
 /// lets a user pick a PDF from their drive and later save the signed archive back. Every
 /// endpoint acts on the connection of the user in the bearer token inside the project in
-/// <c>x-blocks-key</c>; no request can name another user. The callback is the one anonymous
-/// action because Entra calls it, and it trusts nothing from the query but <c>code</c> and
-/// <c>state</c>.
+/// <c>x-blocks-key</c>; no request can name another user. The Entra callback lives in
+/// <see cref="DriveCallbackController"/>, outside the <c>api</c> prefix.
 /// </remarks>
 [ApiController]
 [Route("drive")]
@@ -54,48 +53,6 @@ public sealed class DriveController : ControllerBase
     {
         var result = await _connections.StartAsync(request, cancellationToken);
         return result.ToActionResult(HttpContext.TraceIdentifier);
-    }
-
-    /// <summary>
-    /// Where Entra sends the browser after consent. Finishes the connection and redirects to the
-    /// caller's <c>returnUrl</c>.
-    /// </summary>
-    /// <remarks>
-    /// Anonymous by necessity. 400 only when there is nowhere safe to redirect: an unknown, replayed
-    /// or expired state. Every other outcome, including a refused consent, goes back to the
-    /// <c>returnUrl</c> stored with the state so the signature app can tell the user. An
-    /// admin-consent round trip (<c>admin_consent=True</c>, no state) gets a plain text page, because
-    /// it was an IT admin in a separate browser, not the user's flow.
-    /// </remarks>
-    [HttpGet("connections/callback")]
-    [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status302Found)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Callback(
-        [FromQuery] string? code,
-        [FromQuery] string? state,
-        [FromQuery] string? error,
-        [FromQuery(Name = "error_description")] string? errorDescription,
-        [FromQuery(Name = "admin_consent")] string? adminConsent,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrEmpty(state) && !string.IsNullOrEmpty(adminConsent))
-        {
-            return Content(
-                string.Equals(adminConsent, "True", StringComparison.OrdinalIgnoreCase)
-                    ? "Admin consent recorded. Users in your organization can now connect their drives. You can close this window."
-                    : "Admin consent was not granted.",
-                "text/plain");
-        }
-
-        var outcome = await _connections.CompleteAsync(code, state, error, errorDescription, cancellationToken);
-        if (outcome.RedirectUrl is null)
-        {
-            return BadRequest("Unknown or expired state.");
-        }
-
-        return Redirect(outcome.RedirectUrl);
     }
 
     /// <summary>Whether the caller has a connection, and the admin-consent URL to show an IT admin if needed.</summary>
