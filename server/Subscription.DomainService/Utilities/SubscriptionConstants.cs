@@ -40,6 +40,12 @@ public static class SubscriptionConstants
     public const string CanceledMailPurpose = "subscription_canceled";
     public const string CancellationWithdrawnMailPurpose = "subscription_cancellation_withdrawn";
 
+    /// <summary>
+    /// Sent to the billing contact when the card renewals charge is about to expire, so it can be
+    /// replaced through payment-method setup before a renewal fails for want of it.
+    /// </summary>
+    public const string PaymentMethodExpiringMailPurpose = "subscription_payment_method_expiring";
+
     /// <summary>Sent to the person given or losing a seat, rather than to the billing contact.</summary>
     public const string MemberAssignedMailPurpose = "subscription_member_assigned";
     public const string MemberRemovedMailPurpose = "subscription_member_removed";

@@ -64,7 +64,8 @@ public sealed class PaymentExecutionContextResolver : IPaymentExecutionContextRe
             return new PaymentContextResolution(
                 new PaymentExecutionContext(tenantId, "account:" + payer, Present(organizationId))
                 {
-                    ChargesOnBehalfOfAccount = true
+                    ChargesOnBehalfOfAccount = true,
+                    AccountOrganizationId = payer
                 },
                 null);
         }

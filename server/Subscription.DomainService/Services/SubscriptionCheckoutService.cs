@@ -686,14 +686,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             subscription.BillingAccountId,
             cancellationToken);
 
-        if (account?.DefaultPaymentMethodId is { Length: > 0 })
-        {
-            return Failure(
-                PaymentFailureKind.Conflict,
-                "payment_method_already_stored",
-                "This subscription already has a payment method.",
-                correlationId);
-        }
+        // A card already on file is not a reason to refuse: this is also how a subscriber replaces
+        // one that is expiring or was cancelled by the issuer. The confirmation goes through the
+        // same adoption path a first card does, which records the new card as the default and
+        // leaves the previous one listed until the subscriber removes it.
 
         // A session already open is returned rather than replaced. Two live sessions against one
         // subscription is how a subscriber ends up with the card they did not expect on file, and

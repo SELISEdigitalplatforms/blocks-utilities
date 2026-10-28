@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Payment.DomainService.Repositories;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
@@ -44,6 +45,7 @@ public sealed class SubscriptionRepairAnnouncer
     private readonly IUsageProjectionReconciler? _usageProjections;
     private readonly ISubscriptionCreditPurchaseRepository? _creditPurchases;
     private readonly ISubscriptionCreditGrantRepository? _creditGrants;
+    private readonly IStoredPaymentMethodRepository? _storedMethods;
 
     public SubscriptionRepairAnnouncer(
         ISubscriptionWorkScheduler scheduler,
@@ -67,7 +69,9 @@ public sealed class SubscriptionRepairAnnouncer
         // Optional for the same reason again: a caller unaware credits exist keeps compiling, and
         // simply never announces credit work.
         ISubscriptionCreditPurchaseRepository? creditPurchases = null,
-        ISubscriptionCreditGrantRepository? creditGrants = null)
+        ISubscriptionCreditGrantRepository? creditGrants = null,
+        // Optional for the same reason: absent, expiring cards are simply never announced.
+        IStoredPaymentMethodRepository? storedMethods = null)
     {
         _scheduler = scheduler;
         _subscriptions = subscriptions;
@@ -84,6 +88,7 @@ public sealed class SubscriptionRepairAnnouncer
         _usageProjections = usageProjections;
         _creditPurchases = creditPurchases;
         _creditGrants = creditGrants;
+        _storedMethods = storedMethods;
     }
 
     /// <summary>
@@ -392,6 +397,17 @@ public sealed class SubscriptionRepairAnnouncer
                 cancellationToken)).Count > 0)
         {
             due.Add(SubscriptionWorkType.CreditGrantMaintenance);
+        }
+
+        // One card whose expiry month ends inside the window and has not been announced for it.
+        if (_storedMethods is not null &&
+            (await _storedMethods.ListExpiringAsync(
+                tenantId,
+                CardExpiry.EndingWithin(now, Math.Max(1, options.PaymentMethodExpiryNoticeDays)),
+                1,
+                cancellationToken)).Count > 0)
+        {
+            due.Add(SubscriptionWorkType.PaymentMethodExpiryNotice);
         }
 
         // Exact, because this one is affordable: the delivery index is partial and holds only the

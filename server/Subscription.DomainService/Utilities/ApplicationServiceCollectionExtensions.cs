@@ -211,6 +211,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, UsageProjectionRefreshWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, CreditPurchaseRecoveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, CreditGrantMaintenanceWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, PaymentMethodExpiryNoticeWorkHandler>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();
@@ -358,6 +359,7 @@ public static class ApplicationServiceCollectionExtensions
         // Singleton to match the repository it wraps, and because it holds no per-request state.
         services.AddSingleton<IMailDeliveryReporter, MailDeliveryReporter>();
         services.AddScoped<IUsageThresholdEmailService, UsageThresholdEmailService>();
+        services.AddScoped<IPaymentMethodExpiryEmailService, PaymentMethodExpiryEmailService>();
         services.AddScoped<
             ISubscriptionNotificationEmailService,
             SubscriptionNotificationEmailService>();

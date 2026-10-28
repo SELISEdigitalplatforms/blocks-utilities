@@ -93,6 +93,12 @@ public interface IBillingAccountRepository
     /// <returns>
     /// True when this call set the default; false when the account already had one or is missing.
     /// </returns>
+    /// <summary>The account whose renewals charge this saved card, if any does.</summary>
+    Task<BillingAccount?> FindByDefaultPaymentMethodAsync(
+        string tenantId,
+        string paymentMethodId,
+        CancellationToken cancellationToken);
+
     Task<bool> TrySetDefaultPaymentMethodIfNoneAsync(
         string tenantId,
         string billingAccountId,

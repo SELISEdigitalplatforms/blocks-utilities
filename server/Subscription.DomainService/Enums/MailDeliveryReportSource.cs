@@ -20,5 +20,8 @@ public enum MailDeliveryReportSource
     /// A change to the subscription itself — seats, plan, cancellation. Which one is told apart
     /// by the report's purpose.
     /// </summary>
-    SubscriptionNotification = 2
+    SubscriptionNotification = 2,
+
+    /// <summary>The card on file is about to expire, from the expiry sweep.</summary>
+    PaymentMethodExpiry = 3
 }

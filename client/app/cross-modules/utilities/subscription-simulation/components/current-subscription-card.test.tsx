@@ -77,7 +77,7 @@ describe("CurrentSubscriptionCard payment-method actions", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("offers nothing once a card is already on file", () => {
+  it("offers to change the card once one is already on file", () => {
     // The case status alone cannot tell apart from the one above: a card-required trial that
     // already collected one, or a card-free trial where the subscriber added one voluntarily.
     renderCard({ ...baseSubscription, status: "Trialing", hasPaymentMethod: true });
@@ -85,6 +85,13 @@ describe("CurrentSubscriptionCard payment-method actions", () => {
     expect(
       screen.queryByRole("button", { name: /add payment method/i }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /change card/i })).toBeInTheDocument();
+  });
+
+  it("does not offer to change a card while the account has none", () => {
+    renderCard({ ...baseSubscription, status: "Active", hasPaymentMethod: false });
+
+    expect(screen.queryByRole("button", { name: /change card/i })).not.toBeInTheDocument();
   });
 
   it("still offers to cancel an unpaid subscription, not only to recover it", () => {

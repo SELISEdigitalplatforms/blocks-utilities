@@ -7,7 +7,7 @@ The subscription module never writes email text. It publishes a mail request wit
 a **language** and a set of **values**. The platform mail module then picks your template by
 purpose and language and fills in the values. If you don't create a template, no email is sent.
 
-## The seven emails
+## The eight emails
 
 | Purpose | Sent when | To |
 | --- | --- | --- |
@@ -18,6 +18,7 @@ purpose and language and fills in the values. If you don't create a template, no
 | `subscription_cancellation_withdrawn` | A scheduled cancellation is undone | Billing contact |
 | `subscription_member_assigned` | An administrator gives someone a seat on a per-person subscription | That person |
 | `subscription_member_removed` | An administrator takes a seat back | That person |
+| `subscription_payment_method_expiring` | The card a billing account charges expires within `PaymentMethodExpiryNoticeDays` (default 30). Sent once per card expiry by the worker sweep | Billing contact |
 
 Nothing is sent when a decrease or plan change is merely *scheduled*. The email goes out when it
 happens. When a cancellation takes effect, every seat is released, but the members get no
@@ -39,6 +40,18 @@ the template.
 | `EffectiveDate` | `yyyy-MM-dd`, in the subscription's own timezone. For a cancellation, the day access ends; for a change, the day it took effect; empty for a withdrawal |
 | `ActorName` | Who asked for it. For a change carried out later at renewal, the person who scheduled it |
 | `CancellationReason` | Cancellations: the reason the canceller typed. **Body only**; it is never available in the subject |
+
+**Card expiry email** (`subscription_payment_method_expiring`):
+
+| Key | Value |
+| --- | --- |
+| `DisplayName` | The billing contact's name, else their address |
+| `Brand`, `LastFour` | The card, as the provider describes it, e.g. `visa` and `4242` |
+| `ExpiryMonth`, `ExpiryYear` | `03` and `2030` |
+| `ExpiryDate` | `yyyy-MM-dd`: the last day the card works |
+
+The subscriber replaces the card with `POST /subscriptions/{id}/payment-method/setup`, which is
+allowed while a card is on file; the new card becomes the default once the provider confirms it.
 
 **Member emails** (the last two):
 
