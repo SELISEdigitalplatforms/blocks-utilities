@@ -193,6 +193,14 @@ public sealed class SubscriptionOptions
     public int CreditMaintenanceBatchSize { get; set; } = 200;
 
     /// <summary>
+    /// How far ahead the billing contact is told that the card on file is expiring. Measured to
+    /// the last day of the card's expiry month, which is when the card actually stops working.
+    /// </summary>
+    public int PaymentMethodExpiryNoticeDays { get; set; } = 30;
+
+    public int PaymentMethodExpiryNoticeBatchSize { get; set; } = 100;
+
+    /// <summary>
     /// Renewal attempts, including the first decline, before a subscription moves to
     /// <c>Unpaid</c>. Retrying beyond this is treated as certain to fail again rather than
     /// eventually succeeding.

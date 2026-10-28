@@ -63,6 +63,7 @@ public sealed class AdyenWebhookNormalizerTests
         item.AdditionalData["cardSummary"] = "4242";
         item.AdditionalData["expiryDate"] = "03/2030";
         item.AdditionalData["authCode"] = "auth-1";
+        item.AdditionalData["cardHolderName"] = "Dana Holder";
 
         var payload = _normalizer.Parse(StandardBody(item), NoHeaders).Events.Single().Payload;
 
@@ -75,6 +76,7 @@ public sealed class AdyenWebhookNormalizerTests
         payload.LastFour.Should().Be("4242");
         payload.ExpiryMonth.Should().Be("03");
         payload.ExpiryYear.Should().Be("2030");
+        payload.HolderName.Should().Be("Dana Holder", "the invoice names the cardholder from this");
         payload.AuthorizationCode.Should().Be("auth-1");
         payload.PaymentDetailId.Should().BeNull("routing identifiers are filled in by intake");
     }

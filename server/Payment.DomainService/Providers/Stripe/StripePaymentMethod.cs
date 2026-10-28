@@ -19,8 +19,18 @@ public sealed class StripePaymentMethod
     [JsonPropertyName("card")]
     public StripeCard? Card { get; set; }
 
+    [JsonPropertyName("billing_details")]
+    public StripeBillingDetails? BillingDetails { get; set; }
+
     [JsonPropertyName("error")]
     public StripeError? Error { get; set; }
+}
+
+/// <summary>The name Stripe holds beside the card, which is the cardholder as entered.</summary>
+public sealed class StripeBillingDetails
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
 }
 
 /// <summary>

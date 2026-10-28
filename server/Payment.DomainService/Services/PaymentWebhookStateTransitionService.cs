@@ -272,6 +272,7 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
         LastFour = payload.LastFour,
         ExpiryMonth = payload.ExpiryMonth,
         ExpiryYear = payload.ExpiryYear,
+        HolderName = payload.HolderName,
         FundingSource = payload.FundingSource,
         IssuerCountry = payload.IssuerCountry,
         IssuerName = payload.IssuerName,

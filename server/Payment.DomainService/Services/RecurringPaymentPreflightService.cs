@@ -180,7 +180,18 @@ public sealed class RecurringPaymentPreflightService :
             shopperReference = storedPaymentMethod.ShopperReference;
         }
 
+        // On an account charge the shopper comparison below is against the card's own reference,
+        // so the organization is what keeps one account from presenting another's card.
+        var ownedByAnotherOrganization =
+            context.ChargesOnBehalfOfAccount &&
+            storedPaymentMethod is not null &&
+            !string.Equals(
+                storedPaymentMethod.OrganizationId,
+                context.AccountOrganizationId,
+                StringComparison.Ordinal);
+
         if (storedPaymentMethod == null ||
+            ownedByAnotherOrganization ||
             string.IsNullOrWhiteSpace(shopperReference) ||
             !FixedTimeEquals(
                 storedPaymentMethod.ShopperReference,

@@ -513,12 +513,18 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
-    /// Opens a hosted session that stores a card against a running subscription.
+    /// Opens a hosted session that stores a card against a running subscription, or replaces
+    /// the one it has.
     /// </summary>
     /// <remarks>
     /// This is not a payment. Nothing is charged, no invoice is produced, and a trial in progress
     /// is neither ended nor shortened — the card is stored so the first paid period has something
     /// to charge when the trial finishes.
+    /// <para>
+    /// Allowed while a card is already on file: the new card becomes the one renewals charge the
+    /// moment the provider confirms it, which is how a subscriber replaces a card before it
+    /// expires. The previous card stays listed under the payment-methods endpoint until removed.
+    /// </para>
     /// <para>
     /// Returns the subscription with a <c>pendingCheckout</c> carrying the URL to send the
     /// subscriber to. A session already open is returned rather than replaced.

@@ -110,7 +110,7 @@ results map through a `DriveApiResults` extension in `Api/Utilities/`, following
 | Verb | Route | Request | Success | Errors |
 |---|---|---|---|---|
 | POST | `connections` | `{ returnUrl }` | 200 `{ authorizeUrl }` or `{ connected: true }` if already connected | 400 invalid/unallowed returnUrl, 503 Entra config missing |
-| GET | `connections/callback` | query `code`, `state`, `error`, `error_description` (anonymous) | 302 to `returnUrl?driveStatus=connected` | 302 `driveStatus=failed&reason=...`, 302 `driveStatus=admin_consent_required`, 400 unknown/expired state |
+| GET | `/drive/connections/callback` (no `api` prefix) | query `code`, `state`, `error`, `error_description` (anonymous) | 302 to `returnUrl?driveStatus=connected` | 302 `driveStatus=failed&reason=...`, 302 `driveStatus=admin_consent_required`, 400 unknown/expired state |
 | GET | `connections/me` | | 200 `{ connected, accountDisplayName?, accountEmail?, connectedAt?, adminConsentUrl }` | |
 | DELETE | `connections/me` | | 204 | 404 not connected |
 | GET | `sites` | `search?` (empty = followed sites) | 200 `[SiteSummary]` | 401-equivalent `DRIVE_NOT_CONNECTED`, 429 `DRIVE_THROTTLED` |

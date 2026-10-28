@@ -92,7 +92,7 @@ internal static class DriveTestSupport
         {
             ClientId = "client-id",
             ClientSecretSecretId = "secret-id-client",
-            RedirectUrl = "https://utilities.test/api/drive/connections/callback",
+            RedirectUrl = "https://utilities.test/drive/connections/callback",
             TokenEncryptionKeySecretId = "secret-id-key",
             MaxRetries = 3,
             DefaultRetryAfterSeconds = 1,
