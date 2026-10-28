@@ -181,6 +181,12 @@ public sealed class RecurringPaymentReservationService :
                 request.StoredPaymentMethodId,
             ShopperReference = shopperReference,
             OrganizationId = context.OrganizationId,
+            // An account charge presents the account's own card: the subscriber owns it, even
+            // though the money moves through the merchant scope above. Named here so the token
+            // the provider reports back for this charge is filed under the subscriber, exactly
+            // as the checkout that first saved the card filed it.
+            PaymentMethodOwnerOrganizationId =
+                context.ChargesOnBehalfOfAccount ? context.AccountOrganizationId : null,
             OrderId = request.OrderId,
             Description = request.Description?.Trim(),
             TransactionId = Guid.NewGuid().ToString(),
