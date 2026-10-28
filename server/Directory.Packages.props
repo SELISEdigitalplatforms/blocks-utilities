@@ -44,7 +44,6 @@
     <PackageVersion Include="PdfSharp" Version="6.2.4" />
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageVersion Include="PuppeteerSharp" Version="20.2.5" />
-    <PackageVersion Include="Shark.PdfConvert" Version="1.0.5" />
     <PackageVersion Include="Twilio" Version="7.13.0" />
     <PackageVersion Include="Telnyx.net" Version="3.1.0" />
   </ItemGroup>

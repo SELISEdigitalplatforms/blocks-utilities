@@ -24,7 +24,6 @@
 	<PackageReference Include="SeliseBlocks.Genesis.OS" />
 	<PackageReference Include="SeliseBlocks.Secrets.OS" />
 	<PackageReference Include="SeliseBlocks.StorageDriver.OS" />
-	<PackageReference Include="Shark.PdfConvert" />
   </ItemGroup>
 
 </Project>

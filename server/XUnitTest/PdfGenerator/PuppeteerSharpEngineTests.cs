@@ -73,6 +73,56 @@ namespace XUnitTest.PdfGenerator
         }
 
         [Fact]
+        public async Task ConvertHtmlToPdfAsync_TurnsScriptsOff_BeforeTheCallerHtmlLoads()
+        {
+            var calls = new List<string>();
+            var browserMock = new Mock<IBrowser>();
+            var pageMock = new Mock<IPage>();
+
+            browserMock.Setup(b => b.IsConnected).Returns(true);
+            browserMock.Setup(b => b.NewPageAsync()).ReturnsAsync(pageMock.Object);
+            pageMock.Setup(p => p.SetJavaScriptEnabledAsync(false))
+                .Callback(() => calls.Add("scripts off"))
+                .Returns(Task.CompletedTask);
+            pageMock.Setup(p => p.SetContentAsync(It.IsAny<string>(), It.IsAny<NavigationOptions>()))
+                .Callback(() => calls.Add("content"))
+                .Returns(Task.CompletedTask);
+            pageMock.Setup(p => p.PdfDataAsync(It.IsAny<PdfOptions>())).ReturnsAsync([1]);
+
+            var engine = new PuppeteerSharpEngine(_loggerMock.Object, _configurationMock.Object);
+            InjectBrowser(engine, browserMock.Object);
+
+            await engine.ConvertHtmlToPdfAsync("<script>fetch('https://x.test')</script>", new PdfGenerationOptions());
+
+            Assert.Equal(["scripts off", "content"], calls);
+        }
+
+        [Fact]
+        public async Task ConvertHtmlToPdfAsync_ReturnsNull_WhenARenderPassesTheTimeLimit()
+        {
+            var browserMock = new Mock<IBrowser>();
+            var pageMock = new Mock<IPage>();
+
+            browserMock.Setup(b => b.IsConnected).Returns(true);
+            browserMock.Setup(b => b.NewPageAsync()).ReturnsAsync(pageMock.Object);
+            pageMock.Setup(p => p.SetContentAsync(It.IsAny<string>(), It.IsAny<NavigationOptions>()))
+                .Returns(Task.CompletedTask);
+            pageMock.Setup(p => p.PdfDataAsync(It.IsAny<PdfOptions>()))
+                .Returns(new TaskCompletionSource<byte[]>().Task);
+            _configurationMock.Setup(x => x["PuppeteerSharp:RenderTimeoutSeconds"]).Returns("1");
+
+            var engine = new PuppeteerSharpEngine(_loggerMock.Object, _configurationMock.Object);
+            InjectBrowser(engine, browserMock.Object);
+
+            var render = engine.ConvertHtmlToPdfAsync("<h1>Heavy</h1>", new PdfGenerationOptions());
+            var finished = await Task.WhenAny(render, Task.Delay(TimeSpan.FromSeconds(10)));
+
+            Assert.Same(render, finished);
+            Assert.Null(await render);
+            pageMock.Verify(p => p.DisposeAsync(), Times.Once);
+        }
+
+        [Fact]
         public async Task UnsupportedMethods_ReturnNull()
         {
             var engine = new PuppeteerSharpEngine(_loggerMock.Object, _configurationMock.Object);

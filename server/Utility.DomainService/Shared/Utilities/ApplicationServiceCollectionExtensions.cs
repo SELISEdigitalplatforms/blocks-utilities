@@ -88,7 +88,6 @@ namespace DomainService.Utilities
             services.TryAddSingleton<PuppeteerSharpEngine>();
             services.TryAddSingleton<PdfSharpCoreEngine>();
             services.TryAddSingleton<AsposePdfEngine>();
-            services.TryAddSingleton<WkHtmlToPdfEngine>();
             services.TryAddSingleton<IPdfEngineProvider, PdfEngineProvider>();
             services.TryAddSingleton<PdfStorageHelper>();
 

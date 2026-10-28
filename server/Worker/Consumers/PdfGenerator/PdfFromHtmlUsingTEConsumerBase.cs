@@ -165,7 +165,7 @@ namespace Worker.Consumers.PdfGenerator
                     return null;
                 }
 
-                return _templateRenderingService.RenderTemplateWithJson(templateContent, jsonString);
+                return _templateRenderingService.RenderHtmlTemplateWithJson(templateContent, jsonString);
             }
             catch (Exception ex)
             {

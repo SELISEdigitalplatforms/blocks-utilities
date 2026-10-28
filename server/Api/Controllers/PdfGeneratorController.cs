@@ -10,13 +10,13 @@ namespace Api.Controllers
     /// API Controller for managing PDF generator operations.
     /// 
     /// Available PDF Engines:
-    /// - Engine 1 (PuppeteerSharp): Default. Best for HTML-to-PDF with modern CSS3/JavaScript support. Free (MIT license).
+    /// - Engine 1 (PuppeteerSharp): Default. Best for HTML-to-PDF with modern CSS3; JavaScript is off. Free (MIT license).
     /// - Engine 2 (PdfSharpCore): PDF manipulation only (merge, stamp, fix). Free (MIT license). NO HTML-to-PDF support.
     /// - Engine 3 (Aspose): Full PDF support including HTML-to-PDF, merge, stamp, extract text, and fix. Commercial license.
-    /// - Engine 4 (WkHtmlToPdf): HTML-to-PDF only. Free but deprecated.
+    /// - Engine 4 (WkHtmlToPdf): turned off.
     /// 
     /// Recommended usage:
-    /// - HTML-to-PDF: Use Engine 1 (PuppeteerSharp) for modern CSS/JS, Engine 3 (Aspose) or 4 (WkHtml) for legacy.
+    /// - HTML-to-PDF: Use Engine 1 (PuppeteerSharp) for modern CSS, Engine 3 (Aspose) for legacy.
     /// - PDF manipulation (merge, stamp, fix): Use Engine 2 (PdfSharpCore) for free, Engine 3 (Aspose) for full features.
     /// - Text extraction: Use Engine 3 (Aspose) only.
     /// </summary>
@@ -72,7 +72,7 @@ namespace Api.Controllers
         /// MessageCoRelationId: Unique identifier for specific request
         /// EventReferenceData: Set of values stored on data fields related to a specific event
         /// CreateFromHtmlCommands: Create PDF file from an HTML file
-        /// Engine: PDF engine to use. 1=PuppeteerSharp (default, best for modern CSS/JS), 3=Aspose, 4=WkHtmlToPdf (deprecated). Engine 2 (PdfSharpCore) returns null.
+        /// Engine: PDF engine to use. 1=PuppeteerSharp (default, modern CSS; JavaScript is off), 3=Aspose. Engine 2 (PdfSharpCore) returns null; engine 4 (WkHtmlToPdf) is turned off.
         /// ProjectKey: Project key for multi-tenancy
         /// </remarks>
         /// <returns>CreatePdfsFromHtmlResponse</returns>
@@ -108,7 +108,7 @@ namespace Api.Controllers
         /// MessageCoRelationId: Unique identifier for specific request
         /// EventReferenceData: Set of values stored on data fields related to a specific event
         /// CreateFromHtmlCommands: Create PDF file from an HTML template
-        /// Engine: PDF engine to use. 1=PuppeteerSharp (default, best for modern CSS/JS), 3=Aspose, 4=WkHtmlToPdf (deprecated). Engine 2 (PdfSharpCore) returns null.
+        /// Engine: PDF engine to use. 1=PuppeteerSharp (default, modern CSS; JavaScript is off), 3=Aspose. Engine 2 (PdfSharpCore) returns null; engine 4 (WkHtmlToPdf) is turned off.
         /// ProjectKey: Project key for multi-tenancy
         /// </remarks>
         /// <returns>CreatePdfsFromHtmlUsingTEResponse</returns>
