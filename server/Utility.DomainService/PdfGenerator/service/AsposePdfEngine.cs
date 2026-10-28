@@ -43,7 +43,7 @@ namespace Utility.DomainService.PdfGenerator.service
                     return pdfStreams[0];
                 }
 
-                // Based on old WkHtmlToPdfEngine.MergePdf implementation
+                // Based on the old wkhtmltopdf engine merge implementation
                 using (var ms = new MemoryStream())
                 {
                     await pdfStreams[0].CopyToAsync(ms);

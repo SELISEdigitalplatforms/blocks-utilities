@@ -4,6 +4,7 @@ using DotLiquid.NamingConventions;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Net;
 
 namespace Utility.DomainService.TemplateEngine.service
 {
@@ -20,7 +21,17 @@ namespace Utility.DomainService.TemplateEngine.service
         /// <summary>
         /// Renders a template with JSON data using DotLiquid
         /// </summary>
-        public string RenderTemplateWithJson(string templateContent, string jsonString)
+        public string RenderTemplateWithJson(string templateContent, string jsonString) =>
+            Render(templateContent, jsonString, htmlEncodeValues: false);
+
+        /// <summary>
+        /// Renders an HTML template with JSON data, HTML-encoding every text value first, so a value
+        /// such as <c>&lt;script&gt;</c> shows as text and never becomes markup in the page.
+        /// </summary>
+        public string RenderHtmlTemplateWithJson(string templateContent, string jsonString) =>
+            Render(templateContent, jsonString, htmlEncodeValues: true);
+
+        private string Render(string templateContent, string jsonString, bool htmlEncodeValues)
         {
             _logger.LogInformation("RenderTemplateWithJson: Starting template rendering");
 
@@ -33,7 +44,7 @@ namespace Utility.DomainService.TemplateEngine.service
 
             // Deserialize JSON to dictionary
             _logger.LogInformation("RenderTemplateWithJson: Deserializing JSON data");
-            var dataDictionary = ParseJsonToDictionary(jsonString);
+            var dataDictionary = ParseJsonToDictionary(jsonString, htmlEncodeValues);
 
             // Add security token from context
             var context = BlocksContext.GetContext();
@@ -96,7 +107,7 @@ namespace Utility.DomainService.TemplateEngine.service
             _logger.LogInformation("RenderTemplateWithEntityData: Converting to Liquid Hash");
             // Serialize and deserialize to ensure proper type handling
             var jsonString = JsonConvert.SerializeObject(dataDictionary);
-            var finalDictionary = ParseJsonToDictionary(jsonString);
+            var finalDictionary = ParseJsonToDictionary(jsonString, htmlEncodeValues: false);
 
             // Convert to Liquid Hash
             var hash = Hash.FromDictionary(finalDictionary);
@@ -113,21 +124,22 @@ namespace Utility.DomainService.TemplateEngine.service
         /// Parses JSON into plain dictionaries/lists. DotLiquid cannot read JObject/JArray,
         /// so nested values left as JTokens render blank.
         /// </summary>
-        private static Dictionary<string, object> ParseJsonToDictionary(string jsonString)
+        private static Dictionary<string, object> ParseJsonToDictionary(string jsonString, bool htmlEncodeValues)
         {
             if (string.IsNullOrWhiteSpace(jsonString))
             {
                 return new Dictionary<string, object>();
             }
 
-            return ToPlain(JToken.Parse(jsonString)) as Dictionary<string, object>
+            return ToPlain(JToken.Parse(jsonString), htmlEncodeValues) as Dictionary<string, object>
                 ?? new Dictionary<string, object>();
         }
 
-        private static object? ToPlain(JToken token) => token switch
+        private static object? ToPlain(JToken token, bool htmlEncodeValues) => token switch
         {
-            JObject obj => obj.Properties().ToDictionary(p => p.Name, p => ToPlain(p.Value)!),
-            JArray array => array.Select(ToPlain).ToList(),
+            JObject obj => obj.Properties().ToDictionary(p => p.Name, p => ToPlain(p.Value, htmlEncodeValues)!),
+            JArray array => array.Select(item => ToPlain(item, htmlEncodeValues)).ToList(),
+            JValue { Value: string text } when htmlEncodeValues => WebUtility.HtmlEncode(text),
             JValue value => value.Value,
             _ => token.ToString()
         };

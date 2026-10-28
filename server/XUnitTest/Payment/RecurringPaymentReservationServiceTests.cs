@@ -189,6 +189,47 @@ public sealed class RecurringPaymentReservationServiceTests
     /// class's own <see cref="RecurringPaymentReservationService.CreatePayment"/> never read it,
     /// so an Adyen-routed charge recorded a payment with none of the figures its invoice needed.
     /// </remarks>
+    /// <summary>
+    /// The token the provider reports back for a charge is filed under the payment's owner. An
+    /// account charge that named none let the card drift to the merchant scope on its first
+    /// successful renewal, after which the preflight refused it as another organization's.
+    /// </summary>
+    [Fact]
+    public async Task An_account_charge_names_the_account_as_the_cards_owner()
+    {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(p => p.TryCreateAsync(It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+        var onBehalf = new PaymentExecutionContext("tenant", "worker", "merchant-org")
+        {
+            ChargesOnBehalfOfAccount = true,
+            AccountOrganizationId = "subscriber-org"
+        };
+
+        await CreateService().ReserveAsync(_request, onBehalf, "shopper-ref", _idempotencyKey, "corr", CancellationToken.None);
+
+        recorded!.OrganizationId.Should().Be("merchant-org", "the money moves through the merchant scope");
+        recorded.PaymentMethodOwnerOrganizationId.Should().Be("subscriber-org",
+            "the card is the subscriber's, and the token reported for this charge must stay filed under them");
+    }
+
+    [Fact]
+    public async Task A_callers_own_charge_names_no_separate_owner()
+    {
+        PaymentDetail? recorded = null;
+        _payments
+            .Setup(p => p.TryCreateAsync(It.IsAny<PaymentDetail>(), It.IsAny<CancellationToken>()))
+            .Callback((PaymentDetail payment, CancellationToken _) => recorded = payment)
+            .ReturnsAsync(true);
+
+        await RunAsync();
+
+        recorded!.PaymentMethodOwnerOrganizationId.Should().BeNull(
+            "a shopper charging their own card is filed under the organization they act in");
+    }
+
     [Fact]
     public async Task ReserveAsync_WithSubscriptionBreakdown_RecordsItOnTheCreatedPayment()
     {

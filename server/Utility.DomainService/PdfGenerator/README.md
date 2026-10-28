@@ -242,8 +242,17 @@ connections for them. Images, style sheets, fonts and scripts they reference are
 
 Chromium (engine 1) does this through request interception, and is launched with a dead proxy so
 traffic interception never sees (WebSockets, WebRTC) has nowhere to go. Aspose (engine 3 and document
-conversion) does it through `PublicResourceLoadingCallback`. wkhtmltopdf (engine 4) has neither hook
-and is not installed in the images; install it only after giving it the same restriction.
+conversion) does it through `PublicResourceLoadingCallback`. wkhtmltopdf (engine 4) is turned off:
+it had neither hook and ran scripts in the HTML.
+
+### Scripts and time limit
+
+- Chromium renders with JavaScript off. Caller HTML is static content; a `<script>` in it never runs,
+  so it cannot send the document's data out or loop on the shared browser.
+- Template-engine PDFs HTML-encode every value before it goes into the template, so a value such as
+  `<script>` shows as text. Put markup in the template, not in the values.
+- One render (load + print) may take at most 30 seconds (`PuppeteerSharp:RenderTimeoutSeconds`). After
+  that the page is closed and the PDF counts as failed.
 
 ## PDF Ingestion
 

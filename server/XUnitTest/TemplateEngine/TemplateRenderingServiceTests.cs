@@ -210,6 +210,28 @@ namespace XUnitTest.TemplateEngine
             Assert.Equal("Contract|1 Ada n/a", result);
         }
 
+        [Fact]
+        public void RenderHtmlTemplateWithJson_ShowsMarkupInValuesAsText()
+        {
+            var template = "<p>{{ Name }}</p>{% for s in Signers %}<i>{{ s.Name }}</i>{% endfor %}<b>{{ Count }}</b>";
+            var json = "{ \"Name\": \"<script>fetch('https://x.test')</script>\", \"Signers\": [ { \"Name\": \"<img src=x onerror=alert(1)>\" } ], \"Count\": 3 }";
+
+            var result = _service.RenderHtmlTemplateWithJson(template, json);
+
+            Assert.Equal(
+                "<p>&lt;script&gt;fetch(&#39;https://x.test&#39;)&lt;/script&gt;</p><i>&lt;img src=x onerror=alert(1)&gt;</i><b>3</b>",
+                result);
+        }
+
+        [Fact]
+        public void RenderTemplateWithJson_KeepsValuesUnencoded_ForNonHtmlFiles()
+        {
+            // The same renderer writes CSV and text files; encoding there would corrupt the values.
+            var result = _service.RenderTemplateWithJson("{{ Name }}", "{ \"Name\": \"a<b & c\" }");
+
+            Assert.Equal("a<b & c", result);
+        }
+
     }
 
 }
