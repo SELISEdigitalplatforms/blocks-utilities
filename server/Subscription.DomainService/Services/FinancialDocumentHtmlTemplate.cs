@@ -608,7 +608,8 @@ public static class FinancialDocumentHtmlTemplate
     /// <remarks>
     /// Only on an invoice and only when the card was identified at issue: a credit note returns
     /// money rather than taking it, a trial takes none, and a guessed card is worse than none.
-    /// Brand and last four only — see <see cref="FinancialDocumentPaymentCard"/>.
+    /// Brand, last four and expiry where reported — see <see cref="FinancialDocumentPaymentCard"/> —
+    /// then the billing contact as the payer, so the holder can match the charge to a statement.
     /// </remarks>
     private static void AppendPaymentCard(StringBuilder html, SubscriptionFinancialDocument document)
     {
@@ -620,7 +621,25 @@ public static class FinancialDocumentHtmlTemplate
 
         html.Append("<div class=\"card\"><div class=\"strong\">Payment method</div><div>")
             .Append(Escape($"{BrandName(card.Brand)} •••• {card.LastFour}"))
-            .Append("</div></div>");
+            .Append("</div>");
+
+        if (card is { ExpiryMonth.Length: > 0, ExpiryYear.Length: > 0 })
+        {
+            html.Append("<div>")
+                .Append(Escape($"Expires {card.ExpiryMonth}/{card.ExpiryYear[^Math.Min(2, card.ExpiryYear.Length)..]}"))
+                .Append("</div>");
+        }
+
+        if (card.HolderName is { Length: > 0 } holder)
+        {
+            html.Append("<div>").Append(Escape($"Cardholder: {holder}")).Append("</div>");
+        }
+        else if (document.BillingContact.Name is { Length: > 0 } payer)
+        {
+            html.Append("<div>").Append(Escape($"Payer: {payer}")).Append("</div>");
+        }
+
+        html.Append("</div>");
     }
 
     /// <summary>

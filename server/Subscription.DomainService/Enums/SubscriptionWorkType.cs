@@ -72,5 +72,8 @@ public enum SubscriptionWorkType
     CreditPurchaseRecovery = 11,
 
     /// <summary>Marking credit grants expired or forfeited once they have lapsed.</summary>
-    CreditGrantMaintenance = 12
+    CreditGrantMaintenance = 12,
+
+    /// <summary>Tell billing contacts whose card on file is about to expire.</summary>
+    PaymentMethodExpiryNotice = 13
 }

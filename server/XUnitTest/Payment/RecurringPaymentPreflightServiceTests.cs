@@ -51,9 +51,13 @@ public sealed class RecurringPaymentPreflightServiceTests
         MerchantId = "merchant"
     };
 
+    private PaymentExecutionContext AccountContext() =>
+        _context with { ChargesOnBehalfOfAccount = true, AccountOrganizationId = "org-1" };
+
     private static StoredPaymentMethod ActiveMethod() => new()
     {
         ItemId = "method-1",
+        OrganizationId = "org-1",
         ShopperReference = "shopper-ref",
         ProviderName = "provider",
         Status = PaymentMethodStatus.Active
@@ -229,7 +233,7 @@ public sealed class RecurringPaymentPreflightServiceTests
 
         var result = await CreateService().ExecuteAsync(
             Request(), Guid.NewGuid().ToString(),
-            _context with { ChargesOnBehalfOfAccount = true }, "corr", CancellationToken.None);
+            AccountContext(), "corr", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue("the account already vouched for the card it named");
         result.ShopperReference.Should().Be(
@@ -252,11 +256,30 @@ public sealed class RecurringPaymentPreflightServiceTests
 
         var result = await CreateService().ExecuteAsync(
             Request(), Guid.NewGuid().ToString(),
-            _context with { ChargesOnBehalfOfAccount = true }, "corr", CancellationToken.None);
+            AccountContext(), "corr", CancellationToken.None);
 
         result.Failure!.ErrorCode.Should().Be(
             "stored_payment_method_not_found",
             "a card no shopper owns must not become chargeable just because nobody is signed in");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AccountChargeOnAnotherOrganizationsCard_ReturnsNotFound()
+    {
+        SetupConvert(true);
+        SetupRateLimit(Allowed());
+        SetupProvider(EnabledProvider());
+        var method = ActiveMethod();
+        method.OrganizationId = "org-2";
+        SetupStoredMethod(method);
+
+        var result = await CreateService().ExecuteAsync(
+            Request(), Guid.NewGuid().ToString(),
+            AccountContext(), "corr", CancellationToken.None);
+
+        result.Failure!.ErrorCode.Should().Be(
+            "stored_payment_method_not_found",
+            "a billing account must never charge a card another organization saved, whatever it points at");
     }
 
     private delegate void TryCreateCallback(string tenantId, string actorId, string key, out string reference);

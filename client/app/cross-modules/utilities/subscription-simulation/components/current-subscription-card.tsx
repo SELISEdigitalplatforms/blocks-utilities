@@ -133,6 +133,13 @@ export const CurrentSubscriptionCard = ({
   // Lost paid access for want of a card, and this is the one thing that gets it back.
   const canRecover = !pendingSetupUrl && subscription.status === "Unpaid";
 
+  // A card on file that the subscriber wants to swap -- expiring, or cancelled by the issuer. The
+  // same session as "Add payment method"; the card it stores replaces the current default.
+  const canChangePaymentMethod =
+    !pendingSetupUrl &&
+    CHANGEABLE_STATUSES.has(subscription.status) &&
+    subscription.hasPaymentMethod === true;
+
   return (
     <Card className="rounded-xl p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -195,6 +202,17 @@ export const CurrentSubscriptionCard = ({
             >
               <CreditCard className="mr-2 h-3.5 w-3.5" />
               Add payment method
+            </Button>
+          )}
+          {canChangePaymentMethod && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onAddPaymentMethod}
+              disabled={isStartingPaymentMethodSetup}
+            >
+              <CreditCard className="mr-2 h-3.5 w-3.5" />
+              Change card
             </Button>
           )}
           {canRecover && (

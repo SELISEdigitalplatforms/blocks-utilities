@@ -31,7 +31,7 @@ public sealed class EntraOAuthClientTests
         url.Should().Contain("code_challenge_method=S256");
         url.Should().Contain("code_challenge=");
         url.Should().Contain("scope=Files.ReadWrite.All%20Sites.ReadWrite.All%20offline_access");
-        url.Should().Contain("redirect_uri=https%3A%2F%2Futilities.test%2Fapi%2Fdrive%2Fconnections%2Fcallback");
+        url.Should().Contain("redirect_uri=https%3A%2F%2Futilities.test%2Fdrive%2Fconnections%2Fcallback");
         verifier.Length.Should().BeGreaterThanOrEqualTo(43, because: "PKCE verifiers must be at least 43 characters");
     }
 

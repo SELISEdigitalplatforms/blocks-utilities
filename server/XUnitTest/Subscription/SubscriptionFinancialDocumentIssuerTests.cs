@@ -171,14 +171,53 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     {
         Subscribed();
         SettledRenewal(payment => payment.StoredPaymentMethodPublicId = "card-1");
+        StoredCard("card-1", "visa", "4242", "03", "2030");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.PaymentCard.Should().BeEquivalentTo(
+            new FinancialDocumentPaymentCard
+            {
+                Brand = "visa",
+                LastFour = "4242",
+                ExpiryMonth = "03",
+                ExpiryYear = "2030"
+            },
+            "the invoice names the card that paid, so the subscriber can recognise the charge");
+    }
+
+    [Fact]
+    public async Task The_card_the_provider_reported_on_the_charge_wins_over_the_saved_card()
+    {
+        Subscribed();
+        SettledRenewal(payment =>
+        {
+            payment.StoredPaymentMethodPublicId = "card-1";
+            payment.PaymentInstrument = new PaymentInstrument
+            {
+                Brand = "mc",
+                LastFour = "5454",
+                ExpiryMonth = "11",
+                ExpiryYear = "2031",
+                HolderName = "Dana Holder"
+            };
+        });
         StoredCard("card-1", "visa", "4242");
 
         var document = await Issuer().IssueDocumentForPaymentAsync(
             TenantId, "pay-1", "corr-1", CancellationToken.None);
 
         document!.PaymentCard.Should().BeEquivalentTo(
-            new FinancialDocumentPaymentCard { Brand = "visa", LastFour = "4242" },
-            "the invoice names the card that paid, so the subscriber can recognise the charge");
+            new FinancialDocumentPaymentCard
+            {
+                Brand = "mc",
+                LastFour = "5454",
+                ExpiryMonth = "11",
+                ExpiryYear = "2031",
+                HolderName = "Dana Holder"
+            },
+            "what the provider said paid is the card that paid, including its holder");
     }
 
     [Fact]
@@ -249,7 +288,12 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document!.PaymentCard.Should().BeNull("an unverified value has no place beside a card mask");
     }
 
-    private void StoredCard(string itemId, string brand, string lastFour) =>
+    private void StoredCard(
+        string itemId,
+        string brand,
+        string lastFour,
+        string? expiryMonth = null,
+        string? expiryYear = null) =>
         _storedMethods
             .Setup(methods => methods.GetAsync(TenantId, itemId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new StoredPaymentMethod
@@ -257,7 +301,9 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
                 ItemId = itemId,
                 TenantId = TenantId,
                 Brand = brand,
-                LastFour = lastFour
+                LastFour = lastFour,
+                ExpiryMonth = expiryMonth,
+                ExpiryYear = expiryYear
             });
 
     [Fact]

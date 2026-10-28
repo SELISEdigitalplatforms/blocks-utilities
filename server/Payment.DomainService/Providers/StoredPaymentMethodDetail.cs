@@ -13,4 +13,5 @@ public sealed record StoredPaymentMethodDetail(
     string? ExpiryYear = null,
     string? FundingSource = null,
     string? IssuerCountry = null,
-    string? CardFingerprint = null);
+    string? CardFingerprint = null,
+    string? HolderName = null);
