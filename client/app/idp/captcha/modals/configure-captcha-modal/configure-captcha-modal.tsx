@@ -22,7 +22,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui-kits/form/form";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ConfigureCaptchaFormDefaultValue, ConfigureCaptchaFormSchema } from "./utils";
 import {
@@ -47,9 +47,10 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
   const tenantId = useProjectStore().selectedProject?.tenantId || "";
   const { isLoading, isFetching, data } = useGetCaptchaConfigs({ projectKey: tenantId });
 
+  const defaultValues = configuration || ConfigureCaptchaFormDefaultValue;
   const form = useForm({
-    defaultValues: configuration || ConfigureCaptchaFormDefaultValue,
-    resolver: zodResolver(ConfigureCaptchaFormSchema),
+    defaultValues,
+    resolver: zodResolver(ConfigureCaptchaFormSchema) as unknown as Resolver<typeof defaultValues>,
   });
   const {
     formState: { isDirty },

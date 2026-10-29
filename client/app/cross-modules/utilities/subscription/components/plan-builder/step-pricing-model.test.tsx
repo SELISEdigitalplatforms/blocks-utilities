@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { FormProvider, useForm } from "react-hook-form";
+import { FormProvider, useForm, type Resolver } from "react-hook-form";
 
 import { defaultSubscriptionPriceFormValues } from "../../schemas/subscription-price.schema";
 import {
@@ -33,7 +33,7 @@ const Harness = ({ values }: { values?: Partial<CreateSubscriptionPlanFormValues
  */
 const ValidatedHarness = ({ values }: { values?: Partial<CreateSubscriptionPlanFormValues> }) => {
   const form = useForm<CreateSubscriptionPlanFormValues>({
-    resolver: zodResolver(createSubscriptionPlanSchema),
+    resolver: zodResolver(createSubscriptionPlanSchema) as Resolver<CreateSubscriptionPlanFormValues>,
     mode: "onBlur",
     defaultValues: { ...defaultSubscriptionPlanFormValues, ...values },
   });

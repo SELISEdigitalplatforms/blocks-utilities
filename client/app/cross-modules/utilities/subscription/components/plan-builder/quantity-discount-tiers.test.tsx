@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { FormProvider, useForm } from "react-hook-form";
+import { FormProvider, useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   createSubscriptionPlanSchema,
@@ -27,7 +27,7 @@ const Harness = ({
   priceQuantityItemKey?: string;
 }) => {
   const form = useForm<CreateSubscriptionPlanFormValues>({
-    resolver: zodResolver(createSubscriptionPlanSchema),
+    resolver: zodResolver(createSubscriptionPlanSchema) as Resolver<CreateSubscriptionPlanFormValues>,
     // The mode the real builder uses, so a message this test expects on blur is a message an
     // author actually sees on blur.
     mode: "onBlur",

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { FormProvider, useForm } from "react-hook-form";
+import { FormProvider, useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   createSubscriptionPlanSchema,
@@ -22,7 +22,7 @@ const meter = {
 
 const Harness = () => {
   const form = useForm<CreateSubscriptionPlanFormValues>({
-    resolver: zodResolver(createSubscriptionPlanSchema),
+    resolver: zodResolver(createSubscriptionPlanSchema) as Resolver<CreateSubscriptionPlanFormValues>,
     defaultValues: { ...defaultSubscriptionPlanFormValues, meters: [meter] },
   });
 
@@ -139,7 +139,7 @@ describe("the ordering error", () => {
   it("is shown against the table rather than failing silently", async () => {
     const Invalid = () => {
       const form = useForm<CreateSubscriptionPlanFormValues>({
-        resolver: zodResolver(createSubscriptionPlanSchema),
+        resolver: zodResolver(createSubscriptionPlanSchema) as Resolver<CreateSubscriptionPlanFormValues>,
         defaultValues: {
           ...defaultSubscriptionPlanFormValues,
           code: "metered",

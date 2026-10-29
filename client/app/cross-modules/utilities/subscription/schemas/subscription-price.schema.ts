@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { zod3Messages } from "@/lib/zod3-messages";
 
 import {
   isRepresentableInMinorUnits,
@@ -23,6 +24,9 @@ export const FLAT_FEE = "__flat_fee__";
  * inside the plan builder — a plan usually sells on more than one of these (monthly and annually
  * are two prices), and both places have to describe a price the same way.
  */
+// The checks without a message of their own carry zod 3's default one, so the forms read the same
+// after the zod 4 upgrade. Number.isInteger, not .int(): zod 4's .int() also rejects unsafe integers
+// and skips the checks after it and the superRefine below; zod 3's did neither.
 const priceFields = z.object({
   currencyCode: z
     .string()
@@ -31,9 +35,17 @@ const priceFields = z.object({
     .toUpperCase(),
   // Entered in major units in the UI (e.g. "89.00") and converted to minor units on submit —
   // the API never wants a decimal, since the exponent belongs to the currency, not the request.
-  amount: z.coerce.number().min(0, "Enter an amount of zero or more."),
-  interval: z.coerce.number().int().min(0).max(3),
-  intervalCount: z.coerce.number().int().min(1).max(36),
+  amount: z.coerce.number<number>().min(0, "Enter an amount of zero or more."),
+  interval: z.coerce
+    .number<number>()
+    .refine(Number.isInteger, zod3Messages.integer)
+    .min(0, zod3Messages.numberMin(0))
+    .max(3, zod3Messages.numberMax(3)),
+  intervalCount: z.coerce
+    .number<number>()
+    .refine(Number.isInteger, zod3Messages.integer)
+    .min(1, zod3Messages.numberMin(1))
+    .max(36, zod3Messages.numberMax(36)),
   /**
    * Where renewals land. Defaulted rather than required, because "unstated" already means
    * anniversary everywhere else — on the server, and on every price authored before this existed.
@@ -59,8 +71,13 @@ const priceFields = z.object({
   calendarAnnualChargeTiming: z
     .enum(CALENDAR_ANNUAL_CHARGE_TIMING_NAMES)
     .default("AtBoundary"),
-  displayPriceNote: z.string().trim().max(200).optional().or(z.literal("")),
-  quantityItemKey: z.string().min(1),
+  displayPriceNote: z
+    .string()
+    .trim()
+    .max(200, zod3Messages.stringMax(200))
+    .optional()
+    .or(z.literal("")),
+  quantityItemKey: z.string().min(1, zod3Messages.stringMin(1)),
   /**
    * A percentage, two decimal places, converted to basis points on submit. Optional: most prices
    * carry no tax at all, and a required field would make every author answer a question about VAT
@@ -73,7 +90,7 @@ const priceFields = z.object({
   taxPercent: z.preprocess(
     (value) => (value === "" || value === null || value === undefined ? undefined : value),
     z.coerce
-      .number()
+      .number<number>()
       .min(0, "A tax rate cannot be negative.")
       .max(100, "A tax rate cannot exceed 100%.")
       .optional(),
@@ -94,7 +111,7 @@ const priceFields = z.object({
   automaticDiscountPercent: z.preprocess(
     (value) => (value === "" || value === null || value === undefined ? undefined : value),
     z.coerce
-      .number()
+      .number<number>()
       .min(0, "A discount cannot be negative.")
       .max(100, "A discount cannot exceed 100%.")
       .optional(),
@@ -124,7 +141,7 @@ export const subscriptionPriceFieldsSchema = priceFields.superRefine((price, con
   const exponent = minorUnitExponent(price.currencyCode);
 
   context.addIssue({
-    code: z.ZodIssueCode.custom,
+    code: "custom",
     path: ["amount"],
     message:
       exponent === 0

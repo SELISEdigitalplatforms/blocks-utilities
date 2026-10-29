@@ -7,7 +7,7 @@ import {
   LockKeyhole,
   Plus,
 } from "lucide-react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
@@ -83,7 +83,7 @@ export const CreatePaymentProviderPage = () => {
   const organizations = organizationsData?.organizations ?? [];
 
   const form = useForm<RegisterPaymentProviderFormValues>({
-    resolver: zodResolver(registerPaymentProviderSchema),
+    resolver: zodResolver(registerPaymentProviderSchema) as Resolver<RegisterPaymentProviderFormValues>,
     mode: "onBlur",
     defaultValues: {
       providerName: "ADYEN-ONLINE",

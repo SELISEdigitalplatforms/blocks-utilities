@@ -1,4 +1,4 @@
-import type { SafeParseReturnType } from "zod";
+import type { ZodSafeParseResult } from "zod";
 import { describe, expect, it } from "vitest";
 import {
   buildSubscriptionPlanSchema,
@@ -23,8 +23,45 @@ const validPlan = {
   organizationId: TENANT_WIDE_ORGANIZATION,
 };
 
-const issuePaths = (result: SafeParseReturnType<unknown, unknown>) =>
+const issuePaths = (result: ZodSafeParseResult<unknown>) =>
   result.success ? [] : result.error.issues.map((issue) => issue.path);
+
+describe("whole-number fields", () => {
+  /**
+   * zod 4's .int() also stops the checks after it and the plan's superRefine. The schema keeps
+   * zod 3's behaviour: the fraction is reported in zod 3's words, and so is everything else.
+   */
+  it("report a fraction and keep the plan-level checks running", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      usageIntervalCount: 1.5,
+      prices: [],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toContainEqual(
+      expect.objectContaining({
+        path: ["usageIntervalCount"],
+        message: "Expected integer, received float",
+      }),
+    );
+    expect(issuePaths(result)).toContainEqual(["prices"]);
+  });
+
+  it("accept an integer beyond the safe range as zod 3 did, leaving the bound to say no", () => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      usageIntervalCount: 2 ** 53,
+    });
+
+    expect(result.error?.issues).toContainEqual(
+      expect.objectContaining({
+        path: ["usageIntervalCount"],
+        message: "Number must be less than or equal to 100",
+      }),
+    );
+  });
+});
 
 describe("createSubscriptionPlanSchema", () => {
   it("accepts a minimal tenant-wide plan", () => {
@@ -957,6 +994,19 @@ describe("a plan sold to each person", () => {
     );
 
     expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimits"]);
+  });
+
+  /** zod 4's .max() would stop at the oversized list; the form must still name the bad row. */
+  it("still checks the rows of a list with too many limits", () => {
+    const result = paced(
+      limit({ count: 24 }),
+      limit({ window: 1, quantity: 2000 }),
+      limit({ window: 2, quantity: 50_000 }),
+      limit({ window: 2, count: 2, quantity: 90_000 }),
+    );
+
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimits"]);
+    expect(issuePaths(result)).toContainEqual(["meters", 0, "subLimits", 1, "count"]);
   });
 
   /** A day and twenty-four hours are one limit however they were written. */
