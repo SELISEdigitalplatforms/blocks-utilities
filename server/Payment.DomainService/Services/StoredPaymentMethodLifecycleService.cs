@@ -173,6 +173,19 @@ public sealed class StoredPaymentMethodLifecycleService :
             return;
         }
 
+        // A card the shopper already holds keeps its owner unless this payment names one. Only a
+        // checkout or a card setup names one (PaymentMethodOwnerOrganizationId); an off-session
+        // charge from a stored card -- a renewal, a credit top-up -- is filed under the merchant
+        // scope the money moved through, and Adyen's authorisation for it carries the token
+        // back. Taking that payment's organization here moved every subscriber's card from the
+        // subscriber to the merchant on its first successful charge, after which the recurring
+        // preflight refused it as another organization's card and every later charge failed.
+        if (existing is not null &&
+            string.IsNullOrWhiteSpace(payment.PaymentMethodOwnerOrganizationId))
+        {
+            protectedMethod.OrganizationId = existing.OrganizationId;
+        }
+
         var described = await WithProviderDetailsAsync(
             protectedMethod,
             payload.StoredPaymentMethodToken,

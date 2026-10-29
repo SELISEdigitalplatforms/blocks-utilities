@@ -6,13 +6,13 @@ namespace Utility.DomainService.PdfGenerator.service
     /// PDF engine factory/provider service.
     /// 
     /// Available engines:
-    /// - Engine 1: PuppeteerSharp (default) - Best for HTML-to-PDF with modern CSS/JS support. Free (MIT license).
+    /// - Engine 1: PuppeteerSharp (default) - Best for HTML-to-PDF with modern CSS (JavaScript is off). Free (MIT license).
     /// - Engine 2: PdfSharpCore - PDF manipulation (merge, stamp, fix). Free (MIT license). NO HTML-to-PDF support.
     /// - Engine 3: Aspose - Full PDF support (HTML-to-PDF, merge, stamp, extract, fix). Commercial license.
-    /// - Engine 4: WkHtmlToPdf - HTML-to-PDF only. Free but deprecated.
+    /// - Engine 4 (WkHtmlToPdf) is turned off: it ran scripts in caller HTML and is no longer maintained.
     /// 
     /// Recommended usage:
-    /// - HTML-to-PDF: Use Engine 1 (PuppeteerSharp) for modern CSS/JS, Engine 3 (Aspose) or 4 (WkHtml) for legacy.
+    /// - HTML-to-PDF: Use Engine 1 (PuppeteerSharp) for modern CSS, Engine 3 (Aspose) for legacy.
     /// - PDF manipulation (merge, stamp): Use Engine 2 (PdfSharpCore) for free, Engine 3 (Aspose) for full features.
     /// - Text extraction: Use Engine 3 (Aspose) only.
     /// </summary>
@@ -28,18 +28,15 @@ namespace Utility.DomainService.PdfGenerator.service
         private readonly PuppeteerSharpEngine _puppeteerEngine;
         private readonly PdfSharpCoreEngine _pdfSharpCoreEngine;
         private readonly AsposePdfEngine _asposeEngine;
-        private readonly WkHtmlToPdfEngine _wkHtmlEngine;
 
         public PdfEngineProvider(
             PuppeteerSharpEngine puppeteerEngine,
             PdfSharpCoreEngine pdfSharpCoreEngine,
-            AsposePdfEngine asposeEngine,
-            WkHtmlToPdfEngine wkHtmlEngine)
+            AsposePdfEngine asposeEngine)
         {
             _puppeteerEngine = puppeteerEngine;
             _pdfSharpCoreEngine = pdfSharpCoreEngine;
             _asposeEngine = asposeEngine;
-            _wkHtmlEngine = wkHtmlEngine;
         }
 
         public IPdfEngine GetEngine(int engineNumber)
@@ -49,8 +46,8 @@ namespace Utility.DomainService.PdfGenerator.service
                 1 => _puppeteerEngine,
                 2 => _pdfSharpCoreEngine,
                 3 => _asposeEngine,
-                4 => _wkHtmlEngine,
-                _ => throw new ArgumentException($"Invalid engine number: {engineNumber}. Supported values are 1 (PuppeteerSharp), 2 (PdfSharpCore), 3 (Aspose), or 4 (WkHtmlToPdf).")
+                4 => throw new ArgumentException("Engine 4 (WkHtmlToPdf) is turned off. Use 1 (PuppeteerSharp) or 3 (Aspose)."),
+                _ => throw new ArgumentException($"Invalid engine number: {engineNumber}. Supported values are 1 (PuppeteerSharp), 2 (PdfSharpCore) or 3 (Aspose).")
             };
         }
     }

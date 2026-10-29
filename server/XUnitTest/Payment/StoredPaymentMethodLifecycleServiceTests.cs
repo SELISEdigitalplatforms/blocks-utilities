@@ -491,6 +491,76 @@ public sealed class StoredPaymentMethodLifecycleServiceTests
     }
 
     /// <summary>
+    /// A renewal or credit top-up charges the subscriber's stored card under the merchant scope and
+    /// names no owner, and Adyen's authorisation for it carries the token back. Re-filing the card
+    /// under that payment's organization moved it from the subscriber to the merchant on the first
+    /// successful charge; the recurring preflight then refused it as another organization's card
+    /// and every charge after the first failed with stored_payment_method_not_found.
+    /// </summary>
+    [Fact]
+    public async Task A_charge_from_a_stored_card_leaves_the_card_with_its_owner()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("AUTHORISATION");
+        fixture.Methods
+            .Setup(repository => repository.GetByTokenFingerprintAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredPaymentMethod
+            {
+                ItemId = "existing-1",
+                OrganizationId = "subscriber-org",
+                Status = PaymentMethodStatus.Active
+            });
+
+        var charge = PaymentWith(rememberCard: false);
+        charge.OrganizationId = "merchant-org";
+        charge.PaymentFlow = PaymentFlows.RecurringCharge;
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(webhook, charge, CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.UpsertFromProviderAsync(
+                It.Is<StoredPaymentMethod>(method => method.OrganizationId == "subscriber-org"),
+                webhook.EventDateUtc,
+                It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the merchant scope a charge moves through is not who owns the card");
+    }
+
+    /// <summary>
+    /// The one case that may move a card: a checkout or setup that names its owner, which is how a
+    /// card first saved under the merchant scope reaches the subscriber who then subscribes with it.
+    /// </summary>
+    [Fact]
+    public async Task A_payment_that_names_an_owner_re_files_an_existing_card_under_them()
+    {
+        var fixture = new Fixture();
+        var webhook = fixture.TokenWebhook("AUTHORISATION");
+        fixture.Methods
+            .Setup(repository => repository.GetByTokenFingerprintAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StoredPaymentMethod
+            {
+                ItemId = "existing-1",
+                OrganizationId = "merchant-org",
+                Status = PaymentMethodStatus.Active
+            });
+
+        var checkout = PaymentWith(rememberCard: true);
+        checkout.OrganizationId = "merchant-org";
+        checkout.PaymentMethodOwnerOrganizationId = "subscriber-org";
+
+        await fixture.Service.ApplyAuthorisationTokenAsync(webhook, checkout, CancellationToken.None);
+
+        fixture.Methods.Verify(repository => repository.UpsertFromProviderAsync(
+                It.Is<StoredPaymentMethod>(method => method.OrganizationId == "subscriber-org"),
+                webhook.EventDateUtc,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    /// <summary>
     /// A subscriber pays through the tenant's merchant scope, so its payment carries the merchant
     /// organization. Filing the card there left the subscriber's billing account -- which adopts
     /// its card by the subscriber -- with nothing to adopt, and a zero-amount signup never

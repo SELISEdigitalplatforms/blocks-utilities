@@ -47,7 +47,7 @@ subscription module fills only the fields below; everything else is sent empty.
 | --- | --- |
 | `To` | Exactly one address, trimmed and lower-cased. Never more than one recipient. |
 | `Cc`, `Bcc`, `ReplyTo` | Always empty. |
-| `Purpose` | One of the eleven purposes above. Selects the template. |
+| `Purpose` | One of the twelve purposes above. Selects the template. |
 | `Language` | BCP-47 tag (`en-US`, `de-CH`). Selects the template too; see [Languages](#languages). |
 | `Attachments` | Storage file ids. Only financial documents attach anything (the PDF). |
 | `SubjectDataContext` | Placeholders usable in the subject line. Values are placed **raw**. |
@@ -58,6 +58,10 @@ Write a placeholder as `{{Key}}`. **A template that uses a key the payload does 
 rejected by the mail module after the message has been acknowledged, silently.** That is why every
 purpose in a family always sends the family's full key set, with an empty string where a value does
 not apply.
+
+Each family section below ends with a **starter template** per purpose: a subject line and an HTML
+body that use only the keys that purpose sends. They are a safe starting point for a tenant's
+templates, not the wording the product ships with.
 
 ## Financial documents
 
@@ -140,6 +144,58 @@ means the document stays downloadable and the mail is recorded as not attempted.
 `CorrelationId` on this family is the `MessageId`, not the checkout's correlation id: the whole
 checkout shares one correlation id, and this one names exactly one mail.
 
+**Starter templates.** One body serves all three; only the subject and the opening line differ.
+`{{Total}}` is already formatted with its currency, and `{{PeriodStart}}`/`{{PeriodEnd}}` are empty on a
+document that belongs to no period, so the period line is worded to read well either way.
+
+`subscription_invoice`
+
+```
+Subject: Invoice {{DocumentNumber}} for {{PlanName}}: {{Total}}
+```
+
+```html
+<p>Hello {{ContactName}},</p>
+<p>Your invoice <strong>{{DocumentNumber}}</strong> for <strong>{{OrganizationName}}</strong> is attached.</p>
+<table>
+  <tr><td>Plan</td><td>{{PlanName}}</td></tr>
+  <tr><td>Period</td><td>{{PeriodStart}} to {{PeriodEnd}}</td></tr>
+  <tr><td>Issued</td><td>{{IssuedOn}}</td></tr>
+  <tr><td>Total</td><td><strong>{{Total}}</strong></td></tr>
+</table>
+<p>The amount has been charged to the card on file. No action is needed.</p>
+<p style="color:#888;font-size:12px">Reference {{MessageId}}</p>
+```
+
+`subscription_trial_invoice`
+
+```
+Subject: Your trial of {{PlanName}} has started
+```
+
+```html
+<p>Hello {{ContactName}},</p>
+<p>Your free trial of <strong>{{PlanName}}</strong> for <strong>{{OrganizationName}}</strong> runs from
+{{PeriodStart}} to {{PeriodEnd}}. The attached document <strong>{{DocumentNumber}}</strong> records the terms of
+the trial; its total is {{Total}} and nothing has been charged.</p>
+<p>Issued {{IssuedOn}}.</p>
+<p style="color:#888;font-size:12px">Reference {{MessageId}}</p>
+```
+
+`subscription_credit_note`
+
+```
+Subject: Credit note {{DocumentNumber}}: {{Total}}
+```
+
+```html
+<p>Hello {{ContactName}},</p>
+<p>A credit note <strong>{{DocumentNumber}}</strong> has been issued to <strong>{{OrganizationName}}</strong>
+for <strong>{{Total}}</strong> against your {{PlanName}} subscription. The document is attached.</p>
+<p>Issued {{IssuedOn}}.</p>
+<p style="color:#888;font-size:12px">Reference {{MessageId}}</p>
+```
+
 ## Billing-contact notices
 
 Five emails to the billing contact of the subscription, one per kind of change. Each is converted
@@ -219,6 +275,76 @@ What changes per purpose, everything else staying as above:
 | `subscription_canceled` | `""` | `""` | last day of access | typed reason |
 | `subscription_cancellation_withdrawn` | `""` | `""` | `""` | `""` |
 
+**Starter templates.** `{{CancellationReason}}` is body-only; a subject that names it is rejected.
+`{{ActorName}}` is empty for a change the system made, so it is kept out of the subject.
+
+`subscription_quantity_changed`
+
+```
+Subject: Your {{PlanName}} subscription has changed
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>The quantities on your <strong>{{PlanName}}</strong> subscription changed on {{EffectiveDate}}:</p>
+<p><strong>{{QuantityChanges}}</strong></p>
+<p>Requested by {{ActorName}}.</p>
+```
+
+`subscription_plan_changed`
+
+```
+Subject: You are now on {{PlanName}}
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>Your subscription moved from <strong>{{PreviousPlanName}}</strong> to <strong>{{PlanName}}</strong>
+on {{EffectiveDate}}.</p>
+<p>Requested by {{ActorName}}.</p>
+```
+
+`subscription_cancellation_requested`
+
+```
+Subject: Your {{PlanName}} subscription ends on {{EffectiveDate}}
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>Your <strong>{{PlanName}}</strong> subscription has been set to end on <strong>{{EffectiveDate}}</strong>.
+Access continues until then.</p>
+<p>Reason given: {{CancellationReason}}</p>
+<p>Requested by {{ActorName}}. Changed your mind? Withdraw the cancellation from your subscription page
+before that date.</p>
+```
+
+`subscription_canceled`
+
+```
+Subject: Your {{PlanName}} subscription has ended
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>Your <strong>{{PlanName}}</strong> subscription ended on <strong>{{EffectiveDate}}</strong>.</p>
+<p>Reason given: {{CancellationReason}}</p>
+<p>Requested by {{ActorName}}. You can subscribe again at any time.</p>
+```
+
+`subscription_cancellation_withdrawn`
+
+```
+Subject: Your {{PlanName}} subscription continues
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>The scheduled cancellation of your <strong>{{PlanName}}</strong> subscription has been withdrawn.
+It continues and renews as before.</p>
+<p>Requested by {{ActorName}}.</p>
+```
+
 ## Member notices
 
 Two emails to the **person**, not the billing contact, on a per-person subscription.
@@ -276,6 +402,32 @@ if it exists and is released. Otherwise the mail is recorded as not attempted wi
 
 `subscription_member_removed` is identical apart from `Purpose`.
 
+**Starter templates.**
+
+`subscription_member_assigned`
+
+```
+Subject: You now have a seat on {{PlanName}} at {{OrganizationName}}
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>{{ActorName}} gave you a seat on the <strong>{{PlanName}}</strong> subscription of
+<strong>{{OrganizationName}}</strong>. Sign in to start using it.</p>
+```
+
+`subscription_member_removed`
+
+```
+Subject: Your seat on {{PlanName}} at {{OrganizationName}} was removed
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>{{ActorName}} removed your seat on the <strong>{{PlanName}}</strong> subscription of
+<strong>{{OrganizationName}}</strong>. Contact them if you think this is a mistake.</p>
+```
+
 ## Usage warning
 
 One email, `subscription_usage_threshold`, from the `UsageThresholdReached` lifecycle event.
@@ -329,6 +481,22 @@ already announced in September.
   },
   "CorrelationId": "<lifecycle EventId>"
 }
+```
+
+**Starter template.**
+
+`subscription_usage_threshold`
+
+```
+Subject: {{ThresholdPercent}}% of your {{MeterKey}} allowance used
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>Your <strong>{{PlanName}}</strong> subscription has used <strong>{{Balance}}</strong> of
+<strong>{{Limit}}</strong> {{MeterKey}} this period, which is past the {{ThresholdPercent}}% mark.</p>
+<p>Usage beyond the limit is charged at the plan's overage rate. Consider upgrading if this happens
+every period.</p>
 ```
 
 ## Card expiry
@@ -386,6 +554,22 @@ recorded on the card, and a card re-saved with a later expiry is simply a new ma
 
 The subscriber replaces the card through the same `POST /subscriptions/{id}/payment-method/setup`
 session used to add a first one; the new card becomes the default once the provider confirms it.
+
+**Starter template.**
+
+`subscription_payment_method_expiring`
+
+```
+Subject: Your {{Brand}} card ending {{LastFour}} expires {{ExpiryMonth}}/{{ExpiryYear}}
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>The <strong>{{Brand}}</strong> card ending <strong>{{LastFour}}</strong> that pays your subscription
+expires on <strong>{{ExpiryDate}}</strong>.</p>
+<p>To avoid an interruption, add a new card from your subscription page before then. The new card
+takes over as soon as it is confirmed.</p>
+```
 
 ## Languages
 

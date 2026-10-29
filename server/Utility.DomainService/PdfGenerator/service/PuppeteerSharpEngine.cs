@@ -8,7 +8,7 @@ namespace Utility.DomainService.PdfGenerator.service
 {
     /// <summary>
     /// PDF engine using PuppeteerSharp (headless Chromium) for HTML to PDF conversion.
-    /// This engine provides excellent CSS3, JavaScript, and modern web rendering support.
+    /// This engine provides modern CSS3 rendering. JavaScript is turned off: caller HTML is rendered as static content.
     /// 
     /// Supported operations:
     /// - ConvertHtmlToPdfAsync: Excellent (uses Chrome's native print-to-PDF)
@@ -28,6 +28,12 @@ namespace Utility.DomainService.PdfGenerator.service
         private IBrowser? _browser;
         private readonly SemaphoreSlim _browserLock = new(1, 1);
         private bool _disposed;
+
+        /// <summary>
+        /// Longest time one render (load + print) may take. The page is closed after it, so one
+        /// heavy document cannot hold the shared browser. Config: PuppeteerSharp:RenderTimeoutSeconds.
+        /// </summary>
+        private const int DefaultRenderTimeoutSeconds = 30;
 
         public PuppeteerSharpEngine(
             ILogger<PuppeteerSharpEngine> logger,
@@ -110,29 +116,16 @@ namespace Utility.DomainService.PdfGenerator.service
                 var browser = await GetBrowserAsync();
                 await using var page = await browser.NewPageAsync();
 
+                // The HTML comes from callers: a script in it could send the document's data out or
+                // loop forever on the shared browser. Templates are static HTML, so nothing runs.
+                await page.SetJavaScriptEnabledAsync(false);
+
                 // The HTML comes from callers, so Chromium never opens a connection for it: every
                 // request is answered with bytes PublicNetwork downloaded, or aborted (SSRF).
                 await page.SetRequestInterceptionAsync(true);
                 page.Request += async (_, e) => await RouteRequestAsync(e.Request);
 
-                // The content is self-contained — inline CSS, logos embedded as data URIs, no
-                // external requests — so there is no network activity for Networkidle0 to settle
-                // on. Waiting for it anyway (twice: once here and once via the explicit
-                // WaitForNetworkIdleAsync this replaced) meant every render waited out Puppeteer's
-                // 30-second navigation timeout for an idle event the page was never going to raise.
-                // DOMContentLoaded is what a document with no network dependencies actually reaches,
-                // and a short explicit timeout keeps a genuinely stuck page from hanging the caller.
-                await page.SetContentAsync(htmlContent, new NavigationOptions
-                {
-                    WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded },
-                    Timeout = 10_000
-                });
-
-                // Build PDF options
-                var pdfOptions = BuildPdfOptions(options);
-
-                // Generate PDF
-                var pdfBytes = await page.PdfDataAsync(pdfOptions);
+                var pdfBytes = await RenderAsync(page, htmlContent, options).WaitAsync(GetRenderTimeout());
 
                 var outputStream = new MemoryStream(pdfBytes);
                 outputStream.Position = 0;
@@ -146,6 +139,29 @@ namespace Utility.DomainService.PdfGenerator.service
                 return null;
             }
         }
+
+        private async Task<byte[]> RenderAsync(IPage page, string htmlContent, PdfGenerationOptions options)
+        {
+            // The content is self-contained — inline CSS, logos embedded as data URIs, no
+            // external requests — so there is no network activity for Networkidle0 to settle
+            // on. Waiting for it anyway (twice: once here and once via the explicit
+            // WaitForNetworkIdleAsync this replaced) meant every render waited out Puppeteer's
+            // 30-second navigation timeout for an idle event the page was never going to raise.
+            // DOMContentLoaded is what a document with no network dependencies actually reaches,
+            // and a short explicit timeout keeps a genuinely stuck page from hanging the caller.
+            await page.SetContentAsync(htmlContent, new NavigationOptions
+            {
+                WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded },
+                Timeout = 10_000
+            });
+
+            return await page.PdfDataAsync(BuildPdfOptions(options));
+        }
+
+        private TimeSpan GetRenderTimeout() =>
+            TimeSpan.FromSeconds(int.TryParse(_configuration["PuppeteerSharp:RenderTimeoutSeconds"], out var seconds) && seconds > 0
+                ? seconds
+                : DefaultRenderTimeoutSeconds);
 
         /// <summary>
         /// Answers one intercepted page request. Inline <c>data:</c> URLs load as usual; a GET for
