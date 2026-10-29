@@ -69,6 +69,55 @@ public sealed class RecurringRevenueReportResponse
     public IReadOnlyList<RecurringRevenueCurrencyResponse> Currencies { get; init; } = [];
 }
 
+/// <summary>
+/// How the recurring run-rate moved, from the daily captures.
+/// </summary>
+/// <remarks>
+/// Run-rate is a level, not a flow, so a bucket reports where the rate stood at the last capture
+/// inside it rather than a sum. History starts on the day captures began: before that the module
+/// kept nothing a past run-rate could be rebuilt from, and a bucket with no capture is absent
+/// rather than zero, because a zero would read as every subscriber having left.
+/// </remarks>
+public sealed class RecurringRevenueTrendResponse
+{
+    public DateTime FromUtc { get; init; }
+
+    public DateTime ToUtc { get; init; }
+
+    public string Granularity { get; init; } = string.Empty;
+
+    public IReadOnlyList<RecurringRevenueTrendPeriodResponse> Periods { get; init; } = [];
+}
+
+/// <summary>The run-rate at the close of one day, week or month.</summary>
+public sealed class RecurringRevenueTrendPeriodResponse
+{
+    /// <summary>Midnight UTC of the day, of the Monday opening the week, or of the 1st.</summary>
+    public DateTime BucketStartUtc { get; init; }
+
+    /// <summary>The day of the capture the figures come from: the latest one in the bucket.</summary>
+    public DateTime SnapshotDayUtc { get; init; }
+
+    public long SubscriptionCount { get; init; }
+
+    public IReadOnlyList<RecurringRevenueTrendCurrencyResponse> Currencies { get; init; } = [];
+}
+
+public sealed class RecurringRevenueTrendCurrencyResponse
+{
+    public string CurrencyCode { get; init; } = string.Empty;
+
+    public long GrossMonthlyMinor { get; init; }
+
+    public long NetMonthlyMinor { get; init; }
+
+    public long GrossAnnualMinor { get; init; }
+
+    public long NetAnnualMinor { get; init; }
+
+    public long SubscriptionCount { get; init; }
+}
+
 public sealed class RecurringRevenueCurrencyResponse
 {
     public string CurrencyCode { get; init; } = string.Empty;
@@ -131,6 +180,29 @@ public sealed class RevenueReportResponse
     public DateTime FromUtc { get; init; }
 
     public DateTime ToUtc { get; init; }
+
+    /// <summary><c>day</c>, <c>week</c> or <c>month</c>: the size of each entry in <see cref="Periods"/>.</summary>
+    public string Granularity { get; init; } = string.Empty;
+
+    /// <summary>The whole window's totals.</summary>
+    public IReadOnlyList<RevenueCurrencyResponse> Currencies { get; init; } = [];
+
+    /// <summary>
+    /// The same totals, one entry per calendar bucket that billed anything, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// A bucket in which nothing was billed is absent rather than reported as zero, because a
+    /// window opening mid-week would otherwise show a zero for days it never covered. Summing every
+    /// period gives <see cref="Currencies"/> exactly.
+    /// </remarks>
+    public IReadOnlyList<RevenuePeriodResponse> Periods { get; init; } = [];
+}
+
+/// <summary>Billed revenue within one day, week or month.</summary>
+public sealed class RevenuePeriodResponse
+{
+    /// <summary>Midnight UTC of the day, of the Monday opening the week, or of the 1st.</summary>
+    public DateTime BucketStartUtc { get; init; }
 
     public IReadOnlyList<RevenueCurrencyResponse> Currencies { get; init; } = [];
 }

@@ -34,7 +34,7 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         string? meterKey,
         DateTime fromUtc,
         DateTime toUtc,
-        UsageReportGranularity granularity,
+        ReportGranularity granularity,
         CancellationToken cancellationToken)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
@@ -106,12 +106,12 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
     /// The calendar bucket a UTC day belongs to: the day itself, the Monday that starts its week,
     /// or the first of its month.
     /// </summary>
-    public static DateTime BucketStart(DateTime dayUtc, UsageReportGranularity granularity) =>
+    public static DateTime BucketStart(DateTime dayUtc, ReportGranularity granularity) =>
         granularity switch
         {
-            UsageReportGranularity.Week =>
+            ReportGranularity.Week =>
                 dayUtc.AddDays(-(((int)dayUtc.DayOfWeek + 6) % 7)),
-            UsageReportGranularity.Month => new DateTime(
+            ReportGranularity.Month => new DateTime(
                 dayUtc.Year, dayUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc),
             _ => dayUtc
         };
@@ -161,7 +161,14 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
             .Aggregate()
             .Match(filter)
             .Group(
-                document => new { document.CurrencyCode, document.DocumentType },
+                document => new
+                {
+                    document.CurrencyCode,
+                    document.DocumentType,
+                    document.IssuedAtUtc.Year,
+                    document.IssuedAtUtc.Month,
+                    document.IssuedAtUtc.Day
+                },
                 group => new
                 {
                     group.Key,
@@ -174,7 +181,8 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
             entry.Key.CurrencyCode,
             entry.Key.DocumentType,
             entry.TotalMinor,
-            entry.DocumentCount))];
+            entry.DocumentCount,
+            DayOf(entry.Key.Year, entry.Key.Month, entry.Key.Day)))];
     }
 
     public async Task<IReadOnlyList<OverageRevenueBucket>> AggregateOverageRevenueAsync(
@@ -201,19 +209,26 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
             .Aggregate()
             .Match(filter)
             .Group(
-                invoice => invoice.CurrencyCode,
+                invoice => new
+                {
+                    invoice.CurrencyCode,
+                    invoice.LastUpdatedDateUtc.Year,
+                    invoice.LastUpdatedDateUtc.Month,
+                    invoice.LastUpdatedDateUtc.Day
+                },
                 group => new
                 {
-                    CurrencyCode = group.Key,
+                    group.Key,
                     TotalMinor = group.Sum(invoice => invoice.TotalAmountMinor),
                     InvoiceCount = group.LongCount()
                 })
             .ToListAsync(cancellationToken);
 
         return [.. grouped.Select(entry => new OverageRevenueBucket(
-            entry.CurrencyCode,
+            entry.Key.CurrencyCode,
             entry.TotalMinor,
-            entry.InvoiceCount))];
+            entry.InvoiceCount,
+            DayOf(entry.Key.Year, entry.Key.Month, entry.Key.Day)))];
     }
 
     public async Task<IReadOnlyList<SubscriptionUsageInvoice>> ListRetryingUsageInvoicesAsync(
@@ -457,6 +472,50 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
 
         return codes;
     }
+
+    public async Task<IReadOnlyList<RecurringRevenueSnapshot>> ListRecurringRevenueSnapshotsAsync(
+        string tenantId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken)
+    {
+        // No index of its own: one row per tenant per day is a few hundred rows a year, and a
+        // reporting index on it would cost more to maintain than the scan it saves.
+        var filter = Builders<RecurringRevenueSnapshot>.Filter.And(
+            Builders<RecurringRevenueSnapshot>.Filter.Eq(snapshot => snapshot.TenantId, tenantId),
+            Builders<RecurringRevenueSnapshot>.Filter.Gte(snapshot => snapshot.DayUtc, fromUtc),
+            Builders<RecurringRevenueSnapshot>.Filter.Lt(snapshot => snapshot.DayUtc, toUtc));
+
+        return await Snapshots(tenantId)
+            .Find(filter)
+            .SortBy(snapshot => snapshot.DayUtc)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task SaveRecurringRevenueSnapshotAsync(
+        RecurringRevenueSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        // An upsert rather than an insert: two replicas sweeping the same tenant just after
+        // midnight both capture, and the second must replace the first rather than fail on the
+        // duplicate key and be logged as an error every night.
+        snapshot.ItemId = RecurringRevenueSnapshot.KeyFor(snapshot.TenantId, snapshot.DayUtc);
+
+        await Snapshots(snapshot.TenantId).ReplaceOneAsync(
+            Builders<RecurringRevenueSnapshot>.Filter.Eq(existing => existing.ItemId, snapshot.ItemId),
+            snapshot,
+            new ReplaceOptions { IsUpsert = true },
+            cancellationToken);
+    }
+
+    private static DateTime DayOf(int year, int month, int day) =>
+        new(year, month, day, 0, 0, 0, DateTimeKind.Utc);
+
+    private IMongoCollection<RecurringRevenueSnapshot> Snapshots(string tenantId) =>
+        SubscriptionCollections.Of<RecurringRevenueSnapshot>(
+            _db, tenantId, SubscriptionCollections.RecurringRevenueSnapshots);
 
     private IMongoCollection<SubscriptionUsageRecord> Records(string tenantId) =>
         SubscriptionCollections.Of<SubscriptionUsageRecord>(
