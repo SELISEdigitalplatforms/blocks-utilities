@@ -33,7 +33,7 @@ public interface ISubscriptionReportingRepository
         string? meterKey,
         DateTime fromUtc,
         DateTime toUtc,
-        UsageReportGranularity granularity,
+        ReportGranularity granularity,
         CancellationToken cancellationToken);
 
     /// <summary>Every subscription in the tenant holding one of the given statuses.</summary>
@@ -42,18 +42,33 @@ public interface ISubscriptionReportingRepository
         IReadOnlyCollection<SubscriptionStatus> statuses,
         CancellationToken cancellationToken);
 
-    /// <summary>Financial document totals over a window, grouped by currency and document type.</summary>
+    /// <summary>
+    /// Financial document totals over a window, grouped by UTC issue day, currency and document
+    /// type.
+    /// </summary>
     Task<IReadOnlyList<DocumentRevenueBucket>> AggregateDocumentRevenueAsync(
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
         CancellationToken cancellationToken);
 
-    /// <summary>Charged usage-invoice totals over a window, grouped by currency.</summary>
+    /// <summary>Charged usage-invoice totals over a window, grouped by UTC day and currency.</summary>
     Task<IReadOnlyList<OverageRevenueBucket>> AggregateOverageRevenueAsync(
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>Recurring revenue captures whose day falls in the window, oldest first.</summary>
+    Task<IReadOnlyList<RecurringRevenueSnapshot>> ListRecurringRevenueSnapshotsAsync(
+        string tenantId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>Writes a capture, replacing any already held for the same day.</summary>
+    Task SaveRecurringRevenueSnapshotAsync(
+        RecurringRevenueSnapshot snapshot,
         CancellationToken cancellationToken);
 
     /// <summary>Usage invoices still being retried.</summary>
@@ -123,18 +138,20 @@ public sealed record UsageLedgerBucket(
     decimal Quantity,
     long RecordCount);
 
-/// <summary>Financial document totals for one currency and document type.</summary>
+/// <summary>Financial document totals for one UTC day, currency and document type.</summary>
 public sealed record DocumentRevenueBucket(
     string CurrencyCode,
     FinancialDocumentType DocumentType,
     long TotalMinor,
-    long DocumentCount);
+    long DocumentCount,
+    DateTime DayUtc);
 
-/// <summary>Charged usage-invoice totals for one currency.</summary>
+/// <summary>Charged usage-invoice totals for one UTC day and currency.</summary>
 public sealed record OverageRevenueBucket(
     string CurrencyCode,
     long TotalMinor,
-    long InvoiceCount);
+    long InvoiceCount,
+    DateTime DayUtc);
 
 /// <summary>One coupon code's uptake within one organization.</summary>
 public sealed record CouponUptakeBucket(
