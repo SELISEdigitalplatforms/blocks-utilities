@@ -46,6 +46,7 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
     minQuantity: item.minQuantity,
     maxQuantity: item.maxQuantity,
     defaultQuantity: item.defaultQuantity,
+    trialMaxQuantity: item.trialMaxQuantity,
     // Sent only where it means something, so flipping a draft back to organization-wise leaves
     // no stray mark behind on the stored plan.
     countsMembers: values.subscriberScope === "User" && item.countsMembers,
@@ -227,6 +228,9 @@ export const planToFormValues = (
     minQuantity: item.minQuantity,
     maxQuantity: item.maxQuantity ?? undefined,
     defaultQuantity: item.defaultQuantity,
+    // Read back for the same reason as the mark below: an edit that dropped it would quietly close
+    // every trial on the plan to added units.
+    trialMaxQuantity: item.trialMaxQuantity ?? undefined,
     // Read back, not defaulted: an edit rewrites the whole plan, and a dropped mark is a plan
     // nobody can be assigned to.
     countsMembers: item.countsMembers ?? false,
