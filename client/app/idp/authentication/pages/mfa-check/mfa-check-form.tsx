@@ -10,6 +10,7 @@ import {
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui-kits/input-otp/input-otp";
 import { showErrorToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
+import { zod3Messages } from "@/lib/zod3-messages";
 import { useAuthStore } from "@seliseblocks/genesis-os";
 import { useVerifyMfa } from "@blocks-idp/authentication/hooks/use-auth";
 import { useResendOtp } from "@blocks-idp/mfa/hooks/use-resend-otp";
@@ -28,10 +29,13 @@ const CustomInputOTPSlot = ({ index }: { index: number }) => {
     />
   );
 };
-const getFormSchema = (type: number) =>
-  z.object({
-    code: z.string().min(type === 2 ? 5 : 6),
+const getFormSchema = (type: number) => {
+  const length = type === 2 ? 5 : 6;
+  // zod 3's default message, kept so the form reads the same after the zod 4 upgrade.
+  return z.object({
+    code: z.string().min(length, zod3Messages.stringMin(length)),
   });
+};
 export const MfaCheckFrom = () => {
   const navigate = useNavigate();
   const [{ mfa_id, mfa_type }] = useQueryStates({

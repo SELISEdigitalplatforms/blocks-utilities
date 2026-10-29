@@ -339,4 +339,43 @@ describe("payment provider schemas", () => {
       expect(result.success).toBe(false);
     });
   });
+
+  // The messages and behaviour zod 3 had, kept through the zod 4 upgrade.
+  describe("as zod 3 reported it", () => {
+    it("reports an emptied refund window, which the input sends as NaN", () => {
+      const result = registerPaymentProviderSchema.safeParse({ ...stripeBase, maxRefundDays: NaN });
+
+      expect(messageFor(result, "maxRefundDays")).toBe("Expected number, received nan");
+    });
+
+    it("reports a fractional refund window and still runs the provider checks", () => {
+      const result = registerPaymentProviderSchema.safeParse({
+        ...stripeBase,
+        maxRefundDays: 1.5,
+        apiKey: "pk_test_123",
+      });
+
+      expect(messageFor(result, "maxRefundDays")).toBe("Use a whole number.");
+      expect(messageFor(result, "apiKey")).toBe("Stripe API keys start with sk_ or rk_.");
+    });
+
+    it("reports too many organizations and still runs the provider checks", () => {
+      const result = registerPaymentProviderSchema.safeParse({
+        ...stripeBase,
+        organizationIds: Array.from({ length: 51 }, (_, index) => `org-${index}`),
+        apiKey: "pk_test_123",
+      });
+
+      expect(messageFor(result, "organizationIds")).toBe(
+        "Array must contain at most 50 element(s)",
+      );
+      expect(messageFor(result, "apiKey")).toBe("Stripe API keys start with sk_ or rk_.");
+    });
+
+    it("words a missing merchant id as zod 3 did", () => {
+      const result = registerPaymentProviderSchema.safeParse({ ...stripeBase, merchantId: " " });
+
+      expect(messageFor(result, "merchantId")).toBe("String must contain at least 1 character(s)");
+    });
+  });
 });

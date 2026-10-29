@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { zod3Messages } from "@/lib/zod3-messages";
 import {
   SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH,
   SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH,
@@ -24,6 +25,20 @@ import {
   minorUnitExponent,
 } from "../utilities/subscription-format";
 
+// The checks without a message of their own carry zod 3's default one, so the builder reads the
+// same after the zod 4 upgrade.
+
+/**
+ * A whole number, checked with Number.isInteger rather than .int(): zod 4's .int() also rejects
+ * unsafe integers and skips the checks after it and the superRefines below; zod 3's did neither.
+ */
+const wholeNumber = (message: string = zod3Messages.integer) =>
+  z.coerce.number<number>().refine(Number.isInteger, message);
+
+/** A whole number from `min` to `max`, both included. */
+const wholeNumberBetween = (min: number, max: number) =>
+  wholeNumber().min(min, zod3Messages.numberMin(min)).max(max, zod3Messages.numberMax(max));
+
 // "unit" starts with a consonant sound ("you-nit") despite its spelling, so a plain vowel-letter
 // check would wrongly produce "an unit label" — the one exception among today's labels.
 const CONSONANT_SOUNDING = new Set(["unit label"]);
@@ -36,7 +51,7 @@ const key = (label: string) =>
     .string()
     .trim()
     .min(1, `Enter ${article(label)} ${label}.`)
-    .max(SUBSCRIPTION_KEY_MAX_LENGTH);
+    .max(SUBSCRIPTION_KEY_MAX_LENGTH, zod3Messages.stringMax(SUBSCRIPTION_KEY_MAX_LENGTH));
 
 const isJsonObject = (value: string): boolean => {
   try {
@@ -47,7 +62,7 @@ const isJsonObject = (value: string): boolean => {
 };
 
 const meterTierSchema = z.object({
-  upToQuantity: z.coerce.number().positive().optional(),
+  upToQuantity: z.coerce.number<number>().positive(zod3Messages.numberPositive).optional(),
   /**
    * What one unit past the allowance costs, in the currency's own units.
    *
@@ -58,7 +73,7 @@ const meterTierSchema = z.object({
    * Zero is allowed and means exactly what it says — overage recorded, permitted, billed nothing.
    * Whether it was intended is the rate table's business, not this field's.
    */
-  unitAmount: z.coerce.number().min(0, "A tier price cannot be negative."),
+  unitAmount: z.coerce.number<number>().min(0, "A tier price cannot be negative."),
 });
 
 const meterRateTableSchema = z
@@ -73,7 +88,7 @@ const meterRateTableSchema = z
 
     if (bounded.some((tier) => tier.upToQuantity === undefined)) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["tiers"],
         message: "Only the last band may be unbounded.",
       });
@@ -85,7 +100,7 @@ const meterRateTableSchema = z
 
     if (bounds.some((bound, index) => index > 0 && bound <= bounds[index - 1])) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["tiers"],
         message: "Each band must end above the one before it.",
       });
@@ -102,7 +117,7 @@ const meterRateTableSchema = z
       }
 
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["tiers", index, "unitAmount"],
         message:
           exponent === 0
@@ -113,7 +128,7 @@ const meterRateTableSchema = z
   });
 
 /** A cleared number input reports "", which coerces to 0 — a value nobody typed. */
-const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+const blankAsUndefined = <T extends z.ZodType>(schema: T) =>
   z.preprocess((value) => (value === "" || value === null ? undefined : value), schema);
 
 /**
@@ -123,44 +138,59 @@ const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
  * a row saved without one is refused at plan level.
  */
 const subLimitSchema = z.object({
-  window: z.coerce.number().int().min(0).max(2),
-  count: z.coerce.number().int().positive("A limit spans at least one window.").default(1),
+  window: wholeNumberBetween(0, 2),
+  count: wholeNumber().positive("A limit spans at least one window.").default(1),
   rolling: z.boolean().default(false),
   quantity: blankAsUndefined(
-    z.coerce.number().positive("A limit of zero refuses everything — remove it instead.").optional(),
+    z.coerce
+      .number<number>()
+      .positive("A limit of zero refuses everything — remove it instead.")
+      .optional(),
   ),
-  behaviour: z.coerce.number().int().min(0).max(1).default(0),
+  behaviour: wholeNumberBetween(0, 1).default(0),
 });
 
 const meterSchema = z.object({
   meterKey: key("meter key"),
-  displayName: z.string().trim().min(1, "Enter a display name.").max(200),
+  displayName: z
+    .string()
+    .trim()
+    .min(1, "Enter a display name.")
+    .max(200, zod3Messages.stringMax(200)),
   unitLabel: key("unit label"),
-  aggregation: z.coerce.number().int().min(0).max(2),
-  resetPolicy: z.coerce.number().int().min(0).max(2).default(0),
+  aggregation: wholeNumberBetween(0, 2),
+  resetPolicy: wholeNumberBetween(0, 2).default(0),
   /**
    * Decimal places this meter accepts. Zero is whole units only, and is the default so that a
    * meter nobody opts in stays exactly as strict as it was before fractions existed.
    */
-  quantityScale: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(METER_QUANTITY_MAX_SCALE)
-    .default(0),
-  includedQuantity: z.coerce.number().min(0),
-  carryForwardCap: z.coerce.number().positive().optional(),
+  quantityScale: wholeNumberBetween(0, METER_QUANTITY_MAX_SCALE).default(0),
+  includedQuantity: z.coerce.number<number>().min(0, zod3Messages.numberMin(0)),
+  carryForwardCap: z.coerce.number<number>().positive(zod3Messages.numberPositive).optional(),
   overageAllowed: z.boolean(),
-  thresholdPercents: z.array(z.number().int().min(1).max(100)),
+  thresholdPercents: z.array(
+    z
+      .number()
+      .refine(Number.isInteger, zod3Messages.integer)
+      .min(1, zod3Messages.numberMin(1))
+      .max(100, zod3Messages.numberMax(100)),
+  ),
   rateTables: z.array(meterRateTableSchema),
   /**
    * Every cap on how fast the allowance may be spent. Empty on every meter nobody opted in, which
    * keeps it capped by its period alone. The rules that span rows are checked at plan level,
    * beside the meter's scale.
+   *
+   * A refine, not .max(): zod 4's .max() stops at an oversized list without checking its rows or
+   * running the plan's superRefine, so the builder would hide every other error; zod 3's did
+   * neither.
    */
   subLimits: z
     .array(subLimitSchema)
-    .max(MAX_PACE_LIMITS, `A meter takes at most ${MAX_PACE_LIMITS} limits.`)
+    .refine(
+      (limits) => limits.length <= MAX_PACE_LIMITS,
+      `A meter takes at most ${MAX_PACE_LIMITS} limits.`,
+    )
     .default([]),
 });
 
@@ -177,7 +207,7 @@ const meterSchema = z.object({
 // half-written row as it is, as the server does.
 const meterCreditPriceSchema = z.object({
   currencyCode: z.string().trim().toUpperCase(),
-  unitAmount: z.coerce.number(),
+  unitAmount: z.coerce.number<number>(),
 });
 
 const meterCreditSchema = z
@@ -185,22 +215,28 @@ const meterCreditSchema = z
     meterKey: key("meter"),
     enabled: z.boolean(),
     prices: z.array(meterCreditPriceSchema),
-    minQuantity: z.coerce.number().int("Credits are bought in whole numbers.").min(1).default(1),
+    minQuantity: wholeNumber("Credits are bought in whole numbers.")
+      .min(1, zod3Messages.numberMin(1))
+      .default(1),
     maxQuantity: blankAsUndefined(
-      z.coerce.number().int("Credits are bought in whole numbers.").positive().optional(),
+      wholeNumber("Credits are bought in whole numbers.")
+        .positive(zod3Messages.numberPositive)
+        .optional(),
     ),
     /**
      * METER_RESET_POLICY, read for a grant: 0 ends with the window, 2 carries forward, 1 never
      * ends — or FIXED_CREDIT_EXPIRY (3), a form-only choice that sends Never plus a lifetime.
      */
-    expiryPolicy: z.coerce.number().int().min(0).max(FIXED_CREDIT_EXPIRY).default(0),
+    expiryPolicy: wholeNumberBetween(0, FIXED_CREDIT_EXPIRY).default(0),
     /** How long bought credits last, with FIXED_CREDIT_EXPIRY. Whole units, at least one. */
-    expiresAfterCount: blankAsUndefined(z.coerce.number().int().positive().optional()),
+    expiresAfterCount: blankAsUndefined(
+      wholeNumber().positive(zod3Messages.numberPositive).optional(),
+    ),
     /** CREDIT_EXPIRY_UNIT. Days unless the author picks otherwise. */
-    expiresAfterUnit: z.coerce.number().int().min(0).max(4).default(1),
+    expiresAfterUnit: wholeNumberBetween(0, 4).default(1),
     taxPercent: blankAsUndefined(
       z.coerce
-        .number()
+        .number<number>()
         .min(0, "A tax rate cannot be negative.")
         .max(100, "A tax rate cannot exceed 100%.")
         .optional(),
@@ -216,7 +252,7 @@ const meterCreditSchema = z
 
     if (credit.prices.length === 0) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["prices"],
         message: "Add a price in at least one currency.",
       });
@@ -227,7 +263,7 @@ const meterCreditSchema = z
     currencies.forEach((currency, index) => {
       if (currencies.indexOf(currency) !== index) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["prices", index, "currencyCode"],
           message: "Each currency may have only one credit price.",
         });
@@ -237,7 +273,7 @@ const meterCreditSchema = z
     credit.prices.forEach((price, index) => {
       if (price.currencyCode.length !== 3) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["prices", index, "currencyCode"],
           message: "Use a three-letter currency code.",
         });
@@ -245,13 +281,13 @@ const meterCreditSchema = z
 
       if (!(price.unitAmount > 0)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["prices", index, "unitAmount"],
           message: "A credit must cost something. Grant credits instead.",
         });
       } else if (!isRepresentableInMinorUnits(price.unitAmount, price.currencyCode)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["prices", index, "unitAmount"],
           message: `${price.currencyCode} takes at most ${minorUnitExponent(price.currencyCode)} decimal places.`,
         });
@@ -260,7 +296,7 @@ const meterCreditSchema = z
 
     if (credit.expiryPolicy === FIXED_CREDIT_EXPIRY && !credit.expiresAfterCount) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["expiresAfterCount"],
         message: "Say how long the credits last, as a whole number of at least one.",
       });
@@ -269,7 +305,7 @@ const meterCreditSchema = z
     // Required: it is what bounds one charge to a stored card.
     if (credit.maxQuantity === undefined || credit.maxQuantity < credit.minQuantity) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["maxQuantity"],
         message: "Set the largest purchase allowed, no smaller than the smallest.",
       });
@@ -284,10 +320,10 @@ const meterCreditSchema = z
  * a table and is wrong by two orders of magnitude.
  */
 const quantityDiscountTierSchema = z.object({
-  minimumQuantity: z.coerce.number().int().positive(),
-  maximumQuantity: z.coerce.number().int().positive().optional(),
+  minimumQuantity: wholeNumber().positive(zod3Messages.numberPositive),
+  maximumQuantity: wholeNumber().positive(zod3Messages.numberPositive).optional(),
   discountPercent: z.coerce
-    .number()
+    .number<number>()
     .min(0, "A discount cannot be negative.")
     .max(100, "A discount cannot exceed 100%."),
 });
@@ -296,9 +332,9 @@ const quantityItemSchema = z
   .object({
     itemKey: key("item key"),
     unitLabel: key("unit label"),
-    minQuantity: z.coerce.number().int().min(0),
-    maxQuantity: z.coerce.number().int().positive().optional(),
-    defaultQuantity: z.coerce.number().int().min(0),
+    minQuantity: wholeNumber().min(0, zod3Messages.numberMin(0)),
+    maxQuantity: wholeNumber().positive(zod3Messages.numberPositive).optional(),
+    defaultQuantity: wholeNumber().min(0, zod3Messages.numberMin(0)),
     quantityDiscountTiers: z.array(quantityDiscountTierSchema).default([]),
     /** Which quantity is how many people a user-wise plan seats. Ignored on any other plan. */
     countsMembers: z.boolean().default(false),
@@ -306,7 +342,7 @@ const quantityItemSchema = z
   .superRefine((item, context) => {
     if (item.maxQuantity !== undefined && item.maxQuantity < item.minQuantity) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["maxQuantity"],
         message: "The maximum cannot be below the minimum.",
       });
@@ -338,7 +374,7 @@ const checkQuantityDiscountTiers = (
 
   const at = (index: number, field: string, message: string) =>
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["quantityDiscountTiers", index, field],
       message,
     });
@@ -402,13 +438,21 @@ const checkQuantityDiscountTiers = (
 const entitlementSchema = z
   .object({
     key: key("key"),
-    limitKind: z.coerce.number().int().min(0).max(2),
+    limitKind: wholeNumberBetween(0, 2),
     // Not integer-only: a counted entitlement's limit is the allowance of the meter it draws
     // down, so it has to be able to hold whatever that meter can. Granularity is checked at plan
     // level, against that meter's own scale.
-    limit: z.coerce.number().min(0).optional(),
-    meterKey: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional(),
-    unitLabel: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional(),
+    limit: z.coerce.number<number>().min(0, zod3Messages.numberMin(0)).optional(),
+    meterKey: z
+      .string()
+      .trim()
+      .max(SUBSCRIPTION_KEY_MAX_LENGTH, zod3Messages.stringMax(SUBSCRIPTION_KEY_MAX_LENGTH))
+      .optional(),
+    unitLabel: z
+      .string()
+      .trim()
+      .max(SUBSCRIPTION_KEY_MAX_LENGTH, zod3Messages.stringMax(SUBSCRIPTION_KEY_MAX_LENGTH))
+      .optional(),
   })
   .refine(
     (entitlement) =>
@@ -424,7 +468,7 @@ const trialGrantSchema = z.object({
   meterKey: key("meter"),
   // Granularity is checked against the meter this grant replaces, at plan level, because that is
   // the only place the meter's own scale is in scope.
-  includedQuantity: z.coerce.number().min(0),
+  includedQuantity: z.coerce.number<number>().min(0, zod3Messages.numberMin(0)),
 });
 
 /** What identifies a price to the server, so two rows that would collide can be caught here. */
@@ -444,18 +488,32 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         .string()
         .trim()
         .min(1, "Enter a plan code.")
-        .max(SUBSCRIPTION_PLAN_CODE_MAX_LENGTH)
+        .max(
+          SUBSCRIPTION_PLAN_CODE_MAX_LENGTH,
+          zod3Messages.stringMax(SUBSCRIPTION_PLAN_CODE_MAX_LENGTH),
+        )
         .regex(/^[a-z0-9_-]+$/, "Use only lowercase letters, digits, hyphens and underscores."),
       displayName: z
         .string()
         .trim()
         .min(1, "Enter a display name.")
-        .max(SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH),
-      description: z.string().trim().max(2000).optional().or(z.literal("")),
+        .max(
+          SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH,
+          zod3Messages.stringMax(SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH),
+        ),
+      description: z
+        .string()
+        .trim()
+        .max(2000, zod3Messages.stringMax(2000))
+        .optional()
+        .or(z.literal("")),
       featuresJson: z
         .string()
         .trim()
-        .max(SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH)
+        .max(
+          SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH,
+          zod3Messages.stringMax(SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH),
+        )
         .optional()
         .or(z.literal("")),
       organizationId: z.string().min(1, "Choose an organization."),
@@ -466,20 +524,25 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       trialDurationKind: z.enum(["Days", "EndOfCalendarMonth", "AnniversaryMonths"]).optional(),
       trialDurationCount: z.preprocess(
         (value) => (value === "" ? undefined : value),
-        z.coerce.number().int().optional(),
+        wholeNumber().optional(),
       ),
       trialRequiresPaymentMethod: z.boolean(),
       requirePaymentMethodUpfront: z.boolean(),
       // Always in the form, whether or not any item has bands: a plan edited while the field
       // was absent came back from the server reset to BestDiscount, which changes what every
       // subscriber on it is charged.
-      quantityDiscountCombinationPolicy: z.coerce.number().int().min(0).max(2).default(0),
-      usageInterval: z.coerce.number().int().min(0).max(3),
-      usageIntervalCount: z.coerce.number().int().min(1).max(100),
-      familyCode: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional().or(z.literal("")),
+      quantityDiscountCombinationPolicy: wholeNumberBetween(0, 2).default(0),
+      usageInterval: wholeNumberBetween(0, 3),
+      usageIntervalCount: wholeNumberBetween(1, 100),
+      familyCode: z
+        .string()
+        .trim()
+        .max(SUBSCRIPTION_KEY_MAX_LENGTH, zod3Messages.stringMax(SUBSCRIPTION_KEY_MAX_LENGTH))
+        .optional()
+        .or(z.literal("")),
       familyRank: z.preprocess(
         (value) => (value === "" ? undefined : value),
-        z.coerce.number().int().min(0).optional(),
+        wholeNumber().min(0, zod3Messages.numberMin(0)).optional(),
       ),
       quantityItems: z.array(quantityItemSchema),
       meters: z.array(meterSchema),
@@ -491,7 +554,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
     .superRefine((plan, context) => {
       if (plan.featuresJson && !isJsonObject(plan.featuresJson)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["featuresJson"],
           message: 'Features must be a valid JSON object, e.g. {"betaAccess": true}.',
         });
@@ -501,7 +564,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       // the two must agree, or an edit that passes here could still be rejected on save.
       if (plan.trialDurationKind === "Days" && plan.trialDurationCount === undefined) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: "Enter how many days the trial lasts.",
         });
@@ -510,7 +573,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         (plan.trialDurationCount! < 1 || plan.trialDurationCount! > 365)
       ) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: "A day-based trial must be between 1 and 365 days.",
         });
@@ -518,7 +581,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
       if (plan.trialDurationKind === "AnniversaryMonths" && plan.trialDurationCount === undefined) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: "Enter how many months the trial lasts.",
         });
@@ -527,7 +590,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         (plan.trialDurationCount! < 1 || plan.trialDurationCount! > 12)
       ) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: "An anniversary-month trial must be between 1 and 12 months.",
         });
@@ -535,7 +598,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
       if (plan.trialDurationKind === "EndOfCalendarMonth" && plan.trialDurationCount !== undefined) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: "An end-of-calendar-month trial has no count to set.",
         });
@@ -543,7 +606,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
       if (Boolean(plan.familyCode) !== (plan.familyRank !== undefined)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: [plan.familyCode ? "familyRank" : "familyCode"],
           message: "Family code and rank must be supplied together.",
         });
@@ -556,7 +619,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       plan.meterCredits.forEach((credit, index) => {
         if (!meterKeys.has(credit.meterKey)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meterCredits", index, "meterKey"],
             message: "Choose a meter this plan defines.",
           });
@@ -564,7 +627,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           plan.meterCredits.findIndex((other) => other.meterKey === credit.meterKey) !== index
         ) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meterCredits", index, "meterKey"],
             message: "This meter already has credit terms.",
           });
@@ -576,7 +639,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         // required rather than optional — and meaningless on a policy that does not roll.
         if (meter.resetPolicy === 2 && !meter.carryForwardCap) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "carryForwardCap"],
             message: "Set the most one period may carry in.",
           });
@@ -584,7 +647,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (meter.resetPolicy !== 2 && meter.carryForwardCap !== undefined) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "carryForwardCap"],
             message: "Only a carry-forward meter has a carry-forward cap.",
           });
@@ -602,7 +665,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (!holds(meter.includedQuantity)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "includedQuantity"],
             message: tooFine,
           });
@@ -610,7 +673,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (meter.carryForwardCap !== undefined && !holds(meter.carryForwardCap)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "carryForwardCap"],
             message: tooFine,
           });
@@ -620,7 +683,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           table.tiers.forEach((tier, tierIndex) => {
             if (tier.upToQuantity !== undefined && !holds(tier.upToQuantity)) {
               context.addIssue({
-                code: z.ZodIssueCode.custom,
+                code: "custom",
                 path: ["meters", index, "rateTables", tableIndex, "tiers", tierIndex, "upToQuantity"],
                 message: tooFine,
               });
@@ -630,7 +693,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         checkPaceLimits(meter.subLimits, holds, tooFine, (path, message) =>
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "subLimits", ...path],
             message,
           }),
@@ -638,7 +701,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "resetPolicy"],
             message:
               "Lifetime capacity must stop at its allowance; it cannot use monthly overage billing.",
@@ -649,7 +712,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       plan.entitlements.forEach((entitlement, index) => {
         if (entitlement.meterKey && !meterKeys.has(entitlement.meterKey)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["entitlements", index, "meterKey"],
             message: "This meter is not defined on this plan.",
           });
@@ -667,7 +730,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (!isWithinScale(entitlement.limit, scale) || !isWithinMagnitude(entitlement.limit)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["entitlements", index, "limit"],
             message:
               scale === 0
@@ -680,7 +743,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       plan.trialGrants.forEach((grant, index) => {
         if (!meterKeys.has(grant.meterKey)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["trialGrants", index, "meterKey"],
             message: "This meter is not defined on this plan.",
           });
@@ -694,7 +757,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
               !isWithinMagnitude(grant.includedQuantity))
           ) {
             context.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: "custom",
               path: ["trialGrants", index, "includedQuantity"],
               message:
                 meter.quantityScale === 0
@@ -711,7 +774,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
       if (requirePrice && plan.prices.length === 0) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["prices"],
           message: "Add at least one price — nobody can subscribe to a plan that has none.",
         });
@@ -723,7 +786,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       plan.prices.forEach((price, index) => {
         if (price.quantityItemKey !== FLAT_FEE && !itemKeys.has(price.quantityItemKey)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["prices", index, "quantityItemKey"],
             message: "This plan does not define that quantity item.",
           });
@@ -736,7 +799,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (seenTerms.has(terms)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["prices", index, "currencyCode"],
             message: "Another price already charges on exactly these terms.",
           });
@@ -762,7 +825,7 @@ const checkMemberQuantity = (
 
   if (items.length > 1 && items.filter((item) => item.countsMembers).length !== 1) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["quantityItems"],
       message: "Mark exactly one quantity as the one that counts people.",
     });
@@ -782,7 +845,7 @@ const checkMemberQuantity = (
   // maximum can be — and without one there is no number at all.
   if (plan.prices.some((price) => price.quantityItemKey !== counting.itemKey)) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["quantityItems", countingIndex, "maxQuantity"],
       message: "A flat-priced plan needs a maximum, or there is no ceiling to derive.",
     });

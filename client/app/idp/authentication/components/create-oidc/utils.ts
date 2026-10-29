@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { isParsableUrl } from "@/lib/url-format";
 
 export const createOidcSchema = z.object({
-redirectUrlOidc: z.string().url("Must be a valid URL").refine((val) => {
+redirectUrlOidc: z.string().refine(isParsableUrl, "Must be a valid URL").refine((val) => {
   try {
     const url = new URL(val);
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
@@ -12,7 +13,7 @@ redirectUrlOidc: z.string().url("Must be a valid URL").refine((val) => {
     return false;
   }
 }, "Only HTTP is allowed for localhost. All other URLs must use HTTPS."),  
-audienceUrlOidc: z.string().url("Must be a valid URL").refine((val) => {
+audienceUrlOidc: z.string().refine(isParsableUrl, "Must be a valid URL").refine((val) => {
   try {
     const url = new URL(val);
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {

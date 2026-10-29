@@ -5,5 +5,5 @@ export const signupFormDefaultValue = {
 };
 
 export const signupFormSchema = z.object({
-  email: z.string().trim().email({ message: "Invalid email" }),
+  email: z.string().trim().check(z.email("Invalid email")),
 });

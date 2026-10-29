@@ -3,12 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/c
 import { Form } from "@/components/ui-kits/form/form";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { useProjectStore } from "@seliseblocks/genesis-os";
+import { isParsableUrl } from "@/lib/url-format";
 
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { useSaveSsoCredential } from "@blocks-idp/authentication/hooks/use-sso";
 import { ISsoProviderConfiguration } from "@blocks-idp/authentication/models/sso.model";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
 import { createCommonOAuthFields } from "../sso-provider-config-field-factory.util";
 import { ssoProviderConfigBaseSchema } from "../sso-provider-config.schema";
@@ -38,23 +39,24 @@ type FormValue = {
 const schema = ssoProviderConfigBaseSchema.extend({
   clientId: z.string().trim().nonempty("Client id is required"),
   clientSecret: z.string().trim().nonempty("Client secret is required"),
-  wellKnownUrl: z.string().url({ message: "Well known URL must be a valid URL." }).trim(),
+  wellKnownUrl: z.string().refine(isParsableUrl, "Well known URL must be a valid URL.").trim(),
 });
 
 export const SSOProviderConfigOwnSSOForm: React.FC<SsoConfigForms> = ({ configuration }) => {
   const projectKey = useProjectStore()?.selectedProject?.tenantId || "";
   const { mutateAsync } = useSaveSsoCredential();
 
+  const values = configuration || {
+    provider: SSO_PROVIDERS.ownsso,
+    audience: "",
+    clientId: "",
+    clientSecret: "",
+    redirectUrl: "",
+    wellKnownUrl: "",
+  };
   const form = useForm({
-    values: configuration || {
-      provider: SSO_PROVIDERS.ownsso,
-      audience: "",
-      clientId: "",
-      clientSecret: "",
-      redirectUrl: "",
-      wellKnownUrl: "",
-    },
-    resolver: zodResolver(schema),
+    values,
+    resolver: zodResolver(schema) as unknown as Resolver<typeof values>,
   });
 
   const onFormSubmit = async (data: ISsoProviderConfiguration | FormValue) => {

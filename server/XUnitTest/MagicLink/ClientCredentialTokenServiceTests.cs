@@ -15,6 +15,7 @@ namespace XUnitTest.MagicLink
         private readonly Mock<ILogger<ClientCredentialTokenService>> _mockLogger;
         private readonly Mock<IHttpClientFactory> _mockHttpClientFactory;
         private readonly Mock<IConfiguration> _mockConfiguration;
+        private readonly Mock<IClientCredentialSecretResolver> _mockSecretResolver;
         private readonly ClientCredentialTokenService _service;
 
         public ClientCredentialTokenServiceTests()
@@ -22,12 +23,59 @@ namespace XUnitTest.MagicLink
             _mockLogger = new Mock<ILogger<ClientCredentialTokenService>>();
             _mockHttpClientFactory = new Mock<IHttpClientFactory>();
             _mockConfiguration = new Mock<IConfiguration>();
+            _mockSecretResolver = new Mock<IClientCredentialSecretResolver>();
+
+            // By default the resolver answers the plaintext field, as it does for a legacy credential.
+            _mockSecretResolver
+                .Setup(r => r.GetSecretAsync(It.IsAny<ClientCredential>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((ClientCredential c, string _, CancellationToken _) => c.ClientSecret);
 
             _service = new ClientCredentialTokenService(
                 _mockLogger.Object,
                 _mockHttpClientFactory.Object,
-                _mockConfiguration.Object
+                _mockConfiguration.Object,
+                _mockSecretResolver.Object
             );
+        }
+
+        [Fact]
+        public async Task GetTokenAsync_SendsTheResolvedSecret_NotThePlaintextField()
+        {
+            var clientCredentials = new ClientCredential { ItemId = "test-client", ClientSecret = string.Empty, ClientSecretReference = "cs-ref" };
+            _mockSecretResolver
+                .Setup(r => r.GetSecretAsync(clientCredentials, "test-project-key", It.IsAny<CancellationToken>()))
+                .ReturnsAsync("blxk_from-the-store");
+            string? sentForm = null;
+            var mockHandler = new Mock<HttpMessageHandler>();
+            mockHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+                .Callback<HttpRequestMessage, CancellationToken>((req, _) => sentForm = req.Content!.ReadAsStringAsync().Result)
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(JsonSerializer.Serialize(new TokenResponse { AccessToken = "test-token", ExpiresIn = 60 }))
+                });
+            _mockHttpClientFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient(mockHandler.Object));
+            _mockConfiguration.Setup(c => c["AuthenticationTokenEndpoint"]).Returns("https://test.api.com/token");
+
+            var result = await _service.GetTokenAsync(clientCredentials, "test-project-key");
+
+            result.Should().Be("test-token");
+            sentForm.Should().Contain("client_secret=blxk_from-the-store");
+        }
+
+        [Fact]
+        public async Task GetTokenAsync_WhenNoSecretCanBeRead_RequestsNoToken()
+        {
+            var clientCredentials = new ClientCredential { ItemId = "test-client", ClientSecret = string.Empty, ClientSecretReference = "cs-ref" };
+            _mockSecretResolver
+                .Setup(r => r.GetSecretAsync(clientCredentials, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((string?)null);
+
+            var result = await _service.GetTokenAsync(clientCredentials, "test-project-key");
+
+            result.Should().BeNull();
+            _mockHttpClientFactory.Verify(f => f.CreateClient(It.IsAny<string>()), Times.Never);
         }
 
         [Fact]

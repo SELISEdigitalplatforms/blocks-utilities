@@ -143,6 +143,8 @@ namespace DomainService.Utilities
 
             // Workflow Services (registered via extension method)
             services.AddSingleton<IClientCredentialTokenService, ClientCredentialTokenService>();
+            // Singleton over IServiceScopeFactory: ISecretService is scoped, so it is resolved per read.
+            services.AddSingleton<IClientCredentialSecretResolver, ClientCredentialSecretResolver>();
 
             RegisterDriveServices(services);
         }

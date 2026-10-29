@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isParsableUrl } from "@/lib/url-format";
 
 export const ssoRoleSchema = z.object({
   itemId: z.string(),
@@ -15,8 +16,8 @@ export const ssoPermissionSchema = z.object({
 
 export const ssoProviderConfigBaseSchema = z.object({
   provider: z.string().trim(),
-  audience: z.string().url({ message: "Audience URL must be a valid URL." }).trim(),
-  redirectUrl: z.string().url({ message: "Redirect URL must be a valid URL." }).trim(),
+  audience: z.string().refine(isParsableUrl, "Audience URL must be a valid URL.").trim(),
+  redirectUrl: z.string().refine(isParsableUrl, "Redirect URL must be a valid URL.").trim(),
 });
 
 export const ssoOAuthProviderSchema = ssoProviderConfigBaseSchema.extend({
