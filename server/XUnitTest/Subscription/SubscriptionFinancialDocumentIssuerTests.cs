@@ -1383,6 +1383,36 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task A_buyer_settled_by_the_worker_is_named_from_their_signup_not_by_their_id()
+    {
+        Subscribed(subscription => subscription.PurchasedBy = SubscriptionDocumentSourceFactory.ActorOf(
+            "user-42", "Ada Byron", "ada@northwind.example"));
+        SettledRenewal(payment => payment.UserId = "user-42");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.InitiatedBy.Name.Should().Be("Ada Byron",
+            because: "the worker only knows the payer's id, and a first invoice reading 'Initiated by' a GUID names nobody the buyer recognises");
+        document.InitiatedBy.Email.Should().Be("ada@northwind.example");
+        document.InitiatedBy.UserId.Should().Be("user-42");
+    }
+
+    [Fact]
+    public async Task Someone_other_than_the_buyer_is_not_named_as_the_buyer()
+    {
+        Subscribed(subscription => subscription.PurchasedBy = SubscriptionDocumentSourceFactory.ActorOf(
+            "user-42", "Ada Byron", "ada@northwind.example"));
+        SettledRenewal(payment => payment.UserId = "user-7");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.InitiatedBy.Name.Should().Be("Grace Hopper",
+            because: "a colleague's plan change attributed to the original buyer names somebody who did nothing");
+    }
+
+    [Fact]
     public async Task A_refund_credit_note_says_it_was_the_system_refunding_not_the_system_renewing()
     {
         Subscribed();
