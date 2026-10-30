@@ -603,6 +603,18 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             ? null
             : BuildTrial(plan, now, timeZone);
 
+        if (trial is not null &&
+            SubscriptionQuantityBuilder.ExceedsTrialMaximum(plan.QuantityItems, quantities, held: null))
+        {
+            return new SubscriptionBuildOutcome(
+                Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_trial_quantity_exceeded",
+                    "The trial does not cover this many units. Choose fewer to start the trial.",
+                    correlationId),
+                null);
+        }
+
         // A calendar-aligned price anchors on the first of the month rather than on this instant;
         // every later boundary then derives from that anchor exactly as an anniversary one does.
         // The usage schedule is never realigned — metering keeps the plan's own independent

@@ -670,6 +670,20 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        // A trialing plan change is applied free, so it is held to the target plan's trial ceiling
+        // exactly as a quantity change mid-trial is. Without this, moving plan is the way round it.
+        if (subscription.Status == SubscriptionStatus.Trialing &&
+            SubscriptionQuantityBuilder.ExceedsTrialMaximum(
+                plan.QuantityItems, quantities, subscription.QuantityItems))
+        {
+            return Failure<PlanChangeResolution>(
+                PaymentFailureKind.Validation,
+                "subscription_trial_quantity_exceeded",
+                "The trial does not cover this many units on that plan. Choose fewer, or change "
+                    + "plan once the trial has ended.",
+                correlationId);
+        }
+
         var newPlan = SubscriptionSnapshotBuilder.SnapshotOf(plan);
         var newPrice = SubscriptionSnapshotBuilder.SnapshotOf(price);
         var now = _time.GetUtcNow().UtcDateTime;

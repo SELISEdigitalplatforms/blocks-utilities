@@ -27,6 +27,21 @@ public sealed class PlanQuantityItem
     public long DefaultQuantity { get; set; } = 1;
 
     /// <summary>
+    /// The most units a trialing subscription may hold. Units added during the trial up to this
+    /// are free, and billed from the trial's conversion like the rest.
+    /// </summary>
+    /// <remarks>
+    /// A trial is free, so whatever it lets a subscriber add is free usage. Without a ceiling, a
+    /// trial on two seats grows to five hundred at no cost and drops back before it converts.
+    /// <para>
+    /// Null means the trial covers what was bought at signup and nothing more: signup is not
+    /// limited, but no units can be added until the trial ends. That keeps every plan authored
+    /// before this field closed to the abuse without needing an edit.
+    /// </para>
+    /// </remarks>
+    public long? TrialMaxQuantity { get; set; }
+
+    /// <summary>
     /// Whether this item's quantity is how many people may hold a seat.
     /// </summary>
     /// <remarks>

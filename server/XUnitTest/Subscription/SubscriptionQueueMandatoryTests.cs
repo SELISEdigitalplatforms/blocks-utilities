@@ -7,6 +7,7 @@ using Moq;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
+using Subscription.DomainService.Reporting;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
@@ -282,6 +283,33 @@ public sealed class SubscriptionQueueMandatoryTests
         _announced.Should().Equal(SubscriptionWorkType.Renewal);
     }
 
+    /// <summary>
+    /// The recurring revenue capture is a chart point nobody bills from, so a capture that throws
+    /// must not stop the sweep scheduling what is actually owed.
+    /// </summary>
+    [Fact]
+    public async Task A_failing_revenue_capture_does_not_stop_due_renewals_being_announced()
+    {
+        DueForRenewal();
+
+        var reports = new Mock<ISubscriptionReportingService>();
+        reports
+            .Setup(service => service.CaptureRecurringRevenueSnapshotAsync(
+                TenantId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("snapshot write timed out"));
+
+        var announced = await Announcer(reports: reports.Object)
+            .AnnounceAsync(TenantId, CancellationToken.None);
+
+        announced.Should().Be(1);
+        _announced.Should().Equal(SubscriptionWorkType.Renewal);
+        reports.Verify(
+            service => service.CaptureRecurringRevenueSnapshotAsync(
+                TenantId, It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the sweep is the only thing that captures, so a pass that skipped it leaves a gap");
+    }
+
     [Fact]
     public async Task A_tenant_owing_nothing_is_announced_for_nothing()
     {
@@ -542,7 +570,8 @@ public sealed class SubscriptionQueueMandatoryTests
             NullLogger<SubscriptionQueueMandate>.Instance);
 
     private SubscriptionRepairAnnouncer Announcer(
-        IUsageProjectionReconciler? usageProjections = null) => new(
+        IUsageProjectionReconciler? usageProjections = null,
+        ISubscriptionReportingService? reports = null) => new(
         _scheduler.Object,
         _subscriptions.Object,
         _links.Object,
@@ -554,7 +583,8 @@ public sealed class SubscriptionQueueMandatoryTests
         new OptionsMonitorStub(new SubscriptionOptions()),
         NullLogger<SubscriptionRepairAnnouncer>.Instance,
         _time,
-        usageProjections: usageProjections);
+        usageProjections: usageProjections,
+        reports: reports);
 
     private SubscriptionQueueHealthCheck Health(
         Mock<ISubscriptionWorkQueue> queue,

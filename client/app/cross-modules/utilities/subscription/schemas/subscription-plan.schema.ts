@@ -299,6 +299,8 @@ const quantityItemSchema = z
     minQuantity: z.coerce.number().int().min(0),
     maxQuantity: z.coerce.number().int().positive().optional(),
     defaultQuantity: z.coerce.number().int().min(0),
+    /** The most a trialing subscription may hold. Blank: the trial covers the signup quantity. */
+    trialMaxQuantity: blankAsUndefined(z.coerce.number().int().positive().optional()),
     quantityDiscountTiers: z.array(quantityDiscountTierSchema).default([]),
     /** Which quantity is how many people a user-wise plan seats. Ignored on any other plan. */
     countsMembers: z.boolean().default(false),
@@ -309,6 +311,19 @@ const quantityItemSchema = z
         code: z.ZodIssueCode.custom,
         path: ["maxQuantity"],
         message: "The maximum cannot be below the minimum.",
+      });
+    }
+
+    // The server's rule, said at the field rather than as one error for the whole plan.
+    if (
+      item.trialMaxQuantity !== undefined &&
+      (item.trialMaxQuantity < item.minQuantity ||
+        (item.maxQuantity !== undefined && item.trialMaxQuantity > item.maxQuantity))
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["trialMaxQuantity"],
+        message: "The trial maximum must lie between the minimum and the maximum.",
       });
     }
 

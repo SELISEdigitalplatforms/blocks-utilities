@@ -225,6 +225,30 @@ describe("createSubscriptionPlanSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it.each([
+    [undefined, true],
+    ["", true],
+    [5, true],
+    [1, false],
+    [51, false],
+  ])("judges a trial maximum of %s against the item's bounds", (trialMaxQuantity, accepted) => {
+    const result = createSubscriptionPlanSchema.safeParse({
+      ...validPlan,
+      quantityItems: [
+        {
+          itemKey: "seat",
+          unitLabel: "seat",
+          minQuantity: 2,
+          maxQuantity: 50,
+          defaultQuantity: 2,
+          trialMaxQuantity,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(accepted);
+  });
+
   it("rejects a quantity item whose maximum sits below its minimum", () => {
     const result = createSubscriptionPlanSchema.safeParse({
       ...validPlan,

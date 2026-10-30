@@ -41,12 +41,12 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
     private const string WeekGranularity = "week";
     private const string MonthGranularity = "month";
 
-    private static readonly IReadOnlyDictionary<string, UsageReportGranularity> Granularities =
-        new Dictionary<string, UsageReportGranularity>(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, ReportGranularity> Granularities =
+        new Dictionary<string, ReportGranularity>(StringComparer.OrdinalIgnoreCase)
         {
-            [DayGranularity] = UsageReportGranularity.Day,
-            [WeekGranularity] = UsageReportGranularity.Week,
-            [MonthGranularity] = UsageReportGranularity.Month
+            [DayGranularity] = ReportGranularity.Day,
+            [WeekGranularity] = ReportGranularity.Week,
+            [MonthGranularity] = ReportGranularity.Month
         };
 
     private static readonly SubscriptionStatus[] LiveStatuses =
@@ -83,15 +83,13 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // Matched case-insensitively and echoed back in canonical lowercase, so what comes back
-        // in the response is one of three fixed strings rather than whatever casing was sent.
-        if (!Granularities.TryGetValue(request.Granularity ?? MonthGranularity, out var granularity))
-        {
-            return Invalid<UsageReportResponse>(
+        if (!TryResolveGranularity(
+                request.Granularity,
                 correlationId,
-                nameof(request.Granularity),
-                $"Granularity must be '{DayGranularity}', '{WeekGranularity}' or " +
-                $"'{MonthGranularity}'.");
+                out var granularity,
+                out var granularityFailure))
+        {
+            return granularityFailure!.ToFailure<UsageReportResponse>();
         }
 
         if (!TryResolveWindow(
@@ -125,7 +123,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             {
                 FromUtc = window.FromUtc,
                 ToUtc = window.ToUtc,
-                Granularity = granularity.ToString().ToLowerInvariant(),
+                Granularity = NameOf(granularity),
                 Buckets = MapUsageBuckets(buckets)
             },
             correlationId);
@@ -143,8 +141,145 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             return resolution.ToFailure<RecurringRevenueReportResponse>(correlationId);
         }
 
+        return SubscriptionOperationResult<RecurringRevenueReportResponse>.Success(
+            await SummarizeRecurringRevenueAsync(context.TenantId, cancellationToken),
+            correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<RecurringRevenueTrendResponse>>
+        GetRecurringRevenueTrendAsync(
+            GetBucketedReportRequest request,
+            string correlationId,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!TryResolveGranularity(
+                request.Granularity,
+                correlationId,
+                out var granularity,
+                out var granularityFailure))
+        {
+            return granularityFailure!.ToFailure<RecurringRevenueTrendResponse>();
+        }
+
+        if (!TryResolveWindow(
+                request.FromUtc,
+                request.ToUtc,
+                correlationId,
+                nameof(request.FromUtc),
+                out var window,
+                out var windowFailure))
+        {
+            return windowFailure!.ToFailure<RecurringRevenueTrendResponse>();
+        }
+
+        var resolution = await _context.ResolveAsync(correlationId, null, cancellationToken);
+
+        if (resolution.Context is not { } context)
+        {
+            return resolution.ToFailure<RecurringRevenueTrendResponse>(correlationId);
+        }
+
+        var snapshots = await _reports.ListRecurringRevenueSnapshotsAsync(
+            context.TenantId, window.FromUtc, window.ToUtc, cancellationToken);
+
+        // The latest capture in each bucket stands for it: run-rate is a level, and the level a
+        // week closed on is the one a reader comparing weeks means.
+        var periods = snapshots
+            .GroupBy(snapshot => SubscriptionReportingRepository.BucketStart(
+                snapshot.DayUtc, granularity))
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var closing = group.MaxBy(snapshot => snapshot.DayUtc)!;
+
+                return new RecurringRevenueTrendPeriodResponse
+                {
+                    BucketStartUtc = group.Key,
+                    SnapshotDayUtc = closing.DayUtc,
+                    SubscriptionCount = closing.SubscriptionCount,
+                    Currencies = [.. closing.Currencies
+                        .OrderBy(currency => currency.CurrencyCode, StringComparer.Ordinal)
+                        .Select(currency => new RecurringRevenueTrendCurrencyResponse
+                        {
+                            CurrencyCode = currency.CurrencyCode,
+                            GrossMonthlyMinor = currency.GrossMonthlyMinor,
+                            NetMonthlyMinor = currency.NetMonthlyMinor,
+                            GrossAnnualMinor = SubscriptionRunRate.AnnualFromMonthly(
+                                currency.GrossMonthlyMinor),
+                            NetAnnualMinor = SubscriptionRunRate.AnnualFromMonthly(
+                                currency.NetMonthlyMinor),
+                            SubscriptionCount = currency.SubscriptionCount
+                        })]
+                };
+            })
+            .ToList();
+
+        return SubscriptionOperationResult<RecurringRevenueTrendResponse>.Success(
+            new RecurringRevenueTrendResponse
+            {
+                FromUtc = window.FromUtc,
+                ToUtc = window.ToUtc,
+                Granularity = NameOf(granularity),
+                Periods = periods
+            },
+            correlationId);
+    }
+
+    public async Task<bool> CaptureRecurringRevenueSnapshotAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
+
+        var nowUtc = _time.GetUtcNow().UtcDateTime;
+        var dayUtc = new DateTime(nowUtc.Year, nowUtc.Month, nowUtc.Day, 0, 0, 0, DateTimeKind.Utc);
+
+        // Asked first because the sweep calls this on every pass, and reading every live
+        // subscription each time to rewrite a figure already held would be the expensive half of
+        // the work done for nothing.
+        var existing = await _reports.ListRecurringRevenueSnapshotsAsync(
+            tenantId, dayUtc, dayUtc.AddDays(1), cancellationToken);
+
+        if (existing.Count > 0)
+        {
+            return false;
+        }
+
+        var summary = await SummarizeRecurringRevenueAsync(tenantId, cancellationToken);
+
+        await _reports.SaveRecurringRevenueSnapshotAsync(
+            new RecurringRevenueSnapshot
+            {
+                DayUtc = dayUtc,
+                TenantId = tenantId,
+                CapturedAtUtc = nowUtc,
+                SubscriptionCount = summary.SubscriptionCount,
+                Currencies = [.. summary.Currencies.Select(currency =>
+                    new RecurringRevenueSnapshotCurrency
+                    {
+                        CurrencyCode = currency.CurrencyCode,
+                        GrossMonthlyMinor = currency.GrossMonthlyMinor,
+                        NetMonthlyMinor = currency.NetMonthlyMinor,
+                        SubscriptionCount = currency.SubscriptionCount
+                    })]
+            },
+            cancellationToken);
+
+        return true;
+    }
+
+    /// <summary>
+    /// The live run-rate, shared by the report and the daily capture so the trend and today's
+    /// figure come from one calculation and cannot drift apart.
+    /// </summary>
+    private async Task<RecurringRevenueReportResponse> SummarizeRecurringRevenueAsync(
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
         var subscriptions = await _reports.ListByStatusAsync(
-            context.TenantId, LiveStatuses, cancellationToken);
+            tenantId, LiveStatuses, cancellationToken);
 
         var nowUtc = _time.GetUtcNow().UtcDateTime;
 
@@ -169,21 +304,28 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             })
             .ToList();
 
-        return SubscriptionOperationResult<RecurringRevenueReportResponse>.Success(
-            new RecurringRevenueReportResponse
-            {
-                SubscriptionCount = subscriptions.Count,
-                Currencies = currencies
-            },
-            correlationId);
+        return new RecurringRevenueReportResponse
+        {
+            SubscriptionCount = subscriptions.Count,
+            Currencies = currencies
+        };
     }
 
     public async Task<SubscriptionOperationResult<RevenueReportResponse>> GetRevenueAsync(
-        GetRevenueReportRequest request,
+        GetBucketedReportRequest request,
         string correlationId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        if (!TryResolveGranularity(
+                request.Granularity,
+                correlationId,
+                out var granularity,
+                out var granularityFailure))
+        {
+            return granularityFailure!.ToFailure<RevenueReportResponse>();
+        }
 
         if (!TryResolveWindow(
                 request.FromUtc,
@@ -209,6 +351,42 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
         var overage = await _reports.AggregateOverageRevenueAsync(
             context.TenantId, window.FromUtc, window.ToUtc, cancellationToken);
 
+        // Both sources arrive per day, so each bucket is the same summary over a subset. Folding
+        // here instead of in the query keeps one pipeline per source for all three sizes.
+        var periods = documents
+            .Select(bucket => SubscriptionReportingRepository.BucketStart(bucket.DayUtc, granularity))
+            .Concat(overage.Select(bucket =>
+                SubscriptionReportingRepository.BucketStart(bucket.DayUtc, granularity)))
+            .Distinct()
+            .Order()
+            .Select(start => new RevenuePeriodResponse
+            {
+                BucketStartUtc = start,
+                Currencies = SummarizeRevenue(
+                    [.. documents.Where(bucket =>
+                        SubscriptionReportingRepository.BucketStart(bucket.DayUtc, granularity) == start)],
+                    [.. overage.Where(bucket =>
+                        SubscriptionReportingRepository.BucketStart(bucket.DayUtc, granularity) == start)])
+            })
+            .ToList();
+
+        return SubscriptionOperationResult<RevenueReportResponse>.Success(
+            new RevenueReportResponse
+            {
+                FromUtc = window.FromUtc,
+                ToUtc = window.ToUtc,
+                Granularity = NameOf(granularity),
+                Currencies = SummarizeRevenue(documents, overage),
+                Periods = periods
+            },
+            correlationId);
+    }
+
+    /// <summary>Revenue per currency for a set of daily buckets.</summary>
+    private static List<RevenueCurrencyResponse> SummarizeRevenue(
+        IReadOnlyList<DocumentRevenueBucket> documents,
+        IReadOnlyList<OverageRevenueBucket> overage)
+    {
         var currencyCodes = documents
             .Select(bucket => bucket.CurrencyCode)
             .Concat(overage.Select(bucket => bucket.CurrencyCode))
@@ -255,14 +433,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             });
         }
 
-        return SubscriptionOperationResult<RevenueReportResponse>.Success(
-            new RevenueReportResponse
-            {
-                FromUtc = window.FromUtc,
-                ToUtc = window.ToUtc,
-                Currencies = currencies
-            },
-            correlationId);
+        return currencies;
     }
 
     public async Task<SubscriptionOperationResult<DunningReportResponse>> GetDunningAsync(
@@ -721,6 +892,42 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
 
         return true;
     }
+
+    /// <summary>
+    /// Parses a requested bucket size, defaulting to <c>month</c>.
+    /// </summary>
+    /// <remarks>
+    /// Matched case-insensitively and echoed back through <see cref="NameOf"/>, so what a response
+    /// says is one of three fixed strings rather than whatever casing was sent.
+    /// </remarks>
+    private static bool TryResolveGranularity(
+        string? requested,
+        string correlationId,
+        out ReportGranularity granularity,
+        out SubscriptionOperationResult<bool>? failure)
+    {
+        failure = null;
+
+        if (Granularities.TryGetValue(requested ?? MonthGranularity, out granularity))
+        {
+            return true;
+        }
+
+        failure = Invalid<bool>(
+            correlationId,
+            nameof(GetBucketedReportRequest.Granularity),
+            $"Granularity must be '{DayGranularity}', '{WeekGranularity}' or " +
+            $"'{MonthGranularity}'.");
+
+        return false;
+    }
+
+    private static string NameOf(ReportGranularity granularity) => granularity switch
+    {
+        ReportGranularity.Day => DayGranularity,
+        ReportGranularity.Week => WeekGranularity,
+        _ => MonthGranularity
+    };
 
     private static SubscriptionOperationResult<TValue> Invalid<TValue>(
         string correlationId,

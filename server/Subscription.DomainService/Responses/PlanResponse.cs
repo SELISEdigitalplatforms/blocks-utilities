@@ -183,6 +183,11 @@ public sealed class PlanQuantityItemResponse
     public long DefaultQuantity { get; init; }
 
     /// <summary>
+    /// The most units a trialing subscription may hold. Returned for the same reason as the bands.
+    /// </summary>
+    public long? TrialMaxQuantity { get; init; }
+
+    /// <summary>
     /// Whether this is the quantity that counts people on a user-wise plan. Returned because an
     /// edit rewrites the whole plan: a mark the console cannot read back, it would silently drop.
     /// </summary>
