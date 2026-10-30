@@ -2144,6 +2144,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         new()
         {
             OrganizationId = subscription.OrganizationId,
+            OrganizationName = subscription.OrganizationName,
             LegalName = profile?.LegalName is { Length: > 0 } legalName
                 ? legalName
                 : subscription.OrganizationId,

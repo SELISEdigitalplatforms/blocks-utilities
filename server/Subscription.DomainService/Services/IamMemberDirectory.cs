@@ -24,6 +24,9 @@ public sealed class IamMemberDirectory : IMemberDirectory
     private const string UsersPath = "api/iam/users";
     private const string OrganizationsPath = "api/iam/organizations";
     private const string BearerPrefix = "Bearer ";
+    private const string DefaultOrganizationId = "default";
+    private const string DefaultOrganizationName = "Default";
+    private const string MyOrganizationsId = "my";
 
     /// <summary>
     /// Kept short: this runs inside an administrator's request, once per person named, and a slow
@@ -69,12 +72,25 @@ public sealed class IamMemberDirectory : IMemberDirectory
         string organizationId,
         CancellationToken cancellationToken)
     {
-        var reply = await GetAsync<IamOrganizationReply>(
-            OrganizationsPath, organizationId, cancellationToken);
+        // A scope sentinel in IAM, not a stored organization, so IAM can never return it. IAM's own
+        // "my organizations" list and the blocks-os pickers both call it "Default".
+        if (string.Equals(organizationId, DefaultOrganizationId, StringComparison.Ordinal))
+        {
+            return DefaultOrganizationName;
+        }
 
-        return string.IsNullOrWhiteSpace(reply?.Organization?.Name)
-            ? null
-            : reply.Organization.Name.Trim();
+        // The caller's own memberships rather than organizations/{id}: that endpoint demands IAM's
+        // organizations permission, which a buyer naming their own organization rarely holds. This
+        // one only needs a signed-in caller, and never reads beyond where they belong.
+        var reply = await GetAsync<IamMyOrganizationsReply>(
+            OrganizationsPath, MyOrganizationsId, cancellationToken);
+
+        var name = reply?.Organizations?
+            .FirstOrDefault(organization => string.Equals(
+                organization.ItemId, organizationId, StringComparison.Ordinal))?
+            .Name;
+
+        return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
     }
 
     private async Task<T?> GetAsync<T>(
@@ -180,14 +196,17 @@ public sealed class IamMemberDirectory : IMemberDirectory
         public string? Language { get; set; }
     }
 
-    private sealed class IamOrganizationReply
+    private sealed class IamMyOrganizationsReply
     {
-        [JsonPropertyName("organization")]
-        public IamOrganization? Organization { get; set; }
+        [JsonPropertyName("organizations")]
+        public List<IamOrganization>? Organizations { get; set; }
     }
 
     private sealed class IamOrganization
     {
+        [JsonPropertyName("itemId")]
+        public string? ItemId { get; set; }
+
         [JsonPropertyName("name")]
         public string? Name { get; set; }
     }
