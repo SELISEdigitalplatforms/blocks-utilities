@@ -155,6 +155,33 @@ marketing range as the technical minimum and a two-person firm literally cannot 
 >
 > If step 2 charges anything, your price is not a flat fee — check "What this multiplies".
 
+### Quantity during a trial: `trialMaxQuantity`
+
+A trial has paid for nothing, so a quantity increase during one charges nothing. It applies
+immediately, and the trial's conversion bills whatever quantity is held by then. Because that is free
+usage, it needs a ceiling: `trialMaxQuantity` is the most a **trialing** subscription may hold.
+
+| `trialMaxQuantity` | Trial signup | Increase during the trial |
+| --- | --- | --- |
+| set (e.g. 5) | refused above 5 | free up to 5, refused above |
+| `null` (default) | not limited | refused — the trial covers what was bought at signup |
+
+It must lie between `minQuantity` and `maxQuantity`, and is set in the console's plan builder as
+**Trial max** on each quantity item. A paid signup, or anything after the trial ends, ignores it.
+A plan change during a trial is held to the **target** plan's `trialMaxQuantity`, so changing plan
+is not a way round it.
+
+A **decrease** during a trial also applies immediately rather than at the period end: the trial
+paid for nothing, so there is nothing to keep until then, and the conversion bills only the
+smaller quantity. People sitting on the seats being removed still have to come off first.
+
+> ### Test case 2.2 — the trial covers seats up to its ceiling
+> Plan: `seat` item `min 1 / max 100 / trialMaxQuantity 5`, CHF 10 per seat, 14-day trial.
+> 1. Subscribe with 2 seats. → Trialing, nothing charged.
+> 2. Change quantity to 3. → **applies immediately; prorated charge is CHF 0**.
+> 3. Change quantity to 500. → **refused**, `subscription_trial_quantity_exceeded`.
+> 4. Trial ends. → converts and charges for 3 seats.
+
 > ### Test case 2.2 — the advertised minimum is not enforced
 > With `minQuantity: 1` on a plan marketed as "4–9 users": subscribe with quantity 2. → **allowed**.
 > If it is refused, someone authored the marketing range into `minQuantity`.

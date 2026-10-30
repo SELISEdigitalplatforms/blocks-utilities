@@ -967,6 +967,119 @@ public sealed class SubscriptionQuantityChangeServiceTests
             "raise it");
     }
 
+    [Fact]
+    public async Task A_seat_added_during_a_trial_is_free_and_applies_at_once()
+    {
+        _subscription = Trialing(quantity: 2, trialMaximum: 5);
+
+        var result = await Service().ChangeAsync("sub-1", Request(3), "corr-1", default);
+
+        result.Value!.Timing.Should().Be("Immediate");
+        result.Value.ProratedChargeMinor.Should().Be(
+            0,
+            "the trial has paid for nothing, so charging for its remaining days bills the " +
+            "subscriber for time the trial was meant to cover");
+        _gateway.VerifyNoOtherCalls();
+        _subscriptions.Verify(
+            repository => repository.TryApplyQuantityChangeAsync(
+                TenantId, "sub-1", 7,
+                It.Is<List<SubscriptionQuantityItem>>(items => items[0].Quantity == 3),
+                It.IsAny<long>(), null, It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>(), It.IsAny<PendingAnnualPeriod?>()),
+            Times.Once,
+            "the seat is handed over now and billed from conversion with the rest");
+    }
+
+    [Fact]
+    public async Task Seats_beyond_the_trial_maximum_are_refused_rather_than_charged()
+    {
+        _subscription = Trialing(quantity: 2, trialMaximum: 5);
+
+        var result = await Service().ChangeAsync("sub-1", Request(500), "corr-1", default);
+
+        result.ErrorCode.Should().Be(
+            "subscription_trial_quantity_exceeded",
+            "a trial without a ceiling turns into free use of as many seats as the plan sells");
+        _gateway.VerifyNoOtherCalls();
+        _calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_plan_with_no_trial_maximum_lets_the_trial_cover_only_what_was_bought()
+    {
+        _subscription = Trialing(quantity: 2, trialMaximum: null);
+
+        var result = await Service().ChangeAsync("sub-1", Request(3), "corr-1", default);
+
+        result.ErrorCode.Should().Be(
+            "subscription_trial_quantity_exceeded",
+            "a plan authored before trial ceilings existed must not open free growth by default");
+    }
+
+    [Fact]
+    public async Task Previewing_a_trial_increase_quotes_nothing_due_now()
+    {
+        _subscription = Trialing(quantity: 2, trialMaximum: 5);
+
+        var result = await Service().PreviewAsync("sub-1", Request(3), "corr-1", default);
+
+        result.Value!.ProratedChargeMinor.Should().Be(
+            0,
+            "a quote showing a price due now is what told the subscriber her card would be charged");
+        _calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_decrease_during_a_trial_applies_at_once_rather_than_at_conversion()
+    {
+        _subscription = Trialing(quantity: 4, trialMaximum: null);
+
+        var result = await Service().ChangeAsync("sub-1", Request(2), "corr-1", default);
+
+        result.Value!.Timing.Should().Be(
+            "Immediate",
+            "a trial paid for nothing, so waiting for its end only bills the conversion for units " +
+            "the subscriber already gave up");
+        result.Value.PendingQuantityChange.Should().BeNull();
+        _gateway.VerifyNoOtherCalls();
+        _subscriptions.Verify(
+            repository => repository.TryApplyQuantityChangeAsync(
+                TenantId, "sub-1", 7,
+                It.Is<List<SubscriptionQuantityItem>>(items => items[0].Quantity == 2),
+                It.IsAny<long>(), null, It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>(), It.IsAny<PendingAnnualPeriod?>()),
+            Times.Once);
+        _subscriptions.Verify(
+            repository => repository.TrySetPendingQuantityChangeAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                It.IsAny<PendingQuantityChange>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task A_trial_decrease_still_waits_for_the_people_on_the_seats_to_come_off()
+    {
+        _subscription = Trialing(quantity: 5, trialMaximum: null);
+        _subscription.Plan.SubscriberScope = SubscriberScope.User;
+
+        var result = await Service(assignments: Held(5).Object)
+            .ChangeAsync("sub-1", Request(3), "corr-1", default);
+
+        result.ErrorCode.Should().Be(
+            "subscription_member_seats_occupied",
+            "taking seats away now must not silently strip access from the people sitting on them");
+    }
+
+    private static SubscriptionDetail Trialing(long quantity, long? trialMaximum)
+    {
+        var subscription = NewSubscription(quantity);
+        subscription.Status = SubscriptionStatus.Trialing;
+        subscription.Plan.QuantityItems[0].TrialMaxQuantity = trialMaximum;
+        return subscription;
+    }
+
     private static SubscriptionQuantityItem Item(long quantity) => new()
     {
         ItemKey = "user",

@@ -1213,6 +1213,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             BillingContact = ContactSnapshot(profile),
             InitiatedBy = InitiatorSnapshot(
                 initiatedBy,
+                subscription.PurchasedBy,
                 profile,
                 initiatedByUserId,
                 documentType,
@@ -2171,6 +2172,12 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// employee changes a plan, and printing the second is a document naming somebody who did nothing.
     /// </para>
     /// <para>
+    /// Before that contact, the buyer as the subscription captured them at signup — but only when the
+    /// buyer is the one who acted. Most actors reach here as a bare id, because the settlement that
+    /// issues the document runs in the worker with no session to read a name from, while signup ran in
+    /// the buyer's own request and kept the name their identity provider gave.
+    /// </para>
+    /// <para>
     /// With no user at all, the system is named for what it actually did. <c>System renewal</c> is
     /// reserved for the clock renewing a subscription; a refund credit note says <c>System refund</c>,
     /// because a refund is not a renewal and a document should not say it was.
@@ -2178,6 +2185,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// </remarks>
     private static FinancialDocumentPerson InitiatorSnapshot(
         FinancialDocumentPerson? captured,
+        FinancialDocumentPerson? purchasedBy,
         SubscriptionBillingProfile? profile,
         string? userId,
         FinancialDocumentType documentType,
@@ -2193,6 +2201,17 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         if (string.IsNullOrWhiteSpace(actingUserId))
         {
             return new FinancialDocumentPerson { Name = SystemLabelFor(documentType, refundId) };
+        }
+
+        if (string.Equals(purchasedBy?.UserId, actingUserId, StringComparison.Ordinal)
+            && NameOf(purchasedBy!.Name, actingUserId) is { } buyerName)
+        {
+            return new FinancialDocumentPerson
+            {
+                UserId = actingUserId,
+                Name = buyerName,
+                Email = purchasedBy.Email
+            };
         }
 
         var contact = profile?.Contacts

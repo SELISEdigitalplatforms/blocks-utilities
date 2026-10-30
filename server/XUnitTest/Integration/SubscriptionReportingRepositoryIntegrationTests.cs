@@ -68,7 +68,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
-            UsageReportGranularity.Month,
+            ReportGranularity.Month,
             CancellationToken.None);
 
         var marchStart = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -105,7 +105,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             March.Date,
             March.Date.AddDays(7),
-            UsageReportGranularity.Day,
+            ReportGranularity.Day,
             CancellationToken.None);
 
         buckets.Should().HaveCount(2);
@@ -130,7 +130,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             March.Date,
             March.Date.AddDays(14),
-            UsageReportGranularity.Week,
+            ReportGranularity.Week,
             CancellationToken.None);
 
         var monday = new DateTime(2026, 3, 9, 0, 0, 0, DateTimeKind.Utc);
@@ -155,7 +155,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             "screenings",
             March.Date,
             March.Date.AddDays(1),
-            UsageReportGranularity.Month,
+            ReportGranularity.Month,
             CancellationToken.None);
 
         buckets.Should().ContainSingle()
@@ -177,7 +177,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             March.Date,
             March.Date.AddDays(1),
-            UsageReportGranularity.Month,
+            ReportGranularity.Month,
             CancellationToken.None);
 
         buckets.Sum(bucket => bucket.Quantity).Should().Be(
@@ -204,10 +204,16 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             March.Date.AddDays(7),
             CancellationToken.None);
 
-        buckets.Single(bucket =>
+        buckets.Where(bucket =>
                 bucket.CurrencyCode == "CHF" &&
                 bucket.DocumentType == FinancialDocumentType.Invoice)
-            .TotalMinor.Should().Be(60_000);
+            .Sum(bucket => bucket.TotalMinor).Should().Be(60_000);
+        buckets.Count(bucket =>
+                bucket.CurrencyCode == "CHF" &&
+                bucket.DocumentType == FinancialDocumentType.Invoice)
+            .Should().Be(
+                2,
+                "each issue day stays its own row so the service can fold days into weeks");
         buckets.Single(bucket =>
                 bucket.CurrencyCode == "CHF" &&
                 bucket.DocumentType == FinancialDocumentType.CreditNote)
@@ -240,6 +246,33 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
         buckets.Single().TotalMinor.Should().Be(
             12_000,
             "a pending invoice is money hoped for, not money earned");
+    }
+
+    [Fact]
+    public async Task A_second_capture_on_the_same_day_replaces_the_first_and_tenants_stay_apart()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var otherTenantId = MongoIntegrationFixture.NewTenantId();
+        var day = March.Date;
+
+        await _reports.SaveRecurringRevenueSnapshotAsync(
+            RunRate(tenantId, day, 10_000), CancellationToken.None);
+        await _reports.SaveRecurringRevenueSnapshotAsync(
+            RunRate(tenantId, day, 11_000), CancellationToken.None);
+        await _reports.SaveRecurringRevenueSnapshotAsync(
+            RunRate(otherTenantId, day, 99_000), CancellationToken.None);
+        await _reports.SaveRecurringRevenueSnapshotAsync(
+            RunRate(tenantId, day.AddDays(7), 12_000), CancellationToken.None);
+
+        var snapshots = await _reports.ListRecurringRevenueSnapshotsAsync(
+            tenantId, day, day.AddDays(8), CancellationToken.None);
+
+        snapshots.Select(snapshot => snapshot.Currencies.Single().NetMonthlyMinor)
+            .Should().Equal(
+                [11_000L, 12_000L],
+                "two replicas capturing the same day must leave one row, and another tenant's " +
+                "capture on that day must neither replace it nor appear beside it");
+        snapshots[0].DayUtc.Should().Be(day);
     }
 
     [Fact]
@@ -520,7 +553,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             meterKey: null,
             March.Date,
             March.Date.AddDays(1),
-            UsageReportGranularity.Month,
+            ReportGranularity.Month,
             CancellationToken.None);
 
         var usageIndexes = await IndexNamesAsync<SubscriptionUsageRecord>(
@@ -598,6 +631,28 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             Delta = delta,
             IdempotencyKey = Guid.NewGuid().ToString("N"),
             OccurredAtUtc = occurredAtUtc
+        };
+
+    private static RecurringRevenueSnapshot RunRate(
+        string tenantId,
+        DateTime dayUtc,
+        long netMonthlyMinor) =>
+        new()
+        {
+            TenantId = tenantId,
+            DayUtc = dayUtc,
+            CapturedAtUtc = dayUtc.AddMinutes(5),
+            SubscriptionCount = 1,
+            Currencies =
+            [
+                new RecurringRevenueSnapshotCurrency
+                {
+                    CurrencyCode = "CHF",
+                    GrossMonthlyMinor = netMonthlyMinor,
+                    NetMonthlyMinor = netMonthlyMinor,
+                    SubscriptionCount = 1
+                }
+            ]
         };
 
     private static SubscriptionFinancialDocument Document(

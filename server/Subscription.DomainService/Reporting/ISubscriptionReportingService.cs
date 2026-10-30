@@ -22,8 +22,27 @@ public interface ISubscriptionReportingService
         string correlationId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The run-rate over time, read from the daily captures.
+    /// </summary>
+    Task<SubscriptionOperationResult<RecurringRevenueTrendResponse>> GetRecurringRevenueTrendAsync(
+        GetBucketedReportRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Captures today's run-rate for a tenant unless today already has one.
+    /// </summary>
+    /// <remarks>
+    /// Takes the tenant explicitly rather than resolving it from a request, because its caller is
+    /// the repair sweep, which acts for no request. Returns whether a capture was written.
+    /// </remarks>
+    Task<bool> CaptureRecurringRevenueSnapshotAsync(
+        string tenantId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionOperationResult<RevenueReportResponse>> GetRevenueAsync(
-        GetRevenueReportRequest request,
+        GetBucketedReportRequest request,
         string correlationId,
         CancellationToken cancellationToken);
 
