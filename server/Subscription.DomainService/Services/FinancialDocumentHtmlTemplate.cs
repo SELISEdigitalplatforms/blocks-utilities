@@ -213,7 +213,10 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("<div class=\"col\"><div class=\"kind\">").Append(Escape(title)).Append("</div>");
         html.Append("<table class=\"meta\">");
 
-        AppendMetaRow(html, "Customer number", document.Subscriber.OrganizationId);
+        AppendMetaRow(
+            html,
+            "Organization",
+            Fallback(document.Subscriber.OrganizationName, document.Subscriber.OrganizationId));
         AppendMetaRow(html, "Currency", document.CurrencyCode);
         AppendMetaRow(html, $"{title} total", money.Format(document.Amounts.TotalMinor), strong: true);
         AppendMetaRow(html, $"{title} number", document.DocumentNumber);

@@ -82,14 +82,35 @@ public sealed class IamMemberDirectoryTests : IDisposable
     }
 
     [Fact]
-    public async Task The_organization_name_comes_from_iam()
+    public async Task The_organization_name_comes_from_the_callers_own_memberships()
     {
-        Reply("""{"organization":{"itemId":"org-1","name":" Analytical Engines Ltd "}}""");
+        Reply("""{"isSuccess":true,"organizations":[{"itemId":"org-2","name":"Other"},{"itemId":"org-1","name":" Analytical Engines Ltd "}]}""");
 
         var name = await Directory().FindOrganizationNameAsync("org-1", CancellationToken.None);
 
         name.Should().Be("Analytical Engines Ltd");
-        _requestedUrl.Should().Be("https://iam.example.com/api/iam/organizations/org-1");
+        _requestedUrl.Should().Be("https://iam.example.com/api/iam/organizations/my",
+            "organizations/{id} needs IAM's organizations permission, which a buyer rarely holds");
+    }
+
+    [Fact]
+    public async Task An_organization_the_caller_does_not_belong_to_is_not_named()
+    {
+        Reply("""{"isSuccess":true,"organizations":[{"itemId":"org-2","name":"Other"}]}""");
+
+        var name = await Directory().FindOrganizationNameAsync("org-1", CancellationToken.None);
+
+        name.Should().BeNull("printing another organization's name would put the wrong customer on the invoice");
+    }
+
+    [Fact]
+    public async Task The_default_organization_is_named_Default_without_asking_iam()
+    {
+        var name = await Directory().FindOrganizationNameAsync("default", CancellationToken.None);
+
+        name.Should().Be("Default",
+            because: "IAM stores no row for its default organization, so asking would only ever print the bare id");
+        _http.VerifyNoOtherCalls();
     }
 
     /// <summary>

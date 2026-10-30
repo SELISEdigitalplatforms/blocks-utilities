@@ -42,8 +42,10 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         ISubscriptionMerchantProfileService? merchantProfile = null,
         ISubscriptionPaymentProviderReadinessService? readiness = null,
         ISubscriptionTenantRoster? roster = null,
-        ITrialUsageRepository? trialUsages = null)
+        ITrialUsageRepository? trialUsages = null,
+        IMemberDirectory? directory = null)
     {
+        _directory = directory;
         _roster = roster;
         _trialUsages = trialUsages;
         _catalogue = catalogue;
@@ -88,6 +90,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// before the rule existed got. Every real host wires it.
     /// </summary>
     private readonly ITrialUsageRepository? _trialUsages;
+
+    /// <summary>
+    /// Optional so existing callers compile unchanged. Absent, the subscription records no
+    /// organization name and its documents print the organization id instead.
+    /// </summary>
+    /// <remarks>
+    /// Asked here because this is the only point the buyer's token is in hand. The documents are
+    /// issued later by the worker, which has no caller to ask IAM on behalf of.
+    /// </remarks>
+    private readonly IMemberDirectory? _directory;
 
     /// <summary>
     /// Optional the way <see cref="_scheduler"/> and <see cref="_billingProfile"/> are: a great
@@ -755,6 +767,14 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             trial,
             now,
             correlationId);
+
+        if (!preview && _directory is not null)
+        {
+            // Best-effort: the directory never throws, and a name IAM will not give leaves the
+            // documents printing the organization id, which is what they printed before.
+            subscription.OrganizationName = await _directory.FindOrganizationNameAsync(
+                context.OrganizationId, cancellationToken);
+        }
 
         if (!ApplyPeriods(subscription, now, calendarAligned, out var stubCharge))
         {

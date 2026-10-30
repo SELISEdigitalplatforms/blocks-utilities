@@ -1993,6 +1993,55 @@ public sealed class SubscriptionCreationServiceTests
     }
 
     [Fact]
+    public async Task The_organization_name_is_recorded_at_signup_while_the_buyers_token_is_in_hand()
+    {
+        var directory = new Mock<IMemberDirectory>();
+        directory
+            .Setup(lookup => lookup.FindOrganizationNameAsync(OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Northwind");
+
+        await new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            directory: directory.Object)
+            .CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.OrganizationName.Should().Be("Northwind",
+            because: "the worker that issues the invoices has no token to ask IAM with later");
+    }
+
+    [Fact]
+    public async Task A_signup_IAM_cannot_name_still_creates_the_subscription()
+    {
+        var directory = new Mock<IMemberDirectory>();
+        directory
+            .Setup(lookup => lookup.FindOrganizationNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+
+        var result = await new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            directory: directory.Object)
+            .CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            because: "a name for the invoice is not worth refusing a customer who is trying to pay");
+        _created!.OrganizationName.Should().BeNull();
+    }
+
+    [Fact]
     public async Task An_organization_that_already_had_the_plans_trial_signs_up_paid()
     {
         _plan.TrialDays = 14;

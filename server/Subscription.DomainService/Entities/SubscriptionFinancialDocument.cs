@@ -205,6 +205,12 @@ public sealed class FinancialDocumentParty
 {
     public string OrganizationId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The organization's name in IAM. Not the billing profile's legal name: that is the entity
+    /// invoiced, which the subscriber chose and which need not match the organization.
+    /// </summary>
+    public string? OrganizationName { get; set; }
+
     public string LegalName { get; set; } = string.Empty;
 
     public string? DisplayName { get; set; }
