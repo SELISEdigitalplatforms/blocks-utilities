@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { AlertCircle, KeyRound, Loader2, MessageSquare, RefreshCw, Save, ShieldCheck, Webhook } from "lucide-react";
 import { useForm, useWatch, type Control } from "react-hook-form";
 import { ChipsInput, ChipsInputField, ChipsInputList } from "@/components/chip-input/chips-input";
@@ -28,7 +28,6 @@ import { SmsFormSection, SmsPageHeader } from "../components/sms-page-header";
 import {
   COUNTRY_CODE_PATTERN,
   SMS_PROVIDER_OPTIONS,
-  SMS_URL_POLICY_OPTIONS,
   SmsProviderType,
   SmsUrlPolicy,
 } from "../constants/sms.constants";
@@ -122,11 +121,12 @@ export const toSaveRequest = (
 };
 
 export const SmsProviderPage = () => {
+  const { t } = useT("utilities.sms");
   const { data: configuration, error, isError, isLoading, refetch } = useSmsProviderConfiguration();
 
   if (isLoading) {
     return (
-      <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8" aria-label="Loading SMS provider">
+      <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8" aria-label={t("SMS_PROVIDER_PAGE.LOADING_SMS_PROVIDER")}>
         <Skeleton className="h-36 rounded-2xl" />
         <Skeleton className="h-[32rem] rounded-xl" />
       </main>
@@ -140,13 +140,13 @@ export const SmsProviderPage = () => {
           <span className="rounded-full bg-destructive/10 p-4 text-destructive">
             <AlertCircle className="h-7 w-7" />
           </span>
-          <h2 className="mt-4 text-lg font-semibold">SMS provider unavailable</h2>
+          <h2 className="mt-4 text-lg font-semibold">{t("SMS_PROVIDER_PAGE.SMS_PROVIDER_UNAVAILABLE")}</h2>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            {error instanceof Error ? error.message : "Try again."}
+            {error instanceof Error ? error.message : t("SMS_PROVIDER_PAGE.TRY_AGAIN_2")}
           </p>
           <Button className="mt-5" variant="outline" onClick={() => refetch()}>
             <RefreshCw className="mr-2 h-4 w-4" />
-            Try again
+            {t("SMS_PROVIDER_PAGE.TRY_AGAIN")}
           </Button>
         </Card>
       </main>
@@ -158,8 +158,26 @@ export const SmsProviderPage = () => {
 };
 
 const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfiguration | null }) => {
+  const { t, language } = useT("utilities.sms");
+  const urlPolicyOptions = [
+    {
+      value: SmsUrlPolicy.Allow,
+      label: t("SMS_PROVIDER_PAGE.URL_POLICY_ALLOW"),
+      hint: t("SMS_PROVIDER_PAGE.URL_POLICY_ALLOW_HINT"),
+    },
+    {
+      value: SmsUrlPolicy.Flag,
+      label: t("SMS_PROVIDER_PAGE.URL_POLICY_FLAG"),
+      hint: t("SMS_PROVIDER_PAGE.URL_POLICY_FLAG_HINT"),
+    },
+    {
+      value: SmsUrlPolicy.Block,
+      label: t("SMS_PROVIDER_PAGE.URL_POLICY_BLOCK"),
+      hint: t("SMS_PROVIDER_PAGE.URL_POLICY_BLOCK_HINT"),
+    },
+  ];
   const isCreate = !configuration?.hasApiKey;
-  const schema = useMemo(() => createSmsProviderSchema(isCreate), [isCreate]);
+  const schema = useMemo(() => createSmsProviderSchema(isCreate), [isCreate, language, t]);
   const [bannerErrors, setBannerErrors] = useState<string[]>([]);
   const { mutateAsync, isPending } = useSaveSmsProviderConfiguration();
 
@@ -189,15 +207,15 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
       await mutateAsync(toSaveRequest(values, configuration?.itemId));
       toast({
         variant: "success",
-        title: "SMS provider saved",
-        description: values.apiKey ? "The provider key was stored in Blocks Secrets." : undefined,
+        title: t("SMS_PROVIDER_PAGE.SMS_PROVIDER_SAVED"),
+        description: values.apiKey ? t("SMS_PROVIDER_PAGE.THE_PROVIDER_KEY_WAS_STORED") : undefined,
       });
     } catch (saveError) {
       if (saveError instanceof SmsRequestError) {
         const unplaced = applyServerErrors(saveError.fieldErrors, FORM_FIELDS, form.setError);
         setBannerErrors(unplaced.length ? unplaced : Object.keys(saveError.fieldErrors).length ? [] : [saveError.message]);
       } else {
-        setBannerErrors(["The SMS provider configuration could not be saved."]);
+        setBannerErrors([t("SMS_PROVIDER_PAGE.CONFIGURATION_NOT_SAVED")]);
       }
     }
   };
@@ -205,16 +223,16 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SmsPageHeader
-        title="SMS provider"
-        description="Connect Twilio or Telnyx, choose who messages come from, and set the limits that protect this tenant."
+        title={t("SMS_PROVIDER_PAGE.SMS_PROVIDER")}
+        description={t("SMS_PROVIDER_PAGE.CONNECT_TWILIO_OR_TELNYX_CHOOSE")}
         icon={<MessageSquare className="h-6 w-6" />}
         actions={
           configuration ? (
             <Badge variant={configuration.isEnabled ? "success" : "outline"}>
-              {configuration.isEnabled ? "Enabled" : "Disabled"}
+              {configuration.isEnabled ? t("common:ENABLED") : t("common:DISABLED")}
             </Badge>
           ) : (
-            <Badge variant="info">Not configured</Badge>
+            <Badge variant="info">{t("SMS_PROVIDER_PAGE.NOT_CONFIGURED")}</Badge>
           )
         }
       />
@@ -223,17 +241,17 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
         <Card className="rounded-xl p-5 sm:p-6">
           <Form {...form}>
             <form className="space-y-8" onSubmit={form.handleSubmit(submit)} noValidate>
-              <SmsFormSection title="Provider" description="The account messages are sent through.">
+              <SmsFormSection title={t("SMS_PROVIDER_PAGE.PROVIDER")} description={t("SMS_PROVIDER_PAGE.THE_ACCOUNT_MESSAGES_ARE_SENT")}>
                 <div className="grid gap-5 sm:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="providerType"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Provider</FormLabel>
+                        <FormLabel>{t("SMS_PROVIDER_PAGE.PROVIDER")}</FormLabel>
                         <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
                           <FormControl>
-                            <SelectTrigger aria-label="Provider">
+                            <SelectTrigger aria-label={t("SMS_PROVIDER_PAGE.PROVIDER")}>
                               <SelectValue />
                             </SelectTrigger>
                           </FormControl>
@@ -249,13 +267,13 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                       </FormItem>
                     )}
                   />
-                  <TextField control={form.control} name="name" label="Configuration name" />
+                  <TextField control={form.control} name="name" label={t("SMS_PROVIDER_PAGE.CONFIGURATION_NAME")} />
 
                   {isTwilio ? (
                     <TextField
                       control={form.control}
                       name="accountId"
-                      label="Account SID"
+                      label={t("SMS_PROVIDER_PAGE.ACCOUNT_SID")}
                       placeholder="AC…"
                       className="sm:col-span-2"
                     />
@@ -264,14 +282,14 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                       <TextField
                         control={form.control}
                         name="messagingProfileId"
-                        label="Messaging profile ID"
+                        label={t("SMS_PROVIDER_PAGE.MESSAGING_PROFILE_ID")}
                         placeholder="00000000-0000-0000-0000-000000000000"
                       />
                       <TextField
                         control={form.control}
                         name="webhookPublicKey"
-                        label="Webhook public key"
-                        description="From the Telnyx portal. Used to check that delivery callbacks really come from Telnyx."
+                        label={t("SMS_PROVIDER_PAGE.WEBHOOK_PUBLIC_KEY")}
+                        description={t("SMS_PROVIDER_PAGE.FROM_THE_TELNYX_PORTAL_USED")}
                       />
                     </>
                   )}
@@ -281,65 +299,62 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                     name="apiKey"
                     render={({ field }) => (
                       <FormItem className="sm:col-span-2">
-                        <FormLabel>{isTwilio ? "Auth token" : "API key"}</FormLabel>
+                        <FormLabel>{isTwilio ? t("SMS_PROVIDER_PAGE.AUTH_TOKEN") : t("SMS_PROVIDER_PAGE.API_KEY")}</FormLabel>
                         <FormControl>
                           <PasswordInput
                             {...field}
                             autoComplete="new-password"
-                            placeholder={configuration?.hasApiKey ? "•••••••• stored — leave empty to keep" : ""}
+                            placeholder={configuration?.hasApiKey ? t("SMS_PROVIDER_PAGE.STORED_LEAVE_EMPTY_TO_KEEP") : ""}
                           />
                         </FormControl>
                         <FormDescription>
-                          Stored in Blocks Secrets; only its id is kept with this configuration, and it is never shown
-                          again. {configuration?.hasApiKey && "Entering a value replaces the stored key."}
+                          {t("SMS_PROVIDER_PAGE.API_KEY_STORED_IN_SECRETS")} {configuration?.hasApiKey && t("SMS_PROVIDER_PAGE.ENTERING_A_VALUE_REPLACES_THE")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                  <SwitchField control={form.control} name="isEnabled" label="Enabled" description="Disabled configurations send nothing." />
-                  <SwitchField control={form.control} name="isDefault" label="Default" description="Used when several are enabled." />
+                  <SwitchField control={form.control} name="isEnabled" label={t("common:ENABLED")} description={t("SMS_PROVIDER_PAGE.DISABLED_CONFIGURATIONS_SEND")} />
+                  <SwitchField control={form.control} name="isDefault" label={t("SMS_PROVIDER_PAGE.DEFAULT")} description={t("SMS_PROVIDER_PAGE.USED_WHEN_SEVERAL_ARE_ENABLED")} />
                 </div>
               </SmsFormSection>
 
               <SmsFormSection
-                title="Sender"
-                description="Who recipients see the message from. Set at least one of the number or the name. The name is used where carriers accept it, the number everywhere else."
+                title={t("SMS_PROVIDER_PAGE.SENDER")}
+                description={t("SMS_PROVIDER_PAGE.WHO_RECIPIENTS_SEE_THE_MESSAGE")}
               >
                 <div className="grid gap-5 sm:grid-cols-2">
-                  <TextField control={form.control} name="senderNumber" label="Sender number" placeholder="+41791234567" />
+                  <TextField control={form.control} name="senderNumber" label={t("SMS_PROVIDER_PAGE.SENDER_NUMBER")} placeholder="+41791234567" />
                   <TextField
                     control={form.control}
                     name="senderName"
-                    label="Sender name"
+                    label={t("SMS_PROVIDER_PAGE.SENDER_NAME")}
                     placeholder="ACME"
-                    description="Up to 11 letters, digits or spaces. Recipients cannot reply to a name."
+                    description={t("SMS_PROVIDER_PAGE.UP_TO_11_LETTERS_DIGITS")}
                   />
                   <FormField
                     control={form.control}
                     name="senderNameExcludedPrefixes"
                     render={({ field }) => (
                       <FormItem className="sm:col-span-2">
-                        <FormLabel>Countries that get the number</FormLabel>
+                        <FormLabel>{t("SMS_PROVIDER_PAGE.COUNTRIES_THAT_GET_THE_NUMBER")}</FormLabel>
                         <FormControl>
                           <ChipsInput
                             value={field.value}
                             onChange={field.onChange}
                             validatorRegex={COUNTRY_CODE_PATTERN}
-                            validatorRegexErrorMessage="Country codes look like +1 or +86."
+                            validatorRegexErrorMessage={t("SMS_PROVIDER_PAGE.COUNTRY_CODES_LOOK_LIKE")}
                           >
                             <ChipsInputList />
                             <ChipsInputField />
                           </ChipsInput>
                         </FormControl>
                         <FormDescription>
-                          Recipients whose number starts with one of these codes see the sender number, because their
-                          carriers reject names. +1 covers the US and Canada.
+                          {t("SMS_PROVIDER_PAGE.RECIPIENTS_WHOSE_NUMBER_STARTS")}
                         </FormDescription>
                         {nameWithoutFallback && (
                           <p className="text-sm text-amber-500" role="status">
-                            No sender number is set, so messages to these countries will fail. Add a sender number or
-                            remove the codes.
+                            {t("SMS_PROVIDER_PAGE.NO_SENDER_NUMBER_IS_SET")}
                           </p>
                         )}
                         <FormMessage />
@@ -349,15 +364,15 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                 </div>
               </SmsFormSection>
 
-              <SmsFormSection title="Delivery" description="Retries and delivery confirmation.">
+              <SmsFormSection title={t("SMS_PROVIDER_PAGE.DELIVERY")} description={t("SMS_PROVIDER_PAGE.RETRIES_AND_DELIVERY_CONFIRMATION")}>
                 <div className="grid gap-5 sm:grid-cols-2">
                   <TextField
                     control={form.control}
                     name="statusCallbackBaseUrl"
-                    label="Callback base URL"
+                    label={t("SMS_PROVIDER_PAGE.CALLBACK_BASE_URL")}
                     placeholder="https://utilities.example.com"
                     className="sm:col-span-2"
-                    description="Public https address of this service. Without it, delivery is confirmed only by polling the provider."
+                    description={t("SMS_PROVIDER_PAGE.PUBLIC_HTTPS_ADDRESS_OF_THIS")}
                     action={
                       <Button
                         type="button"
@@ -371,45 +386,45 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                           })
                         }
                       >
-                        Use this service&apos;s URL
+                        {t("SMS_PROVIDER_PAGE.USE_THIS_SERVICE_APOS_S")}
                       </Button>
                     }
                   />
-                  <NumberField control={form.control} name="maxRetryAttempts" label="Send attempts" description="1–10 rounds before a recipient fails." />
-                  <NumberField control={form.control} name="deliveryCheckDelayMinutes" label="Delivery check after (minutes)" />
+                  <NumberField control={form.control} name="maxRetryAttempts" label={t("SMS_PROVIDER_PAGE.SEND_ATTEMPTS")} description={t("SMS_PROVIDER_PAGE.N_1_10_ROUNDS_BEFORE_A")} />
+                  <NumberField control={form.control} name="deliveryCheckDelayMinutes" label={t("SMS_PROVIDER_PAGE.DELIVERY_CHECK_AFTER_MINUTES")} />
                 </div>
               </SmsFormSection>
 
-              <SmsFormSection title="Rate limits" description="Counted per SMS, one per recipient. Requests over a limit are refused.">
+              <SmsFormSection title={t("SMS_PROVIDER_PAGE.RATE_LIMITS")} description={t("SMS_PROVIDER_PAGE.COUNTED_PER_SMS_ONE_PER")}>
                 <div className="grid gap-5 sm:grid-cols-2">
-                  <NumberField control={form.control} name="rateLimit.tenantMaxPerWindow" label="Tenant: SMS per window" />
-                  <NumberField control={form.control} name="rateLimit.tenantWindowSeconds" label="Tenant: window (seconds)" />
-                  <NumberField control={form.control} name="rateLimit.recipientMaxPerWindow" label="Per recipient: SMS per window" />
-                  <NumberField control={form.control} name="rateLimit.recipientWindowSeconds" label="Per recipient: window (seconds)" />
+                  <NumberField control={form.control} name="rateLimit.tenantMaxPerWindow" label={t("SMS_PROVIDER_PAGE.TENANT_SMS_PER_WINDOW")} />
+                  <NumberField control={form.control} name="rateLimit.tenantWindowSeconds" label={t("SMS_PROVIDER_PAGE.TENANT_WINDOW_SECONDS")} />
+                  <NumberField control={form.control} name="rateLimit.recipientMaxPerWindow" label={t("SMS_PROVIDER_PAGE.PER_RECIPIENT_SMS_PER_WINDOW")} />
+                  <NumberField control={form.control} name="rateLimit.recipientWindowSeconds" label={t("SMS_PROVIDER_PAGE.PER_RECIPIENT_WINDOW_SECONDS")} />
                 </div>
               </SmsFormSection>
 
-              <SmsFormSection title="Spam filter" description="Checks every message before it is queued. Blocked messages are quarantined.">
+              <SmsFormSection title={t("SMS_PROVIDER_PAGE.SPAM_FILTER")} description={t("SMS_PROVIDER_PAGE.CHECKS_EVERY_MESSAGE_BEFORE_IT")}>
                 <div className="grid gap-5 sm:grid-cols-2">
-                  <SwitchField control={form.control} name="spamFilter.enabled" label="Filter enabled" className="sm:col-span-2" />
+                  <SwitchField control={form.control} name="spamFilter.enabled" label={t("SMS_PROVIDER_PAGE.FILTER_ENABLED")} className="sm:col-span-2" />
                   {spamEnabled && (
                     <>
-                      <NumberField control={form.control} name="spamFilter.maxRecipients" label="Maximum recipients" description="More blocks the message." />
-                      <NumberField control={form.control} name="spamFilter.maxMessageLength" label="Maximum length" description="Longer is flagged, not blocked." />
+                      <NumberField control={form.control} name="spamFilter.maxRecipients" label={t("SMS_PROVIDER_PAGE.MAXIMUM_RECIPIENTS")} description={t("SMS_PROVIDER_PAGE.MORE_BLOCKS_THE_MESSAGE")} />
+                      <NumberField control={form.control} name="spamFilter.maxMessageLength" label={t("SMS_PROVIDER_PAGE.MAXIMUM_LENGTH")} description={t("SMS_PROVIDER_PAGE.LONGER_IS_FLAGGED_NOT_BLOCKED")} />
                       <FormField
                         control={form.control}
                         name="spamFilter.urlPolicy"
                         render={({ field }) => (
                           <FormItem className="sm:col-span-2">
-                            <FormLabel>Messages with links</FormLabel>
+                            <FormLabel>{t("SMS_PROVIDER_PAGE.MESSAGES_WITH_LINKS")}</FormLabel>
                             <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
                               <FormControl>
-                                <SelectTrigger aria-label="Messages with links">
+                                <SelectTrigger aria-label={t("SMS_PROVIDER_PAGE.MESSAGES_WITH_LINKS")}>
                                   <SelectValue />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                {SMS_URL_POLICY_OPTIONS.map((option) => (
+                                {urlPolicyOptions.map((option) => (
                                   <SelectItem key={option.value} value={String(option.value)}>
                                     {option.label} — {option.hint}
                                   </SelectItem>
@@ -425,14 +440,14 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                         name="spamFilter.blockedTerms"
                         render={({ field }) => (
                           <FormItem className="sm:col-span-2">
-                            <FormLabel>Blocked terms</FormLabel>
+                            <FormLabel>{t("SMS_PROVIDER_PAGE.BLOCKED_TERMS")}</FormLabel>
                             <FormControl>
                               <ChipsInput value={field.value} onChange={field.onChange}>
                                 <ChipsInputList />
                                 <ChipsInputField />
                               </ChipsInput>
                             </FormControl>
-                            <FormDescription>A message with a link and any of these words is blocked, whatever the link policy.</FormDescription>
+                            <FormDescription>{t("SMS_PROVIDER_PAGE.A_MESSAGE_WITH_A_LINK")}</FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -453,7 +468,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
               <div className="flex justify-end border-t pt-6">
                 <Button type="submit" disabled={isPending}>
                   {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  {isPending ? "Saving…" : configuration ? "Save changes" : "Save provider"}
+                  {isPending ? t("SMS_PROVIDER_PAGE.SAVING") : configuration ? t("common:SAVE_CHANGES") : t("SMS_PROVIDER_PAGE.SAVE_PROVIDER")}
                 </Button>
               </div>
             </form>
@@ -466,11 +481,11 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
             <div className="flex items-start gap-3">
               <KeyRound className="mt-0.5 h-5 w-5 text-blocks-primary-600" />
               <div>
-                <h2 className="font-semibold">Key handling</h2>
+                <h2 className="font-semibold">{t("SMS_PROVIDER_PAGE.KEY_HANDLING")}</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
                   {configuration?.hasApiKey
-                    ? "A key is stored. It is never sent back to the browser; saving without one keeps it."
-                    : "No key stored yet. It is required for the first save."}
+                    ? t("SMS_PROVIDER_PAGE.A_KEY_IS_STORED_IT")
+                    : t("SMS_PROVIDER_PAGE.NO_KEY_STORED_YET_IT")}
                 </p>
               </div>
             </div>
@@ -479,10 +494,9 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
             <div className="flex items-start gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 text-blocks-primary-600" />
               <div>
-                <h2 className="font-semibold">Verified callbacks</h2>
+                <h2 className="font-semibold">{t("SMS_PROVIDER_PAGE.VERIFIED_CALLBACKS")}</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Delivery callbacks are accepted only with a valid provider signature — Twilio&apos;s signed with your auth
-                  token, Telnyx&apos;s with the account key above.
+                  {t("SMS_PROVIDER_PAGE.DELIVERY_CALLBACKS_ARE_ACCEPTED")}
                 </p>
               </div>
             </div>
@@ -495,6 +509,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
 
 /** The URL providers call back on; built exactly as the server builds it (SmsCallbackUrls). */
 const CallbackCard = ({ control }: { control: Control<SmsProviderFormValues> }) => {
+  const { t } = useT("utilities.sms");
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const [baseUrl, providerType] = useWatch({ control, name: ["statusCallbackBaseUrl", "providerType"] });
   const provider = providerType === SmsProviderType.Twilio ? "twilio" : "telnyx";
@@ -505,18 +520,18 @@ const CallbackCard = ({ control }: { control: Control<SmsProviderFormValues> }) 
       <div className="flex items-start gap-3">
         <Webhook className="mt-0.5 h-5 w-5 text-blocks-primary-600" />
         <div className="min-w-0">
-          <h2 className="font-semibold">Delivery callback</h2>
+          <h2 className="font-semibold">{t("SMS_PROVIDER_PAGE.DELIVERY_CALLBACK")}</h2>
           {url ? (
             <>
-              <p className="mt-1 text-sm text-muted-foreground">Sent to the provider with every message:</p>
+              <p className="mt-1 text-sm text-muted-foreground">{t("SMS_PROVIDER_PAGE.SENT_TO_THE_PROVIDER_WITH")}</p>
               <code className="mt-2 block break-all rounded-md bg-muted px-2 py-1.5 text-xs">{url}</code>
               <div className="mt-2">
-                <CopyToClipboardButton textToCopy={url}>Callback URL</CopyToClipboardButton>
+                <CopyToClipboardButton textToCopy={url}>{t("SMS_PROVIDER_PAGE.CALLBACK_URL")}</CopyToClipboardButton>
               </div>
             </>
           ) : (
             <p className="mt-1 text-sm text-muted-foreground">
-              Set a callback base URL to receive delivery reports as they happen.
+              {t("SMS_PROVIDER_PAGE.SET_A_CALLBACK_BASE_URL")}
             </p>
           )}
         </div>
