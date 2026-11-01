@@ -7,7 +7,6 @@
  * real browser-like environments and per-test overrides keep working.
  */
 import "@testing-library/jest-dom/vitest";
-import "../i18n";
 
 // Some third-party ESM deps (e.g. framer-motion's motion-utils, pulled in via
 // @seliseblocks/genesis-os) read `process.env.NODE_ENV` at import time. Under the
@@ -185,3 +184,7 @@ if (
   (document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint =
     () => null;
 }
+
+// Register the bundled English text so tests see the same labels as the app. Loaded last, after the
+// browser polyfills above, because genesis-os reads matchMedia and process.env when it is imported.
+await import("../i18n");
