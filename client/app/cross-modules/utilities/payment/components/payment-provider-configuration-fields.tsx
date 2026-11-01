@@ -13,8 +13,9 @@ import { Input } from "@/components/ui-kits/input/input";
 import { Switch } from "@/components/ui-kits/switch/switch";
 import {
   canBeReusedOffSession,
-  PAYMENT_METHOD_OPTIONS,
+  getPaymentMethodOptions,
 } from "../constants/payment.constants";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface ProviderConfigurationFields {
   frontendResultUrl: string;
@@ -60,6 +61,7 @@ export const PaymentProviderConfigurationFields = ({
   providerName,
   additionalPaymentMethods = [],
 }: PaymentProviderConfigurationFieldsProps) => {
+  const { t } = useT("utilities.payment");
   const form = useFormContext<ProviderConfigurationFields>();
   const selectedMethods = useWatch({
     control: form.control,
@@ -67,12 +69,13 @@ export const PaymentProviderConfigurationFields = ({
   });
   const hasSelectedMethods = (selectedMethods ?? []).length > 0;
 
+  const methodOptions = getPaymentMethodOptions();
   const offered: PaymentMethodChoice[] = [
-    ...PAYMENT_METHOD_OPTIONS,
+    ...methodOptions,
     ...[...new Set(additionalPaymentMethods)]
       .filter(
         (method) =>
-          !PAYMENT_METHOD_OPTIONS.some((option) => option.value === method),
+          !methodOptions.some((option) => option.value === method),
       )
       .map((method) => ({ value: method, label: method })),
   ];
@@ -84,7 +87,7 @@ export const PaymentProviderConfigurationFields = ({
         name="frontendResultUrl"
         render={({ field }) => (
           <FormItem className="sm:col-span-2">
-            <FormLabel>Frontend result URL</FormLabel>
+            <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.FRONTEND_RESULT_URL")}</FormLabel>
             <FormControl>
               <Input
                 {...field}
@@ -94,7 +97,7 @@ export const PaymentProviderConfigurationFields = ({
               />
             </FormControl>
             <FormDescription>
-              The application page that receives the safe payment result.
+              {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.THE_APPLICATION_PAGE_THAT_RECEIVES")}
             </FormDescription>
             <FormMessage />
           </FormItem>
@@ -106,7 +109,7 @@ export const PaymentProviderConfigurationFields = ({
         name="countryCode"
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Country code</FormLabel>
+            <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.COUNTRY_CODE")}</FormLabel>
             <FormControl>
               <Input
                 {...field}
@@ -118,7 +121,7 @@ export const PaymentProviderConfigurationFields = ({
               />
             </FormControl>
             <FormDescription>
-              Optional two-letter ISO country code.
+              {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.OPTIONAL_TWO_LETTER_ISO_COUNTRY")}
             </FormDescription>
             <FormMessage />
           </FormItem>
@@ -130,18 +133,18 @@ export const PaymentProviderConfigurationFields = ({
         name="storeId"
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Store ID</FormLabel>
+            <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.STORE_ID")}</FormLabel>
             <FormControl>
               <Input
                 {...field}
                 value={field.value ?? ""}
                 maxLength={200}
-                placeholder="Optional provider store"
+                placeholder={t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.OPTIONAL_PROVIDER_STORE")}
                 autoComplete="off"
               />
             </FormControl>
             <FormDescription>
-              Only set this when the provider account uses a store.
+              {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.ONLY_SET_THIS_WHEN_THE")}
             </FormDescription>
             <FormMessage />
           </FormItem>
@@ -153,7 +156,7 @@ export const PaymentProviderConfigurationFields = ({
         name="maxRefundDays"
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Maximum refund age</FormLabel>
+            <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.MAXIMUM_REFUND_AGE")}</FormLabel>
             <FormControl>
               <Input
                 name={field.name}
@@ -170,7 +173,7 @@ export const PaymentProviderConfigurationFields = ({
               />
             </FormControl>
             <FormDescription>
-              Number of days after payment; 0 disables the age limit.
+              {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.NUMBER_OF_DAYS_AFTER_PAYMENT")}
             </FormDescription>
             <FormMessage />
           </FormItem>
@@ -183,9 +186,9 @@ export const PaymentProviderConfigurationFields = ({
         render={({ field }) => (
           <FormItem className="flex items-start justify-between gap-4 rounded-xl border p-4">
             <div>
-              <FormLabel>Manual capture</FormLabel>
+              <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.MANUAL_CAPTURE")}</FormLabel>
               <FormDescription>
-                Authorize first and capture through the payment API later.
+                {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.AUTHORIZE_FIRST_AND_CAPTURE")}
               </FormDescription>
               <FormMessage />
             </div>
@@ -193,7 +196,7 @@ export const PaymentProviderConfigurationFields = ({
               <Switch
                 checked={field.value}
                 onCheckedChange={field.onChange}
-                aria-label="Enable manual capture"
+                aria-label={t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.ENABLE_MANUAL_CAPTURE")}
               />
             </FormControl>
           </FormItem>
@@ -206,7 +209,7 @@ export const PaymentProviderConfigurationFields = ({
           name="captureDelayHours"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Capture delay (hours)</FormLabel>
+              <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.CAPTURE_DELAY_HOURS")}</FormLabel>
               <FormControl>
                 <Input
                   name={field.name}
@@ -216,15 +219,13 @@ export const PaymentProviderConfigurationFields = ({
                   min="0"
                   max="168"
                   step="1"
-                  placeholder="Not set"
+                  placeholder={t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.NOT_SET")}
                   onBlur={field.onBlur}
                   onChange={(event) => field.onChange(event.target.value)}
                 />
               </FormControl>
               <FormDescription>
-                Enter 0 when the Adyen merchant account captures immediately. Adyen then sends
-                no capture notification, so without this a payment stays authorized and no
-                invoice is issued. Leave blank if unsure.
+                {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.ENTER_0_WHEN_THE_ADYEN")}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -235,9 +236,9 @@ export const PaymentProviderConfigurationFields = ({
       {providerName === "STRIPE" && (
         <div className="space-y-5 rounded-xl border p-4 sm:col-span-2">
           <div>
-            <h3 className="font-semibold">Checkout payment methods</h3>
+            <h3 className="font-semibold">{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.CHECKOUT_PAYMENT_METHODS")}</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Which methods Stripe Checkout offers a shopper.
+              {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.WHICH_METHODS_STRIPE_CHECKOUT")}
             </p>
           </div>
 
@@ -246,7 +247,7 @@ export const PaymentProviderConfigurationFields = ({
             name="checkoutPaymentMethodTypes"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Offer these methods</FormLabel>
+                <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.OFFER_THESE_METHODS")}</FormLabel>
                 <div className="space-y-3 rounded-md border p-3">
                   {offered.map((option) => {
                     const selected = (field.value ?? []).includes(
@@ -286,7 +287,7 @@ export const PaymentProviderConfigurationFields = ({
                           </label>
                           {!canBeReusedOffSession(option.value) && (
                             <Badge variant="outline">
-                              one-off payments only
+                              {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.ONE_OFF_PAYMENTS_ONLY")}
                             </Badge>
                           )}
                         </div>
@@ -300,11 +301,7 @@ export const PaymentProviderConfigurationFields = ({
                   })}
                 </div>
                 <FormDescription>
-                  Leave every box unchecked to offer whatever the Stripe
-                  Dashboard enables, which is what this provider does today. A
-                  method marked one-off cannot be charged again later, so Stripe
-                  leaves it off a subscription&rsquo;s first payment even when it
-                  is ticked here — it still appears on ordinary payments.
+                  {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.LEAVE_EVERY_BOX_UNCHECKED_TO")}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -316,7 +313,7 @@ export const PaymentProviderConfigurationFields = ({
             name="paymentMethodConfigurationId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Payment method configuration ID</FormLabel>
+                <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.PAYMENT_METHOD_CONFIGURATION_ID")}</FormLabel>
                 <FormControl>
                   <Input
                     {...field}
@@ -330,8 +327,8 @@ export const PaymentProviderConfigurationFields = ({
                 </FormControl>
                 <FormDescription>
                   {hasSelectedMethods
-                    ? "Ignored while methods are ticked above — Stripe rejects a checkout that names both, so the ticked list wins. Untick them all to use this instead."
-                    : "Optional. A configuration assembled in the Stripe Dashboard, used when no method is ticked above."}
+                    ? t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.IGNORED_WHILE_METHODS_ARE_TICKED")
+                    : t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.OPTIONAL_A_CONFIGURATION_ASSEMBLED")}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -347,9 +344,9 @@ export const PaymentProviderConfigurationFields = ({
           render={({ field }) => (
             <FormItem className="flex items-start justify-between gap-4 rounded-xl border p-4 sm:col-span-2">
               <div>
-                <FormLabel>Provider enabled</FormLabel>
+                <FormLabel>{t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.PROVIDER_ENABLED")}</FormLabel>
                 <FormDescription>
-                  Disabled providers cannot be selected for new payments.
+                  {t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.DISABLED_PROVIDERS_CANNOT_BE")}
                 </FormDescription>
                 <FormMessage />
               </div>
@@ -357,7 +354,7 @@ export const PaymentProviderConfigurationFields = ({
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
-                  aria-label="Enable payment provider"
+                  aria-label={t("PAYMENT_PROVIDER_CONFIGURATION_FIELDS.ENABLE_PAYMENT_PROVIDER")}
                 />
               </FormControl>
             </FormItem>

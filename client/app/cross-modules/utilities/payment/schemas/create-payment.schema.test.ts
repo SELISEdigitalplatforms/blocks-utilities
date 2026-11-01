@@ -15,14 +15,14 @@ describe("createPaymentSchema", () => {
     "accepts the %s provider",
     (providerName) => {
       expect(
-        createPaymentSchema.safeParse(createRequest(providerName)).success,
+        createPaymentSchema().safeParse(createRequest(providerName)).success,
       ).toBe(true);
     },
   );
 
   it("rejects an unknown provider", () => {
     expect(
-      createPaymentSchema.safeParse(createRequest("UNKNOWN")).success,
+      createPaymentSchema().safeParse(createRequest("UNKNOWN")).success,
     ).toBe(false);
   });
 });

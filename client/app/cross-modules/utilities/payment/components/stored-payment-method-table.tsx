@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui-kits/table/table";
 import type { StoredPaymentMethod } from "../models/stored-payment-method.model";
+import { tStatic, useT } from "@seliseblocks/genesis-os";
 
 interface StoredPaymentMethodTableProps {
   methods: StoredPaymentMethod[];
@@ -18,11 +19,11 @@ interface StoredPaymentMethodTableProps {
 }
 
 const displayValue = (value: string | null) =>
-  value?.trim() || "Not available";
+  value?.trim() || tStatic("utilities.payment", "STORED_PAYMENT_METHOD_TABLE.NOT_AVAILABLE");
 
 const formatBrand = (brand: string | null) => {
   if (!brand) {
-    return "Payment method";
+    return tStatic("utilities.payment", "STORED_PAYMENT_METHOD_TABLE.PAYMENT_METHOD");
   }
 
   return brand
@@ -33,7 +34,7 @@ const formatBrand = (brand: string | null) => {
 };
 
 const formatMaskedNumber = (lastFour: string | null) =>
-  lastFour ? `•••• •••• •••• ${lastFour}` : "Masked details unavailable";
+  lastFour ? `•••• •••• •••• ${lastFour}` : tStatic("utilities.payment", "STORED_PAYMENT_METHOD_TABLE.MASKED_DETAILS_UNAVAILABLE");
 
 const formatExpiry = (
   month: string | null,
@@ -44,20 +45,22 @@ export const StoredPaymentMethodTable = ({
   methods,
   removingPaymentMethodId,
   onRemove,
-}: StoredPaymentMethodTableProps) => (
+}: StoredPaymentMethodTableProps) => {
+  const { t } = useT("utilities.payment");
+  return (
   <>
     <div className="hidden overflow-hidden rounded-xl border md:block">
       <Table>
         <TableHeader className="bg-muted/40">
           <TableRow>
-            <TableHead>Payment method</TableHead>
-            <TableHead>Masked details</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Expiry</TableHead>
-            <TableHead>Funding source</TableHead>
-            <TableHead>Issuer country</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Action</TableHead>
+            <TableHead>{t("STORED_PAYMENT_METHOD_TABLE.PAYMENT_METHOD")}</TableHead>
+            <TableHead>{t("STORED_PAYMENT_METHOD_TABLE.MASKED_DETAILS")}</TableHead>
+            <TableHead>{t("common:TYPE")}</TableHead>
+            <TableHead>{t("STORED_PAYMENT_METHOD_TABLE.EXPIRY")}</TableHead>
+            <TableHead>{t("STORED_PAYMENT_METHOD_TABLE.FUNDING_SOURCE")}</TableHead>
+            <TableHead>{t("STORED_PAYMENT_METHOD_TABLE.ISSUER_COUNTRY")}</TableHead>
+            <TableHead>{t("common:STATUS")}</TableHead>
+            <TableHead className="text-right">{t("STORED_PAYMENT_METHOD_TABLE.ACTION")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -109,7 +112,7 @@ export const StoredPaymentMethodTable = ({
                     removingPaymentMethodId ===
                     method.paymentMethodId
                   }
-                  aria-label={`Remove ${formatBrand(method.brand)} ending in ${method.lastFour ?? "unknown digits"}`}
+                  aria-label={t("STORED_PAYMENT_METHOD_TABLE.REMOVE_ENDING_IN", { brand: formatBrand(method.brand), lastFour: method.lastFour ?? t("STORED_PAYMENT_METHOD_TABLE.UNKNOWN_DIGITS") })}
                   onClick={() => onRemove(method)}
                 >
                   <Trash2 className="h-4 w-4" />
@@ -151,20 +154,20 @@ export const StoredPaymentMethodTable = ({
 
           <dl className="mt-4 grid grid-cols-2 gap-3 border-t pt-4 text-sm">
             <div>
-              <dt className="text-xs text-muted-foreground">Expiry</dt>
+              <dt className="text-xs text-muted-foreground">{t("STORED_PAYMENT_METHOD_TABLE.EXPIRY")}</dt>
               <dd className="mt-1 font-medium">
                 {formatExpiry(method.expiryMonth, method.expiryYear)}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Type</dt>
+              <dt className="text-xs text-muted-foreground">{t("common:TYPE")}</dt>
               <dd className="mt-1 font-medium">
                 {displayValue(method.type)}
               </dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">
-                Funding source
+                {t("STORED_PAYMENT_METHOD_TABLE.FUNDING_SOURCE")}
               </dt>
               <dd className="mt-1 font-medium">
                 {displayValue(method.fundingSource)}
@@ -172,7 +175,7 @@ export const StoredPaymentMethodTable = ({
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">
-                Issuer country
+                {t("STORED_PAYMENT_METHOD_TABLE.ISSUER_COUNTRY")}
               </dt>
               <dd className="mt-1 font-medium">
                 {displayValue(method.issuerCountry)}
@@ -191,10 +194,11 @@ export const StoredPaymentMethodTable = ({
             onClick={() => onRemove(method)}
           >
             <Trash2 className="mr-2 h-4 w-4" />
-            Remove payment method
+            {t("STORED_PAYMENT_METHOD_TABLE.REMOVE_PAYMENT_METHOD")}
           </Button>
         </article>
       ))}
     </div>
   </>
 );
+};

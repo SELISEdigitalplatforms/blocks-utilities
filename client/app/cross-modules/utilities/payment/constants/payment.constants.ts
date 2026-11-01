@@ -1,3 +1,5 @@
+import { getLanguageCode, tStatic } from "@seliseblocks/genesis-os";
+
 export const PAYMENT_ENDPOINT = "/api/payments";
 export const CREATE_PAYMENT_ENDPOINT = "/api/payments/create";
 export const STORED_PAYMENT_METHODS_ENDPOINT =
@@ -20,6 +22,15 @@ export const PAYMENT_CURRENCY_OPTIONS = [
   { code: "KWD", name: "Kuwaiti Dinar" },
 ] as const;
 
+/** Currency name in the language the UI shows; the English name is the fallback. */
+export const getCurrencyName = (code: string, fallback: string): string => {
+  try {
+    return new Intl.DisplayNames([getLanguageCode()], { type: "currency" }).of(code) ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 export const PAYMENT_STATUS_OPTIONS = [
   "INITIATING",
   "PROCESSING",
@@ -41,11 +52,12 @@ export const REFUNDABLE_PAYMENT_STATUSES = new Set([
   "PARTIALLY_REFUNDED",
 ]);
 
-export const PAYMENT_FLOW_OPTIONS = [
-  { label: "All flows", value: "all" },
-  { label: "Hosted checkout", value: "HOSTED_CHECKOUT" },
-  { label: "Recurring charge", value: "RECURRING_CHARGE" },
-] as const;
+export const getPaymentFlowOptions = () =>
+  [
+    { label: tStatic("utilities.payment", "PAYMENT_CONSTANTS.ALL_FLOWS"), value: "all" },
+    { label: tStatic("utilities.payment", "PAYMENT_CONSTANTS.HOSTED_CHECKOUT"), value: "HOSTED_CHECKOUT" },
+    { label: tStatic("utilities.payment", "PAYMENT_CONSTANTS.RECURRING_CHARGE"), value: "RECURRING_CHARGE" },
+  ] as const;
 
 export const PAYMENT_LIST_REFRESH_INTERVAL_MS = 15_000;
 
@@ -83,22 +95,23 @@ export const REUSABLE_OFF_SESSION_PAYMENT_METHODS = new Set([
  * Order matters: Stripe renders the methods in the order they arrive, and the form submits them in
  * the order they appear here so that what an operator sees is what a shopper gets.
  */
-export const PAYMENT_METHOD_OPTIONS = [
-  {
-    value: "card",
-    label: "Card",
-    hint: "Apple Pay and Google Pay ride on this.",
-  },
-  { value: "twint", label: "TWINT", hint: undefined },
-  {
-    value: "paypal",
-    label: "PayPal",
-    hint: "Subscriptions need Stripe's recurring approval on the account.",
-  },
-  { value: "klarna", label: "Klarna", hint: undefined },
-  { value: "link", label: "Link", hint: undefined },
-  { value: "sepa_debit", label: "SEPA Direct Debit", hint: undefined },
-] as const;
+export const getPaymentMethodOptions = () =>
+  [
+    {
+      value: "card",
+      label: tStatic("utilities.payment", "PAYMENT_CONSTANTS.CARD"),
+      hint: tStatic("utilities.payment", "PAYMENT_CONSTANTS.CARD_HINT"),
+    },
+    { value: "twint", label: "TWINT", hint: undefined },
+    {
+      value: "paypal",
+      label: "PayPal",
+      hint: tStatic("utilities.payment", "PAYMENT_CONSTANTS.PAYPAL_HINT"),
+    },
+    { value: "klarna", label: "Klarna", hint: undefined },
+    { value: "link", label: "Link", hint: undefined },
+    { value: "sepa_debit", label: "SEPA Direct Debit", hint: undefined },
+  ] as const;
 
 /** Whether a method can back a renewal, so the form can say when one cannot. */
 export const canBeReusedOffSession = (method: string): boolean =>

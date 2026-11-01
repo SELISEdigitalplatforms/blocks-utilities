@@ -12,6 +12,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { cn } from "@/lib/utils";
+import { tStatic, useT } from "@seliseblocks/genesis-os";
 
 type PaymentResultStatus =
   | "success"
@@ -28,51 +29,51 @@ interface PaymentResultPresentation {
   iconContainerClassName: string;
 }
 
-const resultPresentations: Record<
+const getResultPresentations = (): Record<
   PaymentResultStatus,
   PaymentResultPresentation
-> = {
+> => ({
   success: {
-    title: "Payment completed",
+    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_COMPLETED"),
     description:
-      "The hosted checkout completed successfully. Final confirmation may take a moment to appear in the payment list.",
+      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.SUCCESS_DESCRIPTION"),
     Icon: CheckCircle2,
     iconClassName: "text-green-700",
     iconContainerClassName: "border-green-200 bg-green-50",
   },
   fail: {
-    title: "Payment failed",
+    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_FAILED"),
     description:
-      "The payment could not be completed. No sensitive provider details have been included in this redirect.",
+      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.FAILED_DESCRIPTION"),
     Icon: XCircle,
     iconClassName: "text-destructive",
     iconContainerClassName: "border-destructive/20 bg-destructive/5",
   },
   cancelled: {
-    title: "Payment cancelled",
+    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_CANCELLED"),
     description:
-      "The checkout was cancelled before the payment completed. You can safely start a new payment.",
+      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.CANCELLED_DESCRIPTION"),
     Icon: Ban,
     iconClassName: "text-amber-700",
     iconContainerClassName: "border-amber-200 bg-amber-50",
   },
   pending: {
-    title: "Payment is processing",
+    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_PROCESSING"),
     description:
-      "The final result is not available yet. Check the payment list again shortly for the authoritative status.",
+      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PROCESSING_DESCRIPTION"),
     Icon: CircleDashed,
     iconClassName: "animate-spin text-blue-700",
     iconContainerClassName: "border-blue-200 bg-blue-50",
   },
   unknown: {
-    title: "Payment result unavailable",
+    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_RESULT_UNAVAILABLE"),
     description:
-      "The redirect did not contain a recognized payment status. Check the payment list before trying again.",
+      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.UNKNOWN_DESCRIPTION"),
     Icon: HelpCircle,
     iconClassName: "text-muted-foreground",
     iconContainerClassName: "border-border bg-muted",
   },
-};
+});
 
 const normalizeStatus = (value: string | null): PaymentResultStatus => {
   const normalized = value?.trim().toLowerCase();
@@ -90,11 +91,12 @@ const normalizeStatus = (value: string | null): PaymentResultStatus => {
 };
 
 export const PaymentResultPage = () => {
+  const { t } = useT("utilities.payment");
   const { itemId } = useParams();
   const [searchParameters] = useSearchParams();
   const status = normalizeStatus(searchParameters.get("status"));
   const paymentDetailId = searchParameters.get("paymentDetailId");
-  const presentation = resultPresentations[status];
+  const presentation = getResultPresentations()[status];
   const paymentBasePath = `/app/${itemId ?? ""}/payment`;
   const paymentListPath = `${paymentBasePath}/list`;
   const createPaymentPath = `${paymentBasePath}/create`;
@@ -106,7 +108,7 @@ export const PaymentResultPage = () => {
         <div className="border-b bg-gradient-to-br from-blocks-primary-shades-100 via-card to-blocks-secondary-50 p-6 sm:p-8">
           <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
             <CreditCard className="h-5 w-5 text-blocks-primary-600" />
-            Hosted payment result
+            {t("PAYMENT_RESULT_PAGE.HOSTED_PAYMENT_RESULT")}
           </div>
         </div>
 
@@ -132,7 +134,7 @@ export const PaymentResultPage = () => {
           {paymentDetailId && (
             <div className="mx-auto mt-6 max-w-md rounded-lg bg-muted/60 px-4 py-3">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Payment ID
+                {t("PAYMENT_RESULT_PAGE.PAYMENT_ID")}
               </p>
               <p className="mt-1 break-all font-mono text-xs">
                 {paymentDetailId}
@@ -146,19 +148,19 @@ export const PaymentResultPage = () => {
               className="mx-auto mt-5 flex max-w-md items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-900"
             >
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              Only success, fail, cancelled, or pending are recognized.
+              {t("PAYMENT_RESULT_PAGE.ONLY_SUCCESS_FAIL_CANCELLED_OR")}
             </div>
           )}
 
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Button asChild>
-              <Link to={paymentListPath}>View payments</Link>
+              <Link to={paymentListPath}>{t("PAYMENT_RESULT_PAGE.VIEW_PAYMENTS")}</Link>
             </Button>
             {(status === "fail" ||
               status === "cancelled" ||
               status === "unknown") && (
               <Button asChild variant="outline">
-                <Link to={createPaymentPath}>Create another payment</Link>
+                <Link to={createPaymentPath}>{t("PAYMENT_RESULT_PAGE.CREATE_ANOTHER_PAYMENT")}</Link>
               </Button>
             )}
             <Button
@@ -166,7 +168,7 @@ export const PaymentResultPage = () => {
               variant="ghost"
               onClick={() => window.close()}
             >
-              Close this tab
+              {t("PAYMENT_RESULT_PAGE.CLOSE_THIS_TAB")}
             </Button>
           </div>
         </div>

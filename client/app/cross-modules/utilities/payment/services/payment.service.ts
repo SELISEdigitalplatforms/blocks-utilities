@@ -32,6 +32,7 @@ import type {
   RotatePaymentProviderCredentialsCommand,
   UpdatePaymentProviderCommand,
 } from "../models/payment-provider.model";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 const toUtcDayStart = (value: string): string =>
   new Date(`${value}T00:00:00.000Z`).toISOString();
@@ -159,7 +160,7 @@ class PaymentService {
     if (!response.success || !response.data) {
       throw new Error(
         response.error?.message ||
-          "Payment providers could not be loaded.",
+          tStatic("utilities.payment", "PAYMENT_SERVICE.PAYMENT_PROVIDERS_COULD_NOT_BE"),
       );
     }
 
@@ -187,7 +188,7 @@ class PaymentService {
     if (!response.success || !response.data) {
       throw new Error(
         response.error?.message ||
-          "The payment provider could not be created.",
+          tStatic("utilities.payment", "PAYMENT_SERVICE.THE_PAYMENT_PROVIDER_COULD_NOT"),
       );
     }
 
@@ -234,7 +235,7 @@ class PaymentService {
     if (!response.success || !response.data) {
       throw new Error(
         response.error?.message ||
-          "The payment provider could not be updated.",
+          tStatic("utilities.payment", "PAYMENT_SERVICE.THE_PAYMENT_PROVIDER_COULD_NOT_2"),
       );
     }
 
@@ -256,7 +257,7 @@ class PaymentService {
     if (!response.success || !response.data) {
       throw new Error(
         response.error?.message ||
-          "The provider credentials could not be rotated.",
+          tStatic("utilities.payment", "PAYMENT_SERVICE.THE_PROVIDER_CREDENTIALS_COULD_NOT"),
       );
     }
 
@@ -288,7 +289,7 @@ class PaymentService {
       if (!response.success || !response.data) {
         throw new Error(
           response.error?.message ||
-            "Saved payment methods could not be loaded.",
+            tStatic("utilities.payment", "PAYMENT_SERVICE.SAVED_PAYMENT_METHODS_COULD_NOT"),
         );
       }
 
@@ -333,7 +334,7 @@ class PaymentService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The payment could not be created.",
+        response.error?.message || tStatic("utilities.payment", "PAYMENT_SERVICE.THE_PAYMENT_COULD_NOT_BE"),
       );
     }
 
@@ -357,7 +358,7 @@ class PaymentService {
     if (!response.success || !response.data) {
       throw new Error(
         response.error?.message ||
-          "The refund request could not be submitted.",
+          tStatic("utilities.payment", "PAYMENT_SERVICE.THE_REFUND_REQUEST_COULD_NOT"),
       );
     }
 
@@ -373,7 +374,7 @@ class PaymentService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "Payments could not be loaded.",
+        response.error?.message || tStatic("utilities.payment", "PAYMENT_SERVICE.PAYMENTS_COULD_NOT_BE_LOADED"),
       );
     }
 

@@ -1,26 +1,28 @@
+import { tStatic } from "@seliseblocks/genesis-os";
 import { z } from "zod";
 import { PAYMENT_PROVIDER_NAMES } from "../models/payment-provider.model";
 
-export const createPaymentSchema = z.object({
+export const createPaymentSchema = () =>
+  z.object({
   providerName: z.enum(PAYMENT_PROVIDER_NAMES),
   amount: z
     .number({
-      required_error: "Amount is required.",
-      invalid_type_error: "Enter a valid amount.",
+      required_error: tStatic("utilities.payment", "CREATE_PAYMENT_SCHEMA.AMOUNT_REQUIRED"),
+      invalid_type_error: tStatic("utilities.payment", "CREATE_PAYMENT_SCHEMA.VALID_AMOUNT"),
     })
-    .positive("Amount must be greater than zero.")
-    .max(999_999_999, "Amount is above the supported limit."),
+    .positive(tStatic("utilities.payment", "CREATE_PAYMENT_SCHEMA.AMOUNT_POSITIVE"))
+    .max(999_999_999, tStatic("utilities.payment", "CREATE_PAYMENT_SCHEMA.AMOUNT_TOO_LARGE")),
   currencyCode: z
     .string()
     .trim()
-    .length(3, "Currency must contain exactly three letters.")
-    .regex(/^[A-Za-z]{3}$/, "Currency must contain letters only.")
+    .length(3, tStatic("utilities.payment", "CREATE_PAYMENT_SCHEMA.CURRENCY_THREE_LETTERS"))
+    .regex(/^[A-Za-z]{3}$/, tStatic("utilities.payment", "CREATE_PAYMENT_SCHEMA.CURRENCY_LETTERS_ONLY"))
     .transform((value) => value.toUpperCase()),
   orderId: z
     .string()
     .trim()
-    .min(1, "Order ID is required.")
-    .max(80, "Order ID cannot exceed 80 characters."),
+    .min(1, tStatic("utilities.payment", "CREATE_PAYMENT_SCHEMA.ORDER_ID_REQUIRED"))
+    .max(80, tStatic("utilities.payment", "CREATE_PAYMENT_SCHEMA.ORDER_ID_TOO_LONG")),
   rememberCard: z.boolean(),
   isRecurring: z.literal(false),
   // Blank means "use whichever organization my context carries", which is what every

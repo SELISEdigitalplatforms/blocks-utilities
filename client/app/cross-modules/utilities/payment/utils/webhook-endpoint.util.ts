@@ -1,4 +1,5 @@
 ﻿import { getRuntimeEnv } from "@/lib/runtime-env";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 export interface WebhookEndpoint {
   label: string;
@@ -50,23 +51,23 @@ export const webhookEndpointsFor = (
   if (providerName === "ADYEN-ONLINE") {
     return [
       {
-        label: "Standard notifications",
+        label: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.STANDARD_NOTIFICATIONS"),
         url: `${origin}${WEBHOOK_PATHS.ADYEN_STANDARD}`,
-        hint: "Customer Area → Developers → Webhooks → Standard notification",
+        hint: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.CUSTOMER_AREA_DEVELOPERS_WEBHOOKS"),
       },
       {
-        label: "Token notifications",
+        label: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.TOKEN_NOTIFICATIONS"),
         url: `${origin}${WEBHOOK_PATHS.ADYEN_TOKENS}`,
-        hint: "Add a second webhook of type Tokenization, for saved cards",
+        hint: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.ADD_A_SECOND_WEBHOOK_OF"),
       },
     ];
   }
 
   return [
     {
-      label: "Endpoint URL",
+      label: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.ENDPOINT_URL"),
       url: `${origin}${WEBHOOK_PATHS.STRIPE}`,
-      hint: "Developers → Webhooks → Add endpoint, then copy its signing secret below",
+      hint: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.DEVELOPERS_WEBHOOKS_ADD_ENDPOINT"),
     },
   ];
 };

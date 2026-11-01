@@ -2,6 +2,7 @@ import { Webhook } from "lucide-react";
 import { Card } from "@/components/ui-kits/card/card";
 import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button";
 import { webhookEndpointsFor } from "../utils/webhook-endpoint.util";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface PaymentWebhookEndpointsCardProps {
   providerName: string;
@@ -18,6 +19,7 @@ interface PaymentWebhookEndpointsCardProps {
 export const PaymentWebhookEndpointsCard = ({
   providerName,
 }: PaymentWebhookEndpointsCardProps) => {
+  const { t } = useT("utilities.payment");
   const endpoints = webhookEndpointsFor(providerName);
 
   return (
@@ -25,10 +27,9 @@ export const PaymentWebhookEndpointsCard = ({
       <div className="flex items-start gap-3">
         <Webhook className="mt-0.5 h-5 w-5 shrink-0 text-blocks-primary-600" />
         <div className="min-w-0 flex-1">
-          <h2 className="font-semibold">Webhook endpoints</h2>
+          <h2 className="font-semibold">{t("PAYMENT_WEBHOOK_ENDPOINTS_CARD.WEBHOOK_ENDPOINTS")}</h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Register these in your provider account, then paste the signing
-            secret it gives you into the form.
+            {t("PAYMENT_WEBHOOK_ENDPOINTS_CARD.REGISTER_THESE_IN_YOUR_PROVIDER")}
           </p>
 
           <ul className="mt-4 space-y-4">
@@ -44,7 +45,7 @@ export const PaymentWebhookEndpointsCard = ({
                     {endpoint.url}
                   </code>
                   <CopyToClipboardButton textToCopy={endpoint.url}>
-                    <span className="sr-only">Copy {endpoint.label}</span>
+                    <span className="sr-only">{t("PAYMENT_WEBHOOK_ENDPOINTS_CARD.COPY_ENDPOINT", { label: endpoint.label })}</span>
                   </CopyToClipboardButton>
                 </div>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">

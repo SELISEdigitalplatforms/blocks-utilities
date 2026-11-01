@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { toast } from "@/hooks/use-toast";
 import { useCreatePaymentRefund } from "../hooks/use-create-payment-refund";
 import type { PaymentListItem } from "../models/payment.model";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface PaymentRefundDialogProps {
   payment: PaymentListItem;
@@ -27,6 +28,7 @@ export const PaymentRefundDialog = ({
   payment,
   onClose,
 }: PaymentRefundDialogProps) => {
+  const { t } = useT("utilities.payment");
   const { mutateAsync, isPending } = useCreatePaymentRefund();
   const [amount, setAmount] = useState(payment.amount.toString());
   const [reason, setReason] = useState("");
@@ -55,13 +57,13 @@ export const PaymentRefundDialog = ({
     const refundAmount = Number(amount);
 
     if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
-      setValidationError("Enter a refund amount greater than zero.");
+      setValidationError(t("PAYMENT_REFUND_DIALOG.ENTER_A_REFUND_AMOUNT_GREATER"));
       return;
     }
 
     if (refundAmount > payment.amount) {
       setValidationError(
-        `The refund amount cannot exceed ${payment.amount} ${payment.currencyCode}.`,
+        t("PAYMENT_REFUND_DIALOG.THE_REFUND_AMOUNT_CANNOT_EXCEED", { amount: payment.amount, currencyCode: payment.currencyCode }),
       );
       return;
     }
@@ -84,15 +86,15 @@ export const PaymentRefundDialog = ({
 
       toast({
         variant: "success",
-        title: "Refund request submitted",
-        description: `Refund ${refund.refundId} is ${refund.status.toLowerCase()}. The final status is confirmed asynchronously.`,
+        title: t("PAYMENT_REFUND_DIALOG.REFUND_REQUEST_SUBMITTED"),
+        description: t("PAYMENT_REFUND_DIALOG.REFUND_IS_THE_FINAL_STATUS", { refundId: refund.refundId, status: refund.status.toLowerCase() }),
       });
       onClose();
     } catch (error) {
       setSubmissionError(
         error instanceof Error
           ? error.message
-          : "The refund request could not be submitted.",
+          : t("PAYMENT_REFUND_DIALOG.THE_REFUND_REQUEST_COULD_NOT"),
       );
     }
   };
@@ -108,17 +110,16 @@ export const PaymentRefundDialog = ({
     >
       <DialogContent hideCloseButton={isPending}>
         <DialogHeader>
-          <DialogTitle>Refund payment</DialogTitle>
+          <DialogTitle>{t("PAYMENT_REFUND_DIALOG.REFUND_PAYMENT")}</DialogTitle>
           <DialogDescription>
-            Enter the amount to return. The payment service determines the
-            correct provider operation from the payment’s capture state.
+            {t("PAYMENT_REFUND_DIALOG.ENTER_THE_AMOUNT_TO_RETURN")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5 py-1">
           <div className="rounded-lg border bg-muted/30 p-3 text-sm">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Payment amount</span>
+              <span className="text-muted-foreground">{t("PAYMENT_REFUND_DIALOG.PAYMENT_AMOUNT")}</span>
               <span className="font-semibold tabular-nums">
                 {payment.amount} {payment.currencyCode}
               </span>
@@ -136,7 +137,7 @@ export const PaymentRefundDialog = ({
               htmlFor="payment-refund-amount"
               className="text-sm font-medium"
             >
-              Refund amount
+              {t("PAYMENT_REFUND_DIALOG.REFUND_AMOUNT")}
             </label>
             <div className="relative">
               <Input
@@ -167,9 +168,9 @@ export const PaymentRefundDialog = ({
                 htmlFor="payment-refund-reason"
                 className="text-sm font-medium"
               >
-                Reason
+                {t("PAYMENT_REFUND_DIALOG.REASON")}
                 <span className="ml-1 font-normal text-muted-foreground">
-                  (optional)
+                  {t("PAYMENT_REFUND_DIALOG.OPTIONAL")}
                 </span>
               </label>
               <span className="text-xs text-muted-foreground">
@@ -181,7 +182,7 @@ export const PaymentRefundDialog = ({
               value={reason}
               maxLength={MAX_REASON_LENGTH}
               disabled={isPending}
-              placeholder="Why is this payment being refunded?"
+              placeholder={t("PAYMENT_REFUND_DIALOG.WHY_IS_THIS_PAYMENT_BEING")}
               onChange={(event) => {
                 markRequestChanged();
                 setReason(event.target.value);
@@ -206,7 +207,7 @@ export const PaymentRefundDialog = ({
             disabled={isPending}
             onClick={onClose}
           >
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button
             type="button"
@@ -219,7 +220,7 @@ export const PaymentRefundDialog = ({
             ) : (
               <RotateCcw className="mr-2 h-4 w-4" />
             )}
-            {isPending ? "Submitting refund…" : "Confirm refund"}
+            {isPending ? t("PAYMENT_REFUND_DIALOG.SUBMITTING_REFUND") : t("PAYMENT_REFUND_DIALOG.CONFIRM_REFUND")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -8,6 +8,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui-kits/popover/popover";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface PaymentMultiSelectProps {
   label: string;
@@ -26,6 +27,7 @@ export const PaymentMultiSelect = ({
   onChange,
   allowCustomValue = false,
 }: PaymentMultiSelectProps) => {
+  const { t } = useT("utilities.payment");
   const [customValue, setCustomValue] = useState("");
 
   const toggleValue = (value: string) => {
@@ -66,7 +68,7 @@ export const PaymentMultiSelect = ({
                 ? emptyLabel
                 : values.length === 1
                   ? values[0]
-                  : `${values.length} selected`}
+                  : t("PAYMENT_MULTI_SELECT.SELECTED", { count: values.length })}
             </span>
             <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
@@ -89,7 +91,7 @@ export const PaymentMultiSelect = ({
                     id={optionId}
                     checked={selected}
                     onCheckedChange={() => toggleValue(option)}
-                    aria-label={`Select ${option}`}
+                    aria-label={t("PAYMENT_MULTI_SELECT.SELECT", { option })}
                   />
                   <label
                     htmlFor={optionId}
@@ -107,7 +109,7 @@ export const PaymentMultiSelect = ({
               <Input
                 value={customValue}
                 maxLength={100}
-                placeholder="Add provider name"
+                placeholder={t("PAYMENT_MULTI_SELECT.ADD_PROVIDER_NAME")}
                 onChange={(event) => setCustomValue(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
@@ -120,7 +122,7 @@ export const PaymentMultiSelect = ({
                 type="button"
                 size="icon"
                 variant="outline"
-                aria-label="Add provider"
+                aria-label={t("PAYMENT_MULTI_SELECT.ADD_PROVIDER")}
                 onClick={addCustomValue}
               >
                 <Plus className="h-4 w-4" />

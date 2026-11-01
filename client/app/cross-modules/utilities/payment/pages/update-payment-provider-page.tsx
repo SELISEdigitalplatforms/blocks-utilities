@@ -22,9 +22,10 @@ import type { UpdatePaymentProviderRequest } from "../models/payment-provider.mo
 import {
   parseCaptureDelayHours,
   providerDisplayName,
-  updatePaymentProviderSchema,
+  createUpdatePaymentProviderSchema,
   type UpdatePaymentProviderFormValues,
 } from "../schemas/payment-provider.schema";
+import { useT } from "@seliseblocks/genesis-os";
 
 const normalizeOptional = (value?: string): string | undefined => {
   const normalized = value?.trim();
@@ -32,6 +33,7 @@ const normalizeOptional = (value?: string): string | undefined => {
 };
 
 export const UpdatePaymentProviderPage = () => {
+  const { t } = useT("utilities.payment");
   const { itemId, paymentProviderId = "" } = useParams();
   const navigate = useNavigate();
   const providersPath = `/app/${itemId ?? ""}/payment/providers`;
@@ -52,7 +54,7 @@ export const UpdatePaymentProviderPage = () => {
   );
 
   const form = useForm<UpdatePaymentProviderFormValues>({
-    resolver: zodResolver(updatePaymentProviderSchema),
+    resolver: zodResolver(createUpdatePaymentProviderSchema()),
     mode: "onBlur",
     defaultValues: {
       frontendResultUrl: "",
@@ -98,15 +100,15 @@ export const UpdatePaymentProviderPage = () => {
     return (
       <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
         <PaymentProviderPageHeader
-          title="Update payment provider"
-          description="Edit non-secret provider configuration."
+          title={t("UPDATE_PAYMENT_PROVIDER_PAGE.UPDATE_PAYMENT_PROVIDER")}
+          description={t("UPDATE_PAYMENT_PROVIDER_PAGE.EDIT_NON_SECRET_PROVIDER")}
           backTo={providersPath}
         />
         <PaymentProviderLoadError
           message={
             error instanceof Error
               ? error.message
-              : "The payment provider could not be loaded."
+              : t("UPDATE_PAYMENT_PROVIDER_PAGE.THE_PAYMENT_PROVIDER_COULD_NOT")
           }
           onRetry={() => refetch()}
         />
@@ -118,8 +120,8 @@ export const UpdatePaymentProviderPage = () => {
     return (
       <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
         <PaymentProviderPageHeader
-          title="Update payment provider"
-          description="Edit non-secret provider configuration."
+          title={t("UPDATE_PAYMENT_PROVIDER_PAGE.UPDATE_PAYMENT_PROVIDER")}
+          description={t("UPDATE_PAYMENT_PROVIDER_PAGE.EDIT_NON_SECRET_PROVIDER")}
           backTo={providersPath}
         />
         <PaymentProviderNotFound />
@@ -167,15 +169,15 @@ export const UpdatePaymentProviderPage = () => {
 
       toast({
         variant: "success",
-        title: "Provider configuration updated",
-        description: `${providerDisplayName(updated.providerName)} is now at version ${updated.version}.`,
+        title: t("UPDATE_PAYMENT_PROVIDER_PAGE.PROVIDER_CONFIGURATION_UPDATED"),
+        description: t("UPDATE_PAYMENT_PROVIDER_PAGE.IS_NOW_AT_VERSION", { providerName: providerDisplayName(updated.providerName), version: updated.version }),
       });
       navigate(providersPath);
     } catch (mutationError) {
       setSubmissionError(
         mutationError instanceof Error
           ? mutationError.message
-          : "The provider configuration could not be updated.",
+          : t("UPDATE_PAYMENT_PROVIDER_PAGE.THE_PROVIDER_CONFIGURATION_COULD"),
       );
     }
   };
@@ -183,8 +185,8 @@ export const UpdatePaymentProviderPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <PaymentProviderPageHeader
-        title="Update payment provider"
-        description="Change runtime configuration without touching provider identity or credentials."
+        title={t("UPDATE_PAYMENT_PROVIDER_PAGE.UPDATE_PAYMENT_PROVIDER")}
+        description={t("UPDATE_PAYMENT_PROVIDER_PAGE.CHANGE_RUNTIME_CONFIGURATION")}
         backTo={providersPath}
         icon={<Pencil className="h-6 w-6" />}
       />
@@ -204,24 +206,23 @@ export const UpdatePaymentProviderPage = () => {
                       {providerDisplayName(provider.providerName)}
                     </h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Merchant: {provider.merchantId}
+                      {t("UPDATE_PAYMENT_PROVIDER_PAGE.MERCHANT_ID", { merchantId: provider.merchantId })}
                     </p>
                   </div>
-                  <Badge variant="info">Version {provider.version}</Badge>
+                  <Badge variant="info">{t("UPDATE_PAYMENT_PROVIDER_PAGE.VERSION", { version: provider.version })}</Badge>
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">
-                  Provider name and merchant ID are immutable. Register a new
-                  provider to change either value.
+                  {t("UPDATE_PAYMENT_PROVIDER_PAGE.PROVIDER_NAME_AND_MERCHANT_ID")}
                 </p>
               </section>
 
               <section className="space-y-5">
                 <div>
                   <h2 className="text-lg font-semibold">
-                    Runtime configuration
+                    {t("UPDATE_PAYMENT_PROVIDER_PAGE.RUNTIME_CONFIGURATION")}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Saving replaces only the fields shown below.
+                    {t("UPDATE_PAYMENT_PROVIDER_PAGE.SAVING_REPLACES_ONLY_THE_FIELDS")}
                   </p>
                 </div>
                 <PaymentProviderConfigurationFields
@@ -249,7 +250,7 @@ export const UpdatePaymentProviderPage = () => {
                   onClick={() => navigate(providersPath)}
                   disabled={isPending}
                 >
-                  Cancel
+                  {t("common:CANCEL")}
                 </Button>
                 <Button type="submit" disabled={isPending}>
                   {isPending ? (
@@ -257,7 +258,7 @@ export const UpdatePaymentProviderPage = () => {
                   ) : (
                     <Pencil className="mr-2 h-4 w-4" />
                   )}
-                  {isPending ? "Saving changes…" : "Save changes"}
+                  {isPending ? t("UPDATE_PAYMENT_PROVIDER_PAGE.SAVING_CHANGES") : t("common:SAVE_CHANGES")}
                 </Button>
               </div>
             </form>
@@ -274,11 +275,9 @@ export const UpdatePaymentProviderPage = () => {
           <div className="flex items-start gap-3">
             <ShieldCheck className="mt-0.5 h-5 w-5 text-blocks-primary-600" />
             <div>
-              <h2 className="font-semibold">Concurrency protected</h2>
+              <h2 className="font-semibold">{t("UPDATE_PAYMENT_PROVIDER_PAGE.CONCURRENCY_PROTECTED")}</h2>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                Version {provider.version} is sent with this update. If
-                another administrator saves first, this request is rejected
-                instead of overwriting their change.
+                {t("UPDATE_PAYMENT_PROVIDER_PAGE.VERSION_SENT_WITH_UPDATE", { version: provider.version })}
               </p>
             </div>
           </div>
