@@ -1,5 +1,6 @@
 import * as React from "react";
 import { StepperContext } from "./context";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 function usePrevious<T>(value: T): T | undefined {
 	const [state, setState] = React.useState<{ value: T; prev: T | undefined }>({

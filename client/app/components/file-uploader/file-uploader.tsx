@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { Trash2 as RemoveIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui-kits/button/button";
 import { showErrorToast } from "@/hooks/use-toast";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
 type DirectionOptions = "rtl" | "ltr" | undefined;
 
@@ -70,6 +71,7 @@ export const FileUploader = forwardRef<
     },
     ref,
   ) => {
+  const { t } = useT("utilities.shared");
     const [isFileTooBig, setIsFileTooBig] = useState(false);
     const [activeIndex, setActiveIndex] = useState(-1);
     const {
@@ -96,9 +98,9 @@ export const FileUploader = forwardRef<
 
     useEffect(() => {
       if (isFileTooBig) {
-        showErrorToast({ errors: "The file size is more than 5MB" });
+        showErrorToast({ errors: t("FILE_UPLOADER.THE_FILE_SIZE_IS_MORE") });
       }
-    }, [isFileTooBig]);
+    }, [isFileTooBig, t]);
 
     const handleKeyDown = useCallback(
       // eslint-disable-next-line no-undef
@@ -184,13 +186,13 @@ export const FileUploader = forwardRef<
           for (let i = 0; i < rejectedFiles.length; i++) {
             if (rejectedFiles[i].errors[0]?.code === "file-too-large") {
               showErrorToast({
-                errors: `File is too large. Max size is ${maxSize / 1024 / 1024}MB`
+                errors: t("FILE_UPLOADER.FILE_IS_TOO_LARGE_MAX", { size: maxSize / 1024 / 1024 })
               });
               break;
             }
             if (rejectedFiles[i].errors[0]?.code === "file-invalid-type") {
               showErrorToast({
-                errors: "Invalid file type"
+                errors: t("FILE_UPLOADER.INVALID_FILE_TYPE")
               });
               break;
             }
@@ -205,7 +207,7 @@ export const FileUploader = forwardRef<
         }
       },
       // eslint-disable-next-line react-hooks/exhaustive-deps
-      [reSelectAll, value],
+      [reSelectAll, value, t],
     );
 
     const opts = dropzoneOptions ? dropzoneOptions : { accept, maxFiles, maxSize, multiple };
@@ -280,6 +282,7 @@ export const FileUploaderItem = forwardRef<
   // eslint-disable-next-line no-undef
   { index: number } & React.HTMLAttributes<HTMLDivElement>
 >(({ className, index, children, ...props }, ref) => {
+  const { t } = useT("utilities.shared");
   const { removeFileFromSet, activeIndex, direction } = useFileUpload();
   const isSelected = index === activeIndex;
   return (
@@ -301,7 +304,7 @@ export const FileUploaderItem = forwardRef<
         className={cn("absolute", direction === "rtl" ? "left-1 top-1" : "right-1 top-1")}
         onClick={() => removeFileFromSet(index)}
       >
-        <span className="sr-only">remove item {index}</span>
+        <span className="sr-only">{t("FILE_UPLOADER.REMOVE_ITEM", { index })}</span>
         <RemoveIcon className="h-4 w-4 duration-200 ease-in-out hover:stroke-destructive" />
       </button>
     </div>

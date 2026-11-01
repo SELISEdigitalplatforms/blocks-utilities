@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, ReactNode, useCallback } from "react";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface InfiniteScrollProps<T> {
   initialData: T[];
@@ -21,6 +22,7 @@ export const InfiniteScroll = <T,>({
   bottomIndicator,
   hasTopMore,
 }: InfiniteScrollProps<T>) => {
+  const { t } = useT("utilities.shared");
   const [data, setData] = useState(initialData);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(hasTopMore);
@@ -130,7 +132,7 @@ export const InfiniteScroll = <T,>({
           </>
         ) : (
           <div className="flex h-full items-center justify-center text-muted-foreground">
-            No logs found
+            {t("INFINITE_SCROLLER.NO_LOGS_FOUND")}
           </div>
         )}
       </div>

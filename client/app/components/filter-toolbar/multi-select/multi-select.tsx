@@ -16,6 +16,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui-kits/command/command";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface MultiSelectProps {
   label?: string;
@@ -25,6 +26,7 @@ interface MultiSelectProps {
 }
 
 export function MultiSelect({ label, options, onChange, value: selectedValues }: MultiSelectProps) {
+  const { t } = useT("utilities.shared");
   const [buttonRef, popoverWidth] = usePopoverWidth();
 
   const onSelectHandler = (value: string) => {
@@ -54,8 +56,7 @@ export function MultiSelect({ label, options, onChange, value: selectedValues }:
                 <div className="flex space-x-1">
                   {selectedValues.length > 2 ? (
                     <Badge variant="secondary" className="rounded-sm px-1 font-normal">
-                      {selectedValues.length} selected
-                    </Badge>
+                      {t("MULTI_SELECT.SELECTED", { count: selectedValues.length })}</Badge>
                   ) : (
                     options
                       .filter((option) => selectedValues.includes(option.value))
@@ -83,7 +84,7 @@ export function MultiSelect({ label, options, onChange, value: selectedValues }:
         <Command>
           <CommandInput placeholder={label} />
           <CommandList>
-            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandEmpty>{t("MULTI_SELECT.NO_RESULTS_FOUND")}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
                 const isSelected = selectedValues.includes(option.value);
@@ -112,7 +113,7 @@ export function MultiSelect({ label, options, onChange, value: selectedValues }:
                     onSelect={() => onResetHandler()}
                     className="justify-center text-center"
                   >
-                    Clear
+                    {t("common:CLEAR")}
                   </CommandItem>
                 </CommandGroup>
               </>

@@ -1,8 +1,10 @@
 import { Plus } from "lucide-react";
 import { useNavigate } from "react-router";
 import { Card, CardContent } from "@/components/ui-kits/card/card";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const AddProjectCard = () => {
+  const { t } = useT("utilities.shared");
   const navigate = useNavigate();
 
   return (
@@ -14,7 +16,7 @@ export const AddProjectCard = () => {
         <div className="flex justify-center">
           <Plus className="text-primary" strokeWidth={2} size={50} />
         </div>
-        <p className="mt-2 font-bold text-primary">Add Project</p>
+        <p className="mt-2 font-bold text-primary">{t("ADD_PROJECT_CARD.ADD_PROJECT")}</p>
       </CardContent>
     </Card>
   );

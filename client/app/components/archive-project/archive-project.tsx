@@ -5,12 +5,13 @@ import ConfirmationModal from "@/components/confirmation-modal/confirmation-moda
 import { Dialog, DialogTrigger } from "@/components/ui-kits/dialog/dialog";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { useDisableProject } from "@blocks-identifier/hooks/use-project";
 import { isErrorWithErrors } from "@/lib/error";
 
 export const ArchivedProject = () => {
+  const { t } = useT("utilities.shared");
   const navigate = useNavigate();
   const projectKey = useProjectStore().selectedProject?.tenantId || "";
   const { mutateAsync, isPending } = useDisableProject({ projectKey });
@@ -18,7 +19,7 @@ export const ArchivedProject = () => {
     try {
       const res = await mutateAsync({ projectKey });
       if (res.isSuccess) {
-        showSuccessToast({ description: "Project deleted successfully" });
+        showSuccessToast({ description: t("ARCHIVE_PROJECT.PROJECT_DELETED_SUCCESSFULLY") });
         navigate("/console");
       } else {
         showErrorToast({ errors: res.errors });
@@ -35,24 +36,23 @@ export const ArchivedProject = () => {
       <DialogTrigger asChild>
         <Button variant="outline">
           <Archive className="h-4 w-4" />
-          <span className="sr-only sm:not-sr-only sm:ml-2">Delete</span>
+          <span className="sr-only sm:not-sr-only sm:ml-2">{t("common:DELETE")}</span>
         </Button>
       </DialogTrigger>
       <ConfirmationModal
         onCancel={() => setOpen(false)}
         onConfirm={onClickHandler}
         data={{
-          dialogTitle: "Delete this environment?",
+          dialogTitle: t("ARCHIVE_PROJECT.DELETE_THIS_ENVIRONMENT"),
           dialogSubtitle: (
             <>
-              <p>Are you sure you want to delete this environment?</p>
+              <p>{t("ARCHIVE_PROJECT.ARE_YOU_SURE_YOU_WANT")}</p>
               <p>
-                This will permanently delete the environment and you&apos;ll need to contact support
-                to recover it.
+                {t("ARCHIVE_PROJECT.THIS_WILL_PERMANENTLY_DELETE_THE")}
               </p>
             </>
           ),
-          confirmButton: "Delete",
+          confirmButton: t("common:DELETE"),
         }}
         buttonState={{ confirm: { disable: isPending } }}
       />

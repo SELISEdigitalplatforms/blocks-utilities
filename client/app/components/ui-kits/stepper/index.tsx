@@ -7,6 +7,7 @@ import { Step } from "./step";
 import type { StepItem, StepProps, StepperProps } from "./types";
 import { useMediaQuery } from "./use-media-query";
 import { useStepper } from "./use-stepper";
+import { useT } from "@seliseblocks/genesis-os";
 
 const VARIABLE_SIZES = {
   sm: "36px",
@@ -16,6 +17,7 @@ const VARIABLE_SIZES = {
 
 const Stepper = React.forwardRef<HTMLDivElement, StepperProps>(
   (props, ref: React.Ref<HTMLDivElement>) => {
+  const { t } = useT("utilities.shared");
     const {
       className,
       children,

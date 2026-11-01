@@ -3,7 +3,7 @@ import { editDomainFormSchema } from "./utils";
 
 describe("editDomainFormSchema", () => {
   it("accepts domains with valid subdomains", () => {
-    const result = editDomainFormSchema.safeParse({
+    const result = editDomainFormSchema().safeParse({
       domains: [
         {
           itemId: "id-1",
@@ -16,21 +16,21 @@ describe("editDomainFormSchema", () => {
   });
 
   it("rejects an empty itemId", () => {
-    const result = editDomainFormSchema.safeParse({
+    const result = editDomainFormSchema().safeParse({
       domains: [{ itemId: "", customDeploymentUrl: "https://app" }],
     });
     expect(result.success).toBe(false);
   });
 
   it("rejects an empty deployment url", () => {
-    const result = editDomainFormSchema.safeParse({
+    const result = editDomainFormSchema().safeParse({
       domains: [{ itemId: "id-1", customDeploymentUrl: "" }],
     });
     expect(result.success).toBe(false);
   });
 
   it("rejects an invalid subdomain", () => {
-    const result = editDomainFormSchema.safeParse({
+    const result = editDomainFormSchema().safeParse({
       domains: [{ itemId: "id-1", customDeploymentUrl: "no-scheme" }],
     });
     expect(result.success).toBe(false);

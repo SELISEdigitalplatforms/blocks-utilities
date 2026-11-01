@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 export interface Asset {
   id?: number;
@@ -11,13 +12,14 @@ export const CreateProjectResourcesFormDefaultValue: { assets: Asset[] } = {
   assets: [],
 };
 
-export const CreateProjectResourcesFormSchema = z.object({
+export const CreateProjectResourcesFormSchema = () =>
+  z.object({
   assets: z
     .array(
       z.object({
         id: z.number().optional(),
-        name: z.string().min(1, "Asset name is required"),
-        html_url: z.string().url("Link must be a valid URL"),
+        name: z.string().min(1, tStatic("utilities.shared", "CREATE_PROJECT_RESOURCES_FORM.ASSET_NAME_REQUIRED")),
+        html_url: z.string().url(tStatic("utilities.shared", "CREATE_PROJECT_RESOURCES_FORM.LINK_MUST_BE_VALID_URL")),
         full_name: z.string().optional(),
       }),
     )

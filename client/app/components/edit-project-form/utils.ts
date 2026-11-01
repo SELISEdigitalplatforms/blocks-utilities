@@ -1,5 +1,6 @@
 import { isValidDomain } from "@/lib/domain";
 import * as z from "zod";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 export const editProjectFormDefaultValue = {
   name: "",
@@ -10,25 +11,26 @@ export const editProjectFormDefaultValue = {
   customDomain: "",
 };
 
-export const editProjectFormSchema = z
+export const editProjectFormSchema = () =>
+  z
   .object({
     name: z
       .string()
-      .min(1, "Name is required")
-      .min(3, "Project name must be at least 3 characters")
-      .max(100, "Project name should be a maximum of 100 characters"),
+      .min(1, tStatic("utilities.shared", "EDIT_PROJECT_FORM.NAME_REQUIRED"))
+      .min(3, tStatic("utilities.shared", "EDIT_PROJECT_FORM.NAME_MIN_LENGTH"))
+      .max(100, tStatic("utilities.shared", "EDIT_PROJECT_FORM.NAME_MAX_LENGTH")),
     applicationDomain: z
       .string()
       .trim()
-      .min(1, "Application domain is required")
-      .refine((s) => isValidDomain(s + "seliseblocks.com"), "Invalid domain format"),
+      .min(1, tStatic("utilities.shared", "EDIT_PROJECT_FORM.APPLICATION_DOMAIN_REQUIRED"))
+      .refine((s) => isValidDomain(s + "seliseblocks.com"), tStatic("utilities.shared", "EDIT_PROJECT_FORM.INVALID_DOMAIN_FORMAT")),
     isCookieEnable: z.boolean(),
     cookieDomain: z.string().optional(),
     useCustomDomain: z.boolean(),
     customDomain: z
       .string()
       .optional()
-      .refine((s) => !s || s.trim() === "" || isValidDomain(s), "Invalid custom domain format"),
+      .refine((s) => !s || s.trim() === "" || isValidDomain(s), tStatic("utilities.shared", "EDIT_PROJECT_FORM.INVALID_CUSTOM_DOMAIN_FORMAT")),
   })
   .refine(
     (data) => {
@@ -38,7 +40,7 @@ export const editProjectFormSchema = z
       return true;
     },
     {
-      message: "Enter a valid custom domain",
+      message: tStatic("utilities.shared", "EDIT_PROJECT_FORM.ENTER_VALID_CUSTOM_DOMAIN"),
       path: ["customDomain"],
     },
   );

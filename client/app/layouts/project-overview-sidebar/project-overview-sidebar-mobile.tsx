@@ -11,6 +11,7 @@ import {
 import { Separator } from "@/components/ui-kits/separator/separator";
 import { MobileMenuItem } from "@/components/menus/mobile-menu-item";
 import { Menu } from "@/models/menu-models";
+import { useT } from "@seliseblocks/genesis-os";
 
 const projectOverviewMenuItems: Menu[] = [
   {
@@ -44,6 +45,7 @@ const projectOverviewMenuItems: Menu[] = [
 ];
 
 export const ProjectOverviewSidebarMobile = () => {
+  const { t } = useT("utilities.shared");
   const [open, setOpen] = useState(false);
 
   return (
@@ -51,7 +53,7 @@ export const ProjectOverviewSidebarMobile = () => {
       <SheetTrigger asChild>
         <Button variant="outline" size="icon" className="md:hidden">
           <MenuIcon className="h-5 w-5" />
-          <span className="sr-only">Toggle project overview menu</span>
+          <span className="sr-only">{t("PROJECT_OVERVIEW_SIDEBAR_MOBILE.TOGGLE_PROJECT_OVERVIEW_MENU")}</span>
         </Button>
       </SheetTrigger>
       <SheetContent
@@ -60,7 +62,7 @@ export const ProjectOverviewSidebarMobile = () => {
         aria-describedby={undefined}
       >
         <SheetHeader className="border-b px-4 py-5">
-          <SheetTitle>Project Overview</SheetTitle>
+          <SheetTitle>{t("PROJECT_OVERVIEW_SIDEBAR_MOBILE.PROJECT_OVERVIEW")}</SheetTitle>
         </SheetHeader>
         <Separator />
         <nav className="grid gap-2 p-4">
