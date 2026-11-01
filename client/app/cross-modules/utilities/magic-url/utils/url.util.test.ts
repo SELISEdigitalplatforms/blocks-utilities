@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getDefaultShortUrlBase, isValidUrl, magicUrlSchema } from "./url.util";
+import { getDefaultShortUrlBase, isValidUrl, createMagicUrlSchema } from "./url.util";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { SHORT_URL_BASES } from "@blocks-utilities/magic-url/constants/endpoint.constant";
 
@@ -47,9 +47,9 @@ describe("isValidUrl", () => {
   });
 });
 
-describe("magicUrlSchema", () => {
+describe("createMagicUrlSchema", () => {
   it("accepts a valid uri and name", () => {
-    const result = magicUrlSchema.safeParse({
+    const result = createMagicUrlSchema().safeParse({
       uri: "https://example.com",
       name: "My link",
     });
@@ -57,7 +57,7 @@ describe("magicUrlSchema", () => {
   });
 
   it("accepts a bare domain uri", () => {
-    const result = magicUrlSchema.safeParse({
+    const result = createMagicUrlSchema().safeParse({
       uri: "example.com",
       name: "n",
     });
@@ -71,23 +71,23 @@ describe("magicUrlSchema", () => {
       "http://sub.example.co.uk/deep/path.html",
       "example.com/",
     ]) {
-      expect(magicUrlSchema.safeParse({ uri, name: "n" }).success).toBe(true);
+      expect(createMagicUrlSchema().safeParse({ uri, name: "n" }).success).toBe(true);
     }
   });
 
   it("rejects uris without a dotted host", () => {
     for (const uri of ["https://", "localhost", "http://localhost"]) {
-      expect(magicUrlSchema.safeParse({ uri, name: "n" }).success).toBe(false);
+      expect(createMagicUrlSchema().safeParse({ uri, name: "n" }).success).toBe(false);
     }
   });
 
   it("rejects an empty uri", () => {
-    const result = magicUrlSchema.safeParse({ uri: "", name: "n" });
+    const result = createMagicUrlSchema().safeParse({ uri: "", name: "n" });
     expect(result.success).toBe(false);
   });
 
   it("rejects an empty name", () => {
-    const result = magicUrlSchema.safeParse({
+    const result = createMagicUrlSchema().safeParse({
       uri: "https://example.com",
       name: "",
     });
@@ -95,7 +95,7 @@ describe("magicUrlSchema", () => {
   });
 
   it("rejects a name over 100 characters", () => {
-    const result = magicUrlSchema.safeParse({
+    const result = createMagicUrlSchema().safeParse({
       uri: "https://example.com",
       name: "a".repeat(101),
     });

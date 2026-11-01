@@ -25,7 +25,7 @@ import { EllipsisVertical, CircleSlash, Eye, ExternalLink } from "lucide-react";
 import { MagicUrlStatusBadge } from "./magic-url-status-badge";
 import { useNavigate } from "react-router";
 import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { useScopedPath } from "@seliseblocks/genesis-os/hooks";
 
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
@@ -47,6 +47,7 @@ type MagicUrlsListProps = {
 };
 
 export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
+  const { t } = useT("utilities.magic-url");
   const { sortQueryParams, setSortQueryParams } = useMagicUrlSortQueryParams();
   const navigate = useNavigate();
   const scoped = useScopedPath();
@@ -64,8 +65,8 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
     if (!tenantId) {
       toast({
         variant: "destructive",
-        title: "Error",
-        description: "No project selected. Please select a project first.",
+        title: t("common:ERROR"),
+        description: t("MAGIC_URLS_LIST.NO_PROJECT_SELECTED_PLEASE_SELECT"),
       });
       setIsDeactivateModalOpen(false);
       setItemToDeactivate(null);
@@ -93,7 +94,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
         header: () => (
           <FilterControls.SortHeader
             id="Uri"
-            label="URL"
+            label={t("MAGIC_URLS_LIST.URL")}
             value={sortQueryParams}
             onChange={setSortQueryParams}
           />
@@ -117,7 +118,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
         header: () => (
           <FilterControls.SortHeader
             id="Name"
-            label="Name"
+            label={t("common:NAME")}
             value={sortQueryParams}
             onChange={setSortQueryParams}
           />
@@ -132,19 +133,19 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
       },
       {
         accessorKey: "usageLimit",
-        header: "Usage Limit",
+        header: t("MAGIC_URLS_LIST.USAGE_LIMIT"),
         cell: ({ row }) => {
           const limit = row.getValue("usageLimit") as number;
           return (
             <div className="ml-2 flex w-[100px] items-center sm:ml-0">
-              <span>{limit === 0 ? "Unlimited" : limit}</span>
+              <span>{limit === 0 ? t("MAGIC_URLS_LIST.UNLIMITED") : limit}</span>
             </div>
           );
         },
       },
       {
         accessorKey: "expiryDate",
-        header: "Scheduled Expiry Date",
+        header: t("MAGIC_URLS_LIST.SCHEDULED_EXPIRY_DATE"),
         cell: ({ row }) => {
           const dateStr = row.getValue("expiryDate") as string | undefined;
           if (!dateStr) return <div className="ml-2 w-[180px] sm:ml-0">-</div>;
@@ -155,7 +156,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
       },
       {
         accessorKey: "status",
-        header: "Status",
+        header: t("common:STATUS"),
         cell: ({ row }) => (
           <div className="ml-2 flex w-[120px] items-center sm:ml-0">
             <MagicUrlStatusBadge item={row.original} />
@@ -164,7 +165,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
       },
       {
         accessorKey: "requestMethod",
-        header: "Request Method",
+        header: t("MAGIC_URLS_LIST.REQUEST_METHOD"),
         cell: ({ row }) => (
           <div className="ml-2 flex w-[120px] items-center sm:ml-0">
             <span className="uppercase">{row.getValue("requestMethod") || "-"}</span>
@@ -173,7 +174,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
       },
       {
         accessorKey: "clientCredential",
-        header: "Client Credential",
+        header: t("MAGIC_URLS_LIST.CLIENT_CREDENTIAL"),
         cell: ({ row }) => (
           <div className="max-w-[150px] truncate" title={row.getValue("clientCredential")}>
             {row.getValue("clientCredential") || "-"}
@@ -197,7 +198,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
                   onClick={() => handleViewDetails(row.original.itemId)}
                 >
                   <Eye className="mr-2 h-4 w-4" />
-                  <span>View Details</span>
+                  <span>{t("MAGIC_URLS_LIST.VIEW_DETAILS")}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="cursor-pointer"
@@ -207,7 +208,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
                   }}
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  <span>Go to Link</span>
+                  <span>{t("MAGIC_URLS_LIST.GO_TO_LINK")}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="cursor-pointer text-error"
@@ -218,7 +219,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
                   disabled={isRemoving}
                 >
                   <CircleSlash className="mr-2 h-4 w-4" />
-                  <span>{isRemoving ? "Removing..." : "Deactivate"}</span>
+                  <span>{isRemoving ? t("MAGIC_URLS_LIST.REMOVING") : t("MAGIC_URLS_LIST.DEACTIVATE")}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -226,7 +227,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
         ),
       },
     ],
-    [handleViewDetails, setSortQueryParams, sortQueryParams, isRemoving],
+    [handleViewDetails, setSortQueryParams, sortQueryParams, isRemoving, t],
   );
 
   const table = useReactTable({
@@ -277,7 +278,7 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
                   colSpan={table.getAllColumns().length}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  No results.
+                  {t("MAGIC_URLS_LIST.NO_RESULTS")}
                 </TableCell>
               </TableRow>
             )}
@@ -290,10 +291,10 @@ export function MagicUrlsList({ data, isLoading }: MagicUrlsListProps) {
           onCancel={() => setIsDeactivateModalOpen(false)}
           onConfirm={confirmDeactivate}
           data={{
-            dialogTitle: "Deactivate Magic URL",
-            dialogSubtitle: "Are you sure you want to deactivate this Magic URL? This action cannot be undone.",
-            confirmButton: "Deactivate",
-            cancelButton: "Cancel",
+            dialogTitle: t("MAGIC_URLS_LIST.DEACTIVATE_MAGIC_URL"),
+            dialogSubtitle: t("MAGIC_URLS_LIST.ARE_YOU_SURE_YOU_WANT"),
+            confirmButton: t("MAGIC_URLS_LIST.DEACTIVATE"),
+            cancelButton: t("common:CANCEL"),
           }}
           buttonState={{ confirm: { disable: isRemoving } }}
         />

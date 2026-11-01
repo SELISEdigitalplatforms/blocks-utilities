@@ -11,7 +11,8 @@ vi.mock("react-router", async () => {
   return { ...actual, useNavigate: () => navigate };
 });
 
-vi.mock("@seliseblocks/genesis-os", () => ({
+vi.mock("@seliseblocks/genesis-os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@seliseblocks/genesis-os")>()),
   useAuthStore: () => ({ user: { sub: "user-1" } }),
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
 }));
