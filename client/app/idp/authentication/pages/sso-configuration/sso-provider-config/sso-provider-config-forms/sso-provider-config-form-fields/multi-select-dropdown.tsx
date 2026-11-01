@@ -12,6 +12,7 @@ import {
 } from "@/components/ui-kits/command/command";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@seliseblocks/genesis-os";
 
 type MultiSelectDropdownProps = {
   disabled?: boolean;
@@ -28,6 +29,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   value,
   onChange,
 }) => {
+  const { t } = useT("utilities.idp.authentication");
   const [open, setOpen] = useState(false);
 
   const selectedLabels = useMemo(
@@ -49,7 +51,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   };
 
   const displayText = selectedLabels.join(", ");
-  const fallbackPlaceholder = placeholder || "Select options";
+  const fallbackPlaceholder = placeholder || t("MULTI_SELECT_DROPDOWN.SELECT_OPTIONS");
 
   return (
     <Popover open={open} onOpenChange={(nextOpen) => !disabled && setOpen(nextOpen)}>
@@ -76,9 +78,9 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0">
         <Command>
-          {options.length > 7 && <CommandInput placeholder="Search options..." className="h-9" />}
+          {options.length > 7 && <CommandInput placeholder={t("MULTI_SELECT_DROPDOWN.SEARCH_OPTIONS")} className="h-9" />}
           <CommandList>
-            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandEmpty>{t("MULTI_SELECT_DROPDOWN.NO_RESULTS_FOUND")}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
                 const isSelected = value.includes(option.value);
@@ -109,7 +111,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
                 <CommandSeparator />
                 <CommandGroup>
                   <CommandItem className="justify-center text-sm" onSelect={handleClear}>
-                    Clear selection
+                    {t("MULTI_SELECT_DROPDOWN.CLEAR_SELECTION")}
                   </CommandItem>
                 </CommandGroup>
               </>

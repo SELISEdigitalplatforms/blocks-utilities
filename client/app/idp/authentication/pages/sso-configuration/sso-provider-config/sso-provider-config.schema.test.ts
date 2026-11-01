@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ssoRoleSchema,
   ssoPermissionSchema,
-  ssoProviderConfigBaseSchema,
-  ssoOAuthProviderSchema,
+  createSsoProviderConfigBaseSchema,
+  createSsoOAuthProviderSchema,
 } from "./sso-provider-config.schema";
 
 describe("sso provider config schemas", () => {
@@ -27,14 +27,14 @@ describe("sso provider config schemas", () => {
 
   it("requires valid audience and redirect urls in the base schema", () => {
     expect(
-      ssoProviderConfigBaseSchema.safeParse({
+      createSsoProviderConfigBaseSchema().safeParse({
         provider: "google",
         audience: "https://api.example.com",
         redirectUrl: "https://app.example.com/cb",
       }).success,
     ).toBe(true);
     expect(
-      ssoProviderConfigBaseSchema.safeParse({
+      createSsoProviderConfigBaseSchema().safeParse({
         provider: "google",
         audience: "bad",
         redirectUrl: "https://app.example.com/cb",
@@ -43,7 +43,7 @@ describe("sso provider config schemas", () => {
   });
 
   it("accepts a full oauth provider config", () => {
-    const result = ssoOAuthProviderSchema.safeParse({
+    const result = createSsoOAuthProviderSchema().safeParse({
       provider: "google",
       audience: "https://api.example.com",
       redirectUrl: "https://app.example.com/cb",
@@ -56,7 +56,7 @@ describe("sso provider config schemas", () => {
   });
 
   it("rejects an oauth config missing the client id", () => {
-    const result = ssoOAuthProviderSchema.safeParse({
+    const result = createSsoOAuthProviderSchema().safeParse({
       provider: "google",
       audience: "https://api.example.com",
       redirectUrl: "https://app.example.com/cb",

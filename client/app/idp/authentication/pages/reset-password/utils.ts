@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 export const activationFormDefaultValue = {
   password: "",
@@ -8,12 +9,12 @@ export const activationFormDefaultValue = {
 const passwordRegex =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&;[\]{}|:(),.])[A-Za-z\d@$!%*?&;[\]{}|:(),.]{8,30}$/;
 
-export const activationFormSchema = z
+export const createActivationFormSchema = () => z
   .object({
-    password: z.string().min(8, "Password must be at least 8 characters long").regex(passwordRegex),
-    confirmPassword: z.string().min(8, "Confirm password must be at least 8 characters long"),
+    password: z.string().min(8, tStatic("utilities.idp.authentication", "UTILS.PASSWORD_MUST_BE_AT_LEAST")).regex(passwordRegex),
+    confirmPassword: z.string().min(8, tStatic("utilities.idp.authentication", "UTILS.CONFIRM_PASSWORD_MUST_BE_AT")),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords must be matched",
+    message: tStatic("utilities.idp.authentication", "UTILS.PASSWORDS_MUST_BE_MATCHED"),
     path: ["confirmPassword"],
   });

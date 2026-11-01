@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   forgotPasswordFormDefaultValue,
-  forgotPasswordFormSchema,
+  createForgotPasswordFormSchema,
 } from "./utils";
 
 describe("forgot-password form schema", () => {
@@ -10,12 +10,12 @@ describe("forgot-password form schema", () => {
   });
 
   it("accepts a valid email", () => {
-    expect(forgotPasswordFormSchema.safeParse({ email: "a@b.com" }).success).toBe(
+    expect(createForgotPasswordFormSchema().safeParse({ email: "a@b.com" }).success).toBe(
       true,
     );
   });
 
   it("rejects an invalid email", () => {
-    expect(forgotPasswordFormSchema.safeParse({ email: "x" }).success).toBe(false);
+    expect(createForgotPasswordFormSchema().safeParse({ email: "x" }).success).toBe(false);
   });
 });

@@ -8,7 +8,7 @@ import {
 } from "@/components/ui-kits/form/form";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { useForm } from "react-hook-form";
-import { signinFormDefaultValue, signinFormSchema } from "./schema";
+import { signinFormDefaultValue, createSigninFormSchema } from "./schema";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "@/components/ui-kits/input/input";
 import { PasswordInput } from "@/components/password-input";
@@ -16,7 +16,7 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { z } from "zod";
 import { useSigninByEmail } from "@blocks-idp/authentication/hooks/use-auth";
-import { useAuthStore } from "@seliseblocks/genesis-os";
+import { useAuthStore, useT } from "@seliseblocks/genesis-os";
 import { showErrorToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router";
 import { useState } from "react";
@@ -25,16 +25,17 @@ import { useTheme } from "@/hooks/use-theme";
 import { isErrorWithErrors } from "@/lib/error";
 
 export const SigninForm = () => {
+  const { t } = useT("utilities.idp.authentication");
   const { theme } = useTheme();
   const navigate = useNavigate();
   const { setAuthenticated, setTokens } = useAuthStore();
   const [token, setToken] = useState("");
   const form = useForm({
     defaultValues: signinFormDefaultValue,
-    resolver: zodResolver(signinFormSchema),
+    resolver: zodResolver(createSigninFormSchema()),
   });
   const { isPending, mutateAsync } = useSigninByEmail();
-  const onSubmitHandler = async (values: z.infer<typeof signinFormSchema>) => {
+  const onSubmitHandler = async (values: z.infer<ReturnType<typeof createSigninFormSchema>>) => {
     try {
       const res = await mutateAsync(values);
       if (res.enable_mfa)
@@ -55,10 +56,10 @@ export const SigninForm = () => {
     } catch (error: unknown) {
       if (isErrorWithErrors(error)) {
         showErrorToast({
-          errors: error.errors.error_description || `Something went wrong`,
+          errors: error.errors.error_description || t("SIGNIN_FORM.SOMETHING_WENT_WRONG"),
         });
       } else {
-        showErrorToast({ errors: "Something went wrong" });
+        showErrorToast({ errors: t("SIGNIN_FORM.SOMETHING_WENT_WRONG") });
       }
     }
   };
@@ -79,9 +80,9 @@ export const SigninForm = () => {
           name="username"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>{t("common:EMAIL")}</FormLabel>
               <FormControl>
-                <Input placeholder="Enter your email" {...field} />
+                <Input placeholder={t("SIGNIN_FORM.ENTER_YOUR_EMAIL")} {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -92,9 +93,9 @@ export const SigninForm = () => {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>{t("SIGNIN_FORM.PASSWORD")}</FormLabel>
               <FormControl>
-                <PasswordInput placeholder="Enter your password" {...field} />
+                <PasswordInput placeholder={t("SIGNIN_FORM.ENTER_YOUR_PASSWORD")} {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -105,7 +106,7 @@ export const SigninForm = () => {
           to="/forgot-password"
           className="ml-auto inline-block text-sm text-primary"
         >
-          Forgot password?
+          {t("SIGNIN_FORM.FORGOT_PASSWORD")}
         </Link>
         {isTokenNeed && (
           <Captcha
@@ -123,7 +124,7 @@ export const SigninForm = () => {
           className="w-full rounded"
           disabled={isPending || (isTokenNeed && !token)}
         >
-          Log in
+          {t("SIGNIN_FORM.LOG_IN")}
         </Button>
       </form>
     </Form>

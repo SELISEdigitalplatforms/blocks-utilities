@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { getApiUrl } from "@/lib/get-api-path";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { showErrorToast } from "@/hooks/use-toast";
-import { useAuthStore } from "@seliseblocks/genesis-os";
+import { useAuthStore, useT } from "@seliseblocks/genesis-os";
 import { isErrorWithErrors } from "@/lib/error";
 import {
   Card,
@@ -14,7 +14,7 @@ import {
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { Button } from "@/components/ui-kits/button/button";
 import {
-  SOCIAL_AUTH_PROVIDERS_CONFIG,
+  getSocialAuthProvidersConfig,
   SSO_PROVIDERS,
 } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { oauthService } from "@blocks-idp/authentication/services/oauth.service";
@@ -26,6 +26,7 @@ type SsoActivateProps = {
 };
 
 export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const { setAuthenticated, setTokens } = useAuthStore();
   const [isChecked, setIsChecked] = useState(false);
   const [isPending, setIsPending] = useState(false);
@@ -37,16 +38,16 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
   const { config, providerLabel } = useMemo(() => {
     if (!providerKey) return { config: null, providerLabel: "" };
 
-    const conf = SOCIAL_AUTH_PROVIDERS_CONFIG[providerKey as SSO_PROVIDERS];
+    const conf = getSocialAuthProvidersConfig()[providerKey as SSO_PROVIDERS];
     const label = providerKey.charAt(0).toUpperCase() + providerKey.slice(1);
 
     return { config: conf, providerLabel: label };
-  }, [providerKey]);
+  }, [providerKey, t]);
 
   const handleUseDifferentAccount = async () => {
     const audience = sessionStorage.getItem("clicked_sso_audience");
     if (!providerKey || !audience) {
-      return showErrorToast({ errors: "Something went wrong" });
+      return showErrorToast({ errors: t("SSO_ACTIVATE.SOMETHING_WENT_WRONG") });
     }
 
     try {
@@ -58,19 +59,19 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
 
       if (res.error) return showErrorToast({ errors: res.error });
       if (!res.providerUrl)
-        return showErrorToast({ errors: "No redirect URL provided." });
+        return showErrorToast({ errors: t("SSO_ACTIVATE.NO_REDIRECT_URL_PROVIDED") });
 
       window.location.href = sanitizeProviderUrl(res.providerUrl);
     } catch (error) {
       if (isErrorWithErrors(error))
         return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: "Something went wrong" });
+      showErrorToast({ errors: t("SSO_ACTIVATE.SOMETHING_WENT_WRONG") });
     }
   };
 
   const handleActivate = async () => {
     if (!oauthParams?.code)
-      return showErrorToast({ errors: "Code is missing" });
+      return showErrorToast({ errors: t("SSO_ACTIVATE.CODE_IS_MISSING") });
     setIsPending(true);
     try {
       const key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
@@ -108,17 +109,17 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
         setAuthenticated();
         navigate("/services/language");
       } else {
-        showErrorToast({ errors: data.errors || "Something went wrong" });
+        showErrorToast({ errors: data.errors || t("SSO_ACTIVATE.SOMETHING_WENT_WRONG") });
       }
     } catch (error) {
       if (JSON.stringify(error).includes("expire")) {
         showErrorToast({
-          errors: "Your session has expired. Please try again.",
+          errors: t("SSO_ACTIVATE.YOUR_SESSION_HAS_EXPIRED_PLEASE"),
         });
       } else if (isErrorWithErrors(error)) {
         showErrorToast({ errors: error.errors });
       } else {
-        showErrorToast({ errors: "Something went wrong" });
+        showErrorToast({ errors: t("SSO_ACTIVATE.SOMETHING_WENT_WRONG") });
       }
     } finally {
       setIsPending(false);
@@ -143,21 +144,14 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
                 />
               </div>
               <span className="text-medium-emphasis">
-                Signing in with{" "}
-                <span className="font-bold">{providerLabel}</span> account (
-                <span className="font-bold underline">
-                  {oauthParams.username}
-                </span>
-                )
-              </span>
+                {t("SSO_ACTIVATE.SIGNING_IN_WITH_ACCOUNT", { provider: `${providerLabel}`, username: `${oauthParams.username}` })}</span>
             </div>
             <button
               type="button"
               onClick={handleUseDifferentAccount}
               className="mb-8 cursor-pointer text-base font-semibold text-primary hover:underline"
             >
-              Use a different {providerLabel} account
-            </button>
+              {t("SSO_ACTIVATE.USE_A_DIFFERENT_ACCOUNT", { providerLabel })}</button>
           </>
         )}
 
@@ -172,21 +166,21 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
             htmlFor="terms"
             className="cursor-pointer text-sm font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
           >
-            I agree to the{" "}
+            {t("SSO_ACTIVATE.I_AGREE_TO_THE")}{" "}
             <Link
               to="https://selisegroup.com/software-development-terms/"
               className="text-primary underline"
               target="_blank"
             >
-              Terms of Services{" "}
+              {t("SSO_ACTIVATE.TERMS_OF_SERVICES")}{" "}
             </Link>
-            and acknowledge that I have read the{" "}
+            {t("SSO_ACTIVATE.AND_ACKNOWLEDGE_THAT_I_HAVE")}{" "}
             <Link
               to="https://selisegroup.com/privacy-policy/"
               className="text-primary underline"
               target="_blank"
             >
-              Privacy policy.
+              {t("SSO_ACTIVATE.PRIVACY_POLICY")}
             </Link>
           </label>
         </div>
@@ -195,7 +189,7 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
           className="mt-6 w-full rounded"
           disabled={isPending || !isChecked}
         >
-          Continue
+          {t("common:CONTINUE")}
         </Button>
       </CardContent>
     </Card>

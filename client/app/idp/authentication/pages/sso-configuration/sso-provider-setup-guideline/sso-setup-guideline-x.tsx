@@ -1,18 +1,16 @@
+import type { TFunction } from "@seliseblocks/genesis-os";
 import { Link } from "react-router";
 
-export const xStepupDocs = [
+export const getXStepupDocs = (t: TFunction) => [
   {
     id: "0",
     description: (
       <div>
         <p>
-          Twitter (now X) login enables users to authenticate with their X account using OAuth 2.0.
-          To integrate this, you must create a project and app in the{" "}
+          {t("SSO_SETUP_GUIDELINE_X.TWITTER_NOW_X_LOGIN_ENABLES")}{" "}
           <Link to="https://developer.x.com/en/portal/dashboard" className="text-primary">
-            X Developer Portal
-          </Link>, obtain your <b>Client ID</b> and <b>Client Secret</b>, and configure redirect
-          URIs correctly.
-        </p>
+            {t("SSO_SETUP_GUIDELINE_X.X_DEVELOPER_PORTAL")}
+          </Link>{t("SSO_SETUP_GUIDELINE_X.OBTAIN_YOUR_AND_AND_CONFIGURE", { b: t("SSO_SETUP_GUIDELINE_X.CLIENT_ID"), b2: t("SSO_SETUP_GUIDELINE_X.CLIENT_SECRET") })}</p>
       </div>
     ),
   },
@@ -20,19 +18,19 @@ export const xStepupDocs = [
     id: "1",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Prerequisites</h4>
-        <p>Before you begin:</p>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_X.PREREQUISITES")}</h4>
+        <p>{t("SSO_SETUP_GUIDELINE_X.BEFORE_YOU_BEGIN")}</p>
         <ul className="mt-2 list-inside list-disc">
           <li>
-            Have a verified{" "}
+            {t("SSO_SETUP_GUIDELINE_X.HAVE_A_VERIFIED")}{" "}
             <Link to="https://twitter.com/" className="text-primary">
-              X (Twitter) account
+              {t("SSO_SETUP_GUIDELINE_X.X_TWITTER_ACCOUNT")}
             </Link>
           </li>
           <li>
-            Access to the{" "}
+            {t("SSO_SETUP_GUIDELINE_X.ACCESS_TO_THE")}{" "}
             <Link to="https://developer.x.com/en/portal/dashboard" className="text-primary">
-              X Developer Portal
+              {t("SSO_SETUP_GUIDELINE_X.X_DEVELOPER_PORTAL")}
             </Link>
           </li>
         </ul>
@@ -43,10 +41,10 @@ export const xStepupDocs = [
     id: "4",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Obtain Client Credentials</h4>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_X.OBTAIN_CLIENT_CREDENTIALS")}</h4>
         <ul className="mt-2 list-inside list-disc">
-          <li><b>Client ID</b></li>
-          <li><b>Client Secret</b></li>
+          <li><b>{t("SSO_SETUP_GUIDELINE_X.CLIENT_ID")}</b></li>
+          <li><b>{t("SSO_SETUP_GUIDELINE_X.CLIENT_SECRET")}</b></li>
         </ul>
       </div>
     ),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  createClientSchema,
+  makeClientSchema,
   CreateClientModalFormDefaultValues,
 } from "./utils";
 
@@ -10,7 +10,7 @@ describe("create client credential schema", () => {
   });
 
   it("accepts a valid client", () => {
-    const result = createClientSchema.safeParse({
+    const result = makeClientSchema().safeParse({
       clientNameService: "svc",
       audienceUrlService: "https://api.example.com",
       roles: ["admin"],
@@ -19,7 +19,7 @@ describe("create client credential schema", () => {
   });
 
   it("requires a client name", () => {
-    const result = createClientSchema.safeParse({
+    const result = makeClientSchema().safeParse({
       clientNameService: "",
       audienceUrlService: "https://api.example.com",
       roles: [],
@@ -28,7 +28,7 @@ describe("create client credential schema", () => {
   });
 
   it("requires a valid audience url", () => {
-    const result = createClientSchema.safeParse({
+    const result = makeClientSchema().safeParse({
       clientNameService: "svc",
       audienceUrlService: "not-a-url",
       roles: [],

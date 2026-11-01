@@ -2,7 +2,7 @@
 import { useGetAuthOidcCredentials } from "@blocks-idp/authentication/hooks/use-auth-oidc";
 import { OIDCCard } from "./oidc-card";
 import { useMemo } from "react";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { Card, CardContent, CardHeader } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
@@ -58,6 +58,7 @@ const LoadingSkeleton = () => {
 };
 
 export const OidcList = () => {
+  const { t } = useT("utilities.idp.authentication");
   const { tenantId } = useProjectStore().selectedProject || { tenantId: "" };
   const { isLoading, isFetching, data } = useGetAuthOidcCredentials({
     projectKey: tenantId,
@@ -81,8 +82,7 @@ export const OidcList = () => {
   if (!sortedOidcData.length)
     return (
       <div className="flex min-h-[min(40vh,280px)] w-full flex-wrap items-center justify-center rounded-lg border border-dashed bg-card px-6 py-10 text-center text-sm text-muted-foreground">
-        No OIDC configuration found. Use <strong className="text-foreground">Add OIDC</strong> in the header to create one.
-      </div>
+        {t("OIDC_LIST.NO_OIDC_CONFIGURATION_FOUND_USE", { strong: "Add OIDC" })}</div>
     );
 
   return (

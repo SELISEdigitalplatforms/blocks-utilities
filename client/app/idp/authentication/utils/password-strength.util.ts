@@ -1,3 +1,5 @@
+import { tStatic } from "@seliseblocks/genesis-os";
+
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 30;
 export const STRENGTH_MULTIPLIER = 25;
@@ -35,12 +37,12 @@ export interface PasswordRequirement {
 
 
 export const getPasswordRequirements = (): PasswordRequirement[] => [
-  { key: "length", label: "Between 8 and 30 characters" },
-  { key: "case", label: "At least 1 uppercase and 1 lowercase letter" },
-  { key: "number", label: "At least 1 digit" },
+  { key: "length", label: tStatic("utilities.idp.authentication", "PASSWORD_STRENGTH_UTIL.BETWEEN_8_AND_30_CHARACTERS") },
+  { key: "case", label: tStatic("utilities.idp.authentication", "PASSWORD_STRENGTH_UTIL.AT_LEAST_1_UPPERCASE_AND") },
+  { key: "number", label: tStatic("utilities.idp.authentication", "PASSWORD_STRENGTH_UTIL.AT_LEAST_1_DIGIT") },
   {
     key: "special",
-    label: `${"At least 1 special character"}`,
+    label: tStatic("utilities.idp.authentication", "PASSWORD_STRENGTH_UTIL.AT_LEAST_1_SPECIAL_CHARACTER"),
   },
 ];
 

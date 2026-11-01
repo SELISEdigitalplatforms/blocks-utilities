@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 export const ssoRoleSchema = z.object({
   itemId: z.string(),
@@ -13,15 +14,15 @@ export const ssoPermissionSchema = z.object({
   description: z.string(),
 });
 
-export const ssoProviderConfigBaseSchema = z.object({
+export const createSsoProviderConfigBaseSchema = () => z.object({
   provider: z.string().trim(),
-  audience: z.string().url({ message: "Audience URL must be a valid URL." }).trim(),
-  redirectUrl: z.string().url({ message: "Redirect URL must be a valid URL." }).trim(),
+  audience: z.string().url({ message: tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_SCHEMA.AUDIENCE_URL_MUST_BE_A") }).trim(),
+  redirectUrl: z.string().url({ message: tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_SCHEMA.REDIRECT_URL_MUST_BE_A") }).trim(),
 });
 
-export const ssoOAuthProviderSchema = ssoProviderConfigBaseSchema.extend({
-  clientId: z.string().trim().nonempty("Client id is required"),
-  clientSecret: z.string().trim().nonempty("Client secret is required"),
+export const createSsoOAuthProviderSchema = () => createSsoProviderConfigBaseSchema().extend({
+  clientId: z.string().trim().nonempty(tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_SCHEMA.CLIENT_ID_IS_REQUIRED")),
+  clientSecret: z.string().trim().nonempty(tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_SCHEMA.CLIENT_SECRET_IS_REQUIRED")),
   initialRoles: z.array(z.string()).optional(),
   initialPermissions: z.array(z.string()).optional(),
   userRoles: z.array(ssoRoleSchema),
@@ -30,5 +31,5 @@ export const ssoOAuthProviderSchema = ssoProviderConfigBaseSchema.extend({
 
 export type SSORole = z.infer<typeof ssoRoleSchema>;
 export type SSOPermission = z.infer<typeof ssoPermissionSchema>;
-export type SSOProviderConfigBase = z.infer<typeof ssoProviderConfigBaseSchema>;
-export type SSOOAuthProviderConfig = z.infer<typeof ssoOAuthProviderSchema>;
+export type SSOProviderConfigBase = z.infer<ReturnType<typeof createSsoProviderConfigBaseSchema>>;
+export type SSOOAuthProviderConfig = z.infer<ReturnType<typeof createSsoOAuthProviderSchema>>;

@@ -4,6 +4,7 @@ import { Pagination } from "@/components/ui-kits/pagination/pagination";
 import { AddSSORole } from "./add-sso-role";
 import { SSORolesList } from "./sso-roles-list";
 import { IRole } from "@blocks-idp/iam/models/role";
+import { useT } from "@seliseblocks/genesis-os";
 
 type SSOInitialRolesProps = {
   roles: IRole[];
@@ -11,6 +12,7 @@ type SSOInitialRolesProps = {
 };
 
 export const SSOInitialRoles = ({ roles, onChange }: SSOInitialRolesProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const [filter, setFilter] = useState({ page: 0, pageSize: 5 });
   const onPageChangeHandler = (page: number) => {
     setFilter((filter) => ({ ...filter, page }));
@@ -29,7 +31,7 @@ export const SSOInitialRoles = ({ roles, onChange }: SSOInitialRolesProps) => {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Roles</CardTitle>
+        <CardTitle>{t("SSO_INITIAL_ROLES.ROLES")}</CardTitle>
         <AddSSORole onAdd={onAddHandler} roles={roles} />
       </CardHeader>
       <CardContent>

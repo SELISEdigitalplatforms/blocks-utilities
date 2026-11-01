@@ -6,6 +6,7 @@ import { ISsoProviderConfigurationWithMeta } from "@blocks-idp/authentication/mo
 import { oauthService } from "@blocks-idp/authentication/services/oauth.service";
 import { useTheme } from "@/hooks/use-theme";
 import { sanitizeProviderUrl } from "@blocks-idp/authentication/utils/sanitize-provider-url.util";
+import { useT } from "@seliseblocks/genesis-os";
 
 type SSOSigninCardProps = {
   providerConfig: ISsoProviderConfigurationWithMeta;
@@ -16,12 +17,13 @@ export const SSOSigninCard = ({
   providerConfig,
   withLabel = false,
 }: SSOSigninCardProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const { theme } = useTheme();
 
   const onClickHandler = useCallback(async () => {
     try {
       if (!providerConfig.audience || !providerConfig.provider)
-        return showErrorToast({ errors: "Something went wrong" });
+        return showErrorToast({ errors: t("SSO_SIGNIN_CARD.SOMETHING_WENT_WRONG") });
 
       sessionStorage.setItem("clicked_sso_provider", providerConfig.provider);
       sessionStorage.setItem(
@@ -37,14 +39,14 @@ export const SSOSigninCard = ({
 
       if (res.error) return showErrorToast({ errors: res.error });
       if (!res.providerUrl)
-        return showErrorToast({ errors: "No redirect URL provided." });
+        return showErrorToast({ errors: t("SSO_SIGNIN_CARD.NO_REDIRECT_URL_PROVIDED") });
       window.location.href = sanitizeProviderUrl(res.providerUrl);
     } catch (error) {
       if (isErrorWithErrors(error))
         return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: "Something went wrong" });
+      showErrorToast({ errors: t("SSO_SIGNIN_CARD.SOMETHING_WENT_WRONG") });
     }
-  }, [providerConfig]);
+  }, [providerConfig, t]);
 
   const imageSrc = useMemo(() => {
     return theme === "light"
@@ -59,7 +61,7 @@ export const SSOSigninCard = ({
         className="size-5 object-contain"
         alt={providerConfig.provider}
       />
-      {withLabel && <>Sign in with {providerConfig.label}</>}
+      {withLabel && <>{t("SSO_SIGNIN_CARD.SIGN_IN_WITH", { label: providerConfig.label })}</>}
     </Button>
   );
 };

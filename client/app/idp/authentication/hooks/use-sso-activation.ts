@@ -1,6 +1,6 @@
 import { showErrorToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useAuthStore } from "@seliseblocks/genesis-os";
+import { useAuthStore, tStatic } from "@seliseblocks/genesis-os";
 import { useSigninBySSO } from "@blocks-idp/authentication/hooks/use-auth";
 import { useNavigate, useSearchParams } from "react-router";
 import { useEffect, useRef } from "react";
@@ -38,14 +38,16 @@ function handleSsoError(error: unknown): void {
     const description = errorObj?.error?.description || errorObj?.description || "";
     const firstWord = description.split(" ")[0];
     const emailTarget = firstWord.includes("@") ? firstWord : "";
-    const msg = `There is no account with this email${emailTarget ? ` (${emailTarget})` : ""}.`;
+    const msg = emailTarget
+      ? tStatic("utilities.idp.authentication", "USE_SSO_ACTIVATION.NO_ACCOUNT_WITH_EMAIL_TARGET", { email: emailTarget })
+      : tStatic("utilities.idp.authentication", "USE_SSO_ACTIVATION.NO_ACCOUNT_WITH_EMAIL");
     showErrorToast({ errors: msg });
   } else if (errorStr.includes("state_data_not_found")) {
-    showErrorToast({ errors: "Something went wrong." });
+    showErrorToast({ errors: tStatic("utilities.idp.authentication", "USE_SSO_ACTIVATION.SOMETHING_WENT_WRONG") });
   } else if (isErrorWithErrors(error)) {
     showErrorToast({ errors: error.errors });
   } else {
-    showErrorToast({ errors: "Something went wrong" });
+    showErrorToast({ errors: tStatic("utilities.idp.authentication", "USE_SSO_ACTIVATION.SOMETHING_WENT_WRONG_2") });
   }
 }
 

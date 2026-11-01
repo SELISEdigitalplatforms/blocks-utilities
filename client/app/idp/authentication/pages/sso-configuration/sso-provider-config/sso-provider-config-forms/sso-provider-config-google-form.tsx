@@ -10,16 +10,17 @@ import { SSOInitialRoles } from "@blocks-idp/authentication/components/sso-initi
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createCommonOAuthFields } from "../sso-provider-config-field-factory.util";
-import { ssoOAuthProviderSchema } from "../sso-provider-config.schema";
+import { createSsoOAuthProviderSchema } from "../sso-provider-config.schema";
 import { SSOProviderConfigFormField } from "./sso-provider-config-form-fields";
 import { SsoConfigForms } from "./sso-provider-config-forms";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
 const SSOGoogleFormFields = createCommonOAuthFields({
   clientId: {
     description: (
       <Link to="https://console.cloud.google.com/apis/credentials" target="_blank">
         <Button variant="link" className="h-fit !p-0" type="button">
-          How to obtain a Client ID?
+          {tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_GOOGLE_FORM.HOW_TO_OBTAIN_A_CLIENT_ID")}
         </Button>
       </Link>
     ),
@@ -27,6 +28,7 @@ const SSOGoogleFormFields = createCommonOAuthFields({
 });
 
 export const SSOProviderConfigGoogleForm: React.FC<SsoConfigForms> = ({ save, configuration }) => {
+  const { t } = useT("utilities.idp.authentication");
   const form = useForm({
     values: configuration || {
       provider: SSO_PROVIDERS.google,
@@ -37,10 +39,10 @@ export const SSOProviderConfigGoogleForm: React.FC<SsoConfigForms> = ({ save, co
       initialRoles: [],
       initialPermissions: [],
       // Hardcoded default role for now; will use API response later
-      userRoles: [{ name: "user", slug: "user", description: "default role", itemId: "1234" }],
+      userRoles: [{ name: "user", slug: "user", description: t("SSO_PROVIDER_CONFIG_GOOGLE_FORM.DEFAULT_ROLE"), itemId: "1234" }],
       userPermissions: [],
     },
-    resolver: zodResolver(ssoOAuthProviderSchema),
+    resolver: zodResolver(createSsoOAuthProviderSchema()),
   });
   return (
     <Form {...form}>
@@ -50,7 +52,7 @@ export const SSOProviderConfigGoogleForm: React.FC<SsoConfigForms> = ({ save, co
       >
         <Card>
           <CardHeader>
-            <CardTitle>General</CardTitle>
+            <CardTitle>{t("SSO_PROVIDER_CONFIG_GOOGLE_FORM.GENERAL")}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <SSOProviderConfigFormField fields={SSOGoogleFormFields} form={form} />
@@ -77,7 +79,7 @@ export const SSOProviderConfigGoogleForm: React.FC<SsoConfigForms> = ({ save, co
         </div>
 
         <div className="flex items-center justify-end gap-2">
-          <Button type="submit">Save</Button>
+          <Button type="submit">{t("common:SAVE")}</Button>
         </div>
       </form>
     </Form>

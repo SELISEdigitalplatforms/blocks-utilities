@@ -32,7 +32,8 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { SsoSignin } from "../login/sso-signin";
-import { signupFormDefaultValue, signupFormSchema } from "./utils";
+import { signupFormDefaultValue, createSignupFormSchema } from "./utils";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const SignupForm = ({
   loginOption,
@@ -43,11 +44,12 @@ export const SignupForm = ({
   emailSignUpEnabled: boolean;
   ssoSignUpEnabled: boolean;
 }) => {
+  const { t } = useT("utilities.idp.authentication");
   const [isChecked, setIsChecked] = useState(false);
   const navigate = useNavigate();
   const form = useForm({
     defaultValues: signupFormDefaultValue,
-    resolver: zodResolver(signupFormSchema),
+    resolver: zodResolver(createSignupFormSchema()),
   });
   const { isPending, mutateAsync } = useSignupByEmail();
 
@@ -63,7 +65,7 @@ export const SignupForm = ({
 
   const { isValid } = form.formState;
 
-  const onSubmitHandler = async (values: z.infer<typeof signupFormSchema>) => {
+  const onSubmitHandler = async (values: z.infer<ReturnType<typeof createSignupFormSchema>>) => {
     try {
       const res = await mutateAsync({
         ...values,
@@ -79,7 +81,7 @@ export const SignupForm = ({
       if (isErrorWithErrors(error)) {
         showErrorToast({ errors: error.errors });
       } else {
-        showErrorToast({ errors: "Something went wrong" });
+        showErrorToast({ errors: t("SIGNUP_FORM.SOMETHING_WENT_WRONG") });
       }
     }
   };
@@ -92,7 +94,7 @@ export const SignupForm = ({
     <Card className="w-full rounded border-solid border-background shadow-none md:border-[#95ADC4] lg:max-w-md">
       <CardHeader className="text-center">
         <CardTitle className="text-3xl leading-9">Blocks Cloud</CardTitle>
-        <CardDescription className="text-xl text-foreground">Sign Up</CardDescription>
+        <CardDescription className="text-xl text-foreground">{t("SIGNUP_FORM.SIGN_UP")}</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -104,9 +106,9 @@ export const SignupForm = ({
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email</FormLabel>
+                      <FormLabel>{t("common:EMAIL")}</FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="Enter your email" {...field} />
+                        <Input type="email" placeholder={t("SIGNUP_FORM.ENTER_YOUR_EMAIL")} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -125,21 +127,21 @@ export const SignupForm = ({
                     htmlFor="terms"
                     className="cursor-pointer text-sm font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                   >
-                    I agree to the{" "}
+                    {t("SIGNUP_FORM.I_AGREE_TO_THE")}{" "}
                     <Link
                       to="https://selisegroup.com/software-development-terms/"
                       className="text-primary underline"
                       target="_blank"
                     >
-                      Terms of Services{" "}
+                      {t("SIGNUP_FORM.TERMS_OF_SERVICES")}{" "}
                     </Link>
-                    and acknowledge that I have read the{" "}
+                    {t("SIGNUP_FORM.AND_ACKNOWLEDGE_THAT_I_HAVE")}{" "}
                     <Link
                       to="https://selisegroup.com/privacy-policy/"
                       className="text-primary underline"
                       target="_blank"
                     >
-                      Privacy policy.
+                      {t("SIGNUP_FORM.PRIVACY_POLICY")}
                     </Link>
                   </label>
                 </div>
@@ -148,7 +150,7 @@ export const SignupForm = ({
                   className="w-full rounded"
                   disabled={isPending || !isValid || !captchaCode || !isChecked}
                 >
-                  Continue
+                  {t("common:CONTINUE")}
                 </Button>
               </div>
             )}
@@ -157,7 +159,7 @@ export const SignupForm = ({
         {ssoSignUpEnabled && emailSignUpEnabled && (
           <div className="my-2 flex items-center">
             <hr className="flex-grow border-gray-300" />
-            <span className="mx-2 text-xs text-gray-500">OR</span>
+            <span className="mx-2 text-xs text-gray-500">{t("SIGNUP_FORM.OR")}</span>
             <hr className="flex-grow border-gray-300" />
           </div>
         )}
@@ -167,9 +169,9 @@ export const SignupForm = ({
         )}
 
         <div className="mt-4 text-center text-base text-foreground">
-          Already a member?{" "}
+          {t("SIGNUP_FORM.ALREADY_A_MEMBER")}{" "}
           <Link to={"/login"} className="text-primary hover:underline">
-            Log in
+            {t("SIGNUP_FORM.LOG_IN")}
           </Link>
         </div>
       </CardContent>

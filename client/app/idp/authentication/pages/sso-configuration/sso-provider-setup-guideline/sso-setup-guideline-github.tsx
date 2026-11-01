@@ -1,14 +1,13 @@
+import type { TFunction } from "@seliseblocks/genesis-os";
 import { Link } from "react-router";
 
-export const githubStepupDocs = [
+export const getGithubStepupDocs = (t: TFunction) => [
   {
     id: "0",
     description: (
       <div>
         <p>
-          GitHub login allows users to authenticate using their GitHub account. To enable this, you
-          need to register your application in the GitHub Developer Settings and obtain OAuth
-          credentials (Client ID and Client Secret).
+          {t("SSO_SETUP_GUIDELINE_GITHUB.GITHUB_LOGIN_ALLOWS_USERS_TO")}
         </p>
       </div>
     ),
@@ -17,16 +16,16 @@ export const githubStepupDocs = [
     id: "1",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Prerequisites</h4>
-        <p>Before you begin:</p>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_GITHUB.PREREQUISITES")}</h4>
+        <p>{t("SSO_SETUP_GUIDELINE_GITHUB.BEFORE_YOU_BEGIN")}</p>
         <ul className="mt-2 list-inside list-disc">
           <li>
             <Link to="https://github.com/login" className="text-primary">
-              Sign in to your GitHub account
+              {t("SSO_SETUP_GUIDELINE_GITHUB.SIGN_IN_TO_YOUR_GITHUB")}
             </Link>
           </li>
           <li>
-            Go to{" "}
+            {t("SSO_SETUP_GUIDELINE_GITHUB.GO_TO")}{" "}
             <Link
               to="https://github.com/settings/developers"
               className="text-primary"
@@ -34,7 +33,7 @@ export const githubStepupDocs = [
               GitHub Developer Settings
             </Link>
           </li>
-          <li>Ensure you have administrative access to the organization or repository (if required)</li>
+          <li>{t("SSO_SETUP_GUIDELINE_GITHUB.ENSURE_YOU_HAVE_ADMINISTRATIVE")}</li>
         </ul>
       </div>
     ),
@@ -43,11 +42,9 @@ export const githubStepupDocs = [
     id: "3",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Obtain Client Credentials</h4>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_GITHUB.OBTAIN_CLIENT_CREDENTIALS")}</h4>
         <p>
-          After registering the app, GitHub will generate a <b>Client ID</b> and allow you to view or
-          generate a <b>Client Secret</b>.
-        </p>
+          {t("SSO_SETUP_GUIDELINE_GITHUB.AFTER_REGISTERING_THE_APP_GITHUB", { b: t("SSO_SETUP_GUIDELINE_GITHUB.CLIENT_ID"), b2: t("SSO_SETUP_GUIDELINE_GITHUB.CLIENT_SECRET") })}</p>
       </div>
     ),
   },

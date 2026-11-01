@@ -3,6 +3,7 @@ import { FormItem, FormLabel, FormMessage } from "@/components/ui-kits/form/form
 import { ControllerRenderProps, FieldValues } from "react-hook-form";
 import { SSOProviderConfigFormFieldType } from "../../sso-provider-config.type";
 import { MultiSelectDropdown } from "./multi-select-dropdown";
+import { useT } from "@seliseblocks/genesis-os";
 
 type MultiSelectFieldProps = {
   item: Extract<SSOProviderConfigFormFieldType, { type: "multi-select" }>;
@@ -10,6 +11,7 @@ type MultiSelectFieldProps = {
 };
 
 export const MultiSelectField: React.FC<MultiSelectFieldProps> = ({ item, field }) => {
+  const { t } = useT("utilities.idp.authentication");
   const selectedValues = Array.isArray(field.value) ? field.value : [];
 
   return (
@@ -18,7 +20,7 @@ export const MultiSelectField: React.FC<MultiSelectFieldProps> = ({ item, field 
       <MultiSelectDropdown
         disabled={item.isDisabled}
         options={item.options}
-        placeholder={item.placeholder ?? `Select ${item.label}`}
+        placeholder={item.placeholder ?? t("MULTI_SELECT_FIELD.SELECT", { label: item.label })}
         value={selectedValues}
         onChange={field.onChange}
       />

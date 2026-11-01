@@ -1,22 +1,23 @@
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { ReactNode } from "react";
-import { googleStepupDocs } from "./sso-setup-guideline-google";
-import { microsoftStepupDocs } from "./sso-setup-guideline-microsoft";
-import { githubStepupDocs } from "./sso-setup-guideline-github";
-import { linkedinStepupDocs } from "./sso-setup-guideline-linkedin";
-import { xStepupDocs } from "./sso-setup-guideline-x";
+import type { TFunction } from "@seliseblocks/genesis-os";
+import { getGoogleStepupDocs } from "./sso-setup-guideline-google";
+import { getMicrosoftStepupDocs } from "./sso-setup-guideline-microsoft";
+import { getGithubStepupDocs } from "./sso-setup-guideline-github";
+import { getLinkedinStepupDocs } from "./sso-setup-guideline-linkedin";
+import { getXStepupDocs } from "./sso-setup-guideline-x";
 
 export type Step = {
   id: string;
   description: ReactNode;
 };
 
-export const SSOSetupGuideSteps: Record<SSO_PROVIDERS, Step[]> = {
-  google: googleStepupDocs,
-  github: githubStepupDocs,
-  linkedin: linkedinStepupDocs,
-  x: xStepupDocs,
-  microsoft: microsoftStepupDocs,
+export const getSsoSetupGuideSteps = (t: TFunction): Record<SSO_PROVIDERS, Step[]> => ({
+  google: getGoogleStepupDocs(t),
+  github: getGithubStepupDocs(t),
+  linkedin: getLinkedinStepupDocs(t),
+  x: getXStepupDocs(t),
+  microsoft: getMicrosoftStepupDocs(t),
   apple: [],
   facebook: [],
   ownsso: [
@@ -25,15 +26,13 @@ export const SSOSetupGuideSteps: Record<SSO_PROVIDERS, Step[]> = {
       description: (
         <div>
           <p>
-            Coming soon: The OwnSSO social connection allows users to log in to your application using their OwnSSO
-            account profile.
+            {t("SSO_SETUP_GUIDELINE_STEPS_DOCS.COMING_SOON_THE_OWNSSO_SOCIAL")}
           </p>
           <p className="mt-2">
-            Coming soon: The OwnSSO social connection allows users to log in to your application using their OwnSSO
-            account profile.
+            {t("SSO_SETUP_GUIDELINE_STEPS_DOCS.COMING_SOON_THE_OWNSSO_SOCIAL")}
           </p>
         </div>
       ),
     },
   ],
-};
+});
