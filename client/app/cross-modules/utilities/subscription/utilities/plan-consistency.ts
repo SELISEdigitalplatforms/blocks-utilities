@@ -1,3 +1,5 @@
+import { tSubscription } from "./subscription-i18n";
+
 /**
  * An entitlement and its meter answer two different questions — "may they?" and "what does it
  * cost?" — and nothing on the server makes them agree. A plan can permit 500 signatures while
@@ -20,7 +22,11 @@ export interface MeterConsistencyInput {
 }
 
 const plural = (count: number, unitLabel: string) =>
-  `${count.toLocaleString()} ${unitLabel}${count === 1 ? "" : "s"}`;
+  tSubscription("PLAN_CONSISTENCY.UNIT_COUNT", {
+    count,
+    quantity: count.toLocaleString(),
+    unit: unitLabel,
+  });
 
 /**
  * What is inconsistent between a counted entitlement and the meter that draws it down, in the
@@ -48,15 +54,28 @@ export const describeEntitlementMeterMismatch = (
     return null;
   }
 
-  const unit = meter.unitLabel || "unit";
+  const unit = meter.unitLabel || tSubscription("PLAN_CONSISTENCY.UNIT_FALLBACK");
 
   if (limit > included) {
     const excess = limit - included;
 
     return meter.overageAllowed
-      ? `Permits ${plural(limit, unit)} but the meter includes only ${included.toLocaleString()}, so ${plural(excess, unit)} ${excess === 1 ? "is" : "are"} billed as overage while still reported as allowed.`
-      : `Permits ${plural(limit, unit)} but the meter blocks at ${included.toLocaleString()}, so the last ${plural(excess, unit)} can never be used.`;
+      ? tSubscription("PLAN_CONSISTENCY.PERMITS_OVER_BILLED", {
+          count: excess,
+          limit: plural(limit, unit),
+          included: included.toLocaleString(),
+          excess: plural(excess, unit),
+        })
+      : tSubscription("PLAN_CONSISTENCY.PERMITS_OVER_BLOCKED", {
+          limit: plural(limit, unit),
+          included: included.toLocaleString(),
+          excess: plural(excess, unit),
+        });
   }
 
-  return `Permits only ${plural(limit, unit)} but the meter includes ${included.toLocaleString()}, so ${plural(included - limit, unit)} of the allowance can never be used.`;
+  return tSubscription("PLAN_CONSISTENCY.PERMITS_UNDER", {
+    limit: plural(limit, unit),
+    included: included.toLocaleString(),
+    unused: plural(included - limit, unit),
+  });
 };

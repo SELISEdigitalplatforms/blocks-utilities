@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Plus, X } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { Button } from "@/components/ui-kits/button/button";
@@ -22,6 +23,7 @@ import { formatMoney, toMinorUnits } from "../../utilities/subscription-format";
  * out from an invoice.
  */
 export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
 
   const tiers = useFieldArray({
@@ -98,7 +100,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
     // dismiss it, which is how the one that mattered gets dismissed too.
     if (
       authored &&
-      !window.confirm("Remove the volume bands on this item? The discounts you entered are lost.")
+      !window.confirm(t("QUANTITY_DISCOUNT_TIERS.CONFIRM_REMOVE"))
     ) {
       return;
     }
@@ -113,25 +115,26 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
           checked={enabled}
           disabled={!canBand && !enabled}
           onCheckedChange={(checked) => toggle(checked === true)}
-          aria-label="Apply volume discounts"
+          aria-label={t("QUANTITY_DISCOUNT_TIERS.APPLY")}
         />
-        Apply volume discounts
+        {t("QUANTITY_DISCOUNT_TIERS.APPLY")}
       </label>
 
       {!canBand && !enabled ? (
         <p className="text-xs text-muted-foreground">
-          This item allows only {span <= 0 ? "no" : "one"} quantity, so there is nothing to band.
-          Raise its maximum to offer a volume discount.
+          {span <= 0
+            ? t("QUANTITY_DISCOUNT_TIERS.NOTHING_TO_BAND_NONE")
+            : t("QUANTITY_DISCOUNT_TIERS.NOTHING_TO_BAND_ONE")}
         </p>
       ) : null}
 
       {enabled ? (
         <div className="space-y-3 rounded-md border border-dashed p-3">
           <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-2 text-xs text-muted-foreground">
-            <span>From</span>
-            <span>To</span>
-            <span>Discount</span>
-            <span className="sr-only">Remove</span>
+            <span>{t("QUANTITY_DISCOUNT_TIERS.FROM")}</span>
+            <span>{t("QUANTITY_DISCOUNT_TIERS.TO")}</span>
+            <span>{t("QUANTITY_DISCOUNT_TIERS.DISCOUNT")}</span>
+            <span className="sr-only">{t("common:REMOVE")}</span>
           </div>
 
           {tiers.fields.map((tier, tierIndex) => {
@@ -151,7 +154,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
                             {...field}
                             type="number"
                             min={1}
-                            aria-label={`Band ${tierIndex + 1} from`}
+                            aria-label={t("QUANTITY_DISCOUNT_TIERS.BAND_FROM", { band: tierIndex + 1 })}
                           />
                         </FormControl>
                         <FormMessage />
@@ -169,8 +172,8 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
                             value={field.value ?? ""}
                             type="number"
                             min={1}
-                            placeholder={isLast ? "no limit" : ""}
-                            aria-label={`Band ${tierIndex + 1} to`}
+                            placeholder={isLast ? t("QUANTITY_DISCOUNT_TIERS.NO_LIMIT") : ""}
+                            aria-label={t("QUANTITY_DISCOUNT_TIERS.BAND_TO", { band: tierIndex + 1 })}
                           />
                         </FormControl>
                         <FormMessage />
@@ -189,7 +192,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
                             min={0}
                             max={100}
                             step="0.01"
-                            aria-label={`Band ${tierIndex + 1} discount percent`}
+                            aria-label={t("QUANTITY_DISCOUNT_TIERS.BAND_PERCENT", { band: tierIndex + 1 })}
                           />
                         </FormControl>
                         <FormMessage />
@@ -202,7 +205,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
                     size="icon"
                     onClick={() => tiers.remove(tierIndex)}
                     disabled={tiers.fields.length <= 2}
-                    aria-label={`Remove band ${tierIndex + 1}`}
+                    aria-label={t("QUANTITY_DISCOUNT_TIERS.REMOVE_BAND", { band: tierIndex + 1 })}
                     className="text-muted-foreground hover:text-destructive"
                   >
                     <X className="h-4 w-4" />
@@ -211,7 +214,10 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
 
                 {singlePrice && values ? (
                   <p className="text-xs text-muted-foreground">
-                    {effectivePrice(singlePrice, values.discountPercent)} per {item?.unitLabel || "unit"}
+                    {t("QUANTITY_DISCOUNT_TIERS.PRICE_PER_UNIT", {
+                      price: effectivePrice(singlePrice, values.discountPercent),
+                      unit: item?.unitLabel || t("QUANTITY_DISCOUNT_TIERS.UNIT_FALLBACK"),
+                    })}
                   </p>
                 ) : null}
               </div>
@@ -250,19 +256,17 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
             }}
           >
             <Plus className="mr-2 h-4 w-4" />
-            Add band
+            {t("QUANTITY_DISCOUNT_TIERS.ADD_BAND")}
           </Button>
 
           {!canAddBand ? (
             <p className="text-xs text-muted-foreground">
-              The last band covers a single quantity, so it cannot be split again.
+              {t("QUANTITY_DISCOUNT_TIERS.LAST_BAND_HINT")}
             </p>
           ) : null}
 
           <p className="text-xs text-muted-foreground">
-            The band is chosen by the total quantity, and its discount applies to the whole charge —
-            not only to the units inside the band. A discount code, if one is used, combines
-            according to the plan&apos;s combination policy.
+            {t("QUANTITY_DISCOUNT_TIERS.BAND_HINT")}
           </p>
         </div>
       ) : null}

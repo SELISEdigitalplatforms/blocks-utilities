@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { CircleDollarSign, Coins, Gauge, Hourglass, Layers, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
@@ -15,6 +16,7 @@ import {
   formatPrice,
   formatTrialAllowance,
 } from "../utilities/subscription-format";
+import { tSubscription } from "../utilities/subscription-i18n";
 import { describeQuantityBand } from "../utilities/quantity-discount-format";
 import { describeTrialDuration, describeTrialSentence } from "../utilities/trial-duration-label";
 
@@ -107,19 +109,23 @@ const describeMeterReset = (meter: {
   unitLabel?: string;
 }): string => {
   if (meter.resetPolicy === 1 || meter.resetPolicy === "Never") {
-    return "never resets";
+    return tSubscription("PLAN_SUMMARY_CARD.RESET_NEVER");
   }
 
   if (meter.resetPolicy === 2 || meter.resetPolicy === "CarryForward") {
     return meter.carryForwardCap
-      ? `unused rolls over, up to ${meter.carryForwardCap} ${meter.unitLabel ?? "units"}`
-      : "unused rolls over";
+      ? tSubscription("PLAN_SUMMARY_CARD.RESET_ROLLOVER_CAPPED", {
+          cap: meter.carryForwardCap,
+          unit: meter.unitLabel ?? tSubscription("PLAN_SUMMARY_CARD.UNITS_FALLBACK"),
+        })
+      : tSubscription("PLAN_SUMMARY_CARD.RESET_ROLLOVER");
   }
 
-  return "resets each allowance period";
+  return tSubscription("PLAN_SUMMARY_CARD.RESET_PERIODIC");
 };
 
 export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
+  const { t } = useT("utilities.subscription");
   const hasPricing = plan.quantityItems.length > 0 || plan.prices.length > 0;
   const hasUsage = plan.meters.length > 0;
   const hasEntitlements = plan.entitlements.length > 0;
@@ -131,12 +137,12 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
     <Card className="rounded-xl">
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <CardTitle>{plan.displayName || "Untitled plan"}</CardTitle>
+          <CardTitle>{plan.displayName || t("PLAN_SUMMARY_CARD.UNTITLED")}</CardTitle>
           {trialLabel ? <Badge variant="info">{trialLabel}</Badge> : null}
-          {plan.subscriberScope === "User" ? <Badge variant="secondary">Per person</Badge> : null}
+          {plan.subscriberScope === "User" ? <Badge variant="secondary">{t("PLAN_SUMMARY_CARD.PER_PERSON")}</Badge> : null}
         </div>
         <p className="text-xs text-muted-foreground">
-          {plan.code || "no-code-yet"} · {plan.organizationLabel}
+          {plan.code || t("PLAN_SUMMARY_CARD.NO_CODE")} · {plan.organizationLabel}
         </p>
       </CardHeader>
 
@@ -164,12 +170,14 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
           <div className="flex items-start gap-2 text-sm">
             <Hourglass className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
-              <p className="font-medium">During the trial</p>
+              <p className="font-medium">{t("PLAN_SUMMARY_CARD.DURING_TRIAL")}</p>
               {plan.meters.map((meter, index) => (
                 <p key={index}>
                   {meter.displayName}:{" "}
                   {meter.resetPolicy === 1 || meter.resetPolicy === "Never"
-                    ? `${formatMeterAllowance(meter)} for the subscription lifetime`
+                    ? t("PLAN_SUMMARY_CARD.LIFETIME_ALLOWANCE", {
+                        allowance: formatMeterAllowance(meter),
+                      })
                     : formatTrialAllowance(
                         meter,
                         plan.trialGrants.find((grant) => grant.meterKey === meter.meterKey),
@@ -187,12 +195,17 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
               {plan.quantityItems.map((item, index) => (
                 <div key={index} className="space-y-0.5">
                   <p>
-                    {item.defaultQuantity.toLocaleString()} {item.unitLabel}
-                    {item.defaultQuantity === 1 ? "" : "s"} included by default
+                    {t("PLAN_SUMMARY_CARD.INCLUDED_BY_DEFAULT", {
+                      count: item.defaultQuantity,
+                      quantity: item.defaultQuantity.toLocaleString(),
+                      unit: item.unitLabel,
+                    })}
                     {/* The ceiling is part of what the plan sells — a buyer choosing between
                         tiers needs to see it, and it is the one quantity rule that refuses a
                         subscription outright rather than just costing more. */}
-                    {item.maxQuantity === null ? "" : `, up to ${item.maxQuantity.toLocaleString()}`}
+                    {item.maxQuantity === null
+                      ? ""
+                      : `, ${t("PLAN_SUMMARY_CARD.UP_TO", { max: item.maxQuantity.toLocaleString() })}`}
                   </p>
                   {/* Shown here because a band list is a pricing term, and one authored by hand
                       through the API used to be invisible on every screen that describes the
@@ -230,13 +243,13 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
           <div className="flex items-start gap-2 text-sm">
             <Coins className="mt-0.5 h-4 w-4 shrink-0 text-blocks-primary-600" />
             <div className="space-y-0.5">
-              <p className="font-medium">Extra credits</p>
+              <p className="font-medium">{t("PLAN_SUMMARY_CARD.EXTRA_CREDITS")}</p>
               {plan.credits.map((credit, index) => (
                 <p key={index}>
                   <span className="font-medium">
                     {plan.meters.find((meter) => meter.meterKey === credit.meterKey)?.displayName ||
                       credit.meterKey ||
-                      "Meter not chosen"}
+                      t("PLAN_SUMMARY_CARD.METER_NOT_CHOSEN")}
                     :
                   </span>{" "}
                   {describeCreditTerms(credit)}
@@ -270,7 +283,7 @@ export const PlanSummaryCard = ({ plan }: { plan: PlanSummaryData }) => {
         {!hasPricing && !hasUsage && !hasEntitlements && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <CircleDollarSign className="h-4 w-4 shrink-0" />
-            Nothing configured yet — this plan grants nothing and charges nothing.
+            {t("PLAN_SUMMARY_CARD.NOTHING_CONFIGURED")}
           </div>
         )}
       </CardContent>

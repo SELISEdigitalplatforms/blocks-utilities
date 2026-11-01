@@ -1,6 +1,7 @@
 import type { FieldErrors, FieldPath } from "react-hook-form";
 
 import type { CreateSubscriptionPlanFormValues } from "../schemas/subscription-plan.schema";
+import { tSubscription } from "./subscription-i18n";
 
 /**
  * Which step of the plan builder owns each field, so a failed save can send the author to the
@@ -56,12 +57,24 @@ export type PlanBuilderFieldPath = FieldPath<CreateSubscriptionPlanFormValues>;
 
 /** The step titles, so a message can name where the author is being sent. */
 export const PLAN_BUILDER_STEP_TITLES: Record<number, string> = {
-  1: "Identity",
-  2: "Pricing model",
-  3: "What the plan grants",
-  4: "Credits",
-  5: "Trial",
-  6: "Review",
+  get 1() {
+    return tSubscription("PLAN_BUILDER_STEPS.TITLE_IDENTITY");
+  },
+  get 2() {
+    return tSubscription("PLAN_BUILDER_STEPS.TITLE_PRICING_MODEL");
+  },
+  get 3() {
+    return tSubscription("PLAN_BUILDER_STEPS.TITLE_ENTITLEMENTS");
+  },
+  get 4() {
+    return tSubscription("PLAN_BUILDER_STEPS.TITLE_CREDITS");
+  },
+  get 5() {
+    return tSubscription("PLAN_BUILDER_STEPS.TITLE_TRIAL");
+  },
+  get 6() {
+    return tSubscription("PLAN_BUILDER_STEPS.TITLE_REVIEW");
+  },
 };
 
 /**

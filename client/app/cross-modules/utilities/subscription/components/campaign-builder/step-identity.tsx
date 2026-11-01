@@ -1,42 +1,40 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui-kits/radio-group/radio-group";
 import type { CampaignKind, DiscountScope } from "../../models/subscription-plan.model";
 import type { CampaignDraft } from "./campaign-draft";
 
-const KIND_OPTIONS: { value: CampaignKind; title: string; description: string }[] = [
+type Translate = ReturnType<typeof useT>["t"];
+
+const kindOptions = (t: Translate): { value: CampaignKind; title: string; description: string }[] => [
   {
     value: "Standard",
-    title: "Standard discount",
-    description: "An ordinary percentage or fixed reduction. No date window, no redemption limit.",
+    title: t("STEP_IDENTITY.KIND_STANDARD"),
+    description: t("STEP_IDENTITY.KIND_STANDARD_DESCRIPTION"),
   },
   {
     value: "FreeOpeningCalendarPeriod",
-    title: "Free opening month",
-    description:
-      "100% off a calendar-aligned monthly price's opening period only — signup to the next " +
-      "calendar-month boundary — paired with a temporary entitlement cap. One redemption per " +
-      "organization, and requires a card upfront.",
+    title: t("STEP_IDENTITY.KIND_FREE_OPENING"),
+    description: t("STEP_IDENTITY.KIND_FREE_OPENING_DESCRIPTION"),
   },
   {
     value: "FirstAnnualPeriod",
-    title: "First-year discount",
-    description:
-      "Discounts a calendar-aligned yearly price's first full annual period only. A renewal past " +
-      "that reverts to the price's own rate automatically — no expiry date to manage.",
+    title: t("STEP_IDENTITY.KIND_FIRST_YEAR"),
+    description: t("STEP_IDENTITY.KIND_FIRST_YEAR_DESCRIPTION"),
   },
 ];
 
-const SCOPE_OPTIONS: { value: DiscountScope; title: string; description: string }[] = [
+const scopeOptions = (t: Translate): { value: DiscountScope; title: string; description: string }[] => [
   {
     value: "Subscription",
-    title: "Subscriptions",
-    description: "Redeemed at signup and kept through plan changes.",
+    title: t("STEP_IDENTITY.SCOPE_SUBSCRIPTIONS"),
+    description: t("STEP_IDENTITY.SCOPE_SUBSCRIPTIONS_DESCRIPTION"),
   },
   {
     value: "CreditPurchase",
-    title: "Credit purchases",
-    description: "Redeemed when buying extra meter credits. One purchase, so no duration.",
+    title: t("STEP_IDENTITY.SCOPE_CREDITS"),
+    description: t("STEP_IDENTITY.SCOPE_CREDITS_DESCRIPTION"),
   },
 ];
 
@@ -48,18 +46,21 @@ export const StepIdentity = ({
   draft: CampaignDraft;
   onChange: (next: Partial<CampaignDraft>) => void;
   codeReadOnly?: boolean;
-}) => (
+}) => {
+  const { t } = useT("utilities.subscription.campaign-builder");
+
+  return (
   <div className="space-y-5">
     <div>
-      <h2 className="text-lg font-semibold">Identity</h2>
+      <h2 className="text-lg font-semibold">{t("STEP_IDENTITY.TITLE")}</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        What this discount is called, and what kind of offer it is.
+        {t("STEP_IDENTITY.DESCRIPTION")}
       </p>
     </div>
 
     <div className="grid gap-5 sm:grid-cols-2">
       <div className="space-y-1.5">
-        <Label htmlFor="campaign-code">Code</Label>
+        <Label htmlFor="campaign-code">{t("STEP_IDENTITY.CODE")}</Label>
         <Input
           id="campaign-code"
           value={draft.code}
@@ -70,29 +71,29 @@ export const StepIdentity = ({
           readOnly={codeReadOnly}
         />
         <p className="text-xs text-muted-foreground">
-          Lowercase letters, digits, hyphens and underscores only. Fixed once created.
+          {t("STEP_IDENTITY.CODE_HINT")}
         </p>
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="campaign-name">Display name</Label>
+        <Label htmlFor="campaign-name">{t("STEP_IDENTITY.DISPLAY_NAME")}</Label>
         <Input
           id="campaign-name"
           value={draft.displayName}
           onChange={(event) => onChange({ displayName: event.target.value })}
-          placeholder="Launch offer"
+          placeholder={t("STEP_IDENTITY.DISPLAY_NAME_PLACEHOLDER")}
         />
       </div>
     </div>
 
     <div className="space-y-2">
-      <Label>Applies to</Label>
+      <Label>{t("STEP_IDENTITY.APPLIES_TO")}</Label>
       <RadioGroup
         value={draft.scope}
         onValueChange={(value) => onChange({ scope: value as DiscountScope })}
         className="gap-3 sm:grid-cols-2"
       >
-        {SCOPE_OPTIONS.map((option) => (
+        {scopeOptions(t).map((option) => (
           <label
             key={option.value}
             htmlFor={`campaign-scope-${option.value}`}
@@ -117,13 +118,13 @@ export const StepIdentity = ({
     {/* Every campaign kind prices a subscription period, so a credit code has none to choose. */}
     {draft.scope === "Subscription" && (
     <div className="space-y-2">
-      <Label>Offer type</Label>
+      <Label>{t("STEP_IDENTITY.OFFER_TYPE")}</Label>
       <RadioGroup
         value={draft.campaignKind}
         onValueChange={(value) => onChange({ campaignKind: value as CampaignKind })}
         className="gap-3"
       >
-        {KIND_OPTIONS.map((option) => (
+        {kindOptions(t).map((option) => (
           <label
             key={option.value}
             htmlFor={`campaign-kind-${option.value}`}
@@ -146,4 +147,5 @@ export const StepIdentity = ({
     </div>
     )}
   </div>
-);
+  );
+};

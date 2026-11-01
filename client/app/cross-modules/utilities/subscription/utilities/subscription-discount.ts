@@ -1,4 +1,5 @@
 import { formatMoney, toMinorUnits } from "./subscription-format";
+import { tSubscription } from "./subscription-i18n";
 import { taxBreakdown, toBasisPoints, type TaxMode } from "./subscription-tax";
 
 /** Mirrors the server's `AutomaticDiscountCombination`. Sent as the name, which is what the API accepts. */
@@ -13,13 +14,21 @@ export const AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS: {
 }[] = [
   {
     value: "BestDiscount",
-    label: "Use the better discount",
-    hint: "Whichever saves the customer more. Only one of the two ever applies.",
+    get label() {
+      return tSubscription("SUBSCRIPTION_DISCOUNT.COMBINATION_BEST");
+    },
+    get hint() {
+      return tSubscription("SUBSCRIPTION_DISCOUNT.COMBINATION_BEST_HINT");
+    },
   },
   {
     value: "Additive",
-    label: "Add the percentages",
-    hint: "Both apply — 8% for the cadence plus 5% for the volume is 13% off.",
+    get label() {
+      return tSubscription("SUBSCRIPTION_DISCOUNT.COMBINATION_ADDITIVE");
+    },
+    get hint() {
+      return tSubscription("SUBSCRIPTION_DISCOUNT.COMBINATION_ADDITIVE_HINT");
+    },
   },
 ];
 
@@ -126,17 +135,30 @@ export const describeAutomaticDiscount = ({
     mode: taxMode,
   });
 
-  const off = `${formatMoney(grossMinor, currencyCode)} − ${formatMoney(discountMinor, currencyCode)} (${
-    effectiveBasisPoints / 100
-  }%)`;
+  const off = tSubscription("SUBSCRIPTION_DISCOUNT.OFF", {
+    gross: formatMoney(grossMinor, currencyCode),
+    discount: formatMoney(discountMinor, currencyCode),
+    percent: effectiveBasisPoints / 100,
+  });
 
   // The tax clause is only added when there is tax, and it describes the mode rather than restating
   // it: an inclusive total already contains its tax, so "+ tax" there would be wrong by the tax.
   if (taxMinor <= 0) {
-    return `${off} = ${formatMoney(subtotalMinor, currencyCode)}`;
+    return tSubscription("SUBSCRIPTION_DISCOUNT.BREAKDOWN_NO_TAX", {
+      off,
+      subtotal: formatMoney(subtotalMinor, currencyCode),
+    });
   }
 
   return taxMode === "Inclusive"
-    ? `${off} = ${formatMoney(totalMinor, currencyCode)} including ${formatMoney(taxMinor, currencyCode)} tax`
-    : `${off} + ${formatMoney(taxMinor, currencyCode)} tax = ${formatMoney(totalMinor, currencyCode)}`;
+    ? tSubscription("SUBSCRIPTION_DISCOUNT.BREAKDOWN_INCLUSIVE", {
+        off,
+        total: formatMoney(totalMinor, currencyCode),
+        tax: formatMoney(taxMinor, currencyCode),
+      })
+    : tSubscription("SUBSCRIPTION_DISCOUNT.BREAKDOWN_EXCLUSIVE", {
+        off,
+        tax: formatMoney(taxMinor, currencyCode),
+        total: formatMoney(totalMinor, currencyCode),
+      });
 };

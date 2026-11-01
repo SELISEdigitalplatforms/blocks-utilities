@@ -7,7 +7,7 @@ import {
 
 describe("createSubscriptionPriceSchema", () => {
   it("accepts the default flat-fee price", () => {
-    const result = createSubscriptionPriceSchema.safeParse(
+    const result = createSubscriptionPriceSchema().safeParse(
       defaultSubscriptionPriceFormValues,
     );
 
@@ -18,7 +18,7 @@ describe("createSubscriptionPriceSchema", () => {
   });
 
   it("rejects a negative amount", () => {
-    const result = createSubscriptionPriceSchema.safeParse({
+    const result = createSubscriptionPriceSchema().safeParse({
       ...defaultSubscriptionPriceFormValues,
       amount: -1,
     });
@@ -27,7 +27,7 @@ describe("createSubscriptionPriceSchema", () => {
   });
 
   it("rejects an interval outside the server's known values", () => {
-    const result = createSubscriptionPriceSchema.safeParse({
+    const result = createSubscriptionPriceSchema().safeParse({
       ...defaultSubscriptionPriceFormValues,
       interval: 4,
     });
@@ -36,7 +36,7 @@ describe("createSubscriptionPriceSchema", () => {
   });
 
   it("rejects an interval count outside 1..36", () => {
-    const result = createSubscriptionPriceSchema.safeParse({
+    const result = createSubscriptionPriceSchema().safeParse({
       ...defaultSubscriptionPriceFormValues,
       intervalCount: 37,
     });
@@ -47,7 +47,7 @@ describe("createSubscriptionPriceSchema", () => {
   it("defaults the discount combination so an unstated one still means something", () => {
     // A caller that has never heard of the field — an older client, a script, a fixture — has to keep
     // describing the price it meant. BestDiscount is the reading that gives away less.
-    const result = createSubscriptionPriceSchema.safeParse({
+    const result = createSubscriptionPriceSchema().safeParse({
       ...defaultSubscriptionPriceFormValues,
       quantityDiscountCombination: undefined,
     });
@@ -62,7 +62,7 @@ describe("createSubscriptionPriceSchema", () => {
   it("reads a cleared discount input as no discount rather than as zero percent", () => {
     // A number input that has been emptied holds "", and coercing that gives 0 — which would author
     // a discount of nothing instead of no discount at all.
-    const result = createSubscriptionPriceSchema.safeParse({
+    const result = createSubscriptionPriceSchema().safeParse({
       ...defaultSubscriptionPriceFormValues,
       automaticDiscountPercent: "",
     });
@@ -74,7 +74,7 @@ describe("createSubscriptionPriceSchema", () => {
   });
 
   it("rejects a discount above a hundred percent", () => {
-    const result = createSubscriptionPriceSchema.safeParse({
+    const result = createSubscriptionPriceSchema().safeParse({
       ...defaultSubscriptionPriceFormValues,
       automaticDiscountPercent: 101,
     });
@@ -83,7 +83,7 @@ describe("createSubscriptionPriceSchema", () => {
   });
 
   it("coerces a numeric string amount, matching a text input's value type", () => {
-    const result = createSubscriptionPriceSchema.safeParse({
+    const result = createSubscriptionPriceSchema().safeParse({
       ...defaultSubscriptionPriceFormValues,
       amount: "89.00",
     });

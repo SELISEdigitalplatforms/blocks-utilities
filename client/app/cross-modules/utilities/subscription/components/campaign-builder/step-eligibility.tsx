@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
@@ -18,6 +19,7 @@ export const StepEligibility = ({
   plans: SubscriptionPlan[];
   onChange: (next: Partial<CampaignDraft>) => void;
 }) => {
+  const { t } = useT("utilities.subscription.campaign-builder");
   const isCampaign = draft.campaignKind !== "Standard";
   const isFreeMonth = draft.campaignKind === "FreeOpeningCalendarPeriod";
 
@@ -41,27 +43,27 @@ export const StepEligibility = ({
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-semibold">Eligibility</h2>
+        <h2 className="text-lg font-semibold">{t("STEP_ELIGIBILITY.TITLE")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          What this discount applies to, and the window it can be redeemed in.
+          {t("STEP_ELIGIBILITY.DESCRIPTION")}
         </p>
       </div>
 
       <fieldset className="space-y-1">
         <legend className="text-sm font-medium">
-          Plans {isCampaign ? "" : "(optional)"}
+          {isCampaign ? t("STEP_ELIGIBILITY.PLANS") : t("STEP_ELIGIBILITY.PLANS_OPTIONAL")}
         </legend>
         <p className="text-xs text-muted-foreground">
           {isCampaign
-            ? "Only plans with a price this offer can actually price are listed."
-            : "Leave every box clear to allow any plan."}
+            ? t("STEP_ELIGIBILITY.PLANS_CAMPAIGN_HINT")
+            : t("STEP_ELIGIBILITY.PLANS_HINT")}
         </p>
         <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
           {selectablePlans.length === 0 && (
             <p className="text-xs text-muted-foreground">
               {isCampaign
-                ? "No plan has a price this offer type can be redeemed against yet."
-                : "No plans authored yet."}
+                ? t("STEP_ELIGIBILITY.PLANS_NONE_CAMPAIGN")
+                : t("STEP_ELIGIBILITY.PLANS_NONE")}
             </p>
           )}
           {selectablePlans.map((plan) => (
@@ -78,7 +80,7 @@ export const StepEligibility = ({
                         .some(({ price }) => price.priceId === priceId)),
                   });
                 }}
-                aria-label={`Restrict to ${plan.displayName}`}
+                aria-label={t("STEP_ELIGIBILITY.RESTRICT_TO_PLAN", { name: plan.displayName })}
               />
               <span>
                 {plan.displayName} <code className="text-xs">{plan.code}</code>
@@ -95,23 +97,26 @@ export const StepEligibility = ({
       {draft.scope === "Subscription" && (
       <fieldset className="space-y-1">
         <legend className="text-sm font-medium">
-          Prices {isCampaign ? "" : "(optional)"}
+          {isCampaign ? t("STEP_ELIGIBILITY.PRICES") : t("STEP_ELIGIBILITY.PRICES_OPTIONAL")}
         </legend>
         <p className="text-xs text-muted-foreground">
           {isCampaign
-            ? "This offer prices a specific price's opening period, not a plan in general — name at least one."
-            : "Narrows to one cadence or currency — a yearly-only offer, for instance."}
+            ? t("STEP_ELIGIBILITY.PRICES_CAMPAIGN_HINT")
+            : t("STEP_ELIGIBILITY.PRICES_HINT")}
         </p>
         <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
           {selectablePrices.length === 0 && (
-            <p className="text-xs text-muted-foreground">No prices to choose from.</p>
+            <p className="text-xs text-muted-foreground">{t("STEP_ELIGIBILITY.PRICES_NONE")}</p>
           )}
           {selectablePrices.map(({ plan, price }) => (
             <label key={price.priceId} className="flex items-center gap-2 text-sm">
               <Checkbox
                 checked={draft.priceIds.includes(price.priceId)}
                 onCheckedChange={() => onChange({ priceIds: toggle(draft.priceIds, price.priceId) })}
-                aria-label={`Restrict to ${plan.code} ${formatPrice(price)}`}
+                aria-label={t("STEP_ELIGIBILITY.RESTRICT_TO_PRICE", {
+                  plan: plan.code,
+                  price: formatPrice(price),
+                })}
               />
               <span>
                 {plan.code} · {formatPrice(price)}
@@ -126,7 +131,7 @@ export const StepEligibility = ({
         <>
           <div className="grid gap-5 sm:grid-cols-3">
             <div className="space-y-1.5">
-              <Label htmlFor="campaign-from">Starts</Label>
+              <Label htmlFor="campaign-from">{t("STEP_ELIGIBILITY.STARTS")}</Label>
               <Input
                 id="campaign-from"
                 type="date"
@@ -136,7 +141,7 @@ export const StepEligibility = ({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="campaign-through">
-                Ends (inclusive){isFreeMonth ? " — optional" : ""}
+                {isFreeMonth ? t("STEP_ELIGIBILITY.ENDS_OPTIONAL") : t("STEP_ELIGIBILITY.ENDS")}
               </Label>
               <Input
                 id="campaign-through"
@@ -146,12 +151,12 @@ export const StepEligibility = ({
               />
               {isFreeMonth && (
                 <p className="text-xs text-muted-foreground">
-                  Leave empty to keep the offer available until an administrator archives it.
+                  {t("STEP_ELIGIBILITY.ENDS_HINT")}
                 </p>
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="campaign-timezone">Time zone</Label>
+              <Label htmlFor="campaign-timezone">{t("STEP_ELIGIBILITY.TIME_ZONE")}</Label>
               <Input
                 id="campaign-timezone"
                 value={draft.timeZoneId}
@@ -164,30 +169,30 @@ export const StepEligibility = ({
           <div className="space-y-3 rounded-md border p-3">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-sm font-medium">One redemption per organization</p>
+                <p className="text-sm font-medium">{t("STEP_ELIGIBILITY.ONE_REDEMPTION")}</p>
                 {isFreeMonth && (
-                  <p className="text-xs text-muted-foreground">Required for a free-opening-period campaign.</p>
+                  <p className="text-xs text-muted-foreground">{t("STEP_ELIGIBILITY.REQUIRED_FOR_FREE")}</p>
                 )}
               </div>
               <Switch
                 checked={draft.oneUsePerOrganization}
                 onCheckedChange={(checked) => onChange({ oneUsePerOrganization: checked === true })}
                 disabled={isFreeMonth}
-                aria-label="One redemption per organization"
+                aria-label={t("STEP_ELIGIBILITY.ONE_REDEMPTION")}
               />
             </div>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-sm font-medium">Requires a payment method before activation</p>
+                <p className="text-sm font-medium">{t("STEP_ELIGIBILITY.REQUIRES_PAYMENT_METHOD")}</p>
                 {isFreeMonth && (
-                  <p className="text-xs text-muted-foreground">Required for a free-opening-period campaign.</p>
+                  <p className="text-xs text-muted-foreground">{t("STEP_ELIGIBILITY.REQUIRED_FOR_FREE")}</p>
                 )}
               </div>
               <Switch
                 checked={draft.requiresPaymentMethodUpfront}
                 onCheckedChange={(checked) => onChange({ requiresPaymentMethodUpfront: checked === true })}
                 disabled={isFreeMonth}
-                aria-label="Requires a payment method before activation"
+                aria-label={t("STEP_ELIGIBILITY.REQUIRES_PAYMENT_METHOD")}
               />
             </div>
           </div>
@@ -197,7 +202,7 @@ export const StepEligibility = ({
       {isFreeMonth && (
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="campaign-entitlement-key">Temporary entitlement</Label>
+            <Label htmlFor="campaign-entitlement-key">{t("STEP_ELIGIBILITY.TEMP_ENTITLEMENT")}</Label>
             <Input
               id="campaign-entitlement-key"
               list="campaign-entitlement-options"
@@ -215,11 +220,11 @@ export const StepEligibility = ({
               </datalist>
             )}
             <p className="text-xs text-muted-foreground">
-              The count entitlement this offer temporarily caps while the free month runs.
+              {t("STEP_ELIGIBILITY.TEMP_ENTITLEMENT_HINT")}
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="campaign-entitlement-limit">Temporary limit</Label>
+            <Label htmlFor="campaign-entitlement-limit">{t("STEP_ELIGIBILITY.TEMP_LIMIT")}</Label>
             <Input
               id="campaign-entitlement-limit"
               type="number"
@@ -229,7 +234,7 @@ export const StepEligibility = ({
               placeholder="1"
             />
             <p className="text-xs text-muted-foreground">
-              Cannot exceed the plan's own limit for this entitlement.
+              {t("STEP_ELIGIBILITY.TEMP_LIMIT_HINT")}
             </p>
           </div>
         </div>
@@ -252,20 +257,20 @@ const CreditEligibility = ({
   plans: SubscriptionPlan[];
   onChange: (next: Partial<CampaignDraft>) => void;
 }) => {
+  const { t } = useT("utilities.subscription.campaign-builder");
   const meters = purchasableMeters(draft, plans);
 
   return (
     <>
       <fieldset className="space-y-1">
-        <legend className="text-sm font-medium">Meters (optional)</legend>
+        <legend className="text-sm font-medium">{t("STEP_ELIGIBILITY.METERS_OPTIONAL")}</legend>
         <p className="text-xs text-muted-foreground">
-          Limit the code to credits for these meters. Leave all unticked for any meter whose credits
-          are on sale.
+          {t("STEP_ELIGIBILITY.METERS_HINT")}
         </p>
         <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
           {meters.length === 0 && (
             <p className="text-xs text-muted-foreground">
-              No plan this code applies to sells credits yet.
+              {t("STEP_ELIGIBILITY.METERS_NONE")}
             </p>
           )}
           {meters.map((meter) => (
@@ -273,7 +278,7 @@ const CreditEligibility = ({
               <Checkbox
                 checked={draft.meterKeys.includes(meter.meterKey)}
                 onCheckedChange={() => onChange({ meterKeys: toggle(draft.meterKeys, meter.meterKey) })}
-                aria-label={`Restrict to ${meter.label} credits`}
+                aria-label={t("STEP_ELIGIBILITY.RESTRICT_TO_METER", { meter: meter.label })}
               />
               <span>{meter.label}</span>
             </label>
@@ -283,15 +288,15 @@ const CreditEligibility = ({
 
       <div className="flex items-center justify-between gap-4 rounded-md border p-3">
         <div>
-          <p className="text-sm font-medium">One redemption per organization</p>
+          <p className="text-sm font-medium">{t("STEP_ELIGIBILITY.ONE_REDEMPTION")}</p>
           <p className="text-xs text-muted-foreground">
-            Each organization can use this code on one credit purchase.
+            {t("STEP_ELIGIBILITY.ONE_REDEMPTION_CREDIT_HINT")}
           </p>
         </div>
         <Switch
           checked={draft.oneUsePerOrganization}
           onCheckedChange={(checked) => onChange({ oneUsePerOrganization: checked === true })}
-          aria-label="One redemption per organization"
+          aria-label={t("STEP_ELIGIBILITY.ONE_REDEMPTION")}
         />
       </div>
     </>

@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { ChevronDown } from "lucide-react";
 import {
@@ -30,6 +31,7 @@ import {
 import type { PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { METER_QUANTITY_MAX_SCALE, stepFor } from "../../utilities/meter-quantity";
+import { RichText } from "../rich-text";
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { StepHeading } from "./step-heading";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
@@ -53,6 +55,7 @@ export const StepPricingModel = ({
   onUpdatePriceDiscount?: (priceId: string, discountPercent?: number, combination?: "BestDiscount" | "Additive") => Promise<void>;
   retiringPriceId?: string | null;
 }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
 
   const requirePaymentMethodUpfront = useWatch({
@@ -77,18 +80,18 @@ export const StepPricingModel = ({
   return (
     <div className="space-y-6">
       <StepHeading
-        eyebrow="Pricing model"
-        title="Pricing model"
-        description="Add any quantity and usage dimensions this plan needs. A flat-fee plan needs neither."
+        eyebrow={t("STEP_PRICING_MODEL.TITLE")}
+        title={t("STEP_PRICING_MODEL.TITLE")}
+        description={t("STEP_PRICING_MODEL.DESCRIPTION")}
       />
 
       <OptionalSection
-        title="Quantity items"
-        description="Use these when price scales with seats, users, or another selected quantity."
+        title={t("STEP_PRICING_MODEL.QUANTITY_ITEMS")}
+        description={t("STEP_PRICING_MODEL.QUANTITY_ITEMS_HINT")}
         defaultOpen={quantityItems.fields.length > 0}
       >
         <CardListShell
-          addLabel="Add quantity item"
+          addLabel={t("STEP_PRICING_MODEL.ADD_QUANTITY_ITEM")}
           onAdd={() =>
             quantityItems.append({
               itemKey: "",
@@ -110,7 +113,7 @@ export const StepPricingModel = ({
                 name={`quantityItems.${index}.itemKey`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Item key</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.ITEM_KEY")}</FormLabel>
                     <FormControl>
                       <Input {...inputField} placeholder="seat" />
                     </FormControl>
@@ -123,7 +126,7 @@ export const StepPricingModel = ({
                 name={`quantityItems.${index}.unitLabel`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Unit label</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.UNIT_LABEL")}</FormLabel>
                     <FormControl>
                       <Input {...inputField} placeholder="seat" />
                     </FormControl>
@@ -137,7 +140,7 @@ export const StepPricingModel = ({
                   name={`quantityItems.${index}.defaultQuantity`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Default qty</FormLabel>
+                      <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.DEFAULT_QTY")}</FormLabel>
                       <FormControl>
                         <Input {...inputField} type="number" min={0} />
                       </FormControl>
@@ -150,7 +153,7 @@ export const StepPricingModel = ({
                   name={`quantityItems.${index}.maxQuantity`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Max (optional)</FormLabel>
+                      <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.MAX_OPTIONAL")}</FormLabel>
                       <FormControl>
                         <Input {...inputField} type="number" min={0} />
                       </FormControl>
@@ -164,13 +167,12 @@ export const StepPricingModel = ({
                 name={`quantityItems.${index}.trialMaxQuantity`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Trial max (optional)</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.TRIAL_MAX_OPTIONAL")}</FormLabel>
                     <FormControl>
                       <Input {...inputField} value={inputField.value ?? ""} type="number" min={1} />
                     </FormControl>
                     <FormDescription className="text-xs">
-                      Most a trialing subscriber may hold. Units added during the trial up to this
-                      are free. Blank: the trial covers only what was bought at signup.
+                      {t("STEP_PRICING_MODEL.TRIAL_MAX_HINT")}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -190,7 +192,7 @@ export const StepPricingModel = ({
                             onCheckedChange={(checked) => inputField.onChange(checked === true)}
                           />
                         </FormControl>
-                        <FormLabel className="!m-0 text-xs">This quantity counts people</FormLabel>
+                        <FormLabel className="!m-0 text-xs">{t("STEP_PRICING_MODEL.COUNTS_PEOPLE")}</FormLabel>
                       </div>
                     </FormItem>
                   )}
@@ -214,7 +216,7 @@ export const StepPricingModel = ({
             render={({ field }) => (
               <FormItem className="mt-4">
                 <FormLabel className="text-xs">
-                  When a subscriber also has a discount code
+                  {t("STEP_PRICING_MODEL.DISCOUNT_CODE_POLICY")}
                 </FormLabel>
                 <Select
                   value={String(field.value ?? 0)}
@@ -226,14 +228,13 @@ export const StepPricingModel = ({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="0">Apply whichever is larger</SelectItem>
-                    <SelectItem value="1">Ignore the code, band only</SelectItem>
-                    <SelectItem value="2">Apply both, compounding</SelectItem>
+                    <SelectItem value="0">{t("STEP_PRICING_MODEL.POLICY_LARGER")}</SelectItem>
+                    <SelectItem value="1">{t("STEP_PRICING_MODEL.POLICY_BAND_ONLY")}</SelectItem>
+                    <SelectItem value="2">{t("STEP_PRICING_MODEL.POLICY_COMPOUND")}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Compounding gives away more than either discount alone, so choose it
-                  deliberately. A code that loses to a band is not spent.
+                  {t("STEP_PRICING_MODEL.POLICY_HINT")}
                 </p>
                 <FormMessage />
               </FormItem>
@@ -243,13 +244,13 @@ export const StepPricingModel = ({
       </OptionalSection>
 
       <OptionalSection
-        title="Meters"
-        description="Use meters to track an allowance and optionally bill usage beyond it."
+        title={t("STEP_PRICING_MODEL.METERS")}
+        description={t("STEP_PRICING_MODEL.METERS_HINT")}
         defaultOpen={meters.fields.length > 0}
       >
         <CardListShell
           columns={1}
-          addLabel="Add meter"
+          addLabel={t("STEP_PRICING_MODEL.ADD_METER")}
           onAdd={() =>
             meters.append({
               meterKey: "",
@@ -273,9 +274,9 @@ export const StepPricingModel = ({
                 name={`meters.${index}.displayName`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Display name</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.DISPLAY_NAME")}</FormLabel>
                     <FormControl>
-                      <Input {...inputField} placeholder="API calls" />
+                      <Input {...inputField} placeholder={t("STEP_PRICING_MODEL.DISPLAY_NAME_PLACEHOLDER")} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -287,7 +288,7 @@ export const StepPricingModel = ({
                   name={`meters.${index}.meterKey`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Meter key</FormLabel>
+                      <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.METER_KEY")}</FormLabel>
                       <FormControl>
                         <Input {...inputField} placeholder="api-calls" />
                       </FormControl>
@@ -300,7 +301,7 @@ export const StepPricingModel = ({
                   name={`meters.${index}.unitLabel`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Unit label</FormLabel>
+                      <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.UNIT_LABEL")}</FormLabel>
                       <FormControl>
                         <Input {...inputField} placeholder="call" />
                       </FormControl>
@@ -314,14 +315,12 @@ export const StepPricingModel = ({
                 name={`meters.${index}.quantityScale`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Decimal places</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.DECIMAL_PLACES")}</FormLabel>
                     <FormControl>
                       <Input {...inputField} type="number" min={0} max={METER_QUANTITY_MAX_SCALE} />
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
-                      Leave at 0 for whole numbers only. Raise it when the unit is measured rather
-                      than counted — gigabytes, hours. Set 1 to allow 512.5, or 3 to allow
-                      512.505; more decimals than this are rejected.
+                      {t("STEP_PRICING_MODEL.DECIMAL_PLACES_HINT")}
                     </p>
                     <FormMessage />
                   </FormItem>
@@ -334,12 +333,12 @@ export const StepPricingModel = ({
                   <FormItem>
                     <FormLabel className="text-xs">
                       {meterValues?.[index]?.resetPolicy === 1
-                        ? "Included for subscription lifetime"
-                        : `Included per period${
-                            meterValues?.[index]?.unitLabel
-                              ? ` (${meterValues[index].unitLabel})`
-                              : ""
-                          }`}
+                        ? t("STEP_PRICING_MODEL.INCLUDED_LIFETIME")
+                        : meterValues?.[index]?.unitLabel
+                          ? t("STEP_PRICING_MODEL.INCLUDED_PER_PERIOD_UNIT", {
+                              unit: meterValues[index].unitLabel,
+                            })
+                          : t("STEP_PRICING_MODEL.INCLUDED_PER_PERIOD")}
                     </FormLabel>
                     <FormControl>
                       {/* Stepped to the meter's own granularity. Without it the browser's own
@@ -360,7 +359,7 @@ export const StepPricingModel = ({
                 name={`meters.${index}.resetPolicy`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Unused allowance</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.UNUSED_ALLOWANCE")}</FormLabel>
                     <Select
                       value={String(inputField.value)}
                       onValueChange={(value) => {
@@ -391,8 +390,7 @@ export const StepPricingModel = ({
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Choose &ldquo;Does not apply&rdquo; for capacity that must remain consumed
-                      after renewal, or let it roll into the next period instead.
+                      {t("STEP_PRICING_MODEL.UNUSED_HINT")}
                     </p>
                     <FormMessage />
                   </FormItem>
@@ -405,7 +403,7 @@ export const StepPricingModel = ({
                   render={({ field: inputField }) => (
                     <FormItem>
                       <FormLabel className="text-xs">
-                        Most {meterValues?.[index]?.unitLabel || "units"} one period may carry in
+                        {t("STEP_PRICING_MODEL.CARRY_CAP", { unit: meterValues?.[index]?.unitLabel || t("STEP_PRICING_MODEL.UNITS_FALLBACK") })}
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -417,10 +415,7 @@ export const StepPricingModel = ({
                         />
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
-                        Caps what rolls in, not the total — the included amount is always
-                        available on top. Required, because without a ceiling a dormant
-                        subscription banks allowance indefinitely. The most a subscriber can ever
-                        hold in one period is the included amount plus this cap.
+                        {t("STEP_PRICING_MODEL.CARRY_CAP_HINT")}
                       </p>
                       <FormMessage />
                     </FormItem>
@@ -432,7 +427,7 @@ export const StepPricingModel = ({
                 name={`meters.${index}.aggregation`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">How recordings are combined</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.AGGREGATION")}</FormLabel>
                     <Select
                       value={String(inputField.value)}
                       onValueChange={(value) => inputField.onChange(Number(value))}
@@ -468,7 +463,7 @@ export const StepPricingModel = ({
                           />
                         </FormControl>
                         <FormLabel className="!m-0 text-xs">
-                          Allow going over the included amount (billed as overage)
+                          {t("STEP_PRICING_MODEL.ALLOW_OVERAGE")}
                         </FormLabel>
                       </div>
                     </FormItem>
@@ -476,8 +471,7 @@ export const StepPricingModel = ({
                 />
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Lifetime capacity stops at its included amount and is not billed as monthly
-                  overage.
+                  {t("STEP_PRICING_MODEL.LIFETIME_NO_OVERAGE")}
                 </p>
               )}
               <FormField
@@ -485,7 +479,7 @@ export const StepPricingModel = ({
                 name={`meters.${index}.thresholdPercents`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Notify at</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.NOTIFY_AT")}</FormLabel>
                     <ThresholdChipInput value={inputField.value} onChange={inputField.onChange} />
                   </FormItem>
                 )}
@@ -495,10 +489,10 @@ export const StepPricingModel = ({
                     billable units, so there is nothing to price. */}
               {meterValues?.[index]?.overageAllowed ? (
                 <FormItem>
-                  <FormLabel className="text-xs">Overage pricing</FormLabel>
+                  <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.OVERAGE_PRICING")}</FormLabel>
                   {meterValues[index]?.rateTables?.length ? null : (
                     <p className="text-xs text-muted-foreground">
-                      No price set, so usage past the allowance is billed nothing.
+                      {t("STEP_PRICING_MODEL.NO_OVERAGE_PRICE")}
                     </p>
                   )}
                   <MeterRateTableFields meterIndex={index} />
@@ -519,7 +513,7 @@ export const StepPricingModel = ({
               name="usageInterval"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">Allowance period</FormLabel>
+                  <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.ALLOWANCE_PERIOD")}</FormLabel>
                   <Select
                     value={String(field.value)}
                     onValueChange={(value) => field.onChange(Number(value))}
@@ -538,8 +532,7 @@ export const StepPricingModel = ({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    How long one allowance lasts. Independent of how often you bill — a yearly
-                    price can still grant a monthly allowance, and usually should.
+                    {t("STEP_PRICING_MODEL.ALLOWANCE_PERIOD_HINT")}
                   </p>
                   <FormMessage />
                 </FormItem>
@@ -550,7 +543,7 @@ export const StepPricingModel = ({
               name="usageIntervalCount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">How many</FormLabel>
+                  <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.HOW_MANY")}</FormLabel>
                   <FormControl>
                     <Input {...field} type="number" min={1} max={100} />
                   </FormControl>
@@ -579,7 +572,7 @@ export const StepPricingModel = ({
         card question, since a card requirement at signup is a billing decision, not a trial one.
       */}
       <div className="space-y-3 rounded-md border p-4">
-        <h3 className="text-sm font-semibold">Payment method</h3>
+        <h3 className="text-sm font-semibold">{t("STEP_PRICING_MODEL.PAYMENT_METHOD")}</h3>
         <FormField
           control={control}
           name="requirePaymentMethodUpfront"
@@ -590,13 +583,13 @@ export const StepPricingModel = ({
                   <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                 </FormControl>
                 <FormLabel className="!m-0">
-                  Require a payment method before activation, even when nothing is due today
+                  {t("STEP_PRICING_MODEL.REQUIRE_PAYMENT_METHOD")}
                 </FormLabel>
               </div>
               <p className="text-xs text-muted-foreground">
                 {requirePaymentMethodUpfront
-                  ? "The subscriber is sent to a card form that charges nothing. Nothing is granted until the card is stored, so the next period has something to bill."
-                  : "A plan that costs nothing today starts straight away. Nothing has a card on file until the first charge, which is a problem only if there will be a later one."}
+                  ? t("STEP_PRICING_MODEL.PAYMENT_METHOD_HINT_ON")
+                  : t("STEP_PRICING_MODEL.PAYMENT_METHOD_HINT_OFF")}
               </p>
             </FormItem>
           )}
@@ -615,26 +608,27 @@ export const StepPricingModel = ({
  * it is not one — the price they have already chosen decides it, and the other half is noise they
  * have to work out is irrelevant before they can act on the half that is not.
  */
-const PlacesExplanation = ({ mode }: { mode: PlacesMode }) => (
-  <div className="space-y-2 rounded-md bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
-    <p>This plan is for each person, so one of these quantities has to say how many people.</p>
+const PlacesExplanation = ({ mode }: { mode: PlacesMode }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
 
-    {mode !== "flat" ? (
-      <p>
-        <strong>Priced per unit</strong> — the quantity bought is the answer. Five bought, five
-        people. A maximum is optional.
-      </p>
-    ) : null}
+  return (
+    <div className="space-y-2 rounded-md bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
+      <p>{t("STEP_PRICING_MODEL.PLACES_INTRO")}</p>
 
-    {mode !== "perPlace" ? (
-      <p>
-        <strong>Priced flat</strong> — everybody pays the same, so the quantity says nothing about
-        how many people there are. <strong>Max</strong> is the only number that can, and without one
-        nobody can be given a place at all.
-      </p>
-    ) : null}
-  </div>
-);
+      {mode !== "flat" ? (
+        <p>
+          <RichText text={t("STEP_PRICING_MODEL.PLACES_PER_UNIT")} />
+        </p>
+      ) : null}
+
+      {mode !== "perPlace" ? (
+        <p>
+          <RichText text={t("STEP_PRICING_MODEL.PLACES_FLAT")} />
+        </p>
+      ) : null}
+    </div>
+  );
+};
 
 type PlacesMode = "unknown" | "perPlace" | "flat";
 

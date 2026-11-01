@@ -27,7 +27,7 @@ const Harness = ({
   priceQuantityItemKey?: string;
 }) => {
   const form = useForm<CreateSubscriptionPlanFormValues>({
-    resolver: zodResolver(createSubscriptionPlanSchema),
+    resolver: zodResolver(createSubscriptionPlanSchema()),
     // The mode the real builder uses, so a message this test expects on blur is a message an
     // author actually sees on blur.
     mode: "onBlur",

@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { Button } from "@/components/ui-kits/button/button";
@@ -34,31 +35,62 @@ import { MAX_PACE_LIMITS, paceWarnings } from "../../utilities/pace-limits";
  * whenever the subscriber signed up. It does not, deliberately — a pace measured from each
  * subscriber's own instant cannot be reasoned about by anybody comparing two of them.
  */
-const PACE_WINDOW_BOUNDARIES = [
-  "Each hour runs on the clock, 09:00 to 10:00 and so on — not from when the subscriber signed up.",
-  "Each day runs midnight to midnight, UTC — not from when the subscriber signed up.",
-  "Each week runs Monday to Monday — not from when the subscriber signed up.",
-] as const;
+type Translate = ReturnType<typeof useT>["t"];
 
-const ROLLING_EXPLANATION =
-  "A rolling window ends now and looks back — spend right up to the cap, wait, and the oldest " +
-  "use ages out and makes room again.";
+const paceWindowBoundary = (t: Translate, window: number): string => {
+  switch (window) {
+    case 1:
+      return t("METER_PACE_FIELDS.BOUNDARY_DAY");
+    case 2:
+      return t("METER_PACE_FIELDS.BOUNDARY_WEEK");
+    default:
+      return t("METER_PACE_FIELDS.BOUNDARY_HOUR");
+  }
+};
 
-/** Reads as a ceiling, which is always of more than one. "token" alone reads as a typo. */
-const pluralUnits = (unitLabel?: string) => {
-  const label = unitLabel?.trim() || "units";
+const pluralUnits = (t: Translate, unitLabel?: string) => {
+  const label = unitLabel?.trim() || t("METER_PACE_FIELDS.UNITS_FALLBACK");
 
   return label.endsWith("s") ? label : `${label}s`;
 };
 
-const spanLabel = (window: number, count: number) =>
-  `${count === 1 ? "" : `${count} `}${USAGE_WINDOW_NAMES[window]?.toLowerCase() ?? "window"}${count === 1 ? "" : "s"}`;
+const spanLabel = (t: Translate, window: number, count: number) => {
+  const values = { count };
 
-/**
- * Caps on how fast the allowance is spent, on top of the period's own amount — as many as three,
- * each counted on its own and each refusing or reporting on its own. Collapsed unless the meter
- * already has one, so every meter that never opted in looks exactly as it did.
- */
+  switch (window) {
+    case 1:
+      return t("METER_PACE_FIELDS.SPAN_DAY", values);
+    case 2:
+      return t("METER_PACE_FIELDS.SPAN_WEEK", values);
+    case 0:
+      return t("METER_PACE_FIELDS.SPAN_HOUR", values);
+    default:
+      return t("METER_PACE_FIELDS.SPAN_WINDOW", values);
+  }
+};
+
+const windowName = (t: Translate, window: number): string => {
+  switch (window) {
+    case 1:
+      return t("METER_PACE_FIELDS.WINDOW_DAY");
+    case 2:
+      return t("METER_PACE_FIELDS.WINDOW_WEEK");
+    default:
+      return t("METER_PACE_FIELDS.WINDOW_HOUR");
+  }
+};
+
+const howManyWindows = (t: Translate, window: number): string => {
+  switch (window) {
+    case 1:
+      return t("METER_PACE_FIELDS.HOW_MANY_DAYS");
+    case 2:
+      return t("METER_PACE_FIELDS.HOW_MANY_WEEKS");
+    default:
+      return t("METER_PACE_FIELDS.HOW_MANY_HOURS");
+  }
+};
+
 export const MeterPaceFields = ({
   meterIndex,
   unitLabel,
@@ -68,6 +100,7 @@ export const MeterPaceFields = ({
   unitLabel?: string;
   quantityScale: number;
 }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const { control, getFieldState, trigger, formState } =
     useFormContext<CreateSubscriptionPlanFormValues>();
   const limits = useFieldArray({ control, name: `meters.${meterIndex}.subLimits` });
@@ -110,27 +143,32 @@ export const MeterPaceFields = ({
     values.length === 0
       ? ""
       : ` — ${values
-          .map((limit) => `${limit?.rolling ? "any " : "per "}${spanLabel(limit?.window ?? 0, limit?.count ?? 1)}`)
+          .map((limit) => {
+            const span = spanLabel(t, limit?.window ?? 0, limit?.count ?? 1);
+
+            return limit?.rolling
+              ? t("METER_PACE_FIELDS.SUMMARY_ANY", { span })
+              : t("METER_PACE_FIELDS.SUMMARY_PER", { span });
+          })
           .join(", ")}`;
 
   return (
     <Collapsible defaultOpen={limits.fields.length > 0}>
       <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
         <ChevronDown className="h-3.5 w-3.5" />
-        Pace limits (optional){summary}
+        {t("METER_PACE_FIELDS.TRIGGER")}
+        {summary}
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-3 pt-2">
         <p className="text-xs text-muted-foreground">
-          Caps how fast the allowance is spent, not how much of it. An allowance with nothing
-          shorter than the billing period can be spent in an afternoon. A use has to fit every
-          limit here as well as the included amount.
+          {t("METER_PACE_FIELDS.INTRO")}
         </p>
 
         {limits.fields.map((field, index) => {
           const limit = values[index];
           const window = limit?.window ?? 0;
           const count = limit?.count ?? 1;
-          const span = spanLabel(window, count);
+          const span = spanLabel(t, window, count);
 
           return (
             <div key={field.id} className="space-y-2 rounded-md border p-3" data-testid="pace-limit">
@@ -140,7 +178,7 @@ export const MeterPaceFields = ({
                   name={`meters.${meterIndex}.subLimits.${index}.window`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Window</FormLabel>
+                      <FormLabel className="text-xs">{t("METER_PACE_FIELDS.WINDOW")}</FormLabel>
                       <Select
                         value={String(inputField.value ?? 0)}
                         onValueChange={(value) => {
@@ -156,7 +194,7 @@ export const MeterPaceFields = ({
                         <SelectContent>
                           {USAGE_WINDOW_NAMES.map((name, value) => (
                             <SelectItem key={name} value={String(value)}>
-                              {name}
+                              {windowName(t, value)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -171,9 +209,7 @@ export const MeterPaceFields = ({
                   render={({ field: inputField }) => (
                     <FormItem>
                       {/* Always plural: it asks a question, and "How many week" reads as a typo. */}
-                      <FormLabel className="text-xs">
-                        How many {USAGE_WINDOW_NAMES[window]?.toLowerCase()}s
-                      </FormLabel>
+                      <FormLabel className="text-xs">{howManyWindows(t, window)}</FormLabel>
                       <FormControl>
                         <Input
                           {...inputField}
@@ -197,7 +233,10 @@ export const MeterPaceFields = ({
                   render={({ field: inputField }) => (
                     <FormItem>
                       <FormLabel className="text-xs">
-                        Most {pluralUnits(unitLabel)} per {span}
+                        {t("METER_PACE_FIELDS.MOST_PER", {
+                          units: pluralUnits(t, unitLabel),
+                          span,
+                        })}
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -220,7 +259,7 @@ export const MeterPaceFields = ({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  aria-label={`Remove the ${span} limit`}
+                  aria-label={t("METER_PACE_FIELDS.REMOVE_LIMIT", { span })}
                   onClick={() => {
                     limits.remove(index);
                     revalidate();
@@ -247,7 +286,7 @@ export const MeterPaceFields = ({
                           />
                         </FormControl>
                         <FormLabel className="!m-0 text-xs">
-                          Rolling — the last {span} from right now, not a window on the clock
+                          {t("METER_PACE_FIELDS.ROLLING", { span })}
                         </FormLabel>
                       </div>
                     </FormItem>
@@ -258,7 +297,7 @@ export const MeterPaceFields = ({
                   name={`meters.${meterIndex}.subLimits.${index}.behaviour`}
                   render={({ field: inputField }) => (
                     <FormItem className="flex items-center gap-2 space-y-0">
-                      <FormLabel className="shrink-0 text-xs">When exceeded</FormLabel>
+                      <FormLabel className="shrink-0 text-xs">{t("METER_PACE_FIELDS.WHEN_EXCEEDED")}</FormLabel>
                       <Select
                         value={String(inputField.value ?? 0)}
                         onValueChange={(value) => inputField.onChange(Number(value))}
@@ -271,8 +310,8 @@ export const MeterPaceFields = ({
                         <SelectContent>
                           {/* Short enough to read in full in a narrow row; the note under the
                               list says what reporting means. */}
-                          <SelectItem value="0">Refuse</SelectItem>
-                          <SelectItem value="1">Allow and report</SelectItem>
+                          <SelectItem value="0">{t("METER_PACE_FIELDS.REFUSE")}</SelectItem>
+                          <SelectItem value="1">{t("METER_PACE_FIELDS.ALLOW_AND_REPORT")}</SelectItem>
                         </SelectContent>
                       </Select>
                     </FormItem>
@@ -281,7 +320,7 @@ export const MeterPaceFields = ({
               </div>
 
               <p className="text-xs text-muted-foreground">
-                {limit?.rolling ? ROLLING_EXPLANATION : PACE_WINDOW_BOUNDARIES[window]}
+                {limit?.rolling ? t("METER_PACE_FIELDS.ROLLING_EXPLANATION") : paceWindowBoundary(t, window)}
               </p>
               {warnings
                 .filter((warning) => warning.index === index)
@@ -320,12 +359,11 @@ export const MeterPaceFields = ({
             }
           >
             <Plus className="mr-1 h-4 w-4" />
-            Add limit
+            {t("METER_PACE_FIELDS.ADD_LIMIT")}
           </Button>
           {limits.fields.length > 0 ? (
             <p className="text-xs text-muted-foreground">
-              Reporting slows nobody down by itself — the caller is told it is over pace and
-              decides what to do, e.g. fall back to a cheaper model.
+              {t("METER_PACE_FIELDS.REPORTING_HINT")}
             </p>
           ) : null}
         </div>

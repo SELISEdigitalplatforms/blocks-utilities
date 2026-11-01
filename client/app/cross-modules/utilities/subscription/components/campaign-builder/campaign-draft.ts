@@ -1,3 +1,4 @@
+import { tCampaign } from "./campaign-i18n";
 import { describeDiscountAmountProblem } from "../../utilities/discount-amount";
 import { toMajorUnits, toMinorUnits } from "../../utilities/subscription-format";
 import type {
@@ -228,13 +229,13 @@ export const stepProblems = (
     const problems: string[] = [];
 
     if (!draft.code.trim()) {
-      problems.push("Enter a code.");
+      problems.push(tCampaign("CAMPAIGN_DRAFT.CODE_REQUIRED"));
     } else if (!/^[a-z0-9_-]+$/.test(draft.code.trim())) {
-      problems.push("Code may only contain lowercase letters, digits, hyphens and underscores.");
+      problems.push(tCampaign("CAMPAIGN_DRAFT.CODE_PATTERN"));
     }
 
     if (!draft.displayName.trim()) {
-      problems.push("Enter a display name.");
+      problems.push(tCampaign("CAMPAIGN_DRAFT.NAME_REQUIRED"));
     }
 
     return problems;
@@ -246,14 +247,14 @@ export const stepProblems = (
     if (draft.discountKind === "percent") {
       const percent = Number(draft.percent);
       if (draft.percent.trim() === "" || !Number.isFinite(percent) || percent <= 0 || percent > 100) {
-        problems.push("Percent off must be between 0 and 100.");
+        problems.push(tCampaign("CAMPAIGN_DRAFT.PERCENT_RANGE"));
       }
       if (draft.campaignKind === "FreeOpeningCalendarPeriod" && percent !== 100) {
-        problems.push("A free-opening-period campaign must be a full 100% reduction.");
+        problems.push(tCampaign("CAMPAIGN_DRAFT.FREE_MUST_BE_FULL"));
       }
     } else {
       if (draft.campaignKind === "FreeOpeningCalendarPeriod") {
-        problems.push("A free-opening-period campaign cannot be a fixed amount — it must be 100% off.");
+        problems.push(tCampaign("CAMPAIGN_DRAFT.FREE_NOT_FIXED"));
       }
       const amountProblem = describeDiscountAmountProblem(draft.amount, draft.currencyCode);
       if (amountProblem) problems.push(amountProblem);
@@ -262,19 +263,17 @@ export const stepProblems = (
     if (draft.campaignKind === "Standard" && draft.durationPeriods.trim() !== "") {
       const duration = Number(draft.durationPeriods);
       if (!Number.isInteger(duration) || duration <= 0) {
-        problems.push(
-          "Number of discounted billing periods must be a whole number greater than zero.",
-        );
+        problems.push(tCampaign("CAMPAIGN_DRAFT.DURATION_WHOLE"));
       }
     }
 
     if (draft.campaignKind === "Standard") {
       const starts = draft.startsAtUtc ? new Date(draft.startsAtUtc).getTime() : null;
       const expires = draft.expiresAtUtc ? new Date(draft.expiresAtUtc).getTime() : null;
-      if (starts !== null && !Number.isFinite(starts)) problems.push("Enter a valid start date and time.");
-      if (expires !== null && !Number.isFinite(expires)) problems.push("Enter a valid expiry date and time.");
+      if (starts !== null && !Number.isFinite(starts)) problems.push(tCampaign("CAMPAIGN_DRAFT.START_INVALID"));
+      if (expires !== null && !Number.isFinite(expires)) problems.push(tCampaign("CAMPAIGN_DRAFT.EXPIRY_INVALID"));
       if (starts !== null && expires !== null && starts >= expires) {
-        problems.push("The discount must expire after it starts.");
+        problems.push(tCampaign("CAMPAIGN_DRAFT.EXPIRE_AFTER_START"));
       }
     }
 
@@ -290,39 +289,36 @@ export const stepProblems = (
       const unsold = draft.meterKeys.find((meterKey) => !sold.has(meterKey));
 
       if (unsold) {
-        problems.push(`No plan this code applies to sells credits for the meter '${unsold}'.`);
+        problems.push(tCampaign("CAMPAIGN_DRAFT.METER_NOT_SOLD", { meter: unsold }));
       }
     }
 
     if (isCampaign && draft.priceIds.length === 0) {
-      problems.push(
-        "This campaign kind needs at least one price named — it prices a specific price's " +
-          "opening period or first annual period, not a plan in general.",
-      );
+      problems.push(tCampaign("CAMPAIGN_DRAFT.CAMPAIGN_NEEDS_PRICE"));
     }
 
     if (isCampaign) {
-      if (!draft.validFromDate) problems.push("A campaign needs a start date.");
+      if (!draft.validFromDate) problems.push(tCampaign("CAMPAIGN_DRAFT.CAMPAIGN_START"));
       if (!draft.validThroughDate && draft.campaignKind !== "FreeOpeningCalendarPeriod") {
-        problems.push("A campaign needs an end date.");
+        problems.push(tCampaign("CAMPAIGN_DRAFT.CAMPAIGN_END"));
       }
-      if (!draft.timeZoneId.trim()) problems.push("A campaign needs a time zone its dates are read in.");
+      if (!draft.timeZoneId.trim()) problems.push(tCampaign("CAMPAIGN_DRAFT.CAMPAIGN_TIME_ZONE"));
       if (
         draft.validFromDate &&
         draft.validThroughDate &&
         draft.validThroughDate < draft.validFromDate
       ) {
-        problems.push("The campaign cannot end before it starts.");
+        problems.push(tCampaign("CAMPAIGN_DRAFT.CAMPAIGN_END_BEFORE_START"));
       }
     }
 
     if (draft.campaignKind === "FreeOpeningCalendarPeriod") {
       if (!draft.entitlementKey.trim()) {
-        problems.push("A free-opening-period campaign must name the entitlement it temporarily caps.");
+        problems.push(tCampaign("CAMPAIGN_DRAFT.FREE_NEEDS_ENTITLEMENT"));
       }
       const limit = Number(draft.entitlementLimit);
       if (draft.entitlementLimit.trim() === "" || !Number.isFinite(limit) || limit <= 0) {
-        problems.push("The temporary entitlement limit must be a positive number.");
+        problems.push(tCampaign("CAMPAIGN_DRAFT.ENTITLEMENT_LIMIT_POSITIVE"));
       }
       const plan = plans.find((candidate) => draft.planCodes.includes(candidate.code)) ??
         plans.find((candidate) =>
@@ -332,7 +328,12 @@ export const stepProblems = (
         (candidate) => candidate.key === draft.entitlementKey.trim(),
       );
       if (plan && draft.entitlementKey.trim() && !entitlement) {
-        problems.push(`The plan '${plan.code}' has no entitlement '${draft.entitlementKey.trim()}'.`);
+        problems.push(
+          tCampaign("CAMPAIGN_DRAFT.PLAN_NO_ENTITLEMENT", {
+            plan: plan.code,
+            entitlement: draft.entitlementKey.trim(),
+          }),
+        );
       }
     }
 

@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useState } from "react";
 import { AlertTriangle, Download, FileText, Loader2, RotateCw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -69,20 +70,24 @@ const DocumentRow = ({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const { mutateAsync: resend, isPending: resending } = useResendFinancialDocument();
+  const { t } = useT("utilities.subscription.pages");
 
   const retry = async () => {
     try {
       await resend(document.documentId);
       toast({
         variant: "success",
-        title: "Queued for another attempt",
-        description: `${document.documentNumber} will be rendered again.`,
+        title: t("INVOICES_PAGE.RETRY_QUEUED"),
+        description: t("INVOICES_PAGE.RETRY_QUEUED_DESCRIPTION", {
+          number: document.documentNumber,
+        }),
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Could not queue a retry",
-        description: error instanceof Error ? error.message : "Something went wrong.",
+        title: t("INVOICES_PAGE.RETRY_FAILED"),
+        description:
+          error instanceof Error ? error.message : t("INVOICES_PAGE.SOMETHING_WENT_WRONG"),
       });
     }
   };
@@ -99,7 +104,7 @@ const DocumentRow = ({
       );
     } catch (error) {
       setDownloadError(
-        error instanceof Error ? error.message : "The PDF could not be downloaded.",
+        error instanceof Error ? error.message : t("INVOICES_PAGE.DOWNLOAD_FAILED"),
       );
     } finally {
       setDownloading(false);
@@ -120,12 +125,15 @@ const DocumentRow = ({
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {document.planName} · issued {document.issuedAtUtc.slice(0, 10)} ·{" "}
-            {describePeriod(document)}
+            {t("INVOICES_PAGE.PLAN_ISSUED", {
+              plan: document.planName,
+              date: document.issuedAtUtc.slice(0, 10),
+              period: describePeriod(document),
+            })}
           </p>
           {document.originalDocumentNumber && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Adjusts invoice {document.originalDocumentNumber}
+              {t("INVOICES_PAGE.ADJUSTS", { number: document.originalDocumentNumber })}
             </p>
           )}
         </div>
@@ -135,7 +143,7 @@ const DocumentRow = ({
             {formatMoney(document.amounts.totalMinor, document.currencyCode)}
           </span>
           <Button variant="ghost" size="sm" onClick={() => setOpen((value) => !value)}>
-            {open ? "Hide detail" : "Show detail"}
+            {open ? t("INVOICES_PAGE.HIDE_DETAIL") : t("INVOICES_PAGE.SHOW_DETAIL")}
           </Button>
           {/* Driven by isPdfAvailable first, deliberately -- isAbandoned answers "did every
               delivery attempt finish", not "does the PDF exist". A mail failure can abandon
@@ -155,7 +163,7 @@ const DocumentRow = ({
               ) : (
                 <Download className="mr-2 h-4 w-4" />
               )}
-              Download PDF
+              {t("INVOICES_PAGE.DOWNLOAD_PDF")}
             </Button>
           ) : document.isAbandoned ? (
             <Button
@@ -170,12 +178,12 @@ const DocumentRow = ({
               ) : (
                 <AlertTriangle className="mr-2 h-4 w-4 text-destructive" />
               )}
-              Generation failed
+              {t("INVOICES_PAGE.GENERATION_FAILED")}
             </Button>
           ) : (
             <Button variant="outline" size="sm" disabled data-testid={`download-${document.documentNumber}`}>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Preparing…
+              {t("INVOICES_PAGE.PREPARING")}
             </Button>
           )}
         </div>
@@ -184,7 +192,7 @@ const DocumentRow = ({
       {!document.isPdfAvailable && document.isAbandoned && (
         <p className="mt-2 flex items-center gap-1 text-sm text-muted-foreground">
           <RotateCw className="h-3.5 w-3.5" />
-          Rendering did not succeed after every attempt. Retry once the underlying issue is fixed.
+          {t("INVOICES_PAGE.RENDER_FAILED")}
         </p>
       )}
 
@@ -200,10 +208,8 @@ const DocumentRow = ({
         >
           <AlertTriangle className="h-3.5 w-3.5" />
           {document.lastErrorCode === "document_no_recipient"
-            ? "The document is ready, but no billing contact is on file to email it to."
-            : "The document is ready, but its email could not be confirmed sent. Resending here " +
-              "is disabled — an unconfirmed publish may already have reached the subscriber, and " +
-              "resending it needs a person to check first, not a click."}
+            ? t("INVOICES_PAGE.MAIL_NO_RECIPIENT")
+            : t("INVOICES_PAGE.MAIL_UNCONFIRMED")}
         </p>
       )}
 
@@ -222,7 +228,7 @@ const DocumentRow = ({
           {document.lines.length > 0 && (
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Lines
+                {t("INVOICES_PAGE.LINES")}
               </p>
               <ul className="flex flex-col gap-1 text-sm">
                 {document.lines.map((line, index) => (
@@ -244,14 +250,14 @@ const DocumentRow = ({
           {document.settlement && (
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                How this change was settled
+                {t("INVOICES_PAGE.SETTLED_HEADING")}
               </p>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground">
                     <th className="py-1 font-normal" />
-                    <th className="py-1 text-right font-normal">Previous terms</th>
-                    <th className="py-1 text-right font-normal">New terms</th>
+                    <th className="py-1 text-right font-normal">{t("INVOICES_PAGE.PREVIOUS_TERMS")}</th>
+                    <th className="py-1 text-right font-normal">{t("INVOICES_PAGE.NEW_TERMS")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -263,7 +269,7 @@ const DocumentRow = ({
                     </tr>
                   ))}
                   <tr className="border-t font-medium">
-                    <td className="py-1">Net settlement</td>
+                    <td className="py-1">{t("INVOICES_PAGE.NET_SETTLEMENT")}</td>
                     <td />
                     <td className="py-1 text-right">
                       {formatMoney(
@@ -279,7 +285,7 @@ const DocumentRow = ({
 
           <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Amounts
+              {t("INVOICES_PAGE.AMOUNTS")}
             </p>
             <table className="w-full max-w-sm text-sm">
               <tbody>
@@ -293,29 +299,28 @@ const DocumentRow = ({
             </table>
             {!amountsReconcile(document.amounts) && (
               <p className="mt-2 text-xs text-amber-700" data-testid="amounts-warning">
-                These figures do not add up on their own. That happens on charges taken before the
-                full breakdown was recorded; the total is what was actually charged.
+                {t("INVOICES_PAGE.AMOUNTS_WARNING")}
               </p>
             )}
           </div>
 
           <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
             <p>
-              <span className="font-medium text-foreground">Billed to:</span>{" "}
+              <span className="font-medium text-foreground">{t("INVOICES_PAGE.BILLED_TO")}</span>{" "}
               {document.subscriberLegalName}
             </p>
             <p>
-              <span className="font-medium text-foreground">Contact:</span>{" "}
+              <span className="font-medium text-foreground">{t("INVOICES_PAGE.CONTACT")}</span>{" "}
               {document.billingContactName}
               {document.billingContactEmail ? ` · ${document.billingContactEmail}` : ""}
             </p>
             <p>
-              <span className="font-medium text-foreground">Initiated by:</span>{" "}
+              <span className="font-medium text-foreground">{t("INVOICES_PAGE.INITIATED_BY")}</span>{" "}
               {document.initiatedByName}
             </p>
             {document.pdfContentHash && (
               <p className="truncate">
-                <span className="font-medium text-foreground">PDF SHA-256:</span>{" "}
+                <span className="font-medium text-foreground">{t("INVOICES_PAGE.PDF_HASH")}</span>{" "}
                 {document.pdfContentHash.slice(0, 16)}…
               </p>
             )}
@@ -333,6 +338,7 @@ const DocumentRow = ({
  * as a charge — the payment-derived list this replaced could only show things that had a payment.
  */
 export const SubscriptionInvoicesPage = () => {
+  const { t } = useT("utilities.subscription.pages");
   const organizationId = useOrganizationScope();
   const subscriptionLink = useSubscriptionLink();
   const [documentType, setDocumentType] = useState<string>(ANY_DOCUMENT_FILTER);
@@ -366,20 +372,20 @@ export const SubscriptionInvoicesPage = () => {
   return (
     <div className="flex flex-col gap-6">
       <SubscriptionPlanPageHeader
-        title="Invoices & credit notes"
-        description="Every document this application has issued: invoices, trial invoices and credit notes, with the figures each was issued on."
+        title={t("INVOICES_PAGE.TITLE")}
+        description={t("INVOICES_PAGE.DESCRIPTION")}
         backTo={subscriptionLink("plans")}
         icon={<FileText className="h-6 w-6" />}
       />
 
       <Card className="grid gap-4 p-4 sm:grid-cols-4">
         <div className="flex flex-col gap-2">
-          <Label>Document type</Label>
+          <Label>{t("INVOICES_PAGE.DOCUMENT_TYPE")}</Label>
           <Select
             value={documentType}
             onValueChange={(value) => changeFilter(() => setDocumentType(value))}
           >
-            <SelectTrigger aria-label="Document type">
+            <SelectTrigger aria-label={t("INVOICES_PAGE.DOCUMENT_TYPE")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -393,12 +399,12 @@ export const SubscriptionInvoicesPage = () => {
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label>Status</Label>
+          <Label>{t("common:STATUS")}</Label>
           <Select
             value={status}
             onValueChange={(value) => changeFilter(() => setStatus(value))}
           >
-            <SelectTrigger aria-label="Status">
+            <SelectTrigger aria-label={t("common:STATUS")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -412,7 +418,7 @@ export const SubscriptionInvoicesPage = () => {
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="issuedFrom">Issued from</Label>
+          <Label htmlFor="issuedFrom">{t("INVOICES_PAGE.ISSUED_FROM")}</Label>
           <Input
             id="issuedFrom"
             type="date"
@@ -422,7 +428,7 @@ export const SubscriptionInvoicesPage = () => {
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="issuedTo">Issued to</Label>
+          <Label htmlFor="issuedTo">{t("INVOICES_PAGE.ISSUED_TO")}</Label>
           <Input
             id="issuedTo"
             type="date"
@@ -438,12 +444,11 @@ export const SubscriptionInvoicesPage = () => {
         </Card>
       )}
 
-      {isLoading && <Card className="p-6 text-sm text-muted-foreground">Loading…</Card>}
+      {isLoading && <Card className="p-6 text-sm text-muted-foreground">{t("INVOICES_PAGE.LOADING")}</Card>}
 
       {!isLoading && data?.items.length === 0 && (
         <Card className="p-6 text-sm text-muted-foreground" data-testid="documents-empty">
-          No documents match these filters yet. A document appears within seconds of a payment
-          confirming, a trial starting, or a refund being settled.
+          {t("INVOICES_PAGE.EMPTY")}
         </Card>
       )}
 
@@ -465,7 +470,7 @@ export const SubscriptionInvoicesPage = () => {
             disabled={!cursor}
             onClick={() => setCursor(null)}
           >
-            Back to newest
+            {t("INVOICES_PAGE.BACK_TO_NEWEST")}
           </Button>
           <Button
             variant="outline"
@@ -473,7 +478,7 @@ export const SubscriptionInvoicesPage = () => {
             disabled={!data?.pageInfo.hasNextPage}
             onClick={() => setCursor(data?.pageInfo.nextCursor ?? null)}
           >
-            Older
+            {t("INVOICES_PAGE.OLDER")}
           </Button>
         </div>
       )}

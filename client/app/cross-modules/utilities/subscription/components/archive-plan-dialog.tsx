@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT } from "@seliseblocks/genesis-os";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import {
@@ -10,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui-kits/dialog/dialog";
 import type { SubscriptionPlan } from "../models/subscription-plan.model";
+import { RichText } from "./rich-text";
 
 /**
  * Confirms archiving one plan.
@@ -31,6 +33,7 @@ export const ArchivePlanDialog = ({
   /** Resolves when the plan is archived; rejects with a message worth showing. */
   onConfirm: (plan: SubscriptionPlan) => Promise<void>;
 }) => {
+  const { t } = useT("utilities.subscription");
   const [isArchiving, setIsArchiving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -63,7 +66,7 @@ export const ArchivePlanDialog = ({
       setFailure(
         error instanceof Error
           ? error.message
-          : "The plan could not be archived. Nothing has changed.",
+          : t("ARCHIVE_PLAN_DIALOG.FAILURE"),
       );
     } finally {
       setIsArchiving(false);
@@ -90,7 +93,7 @@ export const ArchivePlanDialog = ({
               <AlertTriangle className="h-4 w-4" />
             </span>
             {/* The name and code both, because two plans in a family often differ only by code. */}
-            Archive {plan.displayName}?
+            {t("ARCHIVE_PLAN_DIALOG.TITLE", { name: plan.displayName })}
           </DialogTitle>
           <DialogDescription>
             <span className="font-mono text-xs">{plan.code}</span>
@@ -101,40 +104,29 @@ export const ArchivePlanDialog = ({
           <ul className="space-y-2">
             <li className="flex gap-2">
               <span aria-hidden="true">•</span>
+              <span>{t("ARCHIVE_PLAN_DIALOG.POINT_HIDDEN")}</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">•</span>
               <span>
-                It disappears from the plans your customers can choose, and from
-                plan changes onto it.
+                <RichText text={t("ARCHIVE_PLAN_DIALOG.POINT_REFUSED")} />
               </span>
             </li>
             <li className="flex gap-2">
               <span aria-hidden="true">•</span>
               <span>
-                New subscriptions and plan changes naming it will be{" "}
-                <strong>refused</strong>.
+                <RichText text={t("ARCHIVE_PLAN_DIALOG.POINT_SUBSCRIBERS")} />
               </span>
             </li>
             <li className="flex gap-2">
               <span aria-hidden="true">•</span>
               <span>
-                Everyone already subscribed{" "}
-                <strong>carries on unchanged</strong> — they bill from the terms
-                they bought, so renewals, usage, entitlements and invoices are
-                unaffected.
+                <RichText text={t("ARCHIVE_PLAN_DIALOG.POINT_IRREVERSIBLE")} />
               </span>
             </li>
             <li className="flex gap-2">
               <span aria-hidden="true">•</span>
-              <span>
-                <strong>This cannot be undone.</strong> There is no way to put
-                the plan back on sale.
-              </span>
-            </li>
-            <li className="flex gap-2">
-              <span aria-hidden="true">•</span>
-              <span>
-                You can still open it, and duplicate it later to build a
-                replacement.
-              </span>
+              <span>{t("ARCHIVE_PLAN_DIALOG.POINT_DUPLICATE")}</span>
             </li>
           </ul>
 
@@ -154,16 +146,16 @@ export const ArchivePlanDialog = ({
             onClick={() => onOpenChange(false)}
             disabled={isArchiving}
           >
-            Keep it on sale
+            {t("ARCHIVE_PLAN_DIALOG.KEEP")}
           </Button>
           <Button variant="destructive" onClick={archive} disabled={isArchiving}>
             {isArchiving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Archiving…
+                {t("ARCHIVE_PLAN_DIALOG.ARCHIVING")}
               </>
             ) : (
-              "Archive permanently"
+              t("ARCHIVE_PLAN_DIALOG.CONFIRM")
             )}
           </Button>
         </DialogFooter>

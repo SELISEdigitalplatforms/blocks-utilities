@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
@@ -26,6 +27,7 @@ import { CardListItem, CardListShell } from "./card-list-shell";
 import { StepHeading } from "./step-heading";
 
 export const StepUsageLimits = () => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
   const entitlements = useFieldArray({ control, name: "entitlements" });
   const meters = useWatch({ control, name: "meters" });
@@ -38,13 +40,13 @@ export const StepUsageLimits = () => {
   return (
     <div className="space-y-6">
       <StepHeading
-        eyebrow="Entitlements"
-        title="What the plan grants"
-        description="What a subscriber on this plan is allowed to do — separate from what they're billed for. Skip this if the plan just grants everything."
+        eyebrow={t("STEP_USAGE_LIMITS.EYEBROW")}
+        title={t("STEP_USAGE_LIMITS.TITLE")}
+        description={t("STEP_USAGE_LIMITS.DESCRIPTION")}
       />
 
       <CardListShell
-        addLabel="Add usage limit"
+        addLabel={t("STEP_USAGE_LIMITS.ADD_LIMIT")}
         onAdd={() =>
           entitlements.append({
             key: "",
@@ -85,7 +87,7 @@ export const StepUsageLimits = () => {
                 name={`entitlements.${index}.key`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Key</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_USAGE_LIMITS.KEY")}</FormLabel>
                     <FormControl>
                       <Input {...inputField} placeholder="advanced-reports" />
                     </FormControl>
@@ -98,7 +100,7 @@ export const StepUsageLimits = () => {
                 name={`entitlements.${index}.limitKind`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Kind</FormLabel>
+                    <FormLabel className="text-xs">{t("STEP_USAGE_LIMITS.KIND")}</FormLabel>
                     <Select
                       value={String(inputField.value)}
                       onValueChange={(value) => {
@@ -139,7 +141,7 @@ export const StepUsageLimits = () => {
                     name={`entitlements.${index}.meterKey`}
                     render={({ field: inputField }) => (
                       <FormItem>
-                        <FormLabel className="text-xs">Draws down which meter</FormLabel>
+                        <FormLabel className="text-xs">{t("STEP_USAGE_LIMITS.DRAWS_DOWN")}</FormLabel>
                         <Select
                           value={inputField.value ?? ""}
                           onValueChange={(meterKey) => {
@@ -153,7 +155,7 @@ export const StepUsageLimits = () => {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Choose a meter" />
+                              <SelectValue placeholder={t("STEP_USAGE_LIMITS.CHOOSE_METER")} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -177,7 +179,9 @@ export const StepUsageLimits = () => {
                       <FormItem>
                         <div className="flex items-center justify-between gap-2">
                           <FormLabel className="text-xs">
-                            Limit{selectedMeter && !limitIsOverridden ? " (inherited from meter)" : ""}
+                            {selectedMeter && !limitIsOverridden
+                              ? t("STEP_USAGE_LIMITS.LIMIT_INHERITED")
+                              : t("STEP_USAGE_LIMITS.LIMIT")}
                           </FormLabel>
                           {selectedMeter && (
                             <Button
@@ -195,7 +199,9 @@ export const StepUsageLimits = () => {
                                 }
                               }}
                             >
-                              {limitIsOverridden ? "Use meter allowance" : "Override"}
+                              {limitIsOverridden
+                                ? t("STEP_USAGE_LIMITS.USE_METER_ALLOWANCE")
+                                : t("STEP_USAGE_LIMITS.OVERRIDE")}
                             </Button>
                           )}
                         </div>

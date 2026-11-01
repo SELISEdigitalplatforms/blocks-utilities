@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { Card } from "@/components/ui-kits/card/card";
 import {
   Collapsible,
@@ -48,14 +48,7 @@ import { StepReview } from "./step-review";
 import { StepTrial } from "./step-trial";
 import { StepUsageLimits } from "./step-usage-limits";
 
-const STEPS: Steps = [
-  { id: 1, title: "Identity" },
-  { id: 2, title: "Pricing model" },
-  { id: 3, title: "What the plan grants" },
-  { id: 4, title: "Credits" },
-  { id: 5, title: "Trial" },
-  { id: 6, title: "Review" },
-];
+const STEP_IDS = [1, 2, 3, 4, 5, 6] as const;
 
 export interface PlanBuilderProps {
   /**
@@ -87,11 +80,19 @@ export interface PlanBuilderProps {
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
 }
 
-export const PlanBuilder = (props: PlanBuilderProps) => (
-  <StepperProviderComponent steps={STEPS}>
-    <PlanBuilderWizard {...props} />
-  </StepperProviderComponent>
-);
+export const PlanBuilder = (props: PlanBuilderProps) => {
+  // Read so the builder re-renders when the language changes: the step titles come from the
+  // shared title map, which is looked up at render time.
+  useT("utilities.subscription.plan-builder");
+
+  const steps: Steps = STEP_IDS.map((id) => ({ id, title: PLAN_BUILDER_STEP_TITLES[id] }));
+
+  return (
+    <StepperProviderComponent steps={steps}>
+      <PlanBuilderWizard {...props} />
+    </StepperProviderComponent>
+  );
+};
 
 const PlanBuilderWizard = ({
   mode,
@@ -110,6 +111,7 @@ const PlanBuilderWizard = ({
   onSubmit,
 }: PlanBuilderProps) => {
   const { currentStep, nextStep, previousStep, totalSteps, goToStep } = useStepper();
+  const { t, language } = useT("utilities.subscription.plan-builder");
 
   // The field to focus once the step holding it has mounted. Focusing during the same commit that
   // changes the step would find nothing: the control does not exist until that step renders.
@@ -131,7 +133,8 @@ const PlanBuilderWizard = ({
 
   const schema = useMemo(
     () => buildSubscriptionPlanSchema({ requirePrice: !isEditing }),
-    [isEditing],
+    // The language is a dependency because the messages are read when the schema is built.
+    [isEditing, language],
   );
 
   const form = useForm<CreateSubscriptionPlanFormValues>({
@@ -144,7 +147,7 @@ const PlanBuilderWizard = ({
 
   const organizationLabel =
     !draft.organizationId || draft.organizationId === TENANT_WIDE_ORGANIZATION
-      ? "Tenant-wide"
+      ? t("PLAN_BUILDER.TENANT_WIDE")
       : (organizationsData?.organizations.find(
           (organization) => organization.itemId === draft.organizationId,
         )?.name ?? draft.organizationId);
@@ -268,7 +271,7 @@ const PlanBuilderWizard = ({
           await onSubmit(values);
         } catch (error) {
           setSubmissionError(
-            error instanceof Error ? error.message : "This plan could not be saved.",
+            error instanceof Error ? error.message : t("PLAN_BUILDER.SAVE_FAILED"),
           );
         }
       },
@@ -292,12 +295,14 @@ const PlanBuilderWizard = ({
           variant: "destructive",
           title:
             step === undefined
-              ? "Check the highlighted fields"
-              : `Something to fix in ${PLAN_BUILDER_STEP_TITLES[step] ?? `step ${step}`}`,
+              ? t("PLAN_BUILDER.CHECK_FIELDS")
+              : t("PLAN_BUILDER.FIX_STEP", {
+                  step: PLAN_BUILDER_STEP_TITLES[step] ?? t("PLAN_BUILDER.STEP_NUMBER", { number: step }),
+                }),
           description:
             step === undefined
-              ? "Some steps still have something to fix before this can be saved."
-              : "Taken to the first field that needs attention.",
+              ? t("PLAN_BUILDER.CHECK_FIELDS_DESCRIPTION")
+              : t("PLAN_BUILDER.FIX_STEP_DESCRIPTION"),
         });
       },
     )();
@@ -382,7 +387,7 @@ const PlanBuilderWizard = ({
                     <Collapsible className="mt-5 xl:hidden">
                       <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
                         <ChevronDown className="h-4 w-4" />
-                        Preview this plan so far
+                        {t("PLAN_BUILDER.PREVIEW_SO_FAR")}
                       </CollapsibleTrigger>
                       <CollapsibleContent className="pt-3">
                         <PlanSummaryCard plan={summary} />
@@ -402,7 +407,7 @@ const PlanBuilderWizard = ({
                   />
                 </Card>
 
-                <aside className="hidden xl:block" aria-label="Plan preview">
+                <aside className="hidden xl:block" aria-label={t("PLAN_BUILDER.PREVIEW_LABEL")}>
                   {/*
                     Offset is measured, not hard-coded: the stepper's height changes with the
                     breakpoint (its description line and step titles are sm:-only, its

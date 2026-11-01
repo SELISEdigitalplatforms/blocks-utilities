@@ -3,6 +3,7 @@ import type {
   SubscriptionPlan,
 } from "../models/subscription-plan.model";
 import { toMajorUnits } from "./subscription-format";
+import { tSubscription } from "./subscription-i18n";
 
 /**
  * How the catalogue is ordered.
@@ -13,9 +14,15 @@ import { toMajorUnits } from "./subscription-format";
 export type PlanCatalogueSort = "name" | "updated" | "price";
 
 export const PLAN_SORT_LABELS: Record<PlanCatalogueSort, string> = {
-  name: "Name",
-  updated: "Recently updated",
-  price: "Lowest starting price",
+  get name() {
+    return tSubscription("common:NAME");
+  },
+  get updated() {
+    return tSubscription("PLAN_CATALOGUE_FILTERS.SORT_UPDATED");
+  },
+  get price() {
+    return tSubscription("PLAN_CATALOGUE_FILTERS.SORT_PRICE");
+  },
 };
 
 export const PLAN_STATUS_TABS: PlanCatalogueFilterName[] = [
