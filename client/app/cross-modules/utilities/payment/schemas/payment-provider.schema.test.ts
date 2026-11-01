@@ -124,7 +124,7 @@ describe("payment provider schemas", () => {
   };
 
   const messageFor = (
-    result: ReturnType<typeof createRegisterPaymentProviderSchema().safeParse>,
+    result: ReturnType<ReturnType<typeof createRegisterPaymentProviderSchema>["safeParse"]>,
     field: string,
   ) =>
     result.success

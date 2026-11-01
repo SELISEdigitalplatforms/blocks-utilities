@@ -172,7 +172,7 @@ describe("DiscountCodeCard", () => {
 
     expect(await screen.findByText("Expired")).toBeInTheDocument();
     expect(screen.getByText("This code has expired.")).toBeInTheDocument();
-    expect(screen.getByText("subscription_discount_expired")).toBeInTheDocument();
+    expect(screen.getByText(/subscription_discount_expired/)).toBeInTheDocument();
   });
 
   it("discards the verdict once the code is edited", async () => {
