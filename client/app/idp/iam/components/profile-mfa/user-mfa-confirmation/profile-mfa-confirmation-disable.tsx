@@ -13,7 +13,9 @@ import { isErrorWithErrors } from "@/lib/error";
 import { useDisableMfa } from "@/idp/mfa/hooks/use-mfa-config";
 import { useContext } from "react";
 import { profileMfaContext } from "../profile-mfa";
+import { useT } from "@seliseblocks/genesis-os";
 export const UserMFAConfirmationDisable = () => {
+  const { t } = useT("utilities.idp");
   const { projectKey, userId, isDisableModalOpen, setIsDisableModalOpen } =
     useContext(profileMfaContext);
   const { isPending, mutateAsync } = useDisableMfa({ id: userId, projectKey });
@@ -24,7 +26,7 @@ export const UserMFAConfirmationDisable = () => {
         userId,
       });
       if (!res.isSuccess) return showErrorToast({ errors: res.errors });
-      showSuccessToast({ description: "MFA disabled successfully" });
+      showSuccessToast({ description: t("PROFILE_MFA_CONFIRMATION_DISABLE.MFA_DISABLED_SUCCESSFULLY") });
       setIsDisableModalOpen(false);
     } catch (error) {
       if (isErrorWithErrors(error)) {
@@ -36,20 +38,19 @@ export const UserMFAConfirmationDisable = () => {
     <Dialog open={isDisableModalOpen} onOpenChange={setIsDisableModalOpen}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Disable MFA?</DialogTitle>
+          <DialogTitle>{t("PROFILE_MFA_CONFIRMATION_DISABLE.DISABLE_MFA")}</DialogTitle>
           <DialogDescription>
-            Are you sure you want to disable Multi-Factor Authentication (MFA) for this account?
-            Disabling MFA may reduce the security of this account.
+            {t("PROFILE_MFA_CONFIRMATION_DISABLE.ARE_YOU_SURE_YOU_WANT")}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="mt-4 flex flex-row gap-2">
           <DialogTrigger asChild>
             <Button variant="outline" size="sm" disabled={isPending}>
-              Cancel
+              {t("common:CANCEL")}
             </Button>
           </DialogTrigger>
           <Button size="sm" onClick={onClickHandler} disabled={isPending}>
-            {isPending ? "Processing" : "Yes"}
+            {isPending ? t("PROFILE_MFA_CONFIRMATION_DISABLE.PROCESSING") : t("common:YES")}
           </Button>
         </DialogFooter>
       </DialogContent>

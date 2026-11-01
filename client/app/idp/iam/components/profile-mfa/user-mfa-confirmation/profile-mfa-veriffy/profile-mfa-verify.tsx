@@ -11,7 +11,9 @@ import { profileMfaContext } from "../../profile-mfa";
 import { ProfileMfaVerifyGuideLineTotp } from "./profile-mfa-verify-guideline-totp";
 import { ProfileMfaVerifyGuideLineEmail } from "./profile-mfa-verify-guideline-email";
 import { useGenerateUserMfaOTP } from "@/idp/mfa/hooks/use-mfa-config";
+import { useT } from "@seliseblocks/genesis-os";
 export const ProfileMFAVerify = () => {
+  const { t } = useT("utilities.idp");
   const { isVerifyModalOpen, setIsVerifyModalOpen, mfaMethodType, projectKey, userId } =
     useContext(profileMfaContext);
   const { mutateAsync } = useGenerateUserMfaOTP();
@@ -46,9 +48,9 @@ export const ProfileMFAVerify = () => {
       >
         <DialogContent aria-describedby={undefined}>
           <DialogHeader>
-            <DialogTitle>{mfaMethodType === 1 && "Set up your authenticator app"}</DialogTitle>
+            <DialogTitle>{mfaMethodType === 1 && t("PROFILE_MFA_VERIFY.SET_UP_YOUR_AUTHENTICATOR_APP")}</DialogTitle>
             <DialogDescription>
-              {mfaMethodType === 1 && "Please follow the instructions below."}
+              {mfaMethodType === 1 && t("PROFILE_MFA_VERIFY.PLEASE_FOLLOW_THE_INSTRUCTIONS")}
             </DialogDescription>
           </DialogHeader>
           <div className="text-sm font-normal text-high-emphasis">

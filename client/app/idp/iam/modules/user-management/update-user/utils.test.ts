@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inviteUserFormDefaultValue, inviteUserFormSchema } from "./utils";
+import { inviteUserFormDefaultValue, createInviteUserFormSchema } from "./utils";
 
 describe("invite user form schema", () => {
   it("has empty defaults", () => {
@@ -8,20 +8,20 @@ describe("invite user form schema", () => {
 
   it("accepts valid names", () => {
     expect(
-      inviteUserFormSchema.safeParse({ firstName: "Jane", lastName: "Doe" })
+      createInviteUserFormSchema().safeParse({ firstName: "Jane", lastName: "Doe" })
         .success,
     ).toBe(true);
   });
 
   it("rejects an empty first name", () => {
     expect(
-      inviteUserFormSchema.safeParse({ firstName: "", lastName: "Doe" }).success,
+      createInviteUserFormSchema().safeParse({ firstName: "", lastName: "Doe" }).success,
     ).toBe(false);
   });
 
   it("rejects an over-long last name", () => {
     expect(
-      inviteUserFormSchema.safeParse({
+      createInviteUserFormSchema().safeParse({
         firstName: "Jane",
         lastName: "a".repeat(151),
       }).success,

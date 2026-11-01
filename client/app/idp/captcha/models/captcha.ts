@@ -1,13 +1,15 @@
-export const CAPTCHA_PROVIDERS = {
+export const getCaptchaProviders = () =>
+  ({
   recaptcha: { value: "recaptcha", label: "Google reCAPTCHA" },
   hcaptcha: { value: "hcaptcha", label: "hCAPTCHA" },
-} as const;
-export const CAPTCHA_GENERATOR_TYPE = {
+}) as const;
+export const getCaptchaGeneratorType = () =>
+  ({
   EasyCaptchaGenerator: { value: "EasyCaptchaGenerator", label: "Easy" },
   HardCaptchaGenerator: { value: "HardCaptchaGenerator", label: "Hard" },
-} as const;
+}) as const;
 
-export type CAPTCHA_PROVIDERS_KEY = keyof typeof CAPTCHA_PROVIDERS;
+export type CAPTCHA_PROVIDERS_KEY = keyof ReturnType<typeof getCaptchaProviders>;
 
 export interface ICaptchaConfig {
   itemId: string;
@@ -20,7 +22,7 @@ export interface ICaptchaConfig {
   captchaKey: string;
   captchaSecret: string;
   provider: CAPTCHA_PROVIDERS_KEY;
-  captchaGenerator: keyof typeof CAPTCHA_GENERATOR_TYPE;
+  captchaGenerator: keyof ReturnType<typeof getCaptchaGeneratorType>;
   isEnable: boolean;
 }
 

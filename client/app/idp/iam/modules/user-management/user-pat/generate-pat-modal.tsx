@@ -19,6 +19,7 @@ import {
 } from "@/components/ui-kits/select/select";
 import { IGeneratePATPayload, IPATResponse } from "@/idp/iam/models/user";
 import { useGeneratePats } from "@/idp/iam/hooks/use-activity";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface GenerateTokenModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ interface GenerateTokenModalProps {
 }
 
 export function GenerateTokenModal({ isOpen, onClose, onSuccess }: GenerateTokenModalProps) {
+  const { t } = useT("utilities.idp");
   const [note, setNote] = useState("");
   const [expiration, setExpiration] = useState("30");
 
@@ -47,7 +49,7 @@ export function GenerateTokenModal({ isOpen, onClose, onSuccess }: GenerateToken
 
   const getExpirationLabel = (days: string): string => {
     const daysNum = parseInt(days);
-    return `${days} days (${getExpirationDate(daysNum)})`;
+    return t("GENERATE_PAT_MODAL.EXPIRATION_LABEL", { days, date: getExpirationDate(daysNum) });
   };
 
   const handleGenerate = () => {
@@ -106,26 +108,26 @@ export function GenerateTokenModal({ isOpen, onClose, onSuccess }: GenerateToken
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">Generate Token</DialogTitle>
+          <DialogTitle className="text-xl font-semibold">{t("GENERATE_PAT_MODAL.GENERATE_TOKEN")}</DialogTitle>
           <DialogDescription className="text-sm text-gray-600">
-            Create a secure access token for authentication and API use.
+            {t("GENERATE_PAT_MODAL.CREATE_A_SECURE_ACCESS_TOKEN")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           {isError && (
             <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-red-700">
-              <p className="text-sm">Failed to generate token. Please try again.</p>
+              <p className="text-sm">{t("GENERATE_PAT_MODAL.FAILED_TO_GENERATE_TOKEN_PLEASE")}</p>
             </div>
           )}
 
           <div className="space-y-2">
             <Label htmlFor="note" className="text-sm font-medium">
-              PAT Name <span className="text-error">*</span>
+              {t("GENERATE_PAT_MODAL.PAT_NAME", { span: "*" })}
             </Label>
             <Input
               id="note"
-              placeholder="Write here ..."
+              placeholder={t("GENERATE_PAT_MODAL.WRITE_HERE")}
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="w-full"
@@ -136,16 +138,16 @@ export function GenerateTokenModal({ isOpen, onClose, onSuccess }: GenerateToken
 
           <div className="space-y-2">
             <Label htmlFor="expiration" className="text-sm font-medium">
-              Expiration
+              {t("GENERATE_PAT_MODAL.EXPIRATION")}
             </Label>
             <Select value={expiration} onValueChange={setExpiration} disabled={isPending}>
               <SelectTrigger className="w-full">
                 <SelectValue>{getExpirationLabel(expiration)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="30">30 days ({getExpirationDate(30)})</SelectItem>
-                <SelectItem value="15">15 days ({getExpirationDate(15)})</SelectItem>
-                <SelectItem value="7">7 days ({getExpirationDate(7)})</SelectItem>
+                <SelectItem value="30">{t("GENERATE_PAT_MODAL.N_30_DAYS", { date: getExpirationDate(30) })}</SelectItem>
+                <SelectItem value="15">{t("GENERATE_PAT_MODAL.N_15_DAYS", { date: getExpirationDate(15) })}</SelectItem>
+                <SelectItem value="7">{t("GENERATE_PAT_MODAL.N_7_DAYS", { date: getExpirationDate(7) })}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -158,14 +160,14 @@ export function GenerateTokenModal({ isOpen, onClose, onSuccess }: GenerateToken
             className="flex-1 sm:flex-none"
             disabled={isPending}
           >
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button
             onClick={handleGenerate}
             className="flex-1 sm:flex-none"
             disabled={isPending || !note.trim()}
           >
-            {isPending ? "Generating..." : "Generate"}
+            {isPending ? t("GENERATE_PAT_MODAL.GENERATING") : t("GENERATE_PAT_MODAL.GENERATE")}
           </Button>
         </DialogFooter>
       </DialogContent>
