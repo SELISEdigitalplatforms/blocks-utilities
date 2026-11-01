@@ -7,6 +7,7 @@
  * real browser-like environments and per-test overrides keep working.
  */
 import "@testing-library/jest-dom/vitest";
+import "../i18n";
 
 // Some third-party ESM deps (e.g. framer-motion's motion-utils, pulled in via
 // @seliseblocks/genesis-os) read `process.env.NODE_ENV` at import time. Under the
