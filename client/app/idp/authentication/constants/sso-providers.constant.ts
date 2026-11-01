@@ -15,6 +15,8 @@ import {
 } from "@blocks-idp/authentication/models/sso.model";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
+
 export enum SSO_PROVIDERS {
   google = "google",
   microsoft = "microsoft",
@@ -71,7 +73,7 @@ export const getSocialAuthProvidersConfig = (): Record<
 > => ({
   github: createProviderConfig(SSO_PROVIDERS.github, {
     label: "GitHub",
-    description: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.ENABLE_THE_GITHUB_LOGIN_OPTION"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.ENABLE_THE_GITHUB_LOGIN_OPTION"),
     imageSrc: Github,
     imageSrcDark: GithubDark,
     isAvailable: true,
@@ -79,14 +81,14 @@ export const getSocialAuthProvidersConfig = (): Record<
   }),
   google: createProviderConfig(SSO_PROVIDERS.google, {
     label: "Google",
-    description: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.ALLOW_YOUR_USERS_TO_SEAMLESSLY"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.ALLOW_YOUR_USERS_TO_SEAMLESSLY"),
     imageSrc: Google,
     isAvailable: true,
     isConfigured: false,
   }),
   microsoft: createProviderConfig(SSO_PROVIDERS.microsoft, {
     label: "Microsoft",
-    description: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.ENABLE_YOUR_USERS_TO_SECURELY"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.ENABLE_YOUR_USERS_TO_SECURELY"),
     imageSrc: Microsoft,
     isAvailable: true,
     isConfigured: false,
@@ -94,37 +96,37 @@ export const getSocialAuthProvidersConfig = (): Record<
   linkedin: createProviderConfig(SSO_PROVIDERS.linkedin, {
     label: "LinkedIn",
     description:
-      tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.LEVERAGE_THE_LARGEST_PROFESSIONAL"),
+      tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.LEVERAGE_THE_LARGEST_PROFESSIONAL"),
     imageSrc: LinkedIn,
     isAvailable: true,
     isConfigured: false,
   }),
   x: createProviderConfig(SSO_PROVIDERS.x, {
     label: "X",
-    description: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.TWITTER_ALLOWS_USERS_TO_ENJOY"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.TWITTER_ALLOWS_USERS_TO_ENJOY"),
     imageSrc: X,
     imageSrcDark: XDark,
     isAvailable: true,
     isConfigured: false,
   }),
   apple: createProviderConfig(SSO_PROVIDERS.apple, {
-    label: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.APPLE"),
-    description: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.THE_EASY_WAY_TO_ADD"),
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.APPLE"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.THE_EASY_WAY_TO_ADD"),
     imageSrc: Apple,
     imageSrcDark: AppleDark,
     isAvailable: true,
     isConfigured: false,
   }),
   facebook: createProviderConfig(SSO_PROVIDERS.facebook, {
-    label: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.FACEBOOK"),
-    description: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.A_FAST_AND_CONVENIENT_WAY"),
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.FACEBOOK"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.A_FAST_AND_CONVENIENT_WAY"),
     imageSrc: Facebook,
     isAvailable: false,
     isConfigured: false,
   }),
   ownsso: createProviderConfig(SSO_PROVIDERS.ownsso, {
-    label: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.BRING_YOUR_OWN_SSO"),
-    description: tStatic("utilities.idp.authentication", "SSO_PROVIDERS_CONSTANT.BRING_YOUR_OWN_SSO_PROVIDER"),
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.BRING_YOUR_OWN_SSO"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.BRING_YOUR_OWN_SSO_PROVIDER"),
     imageSrc: Selise,
     isAvailable: true,
     isConfigured: false,

@@ -100,7 +100,7 @@ export const QuantityDiscountTiers = ({ itemIndex }: { itemIndex: number }) => {
     // dismiss it, which is how the one that mattered gets dismissed too.
     if (
       authored &&
-      !window.confirm(t("QUANTITY_DISCOUNT_TIERS.CONFIRM_REMOVE"))
+      !globalThis.confirm(t("QUANTITY_DISCOUNT_TIERS.CONFIRM_REMOVE"))
     ) {
       return;
     }

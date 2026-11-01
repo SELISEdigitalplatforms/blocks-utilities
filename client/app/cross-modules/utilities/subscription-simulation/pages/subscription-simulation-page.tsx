@@ -56,6 +56,8 @@ import type {
   SubscriptionSimulationJobRunResponse,
 } from "../models/subscription-simulation-harness.model";
 
+const SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN = "SUBSCRIPTION_SIMULATION_PAGE.RELOAD_AND_TRY_AGAIN";
+
 // Reserves the organization's one open signup or live subscription slot — includes Incomplete.
 const GRANTING_STATUSES = new Set(["Incomplete", "Trialing", "Active", "PastDue"]);
 // Actually grants entitlements per the lifecycle: Incomplete has not paid yet and grants nothing.
@@ -184,7 +186,7 @@ export const SubscriptionSimulationPage = () => {
         variant: "destructive",
         title: t("SUBSCRIPTION_SIMULATION_PAGE.THE_CARD_COULD_NOT_BE"),
         description:
-          error instanceof Error ? error.message : t("SUBSCRIPTION_SIMULATION_PAGE.RELOAD_AND_TRY_AGAIN"),
+          error instanceof Error ? error.message : t(SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN),
       });
     }
   };
@@ -214,7 +216,7 @@ export const SubscriptionSimulationPage = () => {
         variant: "destructive",
         title: t("SUBSCRIPTION_SIMULATION_PAGE.THE_REDUCTION_COULD_NOT_BE"),
         description:
-          error instanceof Error ? error.message : t("SUBSCRIPTION_SIMULATION_PAGE.RELOAD_AND_TRY_AGAIN"),
+          error instanceof Error ? error.message : t(SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN),
       });
     }
   };
@@ -244,7 +246,7 @@ export const SubscriptionSimulationPage = () => {
         variant: "destructive",
         title: t("SUBSCRIPTION_SIMULATION_PAGE.THE_SCHEDULED_PLAN_CHANGE_COULD"),
         description:
-          error instanceof Error ? error.message : t("SUBSCRIPTION_SIMULATION_PAGE.RELOAD_AND_TRY_AGAIN"),
+          error instanceof Error ? error.message : t(SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN),
       });
     }
   };
@@ -275,7 +277,7 @@ export const SubscriptionSimulationPage = () => {
         variant: "destructive",
         title: t("SUBSCRIPTION_SIMULATION_PAGE.THE_CANCELLATION_COULD_NOT_BE"),
         description:
-          error instanceof Error ? error.message : t("SUBSCRIPTION_SIMULATION_PAGE.RELOAD_AND_TRY_AGAIN"),
+          error instanceof Error ? error.message : t(SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN),
       });
     }
   };

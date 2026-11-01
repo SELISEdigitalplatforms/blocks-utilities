@@ -3,6 +3,8 @@ import { getRuntimeEnv } from "@/lib/runtime-env";
 import { tStatic } from "@seliseblocks/genesis-os";
 import { z } from "zod";
 
+const UTILITIES_MAGIC_URL_MODULE = "utilities.magic-url";
+
 export const getDefaultShortUrlBase = (): string => {
   const apiBase = getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL") || "";
 
@@ -29,10 +31,10 @@ export const createMagicUrlSchema = () =>
   z.object({
   uri: z
     .string()
-    .min(1, tStatic("utilities.magic-url", "URL_UTIL.URI_REQUIRED"))
+    .min(1, tStatic(UTILITIES_MAGIC_URL_MODULE, "URL_UTIL.URI_REQUIRED"))
     .regex(
       /^(https?:\/\/)?([\da-z.-]+)\.([a-z]{2,6})([/\w .-]*)\/?$/,
-      tStatic("utilities.magic-url", "URL_UTIL.INVALID_URI"),
+      tStatic(UTILITIES_MAGIC_URL_MODULE, "URL_UTIL.INVALID_URI"),
     )
     .refine(
       (val) => {
@@ -43,10 +45,10 @@ export const createMagicUrlSchema = () =>
           return false;
         }
       },
-      { message: tStatic("utilities.magic-url", "URL_UTIL.INVALID_URI") },
+      { message: tStatic(UTILITIES_MAGIC_URL_MODULE, "URL_UTIL.INVALID_URI") },
     ),
   name: z
     .string()
-    .min(1, tStatic("utilities.magic-url", "URL_UTIL.NAME_REQUIRED"))
-    .max(100, tStatic("utilities.magic-url", "URL_UTIL.NAME_TOO_LONG")),
+    .min(1, tStatic(UTILITIES_MAGIC_URL_MODULE, "URL_UTIL.NAME_REQUIRED"))
+    .max(100, tStatic(UTILITIES_MAGIC_URL_MODULE, "URL_UTIL.NAME_TOO_LONG")),
 });

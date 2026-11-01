@@ -37,6 +37,9 @@ import { createSmsProviderSchema, type SmsProviderFormValues } from "../schemas/
 import { SmsRequestError } from "../services/sms.service";
 import { applyServerErrors } from "../utils/sms.util";
 
+const UTILITIES_SMS_MODULE = "utilities.sms";
+const SMS_PROVIDER_PAGE_PROVIDER = "SMS_PROVIDER_PAGE.PROVIDER";
+
 const DEFAULTS: SmsProviderFormValues = {
   name: "Default",
   providerType: SmsProviderType.Twilio,
@@ -121,7 +124,7 @@ export const toSaveRequest = (
 };
 
 export const SmsProviderPage = () => {
-  const { t } = useT("utilities.sms");
+  const { t } = useT(UTILITIES_SMS_MODULE);
   const { data: configuration, error, isError, isLoading, refetch } = useSmsProviderConfiguration();
 
   if (isLoading) {
@@ -158,7 +161,7 @@ export const SmsProviderPage = () => {
 };
 
 const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfiguration | null }) => {
-  const { t, language } = useT("utilities.sms");
+  const { t, language } = useT(UTILITIES_SMS_MODULE);
   const urlPolicyOptions = [
     {
       value: SmsUrlPolicy.Allow,
@@ -220,6 +223,8 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
     }
   };
 
+  const idleSaveLabel = configuration ? t("common:SAVE_CHANGES") : t("SMS_PROVIDER_PAGE.SAVE_PROVIDER");
+
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SmsPageHeader
@@ -241,17 +246,17 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
         <Card className="rounded-xl p-5 sm:p-6">
           <Form {...form}>
             <form className="space-y-8" onSubmit={form.handleSubmit(submit)} noValidate>
-              <SmsFormSection title={t("SMS_PROVIDER_PAGE.PROVIDER")} description={t("SMS_PROVIDER_PAGE.THE_ACCOUNT_MESSAGES_ARE_SENT")}>
+              <SmsFormSection title={t(SMS_PROVIDER_PAGE_PROVIDER)} description={t("SMS_PROVIDER_PAGE.THE_ACCOUNT_MESSAGES_ARE_SENT")}>
                 <div className="grid gap-5 sm:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="providerType"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t("SMS_PROVIDER_PAGE.PROVIDER")}</FormLabel>
+                        <FormLabel>{t(SMS_PROVIDER_PAGE_PROVIDER)}</FormLabel>
                         <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
                           <FormControl>
-                            <SelectTrigger aria-label={t("SMS_PROVIDER_PAGE.PROVIDER")}>
+                            <SelectTrigger aria-label={t(SMS_PROVIDER_PAGE_PROVIDER)}>
                               <SelectValue />
                             </SelectTrigger>
                           </FormControl>
@@ -468,7 +473,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
               <div className="flex justify-end border-t pt-6">
                 <Button type="submit" disabled={isPending}>
                   {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  {isPending ? t("SMS_PROVIDER_PAGE.SAVING") : configuration ? t("common:SAVE_CHANGES") : t("SMS_PROVIDER_PAGE.SAVE_PROVIDER")}
+                  {isPending ? t("SMS_PROVIDER_PAGE.SAVING") : idleSaveLabel}
                 </Button>
               </div>
             </form>
@@ -509,7 +514,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
 
 /** The URL providers call back on; built exactly as the server builds it (SmsCallbackUrls). */
 const CallbackCard = ({ control }: { control: Control<SmsProviderFormValues> }) => {
-  const { t } = useT("utilities.sms");
+  const { t } = useT(UTILITIES_SMS_MODULE);
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const [baseUrl, providerType] = useWatch({ control, name: ["statusCallbackBaseUrl", "providerType"] });
   const provider = providerType === SmsProviderType.Twilio ? "twilio" : "telnyx";

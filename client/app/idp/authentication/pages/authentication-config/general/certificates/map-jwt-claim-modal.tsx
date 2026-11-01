@@ -34,6 +34,8 @@ import { jwtDecode } from "jwt-decode";
 import { X } from "lucide-react";
 import { useState, useCallback, useMemo } from "react";
 
+const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
+
 interface DecodedJwt {
   [key: string]: unknown;
 }
@@ -48,11 +50,11 @@ type RequiredProperty = "userId" | "email" | "name" | "userName" | "roles";
 const REQUIRED_PROPERTIES: RequiredProperty[] = ["userId", "email", "name", "userName", "roles"];
 
 const getPropertyLabels = (): Record<RequiredProperty, string> => ({
-  userId: tStatic("utilities.idp.authentication", "MAP_JWT_CLAIM_MODAL.USER_ID"),
-  email: tStatic("utilities.idp.authentication", "common:EMAIL"),
-  name: tStatic("utilities.idp.authentication", "common:NAME"),
-  userName: tStatic("utilities.idp.authentication", "MAP_JWT_CLAIM_MODAL.USER_NAME"),
-  roles: tStatic("utilities.idp.authentication", "MAP_JWT_CLAIM_MODAL.ROLES"),
+  userId: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "MAP_JWT_CLAIM_MODAL.USER_ID"),
+  email: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "common:EMAIL"),
+  name: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "common:NAME"),
+  userName: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "MAP_JWT_CLAIM_MODAL.USER_NAME"),
+  roles: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "MAP_JWT_CLAIM_MODAL.ROLES"),
 });
 
 // JWT Input Section Component
@@ -69,7 +71,7 @@ const JwtInputSection: React.FC<JwtInputSectionProps> = ({
   validationError,
   onDecode,
 }) => {
-  const { t } = useT("utilities.idp.authentication");
+  const { t } = useT(UTILITIES_IDP_AUTHENTICATION_MODULE);
   return (
   <div className="space-y-3">
     <p className="text-sm font-medium text-foreground">{t("MAP_JWT_CLAIM_MODAL.JSON_WEB_TOKEN_JWT")}</p>
@@ -105,7 +107,7 @@ const MappingTableSection: React.FC<MappingTableSectionProps> = ({
   mapping,
   onMappingChange,
 }) => {
-  const { t } = useT("utilities.idp.authentication");
+  const { t } = useT(UTILITIES_IDP_AUTHENTICATION_MODULE);
   const existingMappedValues = useMemo(() => {
     const values = Object.values(mapping).filter((value) => value !== "");
     return Array.from(new Set(values));
@@ -184,7 +186,7 @@ const ModalFooter: React.FC<ModalFooterProps> = ({
   isSaveDisabled,
   isLoading,
 }) => {
-  const { t } = useT("utilities.idp.authentication");
+  const { t } = useT(UTILITIES_IDP_AUTHENTICATION_MODULE);
   return (
   <div className="flex flex-col gap-2 pt-4 sm:flex-row sm:justify-end sm:gap-3">
     <Button onClick={onCancel} variant="outline" className="w-full sm:w-auto">
@@ -202,7 +204,7 @@ const ModalFooter: React.FC<ModalFooterProps> = ({
 };
 
 const MapJwtClaimModal: React.FC<MapJwtClaimModalProps> = ({ open, onOpenChange }) => {
-  const { t } = useT("utilities.idp.authentication");
+  const { t } = useT(UTILITIES_IDP_AUTHENTICATION_MODULE);
   const [jwtToken, setJwtToken] = useState<string>("");
   const [decodedJwt, setDecodedJwt] = useState<string[]>([]);
   const [mapping, setMapping] = useState<Record<RequiredProperty, string>>({

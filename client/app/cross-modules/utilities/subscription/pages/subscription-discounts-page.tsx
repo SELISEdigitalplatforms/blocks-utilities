@@ -20,6 +20,8 @@ import { subscriptionService } from "../services/subscription.service";
 import { formatMoney, formatPrice } from "../utilities/subscription-format";
 import { joinList } from "../utilities/subscription-i18n";
 
+const UTILITIES_SUBSCRIPTION_PAGES_MODULE = "utilities.subscription.pages";
+
 /**
  * What a discount applies to, in one line.
  *
@@ -41,21 +43,21 @@ const describeApplicability = (
   });
 
   if (planCodes.length === 0 && prices.length === 0) {
-    return tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.APPLIES_TO_ANY");
+    return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.APPLIES_TO_ANY");
   }
 
   const parts = [
     planCodes.length > 0
-      ? tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.RESTRICTED_PLANS", { plans: planCodes.join(", ") })
+      ? tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.RESTRICTED_PLANS", { plans: planCodes.join(", ") })
       : null,
     prices.length > 0
-      ? tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.RESTRICTED_PRICES", { prices: prices.join(", ") })
+      ? tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.RESTRICTED_PRICES", { prices: prices.join(", ") })
       : null,
   ].filter(Boolean);
 
   // "and" rather than "or": both restrictions have to match, which is the part an author is most
   // likely to get wrong when they set both.
-  return tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.RESTRICTED_TO", { parts: joinList(parts as string[]) });
+  return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.RESTRICTED_TO", { parts: joinList(parts as string[]) });
 };
 
 /** A campaign's own window and rules, in one line — absent for a Standard discount. */
@@ -64,8 +66,8 @@ const describeCampaign = (discount: SubscriptionDiscount): string | null => {
 
   const kindLabel =
     discount.campaignKind === "FreeOpeningCalendarPeriod"
-      ? tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.KIND_FREE_OPENING")
-      : tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.KIND_FIRST_YEAR");
+      ? tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.KIND_FREE_OPENING")
+      : tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.KIND_FIRST_YEAR");
   const window =
     discount.validFromDate && discount.validThroughDate
       ? `${discount.validFromDate} – ${discount.validThroughDate}`
@@ -84,20 +86,20 @@ const EFFECTIVE_STATE_VARIANT: Record<SubscriptionDiscount["effectiveState"], "d
 const stateLabel = (state: string): string => {
   switch (state) {
     case "Active":
-      return tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.STATE_ACTIVE");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.STATE_ACTIVE");
     case "Upcoming":
-      return tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.STATE_UPCOMING");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.STATE_UPCOMING");
     case "Expired":
-      return tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.STATE_EXPIRED");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.STATE_EXPIRED");
     case "Archived":
-      return tStatic("utilities.subscription.pages", "DISCOUNTS_PAGE.STATE_ARCHIVED");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.STATE_ARCHIVED");
     default:
       return state;
   }
 };
 
 export const SubscriptionDiscountsPage = () => {
-  const { t } = useT("utilities.subscription.pages");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PAGES_MODULE);
   const { itemId } = useParams();
   const organizationId = useOrganizationScope();
   const queryClient = useQueryClient();

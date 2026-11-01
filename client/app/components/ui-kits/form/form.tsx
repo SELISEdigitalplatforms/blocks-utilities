@@ -14,7 +14,6 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui-kits/label/label";
-import { tStatic } from "@seliseblocks/genesis-os";
 
 const Form = FormProvider;
 

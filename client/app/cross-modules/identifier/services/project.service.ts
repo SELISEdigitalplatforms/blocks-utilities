@@ -37,6 +37,9 @@ import {
 } from "@blocks-identifier/constants/endpoint.constant";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_CONSOLE_MODULE = "utilities.console";
+const PROJECT_SERVICE_INVALID_PROVIDE_A_VALID_JWKS = "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS";
+
 export class ProjectService {
   getProjects(page = 0, pageSize = 100, tenantGroupId = ""): Promise<IProjectGroup[]> {
     const url = `${PROJECT_ENDPOINTS.GETS}?page=${page}&pageSize=${pageSize}&tenantGroupId=${tenantGroupId}`;
@@ -166,7 +169,7 @@ export class ProjectService {
         // HTTP error
         return {
           isValid: false,
-          error: tStatic("utilities.console", "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS"),
+          error: tStatic(UTILITIES_CONSOLE_MODULE, PROJECT_SERVICE_INVALID_PROVIDE_A_VALID_JWKS),
         };
       }
 
@@ -176,7 +179,7 @@ export class ProjectService {
         // Response is not JSON
         return {
           isValid: false,
-          error: tStatic("utilities.console", "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS"),
+          error: tStatic(UTILITIES_CONSOLE_MODULE, PROJECT_SERVICE_INVALID_PROVIDE_A_VALID_JWKS),
         };
       }
 
@@ -188,7 +191,7 @@ export class ProjectService {
         // Missing or invalid 'keys' array in JWKS
         return {
           isValid: false,
-          error: tStatic("utilities.console", "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS"),
+          error: tStatic(UTILITIES_CONSOLE_MODULE, PROJECT_SERVICE_INVALID_PROVIDE_A_VALID_JWKS),
         };
       }
 
@@ -197,7 +200,7 @@ export class ProjectService {
       console.error("JWKS URL Validation Error:", error);
       return {
         isValid: false,
-        error: tStatic("utilities.console", "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS"),
+        error: tStatic(UTILITIES_CONSOLE_MODULE, PROJECT_SERVICE_INVALID_PROVIDE_A_VALID_JWKS),
       };
     }
   }

@@ -1,6 +1,5 @@
 import { StepperContextType, Steps } from "./stepper-models";
 import React, { createContext, useContext, useState, ReactNode } from "react";
-import { tStatic } from "@seliseblocks/genesis-os";
 
 const StepperContext = createContext<StepperContextType | undefined>(undefined);
 

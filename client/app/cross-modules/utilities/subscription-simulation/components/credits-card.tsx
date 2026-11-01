@@ -32,29 +32,34 @@ import type {
 } from "../models/subscription-simulation.model";
 import { tStatic, useT } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+const CREDITS_CARD_SHARED_POOL = "CREDITS_CARD.SHARED_POOL";
+const CREDITS_CARD_CREDITS = "CREDITS_CARD.CREDITS";
+const COMMON_CANCEL = "common:CANCEL";
+
 const expiryLabel = (policy: CreditGrant["expiryPolicy"]): string => {
   switch (policy) {
     case "Periodic":
-      return tStatic("utilities.subscription-simulation", "CREDITS_CARD.EXPIRE_WITH_USAGE_WINDOW");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.EXPIRE_WITH_USAGE_WINDOW");
     case "CarryForward":
-      return tStatic("utilities.subscription-simulation", "CREDITS_CARD.CARRY_FORWARD");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.CARRY_FORWARD");
     default:
-      return tStatic("utilities.subscription-simulation", "CREDITS_CARD.NEVER_EXPIRE");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.NEVER_EXPIRE");
   }
 };
 
 const expiresAfterText = (count: number, unit: string): string => {
   switch (unit) {
     case "Hour":
-      return tStatic("utilities.subscription-simulation", "CREDITS_CARD.LAST_HOURS", { count });
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_HOURS", { count });
     case "Week":
-      return tStatic("utilities.subscription-simulation", "CREDITS_CARD.LAST_WEEKS", { count });
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_WEEKS", { count });
     case "Month":
-      return tStatic("utilities.subscription-simulation", "CREDITS_CARD.LAST_MONTHS", { count });
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_MONTHS", { count });
     case "Year":
-      return tStatic("utilities.subscription-simulation", "CREDITS_CARD.LAST_YEARS", { count });
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_YEARS", { count });
     default:
-      return tStatic("utilities.subscription-simulation", "CREDITS_CARD.LAST_DAYS", { count });
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_DAYS", { count });
   }
 };
 
@@ -83,8 +88,8 @@ const seatOf = (value: string): number | null => (value.trim() === "" ? null : N
 
 const bucketLabel = (seat: number | null) =>
   seat === null
-    ? tStatic("utilities.subscription-simulation", "CREDITS_CARD.SHARED_POOL")
-    : tStatic("utilities.subscription-simulation", "CREDITS_CARD.SEAT_NUMBER", { seat });
+    ? tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, CREDITS_CARD_SHARED_POOL)
+    : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.SEAT_NUMBER", { seat });
 
 type Action = { kind: "buy" | "grant" | "move"; meter: MeterTerms };
 
@@ -101,7 +106,7 @@ export const CreditsCard = ({
   subscription: SimulatedSubscription;
   organizationId: string | undefined;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [action, setAction] = useState<Action | null>(null);
   const grants = useCreditGrants(subscription.subscriptionId, organizationId);
 
@@ -112,10 +117,15 @@ export const CreditsCard = ({
     return null;
   }
 
+  const describeExpiry = (purchase: NonNullable<(typeof meters)[number]["creditPurchase"]>): string => {
+    if (purchase.expiresAfter) return expiresAfterText(purchase.expiresAfter.count, purchase.expiresAfter.unit);
+    return t("CREDITS_CARD.CREDITS_EXPIRY", { expiry: expiryLabel(purchase.expiryPolicy) });
+  };
+
   return (
     <Card className="rounded-xl p-0">
       <div className="border-b p-4 sm:p-5">
-        <h2 className="font-semibold">{t("CREDITS_CARD.CREDITS")}</h2>
+        <h2 className="font-semibold">{t(CREDITS_CARD_CREDITS)}</h2>
         <p className="text-xs text-muted-foreground">
           {t("CREDITS_CARD.EXTRA_CREDITS_ARE_SPENT_AFTER")}
         </p>
@@ -136,11 +146,7 @@ export const CreditsCard = ({
                       currencyCode: meter.creditPurchase.currencyCode,
                       min: meter.creditPurchase.minQuantity.toLocaleString(),
                       max: meter.creditPurchase.maxQuantity.toLocaleString(),
-                    })} ${
-                      meter.creditPurchase.expiresAfter
-                        ? expiresAfterText(meter.creditPurchase.expiresAfter.count, meter.creditPurchase.expiresAfter.unit)
-                        : t("CREDITS_CARD.CREDITS_EXPIRY", { expiry: expiryLabel(meter.creditPurchase.expiryPolicy) })
-                    }`
+                    })} ${describeExpiry(meter.creditPurchase)}`
                   : t("CREDITS_CARD.CREDITS_FOR_THIS_METER_ARE", { currencyCode: subscription.currencyCode })}
               </p>
             </div>
@@ -200,7 +206,7 @@ const GrantList = ({
   isLoading: boolean;
   error: unknown;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   return (
   <div className="border-t p-4 sm:p-5">
     <h3 className="mb-2 text-sm font-semibold">{t("CREDITS_CARD.GRANTS")}</h3>
@@ -259,7 +265,7 @@ const BuyCreditsDialog = ({
   organizationId: string | undefined;
   onClose: () => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const terms = meter.creditPurchase!;
   const [quantity, setQuantity] = useState(String(Math.max(terms.minQuantity, 100)));
   const [seat, setSeat] = useState("");
@@ -345,7 +351,7 @@ const BuyCreditsDialog = ({
 
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1">
-            <Label htmlFor="credit-quantity">{t("CREDITS_CARD.CREDITS")}</Label>
+            <Label htmlFor="credit-quantity">{t(CREDITS_CARD_CREDITS)}</Label>
             <Input
               id="credit-quantity"
               type="number"
@@ -361,7 +367,7 @@ const BuyCreditsDialog = ({
               id="credit-seat"
               type="number"
               min={1}
-              placeholder={t("CREDITS_CARD.SHARED_POOL")}
+              placeholder={t(CREDITS_CARD_SHARED_POOL)}
               value={seat}
               onChange={(event) => edit(() => setSeat(event.target.value))}
             />
@@ -428,7 +434,7 @@ const BuyCreditsDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            {t("common:CANCEL")}
+            {t(COMMON_CANCEL)}
           </Button>
           {awaiting ? (
             <Button onClick={buy} disabled={purchase.isPending}>
@@ -463,7 +469,7 @@ const GrantCreditsDialog = ({
   organizationId: string | undefined;
   onClose: () => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [quantity, setQuantity] = useState("10");
   const [seat, setSeat] = useState("");
   const [reason, setReason] = useState("");
@@ -498,7 +504,7 @@ const GrantCreditsDialog = ({
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="grant-quantity">{t("CREDITS_CARD.CREDITS")}</Label>
+            <Label htmlFor="grant-quantity">{t(CREDITS_CARD_CREDITS)}</Label>
             <Input
               id="grant-quantity"
               type="number"
@@ -513,7 +519,7 @@ const GrantCreditsDialog = ({
               id="grant-seat"
               type="number"
               min={1}
-              placeholder={t("CREDITS_CARD.SHARED_POOL")}
+              placeholder={t(CREDITS_CARD_SHARED_POOL)}
               value={seat}
               onChange={(event) => setSeat(event.target.value)}
             />
@@ -535,7 +541,7 @@ const GrantCreditsDialog = ({
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            {t("common:CANCEL")}
+            {t(COMMON_CANCEL)}
           </Button>
           <Button onClick={submit} disabled={grant.isPending || !reason.trim()}>
             {grant.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -558,7 +564,7 @@ const MoveCreditsDialog = ({
   organizationId: string | undefined;
   onClose: () => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [quantity, setQuantity] = useState("10");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -596,7 +602,7 @@ const MoveCreditsDialog = ({
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1">
-            <Label htmlFor="move-quantity">{t("CREDITS_CARD.CREDITS")}</Label>
+            <Label htmlFor="move-quantity">{t(CREDITS_CARD_CREDITS)}</Label>
             <Input
               id="move-quantity"
               type="number"
@@ -611,7 +617,7 @@ const MoveCreditsDialog = ({
               id="move-from"
               type="number"
               min={1}
-              placeholder={t("CREDITS_CARD.SHARED_POOL")}
+              placeholder={t(CREDITS_CARD_SHARED_POOL)}
               value={from}
               onChange={(event) => setFrom(event.target.value)}
             />
@@ -622,7 +628,7 @@ const MoveCreditsDialog = ({
               id="move-to"
               type="number"
               min={1}
-              placeholder={t("CREDITS_CARD.SHARED_POOL")}
+              placeholder={t(CREDITS_CARD_SHARED_POOL)}
               value={to}
               onChange={(event) => setTo(event.target.value)}
             />
@@ -635,7 +641,7 @@ const MoveCreditsDialog = ({
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            {t("common:CANCEL")}
+            {t(COMMON_CANCEL)}
           </Button>
           <Button onClick={submit} disabled={move.isPending || from === to}>
             {move.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

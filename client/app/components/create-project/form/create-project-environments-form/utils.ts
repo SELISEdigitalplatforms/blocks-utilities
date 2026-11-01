@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SHARED_MODULE = "utilities.shared";
+
 export const createProjectEnvironmentFormDefaultValue = {
   environments: [] as { value: string }[],
 };
@@ -13,56 +15,56 @@ export const createProjectEnvironmentFormSchema = () =>
         value: z.string(),
       }),
     )
-    .min(1, tStatic("utilities.shared", "CREATE_PROJECT_ENVIRONMENTS_FORM.AT_LEAST_ONE_ENVIRONMENT")),
+    .min(1, tStatic(UTILITIES_SHARED_MODULE, "CREATE_PROJECT_ENVIRONMENTS_FORM.AT_LEAST_ONE_ENVIRONMENT")),
 });
 
 export const getEnvironmentOptions = () => [
   {
     index: 0,
-    label: tStatic("utilities.shared", "UTILS.DEVELOPMENT"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.DEVELOPMENT"),
     value: "dev",
-    subtext: tStatic("utilities.shared", "UTILS.FOR_DAY_TO_DAY_DEVELOPMENT"),
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_DAY_TO_DAY_DEVELOPMENT"),
   },
   {
     index: 1,
-    label: tStatic("utilities.shared", "UTILS.TESTING"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.TESTING"),
     value: "test",
-    subtext: tStatic("utilities.shared", "UTILS.FOR_QA_TESTING_AND_VALIDATION"),
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_QA_TESTING_AND_VALIDATION"),
   },
   {
     index: 2,
-    label: tStatic("utilities.shared", "UTILS.STAGING"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.STAGING"),
     value: "stg",
-    subtext: tStatic("utilities.shared", "UTILS.FOR_FINAL_PRE_PROD_VALIDATION"),
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_FINAL_PRE_PROD_VALIDATION"),
   },
   {
     index: 3,
     label: "IAT",
     value: "iat",
-    subtext: tStatic("utilities.shared", "UTILS.FOR_TESTING_SERVICE_INTEGRATIONS"),
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_TESTING_SERVICE_INTEGRATIONS"),
   },
   {
     index: 4,
     label: "UAT",
     value: "uat",
-    subtext: tStatic("utilities.shared", "UTILS.FOR_END_USER_OR_STAKEHOLDER"),
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_END_USER_OR_STAKEHOLDER"),
   },
   {
     index: 5,
-    label: tStatic("utilities.shared", "UTILS.PROD_SHADOW"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.PROD_SHADOW"),
     value: "prod-shadow",
-    subtext: tStatic("utilities.shared", "UTILS.FOR_MIRRORING_PRODUCTION_DATA"),
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_MIRRORING_PRODUCTION_DATA"),
   },
   {
     index: 6,
-    label: tStatic("utilities.shared", "UTILS.PRE_PROD"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.PRE_PROD"),
     value: "pre-prod",
-    subtext: tStatic("utilities.shared", "UTILS.FOR_LOAD_TESTING_SECURITY_CHECKS"),
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_LOAD_TESTING_SECURITY_CHECKS"),
   },
   {
     index: 7,
-    label: tStatic("utilities.shared", "UTILS.PRODUCTION"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.PRODUCTION"),
     value: "prod",
-    subtext: tStatic("utilities.shared", "UTILS.THE_LIVE_ENVIRONMENT_SERVING"),
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.THE_LIVE_ENVIRONMENT_SERVING"),
   },
 ];

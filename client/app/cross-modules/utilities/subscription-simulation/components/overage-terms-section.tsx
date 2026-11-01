@@ -7,6 +7,8 @@ import type { MeterTerms, SimulatedSubscription } from "../models/subscription-s
 import { EstimateUsageDialog } from "./estimate-usage-dialog";
 import { tStatic, useT } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 /**
  * The statuses whose overage can actually be estimated. Mirrors the server's own
  * `LiveStatuses`/`GetLiveAsync` -- the overage preview endpoint resolves the subscription with
@@ -20,25 +22,25 @@ const describeAllowance = (
   usageInterval: string,
   usageIntervalCount: number,
 ): string => {
-  const included = tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.INCLUDED", {
+  const included = tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.INCLUDED", {
     count: meter.includedQuantity,
     quantity: meter.includedQuantity.toLocaleString(),
     unit: meter.unitLabel,
   });
 
   if (meter.resetPolicy === "Never") {
-    return tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.ALLOWANCE_LIFETIME", { included });
+    return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.ALLOWANCE_LIFETIME", { included });
   }
 
   const cadence = formatInterval(usageInterval, usageIntervalCount);
 
   if (meter.resetPolicy === "CarryForward") {
-    return meter.carryForwardCap != null
-      ? tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.ALLOWANCE_CARRY_FORWARD_CAP", { included, cadence, cap: meter.carryForwardCap.toLocaleString() })
-      : tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.ALLOWANCE_CARRY_FORWARD", { included, cadence });
+    return meter.carryForwardCap == null
+      ? tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.ALLOWANCE_CARRY_FORWARD", { included, cadence })
+      : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.ALLOWANCE_CARRY_FORWARD_CAP", { included, cadence, cap: meter.carryForwardCap.toLocaleString() });
   }
 
-  return tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.ALLOWANCE_PERIODIC", { included, cadence });
+  return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.ALLOWANCE_PERIODIC", { included, cadence });
 };
 
 /**
@@ -56,7 +58,7 @@ const describeTrialAwareAllowance = (
     return allowance;
   }
 
-  return tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.TRIAL_ALLOWANCE", {
+  return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.TRIAL_ALLOWANCE", {
     count: meter.trialIncludedQuantity,
     quantity: meter.trialIncludedQuantity.toLocaleString(),
     unit: meter.unitLabel,
@@ -80,24 +82,24 @@ const describeOveragePricing = (meter: MeterTerms): string => {
   let previousBoundary = 0;
 
   const segments = pricing.tiers.map((tier, index) => {
-    const amount = tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.TIER_AMOUNT", { currency: pricing.currencyCode, amount: tier.unitAmount });
+    const amount = tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.TIER_AMOUNT", { currency: pricing.currencyCode, amount: tier.unitAmount });
 
     if (tier.upToQuantity == null) {
-      return index === 0 ? amount : tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.THEREAFTER", { amount });
+      return index === 0 ? amount : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.THEREAFTER", { amount });
     }
 
     const span = tier.upToQuantity - previousBoundary;
     const label =
       index === 0
-        ? tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.FIRST_ADDITIONAL", { count: span, span: span.toLocaleString(), unit })
-        : tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.NEXT_UNITS", { count: span, span: span.toLocaleString(), unit });
+        ? tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.FIRST_ADDITIONAL", { count: span, span: span.toLocaleString(), unit })
+        : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.NEXT_UNITS", { count: span, span: span.toLocaleString(), unit });
 
     previousBoundary = tier.upToQuantity;
 
-    return tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.TIER_SEGMENT", { label, amount });
+    return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.TIER_SEGMENT", { label, amount });
   });
 
-  return tStatic("utilities.subscription-simulation", "OVERAGE_TERMS_SECTION.PRICING_LIST", { segments: segments.join("; ") });
+  return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "OVERAGE_TERMS_SECTION.PRICING_LIST", { segments: segments.join("; ") });
 };
 
 const MeterTermsRow = ({
@@ -113,7 +115,7 @@ const MeterTermsRow = ({
   canEstimate: boolean;
   onEstimate: () => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const pricingText = describeOveragePricing(meter);
   const isPriced = meter.overageAllowed && Boolean(pricingText);
   const isUnpriced = meter.overageAllowed && !pricingText;
@@ -162,7 +164,7 @@ export const OverageTermsSection = ({
   subscription: SimulatedSubscription | null | undefined;
   organizationId: string | undefined;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [estimating, setEstimating] = useState<MeterTerms | null>(null);
 
   if (!subscription || subscription.meters.length === 0) {

@@ -1,5 +1,7 @@
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SHARED_MODULE = "utilities.shared";
+
 type BreadcrumbRouteConfig = {
   title?: string;
   skip?: boolean;
@@ -9,61 +11,61 @@ type BreadcrumbRouteConfig = {
 
 export const getBreadcrumbRoutes = (): Record<string, BreadcrumbRouteConfig> => ({
   "/notification": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.NOTIFICATIONS"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.NOTIFICATIONS"),
   },
   "/app/:itemId/notification": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.NOTIFICATIONS"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.NOTIFICATIONS"),
   },
   "/payment": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.PAYMENTS"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENTS"),
   },
   "/app/:itemId/payment": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.PAYMENTS"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENTS"),
   },
   "/payment/list": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.PAYMENT_LIST"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENT_LIST"),
   },
   "/app/:itemId/payment/list": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.PAYMENT_LIST"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENT_LIST"),
   },
   "/payment/create": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.CREATE_PAYMENT"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.CREATE_PAYMENT"),
   },
   "/app/:itemId/payment/create": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.CREATE_PAYMENT"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.CREATE_PAYMENT"),
   },
   "/payment/cards": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.SAVED_CARDS"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.SAVED_CARDS"),
   },
   "/app/:itemId/payment/cards": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.SAVED_CARDS"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.SAVED_CARDS"),
   },
   "/payment/result": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.PAYMENT_RESULT"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENT_RESULT"),
   },
   "/app/:itemId/payment/result": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.PAYMENT_RESULT"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENT_RESULT"),
   },
   "/sms": { title: "SMS" },
   "/app/:itemId/sms": { title: "SMS" },
-  "/sms/send": { title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.SEND_SMS") },
-  "/app/:itemId/sms/send": { title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.SEND_SMS") },
-  "/sms/templates": { title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.TEMPLATES") },
-  "/app/:itemId/sms/templates": { title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.TEMPLATES") },
-  "/sms/provider": { title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.PROVIDER_SETTINGS") },
-  "/app/:itemId/sms/provider": { title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.PROVIDER_SETTINGS") },
+  "/sms/send": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.SEND_SMS") },
+  "/app/:itemId/sms/send": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.SEND_SMS") },
+  "/sms/templates": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.TEMPLATES") },
+  "/app/:itemId/sms/templates": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.TEMPLATES") },
+  "/sms/provider": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PROVIDER_SETTINGS") },
+  "/app/:itemId/sms/provider": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PROVIDER_SETTINGS") },
   "/magic-url": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.MAGIC_URL"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.MAGIC_URL"),
   },
   "/app/:itemId/magic-url": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.MAGIC_URL"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.MAGIC_URL"),
   },
   "/magic-url/details": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.LIST"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.LIST"),
     href: "/magic-url",
   },
   "/app/:itemId/magic-url/details": {
-    title: tStatic("utilities.shared", "BREADCRUMB_CUSTOM_TITLE.LIST"),
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.LIST"),
     href: "/app/:itemId/magic-url",
   },
   "/magic-url/details/:id": {

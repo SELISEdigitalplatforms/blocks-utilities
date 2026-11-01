@@ -42,6 +42,8 @@ import type {
 } from "../models/create-payment.model";
 import { createPaymentSchema } from "../schemas/create-payment.schema";
 
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
+
 const createDefaultOrderId = () => `TEST-ORDER-${Date.now()}`;
 
 /** Radix rejects an empty string as a SelectItem value, so "use my context" needs a sentinel. */
@@ -51,20 +53,20 @@ const ORGANIZATION_PAGE_SIZE = 200;
 
 const getSecureCheckoutUrl = (redirectUrl: string | null): string => {
   if (!redirectUrl) {
-    throw new Error(tStatic("utilities.payment", "CREATE_PAYMENT_PAGE.THE_PAYMENT_PROVIDER_DID_NOT"));
+    throw new Error(tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_PAGE.THE_PAYMENT_PROVIDER_DID_NOT"));
   }
 
   const parsedUrl = new URL(redirectUrl);
 
   if (parsedUrl.protocol !== "https:") {
-    throw new Error(tStatic("utilities.payment", "CREATE_PAYMENT_PAGE.THE_PAYMENT_PROVIDER_RETURNED_AN"));
+    throw new Error(tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_PAGE.THE_PAYMENT_PROVIDER_RETURNED_AN"));
   }
 
   return parsedUrl.toString();
 };
 
 export const CreatePaymentPage = () => {
-  const { t } = useT("utilities.payment");
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   const { itemId } = useParams();
   const { mutateAsync, isPending } = useCreatePayment();
   const [createdPayment, setCreatedPayment] =

@@ -14,6 +14,8 @@ import { Card } from "@/components/ui-kits/card/card";
 import { cn } from "@/lib/utils";
 import { tStatic, useT } from "@seliseblocks/genesis-os";
 
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
+
 type PaymentResultStatus =
   | "success"
   | "fail"
@@ -34,41 +36,41 @@ const getResultPresentations = (): Record<
   PaymentResultPresentation
 > => ({
   success: {
-    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_COMPLETED"),
+    title: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.PAYMENT_COMPLETED"),
     description:
-      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.SUCCESS_DESCRIPTION"),
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.SUCCESS_DESCRIPTION"),
     Icon: CheckCircle2,
     iconClassName: "text-green-700",
     iconContainerClassName: "border-green-200 bg-green-50",
   },
   fail: {
-    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_FAILED"),
+    title: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.PAYMENT_FAILED"),
     description:
-      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.FAILED_DESCRIPTION"),
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.FAILED_DESCRIPTION"),
     Icon: XCircle,
     iconClassName: "text-destructive",
     iconContainerClassName: "border-destructive/20 bg-destructive/5",
   },
   cancelled: {
-    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_CANCELLED"),
+    title: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.PAYMENT_CANCELLED"),
     description:
-      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.CANCELLED_DESCRIPTION"),
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.CANCELLED_DESCRIPTION"),
     Icon: Ban,
     iconClassName: "text-amber-700",
     iconContainerClassName: "border-amber-200 bg-amber-50",
   },
   pending: {
-    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_PROCESSING"),
+    title: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.PAYMENT_PROCESSING"),
     description:
-      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PROCESSING_DESCRIPTION"),
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.PROCESSING_DESCRIPTION"),
     Icon: CircleDashed,
     iconClassName: "animate-spin text-blue-700",
     iconContainerClassName: "border-blue-200 bg-blue-50",
   },
   unknown: {
-    title: tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.PAYMENT_RESULT_UNAVAILABLE"),
+    title: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.PAYMENT_RESULT_UNAVAILABLE"),
     description:
-      tStatic("utilities.payment", "PAYMENT_RESULT_PAGE.UNKNOWN_DESCRIPTION"),
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_RESULT_PAGE.UNKNOWN_DESCRIPTION"),
     Icon: HelpCircle,
     iconClassName: "text-muted-foreground",
     iconContainerClassName: "border-border bg-muted",
@@ -91,7 +93,7 @@ const normalizeStatus = (value: string | null): PaymentResultStatus => {
 };
 
 export const PaymentResultPage = () => {
-  const { t } = useT("utilities.payment");
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   const { itemId } = useParams();
   const [searchParameters] = useSearchParams();
   const status = normalizeStatus(searchParameters.get("status"));

@@ -17,6 +17,8 @@ import type {
 } from "../models/subscription-simulation-harness.model";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 interface HarnessApiError {
   code: string;
   message: string;
@@ -113,7 +115,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/mark-payment-succeeded`,
       request,
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_PAYMENT_OUTCOME_COULD_NOT"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_PAYMENT_OUTCOME_COULD_NOT"),
     );
   }
 
@@ -124,7 +126,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/mark-payment-failed`,
       request,
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_PAYMENT_OUTCOME_COULD_NOT"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_PAYMENT_OUTCOME_COULD_NOT"),
     );
   }
 
@@ -135,7 +137,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/advance-renewal`,
       request,
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_RENEWAL_COULD_NOT_BE"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_RENEWAL_COULD_NOT_BE"),
     );
   }
 
@@ -146,7 +148,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/close-usage-period`,
       request,
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_USAGE_PERIOD_COULD_NOT"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_USAGE_PERIOD_COULD_NOT"),
     );
   }
 
@@ -157,7 +159,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/jobs/run-due`,
       request,
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DUE_BACKGROUND_WORK_COULD"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DUE_BACKGROUND_WORK_COULD"),
     );
   }
 
@@ -166,7 +168,7 @@ class SubscriptionSimulationHarnessService {
    * `find`/`update` can reach before trying either.
    */
   async getDataPolicy(): Promise<SubscriptionSimulationDataPolicyResponse[]> {
-    return this.get(`${SIMULATION_HARNESS_ENDPOINT}/data/policy`, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DATA_CONSOLE_POLICY_COULD"));
+    return this.get(`${SIMULATION_HARNESS_ENDPOINT}/data/policy`, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DATA_CONSOLE_POLICY_COULD"));
   }
 
   async findData(
@@ -177,7 +179,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.dataPath(subscriptionId, logicalCollection)}/find`,
       request,
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DATA_COULD_NOT_BE"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DATA_COULD_NOT_BE"),
     );
   }
 
@@ -189,7 +191,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.dataPath(subscriptionId, logicalCollection)}/update`,
       request,
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_FIELD_COULD_NOT_BE"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_FIELD_COULD_NOT_BE"),
     );
   }
 

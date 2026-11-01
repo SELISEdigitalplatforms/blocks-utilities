@@ -48,6 +48,8 @@ import {
 import { describeTax, TAX_MODE_OPTIONS } from "../../utilities/subscription-tax";
 import { CardListItem, CardListShell } from "./card-list-shell";
 
+const UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE = "utilities.subscription.plan-builder";
+
 const ExistingPriceTaxEditor = ({
   price,
   onSave,
@@ -55,7 +57,7 @@ const ExistingPriceTaxEditor = ({
   price: PlanPrice;
   onSave: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
 }) => {
-  const { t } = useT("utilities.subscription.plan-builder");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const [taxPercent, setTaxPercent] = useState<string>(
     price.taxRateBasisPoints ? String(price.taxRateBasisPoints / 100) : "",
   );
@@ -129,7 +131,7 @@ const ExistingPriceDiscountEditor = ({
     combination?: AutomaticDiscountCombination,
   ) => Promise<void>;
 }) => {
-  const { t } = useT("utilities.subscription.plan-builder");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const [discountPercent, setDiscountPercent] = useState<string>(
     price.automaticDiscountBasisPoints ? String(price.automaticDiscountBasisPoints / 100) : "",
   );
@@ -206,7 +208,7 @@ const ExistingPriceDiscountEditor = ({
  * would re-render every price card whenever any one of them changed.
  */
 const PriceTaxFields = ({ index }: { index: number }) => {
-  const { t } = useT("utilities.subscription.plan-builder");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
 
@@ -313,7 +315,7 @@ const PriceTaxFields = ({ index }: { index: number }) => {
  * keystroke in any of them.
  */
 const PriceDiscountFields = ({ index }: { index: number }) => {
-  const { t } = useT("utilities.subscription.plan-builder");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
   const quantityItems = useWatch({ control, name: "quantityItems" });
@@ -442,7 +444,7 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
  * changes, to say which of the two figures this one is.
  */
 const PriceAmountField = ({ index }: { index: number }) => {
-  const { t } = useT("utilities.subscription.plan-builder");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
 
@@ -502,7 +504,7 @@ const PriceBillingAlignmentField = ({
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
 
-  const { t } = useT("utilities.subscription.plan-builder");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const cadence = {
     interval: Number(price?.interval),
     intervalCount: Number(price?.intervalCount),
@@ -584,7 +586,7 @@ const PriceStubBasisField = ({
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
   // Every rule the server applies, so the picker cannot offer a choice the API refuses.
-  const { t } = useT("utilities.subscription.plan-builder");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const eligible = monthlyPrices.filter((candidate) =>
     isCompatibleStubBasis(candidate, {
       currencyCode: price?.currencyCode ?? "",
@@ -721,7 +723,7 @@ export const PlanPriceFields = ({
   ) => Promise<void>;
   retiringPriceId?: string | null;
 }) => {
-  const { t } = useT("utilities.subscription.plan-builder");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const { control, formState } = useFormContext<CreateSubscriptionPlanFormValues>();
   const prices = useFieldArray({ control, name: "prices" });
   const quantityItems = useWatch({ control, name: "quantityItems" });

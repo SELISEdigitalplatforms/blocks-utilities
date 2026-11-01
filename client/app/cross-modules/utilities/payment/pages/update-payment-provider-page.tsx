@@ -27,6 +27,8 @@ import {
 } from "../schemas/payment-provider.schema";
 import { useT } from "@seliseblocks/genesis-os";
 
+const UPDATE_PAYMENT_PROVIDER_PAGE_UPDATE_PAYMENT_PROVIDER = "UPDATE_PAYMENT_PROVIDER_PAGE.UPDATE_PAYMENT_PROVIDER";
+
 const normalizeOptional = (value?: string): string | undefined => {
   const normalized = value?.trim();
   return normalized || undefined;
@@ -100,7 +102,7 @@ export const UpdatePaymentProviderPage = () => {
     return (
       <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
         <PaymentProviderPageHeader
-          title={t("UPDATE_PAYMENT_PROVIDER_PAGE.UPDATE_PAYMENT_PROVIDER")}
+          title={t(UPDATE_PAYMENT_PROVIDER_PAGE_UPDATE_PAYMENT_PROVIDER)}
           description={t("UPDATE_PAYMENT_PROVIDER_PAGE.EDIT_NON_SECRET_PROVIDER")}
           backTo={providersPath}
         />
@@ -120,7 +122,7 @@ export const UpdatePaymentProviderPage = () => {
     return (
       <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
         <PaymentProviderPageHeader
-          title={t("UPDATE_PAYMENT_PROVIDER_PAGE.UPDATE_PAYMENT_PROVIDER")}
+          title={t(UPDATE_PAYMENT_PROVIDER_PAGE_UPDATE_PAYMENT_PROVIDER)}
           description={t("UPDATE_PAYMENT_PROVIDER_PAGE.EDIT_NON_SECRET_PROVIDER")}
           backTo={providersPath}
         />
@@ -185,7 +187,7 @@ export const UpdatePaymentProviderPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <PaymentProviderPageHeader
-        title={t("UPDATE_PAYMENT_PROVIDER_PAGE.UPDATE_PAYMENT_PROVIDER")}
+        title={t(UPDATE_PAYMENT_PROVIDER_PAGE_UPDATE_PAYMENT_PROVIDER)}
         description={t("UPDATE_PAYMENT_PROVIDER_PAGE.CHANGE_RUNTIME_CONFIGURATION")}
         backTo={providersPath}
         icon={<Pencil className="h-6 w-6" />}

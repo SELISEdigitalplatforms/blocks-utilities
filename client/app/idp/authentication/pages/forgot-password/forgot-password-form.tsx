@@ -54,12 +54,16 @@ export const ForgotPasswordForm = () => {
       });
       if (!res.isSuccess) {
         resetCaptcha();
-        return showErrorToast({ errors: res.errors });
+        showErrorToast({ errors: res.errors });
+        return;
       }
       navigate(`/forgot-email-sent?email=${values.email}`);
     } catch (error) {
       resetCaptcha();
-      if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
+      if (isErrorWithErrors(error)) {
+        showErrorToast({ errors: error.errors });
+        return;
+      }
       showErrorToast({ errors: t("FORGOT_PASSWORD_FORM.SOMETHING_WENT_WRONG") });
     }
   };

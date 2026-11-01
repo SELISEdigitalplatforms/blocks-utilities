@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { Trash2 as RemoveIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui-kits/button/button";
 import { showErrorToast } from "@/hooks/use-toast";
-import { useT, tStatic } from "@seliseblocks/genesis-os";
+import { useT } from "@seliseblocks/genesis-os";
 
 type DirectionOptions = "rtl" | "ltr" | undefined;
 

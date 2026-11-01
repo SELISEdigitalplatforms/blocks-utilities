@@ -7,6 +7,8 @@ import type { SubscriptionPlan } from "../../models/subscription-plan.model";
 import { formatPrice } from "../../utilities/subscription-format";
 import { eligiblePrices, purchasableMeters, type CampaignDraft } from "./campaign-draft";
 
+const STEP_ELIGIBILITY_ONE_REDEMPTION = "STEP_ELIGIBILITY.ONE_REDEMPTION";
+
 const toggle = (values: string[], value: string) =>
   values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value];
 
@@ -169,7 +171,7 @@ export const StepEligibility = ({
           <div className="space-y-3 rounded-md border p-3">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-sm font-medium">{t("STEP_ELIGIBILITY.ONE_REDEMPTION")}</p>
+                <p className="text-sm font-medium">{t(STEP_ELIGIBILITY_ONE_REDEMPTION)}</p>
                 {isFreeMonth && (
                   <p className="text-xs text-muted-foreground">{t("STEP_ELIGIBILITY.REQUIRED_FOR_FREE")}</p>
                 )}
@@ -178,7 +180,7 @@ export const StepEligibility = ({
                 checked={draft.oneUsePerOrganization}
                 onCheckedChange={(checked) => onChange({ oneUsePerOrganization: checked === true })}
                 disabled={isFreeMonth}
-                aria-label={t("STEP_ELIGIBILITY.ONE_REDEMPTION")}
+                aria-label={t(STEP_ELIGIBILITY_ONE_REDEMPTION)}
               />
             </div>
             <div className="flex items-center justify-between gap-4">
@@ -288,7 +290,7 @@ const CreditEligibility = ({
 
       <div className="flex items-center justify-between gap-4 rounded-md border p-3">
         <div>
-          <p className="text-sm font-medium">{t("STEP_ELIGIBILITY.ONE_REDEMPTION")}</p>
+          <p className="text-sm font-medium">{t(STEP_ELIGIBILITY_ONE_REDEMPTION)}</p>
           <p className="text-xs text-muted-foreground">
             {t("STEP_ELIGIBILITY.ONE_REDEMPTION_CREDIT_HINT")}
           </p>
@@ -296,7 +298,7 @@ const CreditEligibility = ({
         <Switch
           checked={draft.oneUsePerOrganization}
           onCheckedChange={(checked) => onChange({ oneUsePerOrganization: checked === true })}
-          aria-label={t("STEP_ELIGIBILITY.ONE_REDEMPTION")}
+          aria-label={t(STEP_ELIGIBILITY_ONE_REDEMPTION)}
         />
       </div>
     </>

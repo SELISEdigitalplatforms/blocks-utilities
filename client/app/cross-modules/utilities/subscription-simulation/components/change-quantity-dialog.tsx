@@ -24,6 +24,8 @@ import type {
 import { SubscriptionOperationError } from "../services/subscription-simulation.service";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 /**
  * Changing how many units a subscription has bought, without changing what it is on.
  *
@@ -51,7 +53,7 @@ export const ChangeQuantityDialog = ({
   onOpenChange: (open: boolean) => void;
   onRefresh: () => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const preview = usePreviewQuantityChange();
   const apply = useChangeQuantity();
 
@@ -291,23 +293,23 @@ export const ChangeQuantityDialog = ({
                   screen where somebody confirms a payment. Absent on a flat fee, where nothing is
                   sold by the unit — printing the plan's whole price as the cost of "each" of a
                   freely tracked item would be worse than printing nothing. */}
-              {quote.effectiveUnitAmountMinor !== null ? (
+              {quote.effectiveUnitAmountMinor === null ? null : (
                 <Row
                   label={t("CHANGE_QUANTITY_DIALOG.EFFECTIVE_UNIT_PRICE")}
                   value={t("CHANGE_QUANTITY_DIALOG.EACH_BEFORE_TAX", {
                     amount: formatMoney(quote.effectiveUnitAmountMinor, quote.currencyCode),
                   })}
                 />
-              ) : null}
+              )}
               {/* Worded to what is actually on screen. A flat fee has neither a unit price nor a
                   band, so explaining that "the unit price is below the band's own reduction" there
                   described two things the card never showed — while still being worth saying that a
                   discount is in these figures at all. */}
               {quote.promotionApplied ? (
                 <p className="text-xs text-muted-foreground">
-                  {quote.effectiveUnitAmountMinor !== null
-                    ? t("CHANGE_QUANTITY_DIALOG.INCLUDES_THE_DISCOUNT_ON_THIS")
-                    : t("CHANGE_QUANTITY_DIALOG.INCLUDES_THE_PROMOTIONAL_DISCOUNT")}
+                  {quote.effectiveUnitAmountMinor === null
+                    ? t("CHANGE_QUANTITY_DIALOG.INCLUDES_THE_PROMOTIONAL_DISCOUNT")
+                    : t("CHANGE_QUANTITY_DIALOG.INCLUDES_THE_DISCOUNT_ON_THIS")}
                 </p>
               ) : null}
               <Row
@@ -388,11 +390,11 @@ const describeTier = (tier: QuantityDiscountTier) => {
       : `${tier.minimumQuantity}–${tier.maximumQuantity}`;
 
   return tier.discountBasisPoints > 0
-    ? tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.TIER_PERCENT_OFF", {
+    ? tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.TIER_PERCENT_OFF", {
         range,
         percent: Number((tier.discountBasisPoints / 100).toFixed(2)),
       })
-    : tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.TIER_NO_DISCOUNT", { range });
+    : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.TIER_NO_DISCOUNT", { range });
 };
 
 /**
@@ -405,39 +407,39 @@ const describeTier = (tier: QuantityDiscountTier) => {
 const explain = (code: string, error: unknown): string => {
   switch (code) {
     case "subscription_version_conflict":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_CHANGED_WHILE");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_CHANGED_WHILE");
     case "subscription_quantity_change_in_flight":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.AN_EARLIER_CHANGE_IS_STILL");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.AN_EARLIER_CHANGE_IS_STILL");
     case "subscription_quantity_charge_failed":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THE_SAVED_CARD_DECLINED_THE");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THE_SAVED_CARD_DECLINED_THE");
     // Not the card: the merchant's payment provider refused it. Another card fails the same way,
     // so the payer is told who has to act instead of being sent to change cards.
     case "subscription_quantity_charge_provider_misconfigured":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THE_PAYMENT_PROVIDER_IS_NOT");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THE_PAYMENT_PROVIDER_IS_NOT");
     case "subscription_quantity_charge_unresolved":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THE_PAYMENT_PROVIDER_DID_NOT");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THE_PAYMENT_PROVIDER_DID_NOT");
     case "subscription_payment_method_missing":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.AN_INCREASE_HAS_TO_BE");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.AN_INCREASE_HAS_TO_BE");
     case "subscription_quantity_change_not_allowed":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_CANNOT_CHANGE");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_CANNOT_CHANGE");
     case "subscription_cancellation_scheduled":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_IS_SCHEDULED_TO");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_IS_SCHEDULED_TO");
     case "subscription_quantity_item_unknown":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THIS_PLAN_DOES_NOT_SELL");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THIS_PLAN_DOES_NOT_SELL");
     case "subscription_quantity_unchanged":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THAT_IS_ALREADY_THE_QUANTITY");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THAT_IS_ALREADY_THE_QUANTITY");
     case "subscription_quantity_invalid":
-      return tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.THAT_QUANTITY_IS_OUTSIDE_WHAT");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THAT_QUANTITY_IS_OUTSIDE_WHAT");
     // Named apart from the generic conflict because the fix is a different action entirely:
     // release people from the members card, then come back. The server's own message carries
     // how many are in the way, so it is kept rather than replaced.
     case "subscription_member_seats_occupied":
       return error instanceof Error && error.message
         ? error.message
-        : tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.SEATS_OCCUPIED");
+        : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.SEATS_OCCUPIED");
     case "local_validation":
-      return error instanceof Error ? error.message : tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.CHECK_THE_QUANTITY");
+      return error instanceof Error ? error.message : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.CHECK_THE_QUANTITY");
     default:
-      return error instanceof Error ? error.message : tStatic("utilities.subscription-simulation", "CHANGE_QUANTITY_DIALOG.QUANTITY_NOT_CHANGED");
+      return error instanceof Error ? error.message : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.QUANTITY_NOT_CHANGED");
   }
 };

@@ -78,6 +78,16 @@ export const signinByEmail = async (
   }
 };
 
+const withErrorQuery = (baseUrl: string, apiError: { error?: string; error_description?: string } | undefined) => {
+  const errorParams = new URLSearchParams();
+  if (apiError?.error) errorParams.set("error", apiError.error);
+  if (apiError?.error_description) errorParams.set("error_description", apiError.error_description);
+  const errorQuery = errorParams.toString();
+  if (!errorQuery) return baseUrl;
+  const separator = baseUrl.includes("?") ? "&" : "?";
+  return `${baseUrl}${separator}${errorQuery}`;
+};
+
 export const OidcSigninForm = () => {
   const { t } = useT("utilities.idp.authentication");
   const { themeColor, projectKey, clientId, scope, state, redirectUri, nonce } = useOIDCContext();
@@ -110,7 +120,8 @@ export const OidcSigninForm = () => {
       });
 
       if (res.enable_mfa) {
-        return navigate(buildOIDCNavigationUrl(`/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`));
+        navigate(buildOIDCNavigationUrl(`/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`));
+        return;
       }
 
       try {
@@ -130,12 +141,7 @@ export const OidcSigninForm = () => {
     } catch (_error: unknown) {
       const apiError = _error as { error?: string; error_description?: string };
       const baseUrl = buildOIDCNavigationUrl(`/oidc/error`);
-      const errorParams = new URLSearchParams();
-      if (apiError?.error) errorParams.set("error", apiError.error);
-      if (apiError?.error_description) errorParams.set("error_description", apiError.error_description);
-      const errorQuery = errorParams.toString();
-      const separator = baseUrl.includes("?") ? "&" : "?";
-      navigate(errorQuery ? `${baseUrl}${separator}${errorQuery}` : baseUrl);
+      navigate(withErrorQuery(baseUrl, apiError));
     } finally {
       setIsPending(false);
     }

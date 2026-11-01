@@ -67,12 +67,16 @@ export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
 
       if (!res.isSuccess) {
         resetCaptcha();
-        return showErrorToast({ errors: res.errors });
+        showErrorToast({ errors: res.errors });
+        return;
       }
       navigate("/reset-password-success");
     } catch (error: unknown) {
       resetCaptcha();
-      if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
+      if (isErrorWithErrors(error)) {
+        showErrorToast({ errors: error.errors });
+        return;
+      }
       showErrorToast({ errors: t("RESET_PASSWORD_FORM.SOMETHING_WENT_WRONG") });
     }
   };

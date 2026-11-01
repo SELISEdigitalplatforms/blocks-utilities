@@ -170,6 +170,26 @@ export const UsageMeterRow = ({
     }
   };
 
+  const describePeriod = (): string => {
+    if (!current) {
+      return entitlementKey
+        ? t("USAGE_METER_ROW.ENTITLEMENT", { entitlementKey })
+        : t("USAGE_METER_ROW.NO_ENTITLEMENT_GATES_THIS_METER");
+    }
+    const units = `${current.unitLabel || meter.unitLabel}${current.included === 1 ? "" : "s"}`;
+    if (current.overage) {
+      return t("USAGE_METER_ROW.USED_THIS_PERIOD_OVER", { used: current.used, included: current.included, units, overage: current.overage });
+    }
+    return t("USAGE_METER_ROW.USED_THIS_PERIOD", { used: current.used, included: current.included, units });
+  };
+  const periodLine = describePeriod();
+  const consumeLabels = {
+    idle: t("USAGE_METER_ROW.CONSUME"),
+    checking: t("USAGE_METER_ROW.CHECKING"),
+    recording: t("USAGE_METER_ROW.RECORDING"),
+  };
+  const consumeLabel = consumeLabels[phase];
+
   return (
     <div className="flex flex-col gap-2 border-b py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -183,13 +203,7 @@ export const UsageMeterRow = ({
           {pace ? <span className="text-xs font-normal text-muted-foreground">{t("USAGE_METER_ROW.PACE_VALUE", { pace })}</span> : null}
         </p>
         <p className="text-xs text-muted-foreground">
-          {current
-            ? current.overage
-              ? t("USAGE_METER_ROW.USED_THIS_PERIOD_OVER", { used: current.used, included: current.included, units: `${current.unitLabel || meter.unitLabel}${current.included === 1 ? "" : "s"}`, overage: current.overage })
-              : t("USAGE_METER_ROW.USED_THIS_PERIOD", { used: current.used, included: current.included, units: `${current.unitLabel || meter.unitLabel}${current.included === 1 ? "" : "s"}` })
-            : entitlementKey
-              ? t("USAGE_METER_ROW.ENTITLEMENT", { entitlementKey })
-              : t("USAGE_METER_ROW.NO_ENTITLEMENT_GATES_THIS_METER")}
+          {periodLine}
         </p>
         {lastResult && (
           <p
@@ -225,7 +239,7 @@ export const UsageMeterRow = ({
         />
         <Button size="sm" onClick={consume} disabled={phase !== "idle"}>
           {phase !== "idle" && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-          {phase === "checking" ? t("USAGE_METER_ROW.CHECKING") : phase === "recording" ? t("USAGE_METER_ROW.RECORDING") : t("USAGE_METER_ROW.CONSUME")}
+          {consumeLabel}
         </Button>
       </div>
     </div>

@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { showErrorToast } from "@/hooks/use-toast";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SHARED_MODULE = "utilities.shared";
 interface BlocksApp {
   key: string;
   label: string;
@@ -284,7 +286,7 @@ const getSeliseApps = (): BlocksApp[] => [
   {
     key: "iam",
     label: "IAM",
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.IDENTITY_ACCESS"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.IDENTITY_ACCESS"),
     url: getRuntimeEnv("BLOCKS_IAM_BASE_URL"),
     icon: <IdpIcon />,
     clientId: "a5831e15-e193-4a4f-8e10-d04a4ad1705b",
@@ -292,8 +294,8 @@ const getSeliseApps = (): BlocksApp[] => [
   },
   {
     key: "localization",
-    label: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.LOCALIZATION"),
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.LOCALIZATION"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.LOCALIZATION"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.LOCALIZATION"),
     url: getRuntimeEnv("BLOCKS_LOCALIZATION_BASE_URL"),
     icon: <UilmIcon />,
     clientId: "57214b67-aa9c-4307-92ab-a25e35180fac",
@@ -301,8 +303,8 @@ const getSeliseApps = (): BlocksApp[] => [
   },
   {
     key: "agents",
-    label: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.AGENTS"),
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.AI_PLATFORM"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.AGENTS"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.AI_PLATFORM"),
     url: getRuntimeEnv("BLOCKS_AGENTS_BASE_URL"),
     icon: <AiIcon />,
     clientId: "c1565dbc-de65-4966-a427-0ed9e542c678",
@@ -310,8 +312,8 @@ const getSeliseApps = (): BlocksApp[] => [
   },
   {
     key: "data",
-    label: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.DATA"),
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.DATA_INTEGRATION"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.DATA"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.DATA_INTEGRATION"),
     url: getRuntimeEnv("BLOCKS_DATA_BASE_URL"),
     icon: <DataGatewayIcon />,
     clientId: "e76867a8-37a1-483e-a15e-875c3884b8e8",
@@ -320,7 +322,7 @@ const getSeliseApps = (): BlocksApp[] => [
   {
     key: "os",
     label: "OS",
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.OPERATING_SYSTEM"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.OPERATING_SYSTEM"),
     url: getRuntimeEnv("BLOCKS_OS_BASE_URL"),
     icon: <BlocksOsIcon />,
     clientId: "5225b9c1-15bc-41b0-bdc6-d3ceb180ccc5",
@@ -328,8 +330,8 @@ const getSeliseApps = (): BlocksApp[] => [
   },
   {
     key: "utilities",
-    label: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.UTILITIES"),
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.UTILITY_TOOLS"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.UTILITIES"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.UTILITY_TOOLS"),
     url: getRuntimeEnv("BLOCKS_UTILITIES_BASE_URL"),
     icon: <UtilityIcon />,
     clientId: "4f7ae2b9-4b42-4770-9138-63db08538629",
@@ -337,8 +339,8 @@ const getSeliseApps = (): BlocksApp[] => [
   },
   {
     key: "logic",
-    label: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.LOGIC"),
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.BUSINESS_LOGIC"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.LOGIC"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.BUSINESS_LOGIC"),
     url: getRuntimeEnv("BLOCKS_LOGIC_BASE_URL"),
     icon: <LogicIcon />,
     clientId: "a25aee32-73ae-484b-b813-522a8d091f89",
@@ -346,8 +348,8 @@ const getSeliseApps = (): BlocksApp[] => [
   },
   {
     key: "monitor",
-    label: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.MONITOR"),
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.MONITORING_LOGS"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.MONITOR"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.MONITORING_LOGS"),
     url: getRuntimeEnv("BLOCKS_MONITOR_BASE_URL"),
     icon: <ObservabilityIcon />,
     clientId: "1bd234da-1fa1-4264-982e-3debb1078be5",
@@ -355,8 +357,8 @@ const getSeliseApps = (): BlocksApp[] => [
   },
   {
     key: "release",
-    label: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.RELEASE"),
-    description: tStatic("utilities.shared", "BLOCKS_APP_LAUNCHER.CI_CD_RELEASES"),
+    label: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.RELEASE"),
+    description: tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_APP_LAUNCHER.CI_CD_RELEASES"),
     url: getRuntimeEnv("BLOCKS_RELEASE_BASE_URL"),
     icon: <DeploymentsIcon />,
     clientId: "6523b311-256f-4b9a-a88a-2ac4e02bad25",
@@ -369,7 +371,7 @@ interface AppTileProps {
   isLoading: boolean;
 }
 function AppTile({ app, onClick, isLoading }: AppTileProps) {
-  const { t } = useT("utilities.shared");
+  const { t } = useT(UTILITIES_SHARED_MODULE);
   return (
     <button
       onClick={onClick}
@@ -432,7 +434,7 @@ function StarIcon({ filled }: { filled: boolean }) {
   );
 }
 export function BlocksAppLauncher() {
-  const { t } = useT("utilities.shared");
+  const { t } = useT(UTILITIES_SHARED_MODULE);
   const [open, setOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [favouriteKeys, setFavouriteKeys] = useState<Set<string>>(new Set());
@@ -477,7 +479,7 @@ export function BlocksAppLauncher() {
       const data = await response.json();
 
       if (data.redirect_uri) {
-        window.location.href = data.redirect_uri as string;
+        globalThis.location.assign(data.redirect_uri as string);
       } else {
         showErrorToast({ errors: t("BLOCKS_APP_LAUNCHER.FAILED_TO_GET_AUTHORIZATION_URL") });
         setLoadingKey(null);

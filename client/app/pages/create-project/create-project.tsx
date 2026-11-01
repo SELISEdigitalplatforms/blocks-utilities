@@ -12,10 +12,12 @@ import { CreateProjectResourcesForm } from "@/components/create-project/form/cre
 import { CreateProjectEnvironmentsForm } from "@/components/create-project/form/create-project-environments-form/create-project-environments-form";
 import { tStatic, useLanguageCode, useT } from "@seliseblocks/genesis-os";
 
+const UTILITIES_CONSOLE_MODULE = "utilities.console";
+
 const getStepData = (): Steps => [
-  { id: 1, title: tStatic("utilities.console", "CREATE_PROJECT.NAME_YOUR_PROJECT") },
-  { id: 2, title: tStatic("utilities.console", "CREATE_PROJECT.ADD_RESOURCES") },
-  { id: 3, title: tStatic("utilities.console", "CREATE_PROJECT.CONFIGURE_ENVIRONMENTS") },
+  { id: 1, title: tStatic(UTILITIES_CONSOLE_MODULE, "CREATE_PROJECT.NAME_YOUR_PROJECT") },
+  { id: 2, title: tStatic(UTILITIES_CONSOLE_MODULE, "CREATE_PROJECT.ADD_RESOURCES") },
+  { id: 3, title: tStatic(UTILITIES_CONSOLE_MODULE, "CREATE_PROJECT.CONFIGURE_ENVIRONMENTS") },
 ];
 
 export const CreateProjectWrapper = () => {
@@ -29,15 +31,15 @@ export const CreateProjectWrapper = () => {
 };
 
 const CreateProject = () => {
-  const { t } = useT("utilities.console");
+  const { t } = useT(UTILITIES_CONSOLE_MODULE);
   const { resetFormData } = useCreateProjectFormState();
   const [tab, setTab] = useQueryState("tab", { defaultValue: "1" });
   const { currentStep, goToStep, setCompletedSteps } = useStepper();
 
   useEffect(() => {
     if (tab) {
-      const step = parseInt(tab, 10);
-      if (!isNaN(step) && step > 0 && step <= getStepData().length && step === 2) {
+      const step = Number.parseInt(tab, 10);
+      if (!Number.isNaN(step) && step > 0 && step <= getStepData().length && step === 2) {
         setCompletedSteps([1]);
         goToStep(step);
         setTab("0");

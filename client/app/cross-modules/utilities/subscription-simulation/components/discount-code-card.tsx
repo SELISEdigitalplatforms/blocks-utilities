@@ -20,19 +20,21 @@ import { formatMoney, formatPrice } from "../../subscription/utilities/subscript
 import { MoneyBreakdown, formatDate } from "./money-breakdown";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 /**
  * How each verdict reads. The server's own status strings, kept verbatim as keys — an unmapped
  * one falls through to a neutral badge carrying the status itself rather than being swallowed,
  * because a status this screen does not recognize is still the answer the server gave.
  */
 const getVerdicts = (): Record<string, { label: string; variant: "success" | "error" | "info" }> => ({
-  Applied: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.APPLIED"), variant: "success" },
-  NotFound: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.NO_SUCH_CODE"), variant: "error" },
-  NotStarted: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.NOT_STARTED_YET"), variant: "info" },
-  Expired: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.EXPIRED"), variant: "error" },
-  NotApplicable: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.NOT_APPLICABLE_HERE"), variant: "error" },
-  AlreadyRedeemed: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.ALREADY_REDEEMED"), variant: "error" },
-  Unavailable: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.TEMPORARILY_UNAVAILABLE"), variant: "info" },
+  Applied: { label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "DISCOUNT_CODE_CARD.APPLIED"), variant: "success" },
+  NotFound: { label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "DISCOUNT_CODE_CARD.NO_SUCH_CODE"), variant: "error" },
+  NotStarted: { label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "DISCOUNT_CODE_CARD.NOT_STARTED_YET"), variant: "info" },
+  Expired: { label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "DISCOUNT_CODE_CARD.EXPIRED"), variant: "error" },
+  NotApplicable: { label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "DISCOUNT_CODE_CARD.NOT_APPLICABLE_HERE"), variant: "error" },
+  AlreadyRedeemed: { label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "DISCOUNT_CODE_CARD.ALREADY_REDEEMED"), variant: "error" },
+  Unavailable: { label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "DISCOUNT_CODE_CARD.TEMPORARILY_UNAVAILABLE"), variant: "info" },
 });
 
 /**
@@ -54,7 +56,7 @@ export const DiscountCodeCard = ({
   plans: SubscriptionPlan[];
   organizationId: string | undefined;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const preview = usePreviewDiscountCode();
 
   const [planCode, setPlanCode] = useState(plans[0]?.code ?? "");

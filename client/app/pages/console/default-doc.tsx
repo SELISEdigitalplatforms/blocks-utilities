@@ -2,6 +2,8 @@ import { ArrowUpRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_CONSOLE_MODULE = "utilities.console";
+
 type DocCardProps = {
   label: string;
   imageUri: string;
@@ -10,7 +12,7 @@ type DocCardProps = {
 };
 
 const DocCard = ({ label, imageUri, description, url }: DocCardProps) => {
-  const { t } = useT("utilities.console");
+  const { t } = useT(UTILITIES_CONSOLE_MODULE);
   return (
     <motion.a
       href={url}
@@ -49,22 +51,22 @@ const DocCard = ({ label, imageUri, description, url }: DocCardProps) => {
 
 const getData = () => [
   {
-    label: tStatic("utilities.console", "DEFAULT_DOC.DOCS"),
+    label: tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.DOCS"),
     description:
-      tStatic("utilities.console", "DEFAULT_DOC.ESTABLISHED_STANDARDS_THAT_HELP"),
+      tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.ESTABLISHED_STANDARDS_THAT_HELP"),
     imageUri: "/assets/images/console/console_timeline.png",
     url: "https://github.com/SELISEdigitalplatforms/Wiki-BlocksGuideline-Code/wiki",
   },
   {
-    label: tStatic("utilities.console", "DEFAULT_DOC.CODE"),
+    label: tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.CODE"),
     description:
-      tStatic("utilities.console", "DEFAULT_DOC.A_REPOSITORY_OF_WELL_DOCUMENTED"),
+      tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.A_REPOSITORY_OF_WELL_DOCUMENTED"),
     imageUri: "/assets/images/console/console_coding.png",
     url: "https://github.com/SELISEdigitalplatforms",
   },
   {
-    label: tStatic("utilities.console", "DEFAULT_DOC.CLOUD"),
-    description: tStatic("utilities.console", "DEFAULT_DOC.HIGH_PERFORMING_OPTIMIZED_AND_24"),
+    label: tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.CLOUD"),
+    description: tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.HIGH_PERFORMING_OPTIMIZED_AND_24"),
     imageUri: "/assets/images/console/console_data-center.png",
     url: "https://selisegroup.com/blocks/",
   },

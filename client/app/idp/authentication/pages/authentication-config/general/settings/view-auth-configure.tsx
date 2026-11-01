@@ -5,6 +5,8 @@ import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { useGetAuthConfig } from "@blocks-idp/authentication/hooks/use-auth-config";
 import { UrlWithActions } from "./url-with-actions";
 
+const VIEW_AUTH_CONFIGURE_MINUTES = "VIEW_AUTH_CONFIGURE.MINUTES";
+
 const DetailItem = ({ label, children }: { label: string; children: ReactNode }) => {
   return (
     <div className="flex flex-col gap-1">
@@ -37,16 +39,16 @@ export const ViewAuthConfigure = () => {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-y-8 lg:grid-cols-3">
       <DetailItem label={t("VIEW_AUTH_CONFIGURE.ACCESS_TOKEN_VALIDITY")}>
-        {t("VIEW_AUTH_CONFIGURE.MINUTES", { minutes: data?.accessTokenValidForNumberMinutes ?? "" })}</DetailItem>
+        {t(VIEW_AUTH_CONFIGURE_MINUTES, { minutes: data?.accessTokenValidForNumberMinutes ?? "" })}</DetailItem>
       <DetailItem label={t("VIEW_AUTH_CONFIGURE.REFRESH_TOKEN_VALIDITY")}>
-        {t("VIEW_AUTH_CONFIGURE.MINUTES", { minutes: data?.refreshTokenValidForNumberMinutes ?? "" })}</DetailItem>
+        {t(VIEW_AUTH_CONFIGURE_MINUTES, { minutes: data?.refreshTokenValidForNumberMinutes ?? "" })}</DetailItem>
       <DetailItem label={t("VIEW_AUTH_CONFIGURE.REMEMBER_ME_TOKEN_VALIDITY")}>
-        {t("VIEW_AUTH_CONFIGURE.MINUTES", { minutes: data?.rememberMeRefreshTokenValidForNumberMinutes ?? "" })}</DetailItem>
+        {t(VIEW_AUTH_CONFIGURE_MINUTES, { minutes: data?.rememberMeRefreshTokenValidForNumberMinutes ?? "" })}</DetailItem>
       <DetailItem label={t("VIEW_AUTH_CONFIGURE.MAX_WRONG_ATTEMPTS_BEFORE_LOCK")}>
         {data?.getNumberOfWrongAttemptsToLockTheAccount}
       </DetailItem>
       <DetailItem label={t("VIEW_AUTH_CONFIGURE.ACCOUNT_LOCK_DURATION")}>
-        {t("VIEW_AUTH_CONFIGURE.MINUTES", { minutes: data?.accountLockDurationInMinutes ?? "" })}</DetailItem>
+        {t(VIEW_AUTH_CONFIGURE_MINUTES, { minutes: data?.accountLockDurationInMinutes ?? "" })}</DetailItem>
       <DetailItem label={t("VIEW_AUTH_CONFIGURE.PUBLIC_CERTIFICATE")}>
         <UrlWithActions url={data?.publicCertificatePath || ""} />
       </DetailItem>

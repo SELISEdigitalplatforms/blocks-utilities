@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
+
 export const makeOidcSchema = () => z.object({
-redirectUrlOidc: z.string().url(tStatic("utilities.idp.authentication", "UTILS.MUST_BE_A_VALID_URL")).refine((val) => {
+redirectUrlOidc: z.string().url(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.MUST_BE_A_VALID_URL")).refine((val) => {
   try {
     const url = new URL(val);
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
@@ -12,8 +14,8 @@ redirectUrlOidc: z.string().url(tStatic("utilities.idp.authentication", "UTILS.M
   } catch {
     return false;
   }
-}, tStatic("utilities.idp.authentication", "UTILS.ONLY_HTTP_IS_ALLOWED_FOR")),  
-audienceUrlOidc: z.string().url(tStatic("utilities.idp.authentication", "UTILS.MUST_BE_A_VALID_URL")).refine((val) => {
+}, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.ONLY_HTTP_IS_ALLOWED_FOR")),  
+audienceUrlOidc: z.string().url(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.MUST_BE_A_VALID_URL")).refine((val) => {
   try {
     const url = new URL(val);
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
@@ -23,10 +25,10 @@ audienceUrlOidc: z.string().url(tStatic("utilities.idp.authentication", "UTILS.M
   } catch {
     return false;
   }
-}, tStatic("utilities.idp.authentication", "UTILS.ONLY_HTTP_IS_ALLOWED_FOR")), 
+}, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.ONLY_HTTP_IS_ALLOWED_FOR")), 
   scope: z.string().trim(),
   clientBrandColor: z.string().optional(),
-  clientDisplayName: z.string().trim().min(1, tStatic("utilities.idp.authentication", "UTILS.CLIENT_DISPLAY_NAME_IS_REQUIRED")),
+  clientDisplayName: z.string().trim().min(1, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.CLIENT_DISPLAY_NAME_IS_REQUIRED")),
 });
 
 export type CreateOIDCFormValues = z.infer<ReturnType<typeof makeOidcSchema>>;

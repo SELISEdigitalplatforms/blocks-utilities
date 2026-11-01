@@ -44,13 +44,17 @@ export const OidcForgotPasswordForm = () => {
         projectKey: projectKey,
       });
       if (!res?.isSuccess) {
-        return showErrorToast({ errors: res?.error || t("OIDC_FORGOT_PASSWORD_FORM.FAILED_TO_RECOVER_ACCOUNT") });
+        showErrorToast({ errors: res?.error || t("OIDC_FORGOT_PASSWORD_FORM.FAILED_TO_RECOVER_ACCOUNT") });
+        return;
       }
       const baseUrl = buildOIDCNavigationUrl(`/oidc/email-sent-confirmation`);
       const navUrl = `${baseUrl}&email=${encodeURIComponent(values.email)}`;
       navigate(navUrl);
     } catch (error) {
-      if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
+      if (isErrorWithErrors(error)) {
+        showErrorToast({ errors: error.errors });
+        return;
+      }
       showErrorToast({ errors: t("OIDC_FORGOT_PASSWORD_FORM.SOMETHING_WENT_WRONG") });
     } finally {
       setIsPending(false);

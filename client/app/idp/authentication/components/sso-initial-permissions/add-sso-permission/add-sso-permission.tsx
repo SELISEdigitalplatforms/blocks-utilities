@@ -129,7 +129,7 @@ export const AddSSOPermission = ({ onAdd, permissions }: AddSSOPermissionProps) 
         <h1
           className={cn("text-sm font-semibold", selectedPermission.length === 5 && "text-error")}
         >
-          {t("ADD_SSO_PERMISSION.YOU_CAN_SELECT_UP_TO", { span: `${`(${selectedPermission.length}/5)`}` })}
+          {t("ADD_SSO_PERMISSION.YOU_CAN_SELECT_UP_TO", { span: `(${selectedPermission.length}/5)` })}
         </h1>
         <Card>
           <CardContent>

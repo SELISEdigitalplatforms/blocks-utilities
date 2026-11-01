@@ -1,6 +1,8 @@
 ﻿import { getRuntimeEnv } from "@/lib/runtime-env";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
+
 export interface WebhookEndpoint {
   label: string;
   url: string;
@@ -51,23 +53,23 @@ export const webhookEndpointsFor = (
   if (providerName === "ADYEN-ONLINE") {
     return [
       {
-        label: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.STANDARD_NOTIFICATIONS"),
+        label: tStatic(UTILITIES_PAYMENT_MODULE, "WEBHOOK_ENDPOINT_UTIL.STANDARD_NOTIFICATIONS"),
         url: `${origin}${WEBHOOK_PATHS.ADYEN_STANDARD}`,
-        hint: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.CUSTOMER_AREA_DEVELOPERS_WEBHOOKS"),
+        hint: tStatic(UTILITIES_PAYMENT_MODULE, "WEBHOOK_ENDPOINT_UTIL.CUSTOMER_AREA_DEVELOPERS_WEBHOOKS"),
       },
       {
-        label: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.TOKEN_NOTIFICATIONS"),
+        label: tStatic(UTILITIES_PAYMENT_MODULE, "WEBHOOK_ENDPOINT_UTIL.TOKEN_NOTIFICATIONS"),
         url: `${origin}${WEBHOOK_PATHS.ADYEN_TOKENS}`,
-        hint: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.ADD_A_SECOND_WEBHOOK_OF"),
+        hint: tStatic(UTILITIES_PAYMENT_MODULE, "WEBHOOK_ENDPOINT_UTIL.ADD_A_SECOND_WEBHOOK_OF"),
       },
     ];
   }
 
   return [
     {
-      label: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.ENDPOINT_URL"),
+      label: tStatic(UTILITIES_PAYMENT_MODULE, "WEBHOOK_ENDPOINT_UTIL.ENDPOINT_URL"),
       url: `${origin}${WEBHOOK_PATHS.STRIPE}`,
-      hint: tStatic("utilities.payment", "WEBHOOK_ENDPOINT_UTIL.DEVELOPERS_WEBHOOKS_ADD_ENDPOINT"),
+      hint: tStatic(UTILITIES_PAYMENT_MODULE, "WEBHOOK_ENDPOINT_UTIL.DEVELOPERS_WEBHOOKS_ADD_ENDPOINT"),
     },
   ];
 };

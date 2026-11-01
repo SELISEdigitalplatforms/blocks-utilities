@@ -2,10 +2,11 @@ import type { SubscriptionPlan } from "../../subscription/models/subscription-pl
 import { formatInterval } from "../../subscription/utilities/subscription-format";
 import type {
   PendingPlanChange,
-  PlanChangeLabel,
   SimulatedSubscription,
 } from "../models/subscription-simulation.model";
 import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
 
 /**
  * What a booked change moves to: the plan, or — when only the billing changes — the new cadence.
@@ -16,7 +17,7 @@ export const describePendingMove = (
   pending: PendingPlanChange,
 ): string =>
   pending.targetPlanCode === subscription.planCode
-    ? tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.BILLING_INTERVAL", {
+    ? tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PLAN_CHANGE_LABEL.BILLING_INTERVAL", {
         interval: formatInterval(pending.interval, pending.intervalCount),
       })
     : pending.targetPlanName;
@@ -28,9 +29,9 @@ export const describePendingMove = (
 export const labelPlanChange = (
   currentPlan: SubscriptionPlan | undefined,
   targetPlan: SubscriptionPlan,
-): PlanChangeLabel => {
-  if (currentPlan && currentPlan.planId === targetPlan.planId) {
-    return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.CHANGE_BILLING_CADENCE");
+): string => {
+  if (currentPlan?.planId === targetPlan.planId) {
+    return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PLAN_CHANGE_LABEL.CHANGE_BILLING_CADENCE");
   }
 
   if (
@@ -42,13 +43,13 @@ export const labelPlanChange = (
     const targetRank = targetPlan.familyRank ?? 0;
 
     if (targetRank > currentRank) {
-      return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.UPGRADE");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PLAN_CHANGE_LABEL.UPGRADE");
     }
     if (targetRank < currentRank) {
-      return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.DOWNGRADE");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PLAN_CHANGE_LABEL.DOWNGRADE");
     }
-    return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.CHANGE_BILLING_CADENCE");
+    return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PLAN_CHANGE_LABEL.CHANGE_BILLING_CADENCE");
   }
 
-  return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.SWITCH_PLAN");
+  return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PLAN_CHANGE_LABEL.SWITCH_PLAN");
 };

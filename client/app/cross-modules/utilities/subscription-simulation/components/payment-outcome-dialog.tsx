@@ -29,18 +29,20 @@ import type {
 } from "../models/subscription-simulation-harness.model";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 const getPurposes = (): { value: SubscriptionPaymentPurpose; label: string }[] => [
-  { value: "InitialCharge", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.INITIAL_CHARGE") },
-  { value: "Renewal", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.RENEWAL") },
+  { value: "InitialCharge", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PAYMENT_OUTCOME_DIALOG.INITIAL_CHARGE") },
+  { value: "Renewal", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PAYMENT_OUTCOME_DIALOG.RENEWAL") },
 ];
 
 const getOutcomes = (): { value: SimulatedRenewalOutcome; label: string }[] => [
-  { value: "Succeeded", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.SUCCEEDED") },
-  { value: "Declined", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.DECLINED") },
-  { value: "InsufficientFunds", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.INSUFFICIENT_FUNDS") },
-  { value: "PaymentMethodExpired", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.PAYMENT_METHOD_EXPIRED") },
-  { value: "ProviderUnavailable", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.PROVIDER_UNAVAILABLE") },
-  { value: "OutcomeUnknown", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.OUTCOME_UNKNOWN") },
+  { value: "Succeeded", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PAYMENT_OUTCOME_DIALOG.SUCCEEDED") },
+  { value: "Declined", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PAYMENT_OUTCOME_DIALOG.DECLINED") },
+  { value: "InsufficientFunds", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PAYMENT_OUTCOME_DIALOG.INSUFFICIENT_FUNDS") },
+  { value: "PaymentMethodExpired", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PAYMENT_OUTCOME_DIALOG.PAYMENT_METHOD_EXPIRED") },
+  { value: "ProviderUnavailable", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PAYMENT_OUTCOME_DIALOG.PROVIDER_UNAVAILABLE") },
+  { value: "OutcomeUnknown", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "PAYMENT_OUTCOME_DIALOG.OUTCOME_UNKNOWN") },
 ];
 
 export const PaymentOutcomeDialog = ({
@@ -56,7 +58,7 @@ export const PaymentOutcomeDialog = ({
   onOpenChange: (open: boolean) => void;
   onResult: (result: SubscriptionSimulationActionResponse) => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const succeeded = useMarkPaymentSucceeded();
   const failed = useMarkPaymentFailed();
   const isPending = succeeded.isPending || failed.isPending;

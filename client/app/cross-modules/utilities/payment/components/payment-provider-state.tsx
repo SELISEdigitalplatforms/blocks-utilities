@@ -4,8 +4,10 @@ import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { useT } from "@seliseblocks/genesis-os";
 
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
+
 export const PaymentProviderPageSkeleton = () => {
-  const { t } = useT("utilities.payment");
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   return (
   <div className="space-y-5" aria-label={t("PAYMENT_PROVIDER_STATE.LOADING_PAYMENT_PROVIDER")}>
     <Skeleton className="h-40 rounded-2xl" />
@@ -33,7 +35,7 @@ export const PaymentProviderLoadError = ({
   message,
   onRetry,
 }: PaymentProviderLoadErrorProps) => {
-  const { t } = useT("utilities.payment");
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   return (
   <Card className="flex min-h-80 flex-col items-center justify-center rounded-xl px-6 text-center">
     <span className="rounded-full bg-destructive/10 p-4 text-destructive">
@@ -54,7 +56,7 @@ export const PaymentProviderLoadError = ({
 };
 
 export const PaymentProviderNotFound = () => {
-  const { t } = useT("utilities.payment");
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   return (
   <Card className="flex min-h-80 flex-col items-center justify-center rounded-xl px-6 text-center">
     <span className="rounded-full bg-muted p-4 text-muted-foreground">

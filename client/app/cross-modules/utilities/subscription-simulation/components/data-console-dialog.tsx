@@ -30,6 +30,8 @@ import type {
 } from "../models/subscription-simulation-harness.model";
 import { useT } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 const prettyPrint = (json: string): string => {
   try {
     return JSON.stringify(JSON.parse(json), null, 2);
@@ -47,7 +49,7 @@ const FindTab = ({
   organizationId: string | undefined;
   readableCollections: string[];
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { mutateAsync, isPending } = useFindData();
 
   const [collection, setCollection] = useState(readableCollections[0] ?? "");
@@ -154,7 +156,7 @@ const UpdateTab = ({
   organizationId: string | undefined;
   updatableCollections: { logicalName: string; updatableFields: string[] }[];
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { mutateAsync, isPending } = useUpdateDataFields();
 
   const [collectionName, setCollectionName] = useState(updatableCollections[0]?.logicalName ?? "");
@@ -281,7 +283,7 @@ export const DataConsoleDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { data: policy, error, isError, isLoading } = useDataConsolePolicy(open);
 
   const readableCollections = (policy ?? [])

@@ -12,6 +12,8 @@ import {
 import type { StoredPaymentMethod } from "../models/stored-payment-method.model";
 import { tStatic, useT } from "@seliseblocks/genesis-os";
 
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
+
 interface StoredPaymentMethodTableProps {
   methods: StoredPaymentMethod[];
   removingPaymentMethodId: string | null;
@@ -19,11 +21,11 @@ interface StoredPaymentMethodTableProps {
 }
 
 const displayValue = (value: string | null) =>
-  value?.trim() || tStatic("utilities.payment", "STORED_PAYMENT_METHOD_TABLE.NOT_AVAILABLE");
+  value?.trim() || tStatic(UTILITIES_PAYMENT_MODULE, "STORED_PAYMENT_METHOD_TABLE.NOT_AVAILABLE");
 
 const formatBrand = (brand: string | null) => {
   if (!brand) {
-    return tStatic("utilities.payment", "STORED_PAYMENT_METHOD_TABLE.PAYMENT_METHOD");
+    return tStatic(UTILITIES_PAYMENT_MODULE, "STORED_PAYMENT_METHOD_TABLE.PAYMENT_METHOD");
   }
 
   return brand
@@ -34,7 +36,7 @@ const formatBrand = (brand: string | null) => {
 };
 
 const formatMaskedNumber = (lastFour: string | null) =>
-  lastFour ? `•••• •••• •••• ${lastFour}` : tStatic("utilities.payment", "STORED_PAYMENT_METHOD_TABLE.MASKED_DETAILS_UNAVAILABLE");
+  lastFour ? `•••• •••• •••• ${lastFour}` : tStatic(UTILITIES_PAYMENT_MODULE, "STORED_PAYMENT_METHOD_TABLE.MASKED_DETAILS_UNAVAILABLE");
 
 const formatExpiry = (
   month: string | null,
@@ -46,7 +48,7 @@ export const StoredPaymentMethodTable = ({
   removingPaymentMethodId,
   onRemove,
 }: StoredPaymentMethodTableProps) => {
-  const { t } = useT("utilities.payment");
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   return (
   <>
     <div className="hidden overflow-hidden rounded-xl border md:block">

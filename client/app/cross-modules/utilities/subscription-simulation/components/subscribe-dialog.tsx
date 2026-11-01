@@ -39,6 +39,8 @@ import { BillingProfileIncompleteNotice } from "./billing-profile-incomplete-not
 import { MoneyBreakdown, formatDate, formatDay } from "./money-breakdown";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 /**
  * Subscribing to a plan.
  *
@@ -59,7 +61,7 @@ export const SubscribeDialog = ({
   onOpenChange: (open: boolean) => void;
   onSubscribed: (checkoutUrl: string | null) => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const preview = usePreviewSubscription();
   const subscribe = useSubscribeToPlan();
 
@@ -202,14 +204,9 @@ export const SubscribeDialog = ({
       const failure = subscriptionApiFailure(error);
       const gap = billingProfileGapOf(failure);
       setConfirmationProfileGap(gap);
-      setFormError(
-        gap
-          ? null
-          : failure?.message ||
-              (error instanceof Error
-                ? error.message
-                : t("SUBSCRIBE_DIALOG.THE_SUBSCRIPTION_COULD_NOT_BE_2")),
-      );
+      const fallbackMessage =
+        error instanceof Error ? error.message : t("SUBSCRIBE_DIALOG.THE_SUBSCRIPTION_COULD_NOT_BE_2");
+      setFormError(gap ? null : failure?.message || fallbackMessage);
       // What was shown no longer describes what a retry would charge — the failed attempt may
       // itself have changed something a fresh quote needs to account for.
       setQuote(null);
@@ -369,13 +366,7 @@ export const SubscribeDialog = ({
               {recurring ? (
                 <div className="border-t pt-2">
                   <MoneyBreakdown
-                    label={
-                      quote.nextCharge.prorated
-                        ? t("SUBSCRIBE_DIALOG.RECURRING_PRICE")
-                        : quote.trialEndsAtUtc
-                          ? t("SUBSCRIBE_DIALOG.FIRST_RENEWAL")
-                          : t("SUBSCRIBE_DIALOG.NEXT_RENEWAL")
-                    }
+                    label={t(nextChargeLabelKey(quote.nextCharge.prorated, Boolean(quote.trialEndsAtUtc)))}
                     labelValue={
                       quote.nextRenewal.renewalAtUtc
                         ? formatDay(quote.nextRenewal.renewalAtUtc)
@@ -469,6 +460,11 @@ export const SubscribeDialog = ({
  * the remainder once the year's own gross is taken off -- derived rather than read from a second
  * field, so it cannot disagree with the subtotal it is explaining.
  */
+const nextChargeLabelKey = (prorated: boolean, inTrial: boolean): string => {
+  if (prorated) return "SUBSCRIBE_DIALOG.RECURRING_PRICE";
+  return inTrial ? "SUBSCRIBE_DIALOG.FIRST_RENEWAL" : "SUBSCRIBE_DIALOG.NEXT_RENEWAL";
+};
+
 const subtotalPartsOf = (
   quote: SubscriptionPurchasePreview | null,
 ): { label: string; amountMinor: number }[] | undefined => {
@@ -486,9 +482,9 @@ const subtotalPartsOf = (
 
   return [
     {
-      label: tStatic("utilities.subscription-simulation", "SUBSCRIBE_DIALOG.PRO_RATED", { periodStartUtc: formatDay(quote.periodStartUtc), periodEndUtc: formatDay(quote.periodEndUtc) }),
+      label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIBE_DIALOG.PRO_RATED", { periodStartUtc: formatDay(quote.periodStartUtc), periodEndUtc: formatDay(quote.periodEndUtc) }),
       amountMinor: stubMinor,
     },
-    { label: tStatic("utilities.subscription-simulation", "SUBSCRIBE_DIALOG.YEAR_FROM", { startUtc: formatDay(annual.startUtc) }), amountMinor: annual.grossAmountMinor },
+    { label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIBE_DIALOG.YEAR_FROM", { startUtc: formatDay(annual.startUtc) }), amountMinor: annual.grossAmountMinor },
   ];
 };

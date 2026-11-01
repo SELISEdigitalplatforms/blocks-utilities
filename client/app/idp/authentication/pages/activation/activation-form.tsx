@@ -77,9 +77,10 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
       });
       if (!res.isSuccess) {
         resetCaptcha();
-        return showErrorToast({ errors: res.errors });
+        showErrorToast({ errors: res.errors });
+        return;
       }
-      return navigate("/activate-success");
+      navigate("/activate-success");
     } catch (error: unknown) {
       resetCaptcha();
       if (isErrorWithErrors(error)) {

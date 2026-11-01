@@ -68,7 +68,7 @@ export const UsageSection = ({
         </div>
 
         {hasBothViews ? (
-          <div className="flex shrink-0 gap-1 rounded-md border p-0.5" role="group" aria-label={t("USAGE_SECTION.WHOSE_USAGE")}>
+          <fieldset className="m-0 flex min-w-0 shrink-0 gap-1 rounded-md border p-0.5" aria-label={t("USAGE_SECTION.WHOSE_USAGE")}>
             {(["organization", "mine"] as const).map((option) => (
               <Button
                 key={option}
@@ -80,7 +80,7 @@ export const UsageSection = ({
                 {option === "organization" ? t("USAGE_SECTION.ORGANIZATION") : t("USAGE_SECTION.MINE")}
               </Button>
             ))}
-          </div>
+          </fieldset>
         ) : null}
       </div>
 

@@ -30,6 +30,8 @@ import type {
   SubscriptionPaymentProviderName,
 } from "../models/subscription-billing.model";
 
+const UTILITIES_SUBSCRIPTION_PAGES_MODULE = "utilities.subscription.pages";
+
 const PAYMENT_PROVIDERS: {
   name: SubscriptionPaymentProviderName;
   label: string;
@@ -44,19 +46,19 @@ const readinessLabel = (
 ): string => {
   switch (status) {
     case "Ready":
-      return tStatic("utilities.subscription.pages", "MERCHANT_PROFILE_PAGE.READINESS_READY");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_READY");
     case "NotConfigured":
-      return tStatic("utilities.subscription.pages", "MERCHANT_PROFILE_PAGE.READINESS_NOT_CONFIGURED");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_NOT_CONFIGURED");
     case "Disabled":
-      return tStatic("utilities.subscription.pages", "common:DISABLED");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "common:DISABLED");
     case "Misconfigured":
-      return tStatic("utilities.subscription.pages", "MERCHANT_PROFILE_PAGE.READINESS_MISCONFIGURED");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_MISCONFIGURED");
     case "CredentialsUnavailable":
-      return tStatic("utilities.subscription.pages", "MERCHANT_PROFILE_PAGE.READINESS_CREDENTIALS_UNAVAILABLE");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_CREDENTIALS_UNAVAILABLE");
     case "Unsupported":
-      return tStatic("utilities.subscription.pages", "MERCHANT_PROFILE_PAGE.READINESS_UNSUPPORTED");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_UNSUPPORTED");
     default:
-      return tStatic("utilities.subscription.pages", "MERCHANT_PROFILE_PAGE.READINESS_UNKNOWN");
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_UNKNOWN");
   }
 };
 
@@ -145,7 +147,7 @@ const toForm = (profile: SubscriptionMerchantProfile): MerchantForm => ({
  * it from the console alone.
  */
 export const SubscriptionMerchantProfilePage = () => {
-  const { t } = useT("utilities.subscription.pages");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PAGES_MODULE);
   // The seller is the tenant, so nothing on this page is scoped to an organization. The link out of
   // it still carries whichever organization the catalogue was being read as, so a detour through
   // here does not silently reset it.
@@ -321,6 +323,11 @@ export const SubscriptionMerchantProfilePage = () => {
   const providerChanged = Boolean(
     profile && form.paymentProviderName !== (profile.paymentProviderName ?? "STRIPE"),
   );
+
+  const idleLogoLabel = form.logoFileId
+    ? t("MERCHANT_PROFILE_PAGE.REPLACE_LOGO")
+    : t("MERCHANT_PROFILE_PAGE.UPLOAD_LOGO");
+  const logoButtonLabel = uploadingLogo ? t("MERCHANT_PROFILE_PAGE.UPLOADING") : idleLogoLabel;
 
   return (
     <div className="flex flex-col gap-6">
@@ -600,11 +607,7 @@ export const SubscriptionMerchantProfilePage = () => {
                 onClick={() => logoInputRef.current?.click()}
               >
                 <Upload className="mr-2 h-4 w-4" />
-                {uploadingLogo
-                  ? t("MERCHANT_PROFILE_PAGE.UPLOADING")
-                  : form.logoFileId
-                    ? t("MERCHANT_PROFILE_PAGE.REPLACE_LOGO")
-                    : t("MERCHANT_PROFILE_PAGE.UPLOAD_LOGO")}
+                {logoButtonLabel}
               </Button>
               {form.logoFileId && (
                 <Button

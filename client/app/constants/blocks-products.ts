@@ -1,5 +1,7 @@
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SHARED_MODULE = "utilities.shared";
+
 export interface BlocksProduct {
   /** Unique slug identifier, e.g. "blocks-iam", "blocks-os" */
   name: string;
@@ -36,7 +38,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "A secure plane for your application environment, secrets, and sensitive configuration.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_OS_IS_A_SECURE"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_OS_IS_A_SECURE"),
     featureChips: [
       "Multi-tenant isolation",
       "Scoped secrets",
@@ -63,7 +65,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Manage multilingual interfaces with AI translation, bulk key operations, and a real-time browser extension behind secure RBAC.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_LOCALIZATION_IS_A_KEY"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_LOCALIZATION_IS_A_KEY"),
     featureChips: [
       "Browser extension",
       "Bulk key operations",
@@ -83,7 +85,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Unified identity and access management with SSO, MFA, role-based controls, and external IdP integration.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_IAM_IS_THE_UNIFIED"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_IAM_IS_THE_UNIFIED"),
     featureChips: [
       "SSO & IdP integration",
       "Multi-factor auth",
@@ -110,7 +112,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Instant GraphQL APIs over managed or BYO databases with visual schema design, access control, and multi-provider object storage.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_DATA_GIVES_YOU_INSTANT"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_DATA_GIVES_YOU_INSTANT"),
     featureChips: [
       "GraphQL APIs",
       "Column-level access",
@@ -131,7 +133,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Orchestrate multi-step automations visually with drag-and-drop triggers, AI nodes, and external API integrations without coding.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_LOGIC_IS_A_VISUAL"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_LOGIC_IS_A_VISUAL"),
     featureChips: [
       "Drag-and-drop builder",
       "Webhook & email triggers",
@@ -158,7 +160,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Generate working applications from natural language prompts within the Blocks context.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_STUDIO_IS_AN_AI"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_STUDIO_IS_AN_AI"),
     featureChips: [
       "Natural language prompts",
       "AI app generation",
@@ -185,7 +187,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Create and deploy AI agents with RAG knowledge bases, custom LLM support, and embeddable script tags.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_AGENTS_LETS_YOU_CREATE"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_AGENTS_LETS_YOU_CREATE"),
     featureChips: [
       "RAG knowledge bases",
       "Custom LLM & MCP",
@@ -205,7 +207,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Manage end-to-end deployment with git-based CI/CD, branch-environment mapping, and automated security scanning for ISO compliance.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_RELEASE_PROVIDES_END_TO"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_RELEASE_PROVIDES_END_TO"),
     featureChips: [
       "Git-based deployment",
       "Branch-environment mapping",
@@ -226,7 +228,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Get built-in observability with real-time logs, distributed tracing, usage metrics, and AI-assisted analysis. Zero setup required.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_MONITOR_DELIVERS_BUILT_IN"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_MONITOR_DELIVERS_BUILT_IN"),
     featureChips: [
       "Real-time logs with AI",
       "Distributed tracing",
@@ -247,7 +249,7 @@ export const getBlocksProducts = (): BlocksProduct[] => [
     shortDescription:
       "Create secure time-limited magic links to power redirect and action-based automated workflows.",
     description:
-      tStatic("utilities.shared", "BLOCKS_PRODUCTS.BLOCKS_UTILITIES_PROVIDES_SECURE"),
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_UTILITIES_PROVIDES_SECURE"),
     featureChips: [
       "Redirect magic links",
       "Action magic links",

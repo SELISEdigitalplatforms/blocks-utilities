@@ -19,11 +19,13 @@ import type {
 } from "../models/subscription-simulation-harness.model";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 const getWorkTypes = (): { value: SimulationWorkType; label: string }[] => [
-  { value: "Renewal", label: tStatic("utilities.subscription-simulation", "RUN_DUE_JOBS_DIALOG.RENEWAL") },
-  { value: "UsagePeriodClosure", label: tStatic("utilities.subscription-simulation", "RUN_DUE_JOBS_DIALOG.USAGE_PERIOD_CLOSURE") },
-  { value: "UsageInvoiceCharge", label: tStatic("utilities.subscription-simulation", "RUN_DUE_JOBS_DIALOG.USAGE_INVOICE_CHARGE") },
-  { value: "OutboxPublication", label: tStatic("utilities.subscription-simulation", "RUN_DUE_JOBS_DIALOG.OUTBOX_PUBLICATION") },
+  { value: "Renewal", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.RENEWAL") },
+  { value: "UsagePeriodClosure", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.USAGE_PERIOD_CLOSURE") },
+  { value: "UsageInvoiceCharge", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.USAGE_INVOICE_CHARGE") },
+  { value: "OutboxPublication", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.OUTBOX_PUBLICATION") },
 ];
 
 export const RunDueJobsDialog = ({
@@ -39,7 +41,7 @@ export const RunDueJobsDialog = ({
   onOpenChange: (open: boolean) => void;
   onResult: (result: SubscriptionSimulationJobRunResponse) => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { mutateAsync, isPending } = useRunDueJobs();
 
   const [selected, setSelected] = useState<Set<SimulationWorkType>>(new Set());

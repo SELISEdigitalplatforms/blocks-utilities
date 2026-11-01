@@ -22,6 +22,8 @@ import { TAX_MODES } from "../utilities/subscription-tax";
 import { FIXED_CREDIT_EXPIRY } from "../models/subscription-plan.model";
 import { isRepresentableInMinorUnits, minorUnitExponent } from "../utilities/subscription-format";
 
+const METER_MAX_SCALE_KEY = "SUBSCRIPTION_PLAN_SCHEMA.METER_MAX_SCALE";
+
 /** @param requiredMessage The "Enter a …" text, already translated for the field being checked. */
 const key = (requiredMessage: string) =>
   z.string().trim().min(1, requiredMessage).max(SUBSCRIPTION_KEY_MAX_LENGTH);
@@ -261,7 +263,7 @@ const meterCreditSchema = () =>
           });
         }
 
-        if (!(price.unitAmount > 0)) {
+        if (price.unitAmount <= 0) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["prices", index, "unitAmount"],
@@ -652,7 +654,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         const tooFine =
           meter.quantityScale === 0
             ? tSubscription("SUBSCRIPTION_PLAN_SCHEMA.WHOLE_NUMBERS_ONLY_SET_PLACES")
-            : tSubscription("SUBSCRIPTION_PLAN_SCHEMA.METER_MAX_SCALE", {
+            : tSubscription(METER_MAX_SCALE_KEY, {
                 count: meter.quantityScale,
               });
 
@@ -735,7 +737,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
             message:
               scale === 0
                 ? tSubscription("SUBSCRIPTION_PLAN_SCHEMA.WHOLE_NUMBERS_ONLY")
-                : tSubscription("SUBSCRIPTION_PLAN_SCHEMA.METER_MAX_SCALE", { count: scale }),
+                : tSubscription(METER_MAX_SCALE_KEY, { count: scale }),
           });
         }
       });
@@ -762,7 +764,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
               message:
                 meter.quantityScale === 0
                   ? tSubscription("SUBSCRIPTION_PLAN_SCHEMA.WHOLE_NUMBERS_ONLY")
-                  : tSubscription("SUBSCRIPTION_PLAN_SCHEMA.METER_MAX_SCALE", {
+                  : tSubscription(METER_MAX_SCALE_KEY, {
                       count: meter.quantityScale,
                     }),
             });

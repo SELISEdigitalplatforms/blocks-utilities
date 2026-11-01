@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { useState } from "react";
 
 import { createContext, useContext } from "react";
-import { useT, tStatic } from "@seliseblocks/genesis-os";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface ChipsContextProps {
   value: string[];

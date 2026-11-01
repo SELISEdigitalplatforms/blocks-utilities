@@ -19,6 +19,8 @@ import { SmsRequestError } from "../services/sms.service";
 import { applyServerErrors, countSegments } from "../utils/sms.util";
 import { useT } from "@seliseblocks/genesis-os";
 
+const SMS_SEND_PAGE_TEMPLATE = "SMS_SEND_PAGE.TEMPLATE";
+
 const templateKey = (name: string, language: string) => `${name}\u0000${language}`;
 
 export const SmsSendPage = () => {
@@ -86,7 +88,9 @@ export const SmsSendPage = () => {
           ["destinationNumbers", "messageText", "templateName", "language", "correlationId"],
           form.setError,
         );
-        setBannerErrors(unplaced.length ? unplaced : Object.keys(error.fieldErrors).length ? [] : [error.message]);
+        const hasFieldErrors = Object.keys(error.fieldErrors).length > 0;
+        const fallbackBanner = hasFieldErrors ? [] : [error.message];
+        setBannerErrors(unplaced.length ? unplaced : fallbackBanner);
       } else {
         setBannerErrors([t("SMS_SEND_PAGE.SMS_NOT_SENT")]);
       }
@@ -144,7 +148,7 @@ export const SmsSendPage = () => {
               <Tabs value={mode} onValueChange={(value) => form.setValue("mode", value as SendSmsFormValues["mode"])}>
                 <TabsList>
                   <TabsTrigger value="text">{t("SMS_SEND_PAGE.MESSAGE")}</TabsTrigger>
-                  <TabsTrigger value="template">{t("SMS_SEND_PAGE.TEMPLATE")}</TabsTrigger>
+                  <TabsTrigger value="template">{t(SMS_SEND_PAGE_TEMPLATE)}</TabsTrigger>
                 </TabsList>
               </Tabs>
 
@@ -172,7 +176,7 @@ export const SmsSendPage = () => {
                     name="templateName"
                     render={() => (
                       <FormItem>
-                        <FormLabel>{t("SMS_SEND_PAGE.TEMPLATE")}</FormLabel>
+                        <FormLabel>{t(SMS_SEND_PAGE_TEMPLATE)}</FormLabel>
                         <Select
                           value={templateName ? templateKey(templateName, language) : ""}
                           onValueChange={(value) => {
@@ -183,7 +187,7 @@ export const SmsSendPage = () => {
                           }}
                         >
                           <FormControl>
-                            <SelectTrigger aria-label={t("SMS_SEND_PAGE.TEMPLATE")}>
+                            <SelectTrigger aria-label={t(SMS_SEND_PAGE_TEMPLATE)}>
                               <SelectValue placeholder={templates?.items.length ? t("SMS_SEND_PAGE.CHOOSE_A_TEMPLATE") : t("SMS_SEND_PAGE.NO_TEMPLATES_YET")} />
                             </SelectTrigger>
                           </FormControl>
@@ -263,18 +267,20 @@ export const SmsSendPage = () => {
 
         <aside className="space-y-5">
           {result && (
-            <Card className="rounded-xl" role="status">
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-600" />
-                <div className="min-w-0">
-                  <h2 className="font-semibold">{t("SMS_SEND_PAGE.QUEUED")}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {t("SMS_SEND_PAGE.ACCEPTED_FOR_RECIPIENTS", { count: result.recipients })}
-                  </p>
-                  <code className="mt-2 block break-all rounded-md bg-muted px-2 py-1.5 text-xs">{result.messageId}</code>
+            <output className="block">
+              <Card className="rounded-xl">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-600" />
+                  <div className="min-w-0">
+                    <h2 className="font-semibold">{t("SMS_SEND_PAGE.QUEUED")}</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {t("SMS_SEND_PAGE.ACCEPTED_FOR_RECIPIENTS", { count: result.recipients })}
+                    </p>
+                    <code className="mt-2 block break-all rounded-md bg-muted px-2 py-1.5 text-xs">{result.messageId}</code>
+                  </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </output>
           )}
           <Card className="rounded-xl">
             <h2 className="font-semibold">{t("SMS_SEND_PAGE.BEFORE_A_MESSAGE_IS_QUEUED")}</h2>

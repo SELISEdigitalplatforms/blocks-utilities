@@ -25,17 +25,19 @@ import type {
 } from "../models/subscription-simulation-harness.model";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 /** Not a server value — selecting this omits `paymentOutcome` so the real gateway decides. */
 const REAL_GATEWAY = "RealGateway" as const;
 
 const getOutcomes = (): { value: SimulatedRenewalOutcome | typeof REAL_GATEWAY; label: string }[] => [
-  { value: REAL_GATEWAY, label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.REAL_PAYMENT_GATEWAY_NO_SCRIPT") },
-  { value: "Succeeded", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.SUCCEEDED") },
-  { value: "Declined", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.DECLINED") },
-  { value: "InsufficientFunds", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.INSUFFICIENT_FUNDS") },
-  { value: "PaymentMethodExpired", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.PAYMENT_METHOD_EXPIRED") },
-  { value: "ProviderUnavailable", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.PROVIDER_UNAVAILABLE") },
-  { value: "OutcomeUnknown", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.OUTCOME_UNKNOWN") },
+  { value: REAL_GATEWAY, label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "ADVANCE_RENEWAL_DIALOG.REAL_PAYMENT_GATEWAY_NO_SCRIPT") },
+  { value: "Succeeded", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "ADVANCE_RENEWAL_DIALOG.SUCCEEDED") },
+  { value: "Declined", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "ADVANCE_RENEWAL_DIALOG.DECLINED") },
+  { value: "InsufficientFunds", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "ADVANCE_RENEWAL_DIALOG.INSUFFICIENT_FUNDS") },
+  { value: "PaymentMethodExpired", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "ADVANCE_RENEWAL_DIALOG.PAYMENT_METHOD_EXPIRED") },
+  { value: "ProviderUnavailable", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "ADVANCE_RENEWAL_DIALOG.PROVIDER_UNAVAILABLE") },
+  { value: "OutcomeUnknown", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "ADVANCE_RENEWAL_DIALOG.OUTCOME_UNKNOWN") },
 ];
 
 export const AdvanceRenewalDialog = ({
@@ -51,7 +53,7 @@ export const AdvanceRenewalDialog = ({
   onOpenChange: (open: boolean) => void;
   onResult: (result: SubscriptionSimulationActionResponse) => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { mutateAsync, isPending } = useAdvanceRenewal();
 
   const [selection, setSelection] = useState<SimulatedRenewalOutcome | typeof REAL_GATEWAY>(

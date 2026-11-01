@@ -40,6 +40,8 @@ import type {
 } from "../models/subscription-simulation.model";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 interface SimulationApiError {
   code: string;
   message: string;
@@ -146,7 +148,7 @@ class SubscriptionSimulationService {
 
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_2")),
+          messageFrom(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_2")),
           subscribeErrorCode(error),
           error.status,
         );
@@ -187,7 +189,7 @@ class SubscriptionSimulationService {
 
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_DISCOUNT_CODE_COULD_NOT")),
+          messageFrom(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_DISCOUNT_CODE_COULD_NOT")),
           subscribeErrorCode(error),
           error.status,
         );
@@ -204,12 +206,12 @@ class SubscriptionSimulationService {
       >(SUBSCRIPTIONS_ENDPOINT, request);
 
       if (!response.success || !response.data) {
-        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));
+        throw operationError(response, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));
+      throw operationError(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));
     }
   }
 
@@ -237,12 +239,12 @@ class SubscriptionSimulationService {
       );
 
       if (!response.success || !response.data) {
-        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PAYMENT_METHOD_COULD_NOT"));
+        throw operationError(response, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_PAYMENT_METHOD_COULD_NOT"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PAYMENT_METHOD_COULD_NOT"));
+      throw operationError(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_PAYMENT_METHOD_COULD_NOT"));
     }
   }
 
@@ -264,7 +266,7 @@ class SubscriptionSimulationService {
     >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(request.subscriptionId)}?${query}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE"));
+      throw new Error(response.error?.message || tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE"));
     }
 
     return response.data;
@@ -290,12 +292,12 @@ class SubscriptionSimulationService {
       );
 
       if (!response.success || !response.data) {
-        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_CANCELLATION_COULD_NOT_BE"));
+        throw operationError(response, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_CANCELLATION_COULD_NOT_BE"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_CANCELLATION_COULD_NOT_BE"));
+      throw operationError(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_CANCELLATION_COULD_NOT_BE"));
     }
   }
 
@@ -339,7 +341,7 @@ class SubscriptionSimulationService {
 
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_CHANGE_COULD_NOT")),
+          messageFrom(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_CHANGE_COULD_NOT")),
           planChangeErrorCode(error),
           error.status,
         );
@@ -359,12 +361,12 @@ class SubscriptionSimulationService {
       >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
 
       if (!response.success || !response.data) {
-        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_COULD_NOT_BE"));
+        throw operationError(response, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_COULD_NOT_BE"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_COULD_NOT_BE"));
+      throw operationError(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_COULD_NOT_BE"));
     }
   }
 
@@ -391,12 +393,12 @@ class SubscriptionSimulationService {
       );
 
       if (!response.success || !response.data) {
-        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SCHEDULED_PLAN_CHANGE_COULD"));
+        throw operationError(response, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SCHEDULED_PLAN_CHANGE_COULD"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SCHEDULED_PLAN_CHANGE_COULD"));
+      throw operationError(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SCHEDULED_PLAN_CHANGE_COULD"));
     }
   }
 
@@ -423,7 +425,7 @@ class SubscriptionSimulationService {
     >(`${ENTITLEMENTS_ENDPOINT}${suffix}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.ENTITLEMENTS_COULD_NOT_BE_LOADED"));
+      throw new Error(response.error?.message || tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.ENTITLEMENTS_COULD_NOT_BE_LOADED"));
     }
 
     return response.data;
@@ -448,7 +450,7 @@ class SubscriptionSimulationService {
     >(`${ENTITLEMENTS_ENDPOINT}/${encodeURIComponent(entitlementKey)}${query}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_ENTITLEMENT_COULD_NOT_BE"));
+      throw new Error(response.error?.message || tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_ENTITLEMENT_COULD_NOT_BE"));
     }
 
     return response.data;
@@ -475,7 +477,7 @@ class SubscriptionSimulationService {
     >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/audit?${query}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_AUDIT_TRAIL_COULD_NOT"));
+      throw new Error(response.error?.message || tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_AUDIT_TRAIL_COULD_NOT"));
     }
 
     return response.data;
@@ -560,7 +562,7 @@ class SubscriptionSimulationService {
       // outcome into "unknown" and every retry into a guess.
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_QUANTITY_COULD_NOT_BE")),
+          messageFrom(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_QUANTITY_COULD_NOT_BE")),
           quantityErrorCode(error),
           error.status,
         );
@@ -581,7 +583,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.get<SimulationApiResponse<SimulatedSubscription[]>>(
           `${SUBSCRIPTIONS_MEMBER_BASED_ENDPOINT}${query}`,
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTIONS_PEOPLE_ARE"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTIONS_PEOPLE_ARE"),
     );
   }
 
@@ -595,7 +597,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.get<SimulationApiResponse<HeldPlace[]>>(
           `${SUBSCRIPTIONS_MINE_ENDPOINT}${query}`,
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.YOUR_PLACES_COULD_NOT_BE"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.YOUR_PLACES_COULD_NOT_BE"),
     );
   }
 
@@ -605,7 +607,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.get<SimulationApiResponse<SubscriptionMembers>>(
           this.membersPath(subscriptionId),
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_MEMBERS_COULD_NOT_BE"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_MEMBERS_COULD_NOT_BE"),
     );
   }
 
@@ -623,7 +625,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.post<
           SimulationApiResponse<SubscriptionMemberAssignment>
         >(this.membersPath(subscriptionId), request),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.NOBODY_COULD_BE_ASSIGNED"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.NOBODY_COULD_BE_ASSIGNED"),
     );
   }
 
@@ -633,7 +635,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.delete<SimulationApiResponse<SubscriptionMember>>(
           `${this.membersPath(subscriptionId)}/${encodeURIComponent(userId)}`,
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLACE_COULD_NOT_BE"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLACE_COULD_NOT_BE"),
     );
   }
 
@@ -679,7 +681,7 @@ class SubscriptionSimulationService {
     >(`${SUBSCRIPTION_USAGE_CURRENT_ENDPOINT}${query}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.CURRENT_USAGE_COULD_NOT_BE"));
+      throw new Error(response.error?.message || tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.CURRENT_USAGE_COULD_NOT_BE"));
     }
 
     return response.data;
@@ -705,7 +707,7 @@ class SubscriptionSimulationService {
           return [];
         }
 
-        throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.YOUR_USAGE_COULD_NOT_BE"));
+        throw new Error(response.error?.message || tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.YOUR_USAGE_COULD_NOT_BE"));
       }
 
       return response.data;
@@ -728,7 +730,7 @@ class SubscriptionSimulationService {
     >(SUBSCRIPTION_USAGE_ENDPOINT, request);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_USAGE_COULD_NOT_BE"));
+      throw new Error(response.error?.message || tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_USAGE_COULD_NOT_BE"));
     }
 
     return response.data;

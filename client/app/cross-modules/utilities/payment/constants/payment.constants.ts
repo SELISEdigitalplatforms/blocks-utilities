@@ -1,5 +1,7 @@
 import { getLanguageCode, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
+
 export const PAYMENT_ENDPOINT = "/api/payments";
 export const CREATE_PAYMENT_ENDPOINT = "/api/payments/create";
 export const STORED_PAYMENT_METHODS_ENDPOINT =
@@ -54,9 +56,9 @@ export const REFUNDABLE_PAYMENT_STATUSES = new Set([
 
 export const getPaymentFlowOptions = () =>
   [
-    { label: tStatic("utilities.payment", "PAYMENT_CONSTANTS.ALL_FLOWS"), value: "all" },
-    { label: tStatic("utilities.payment", "PAYMENT_CONSTANTS.HOSTED_CHECKOUT"), value: "HOSTED_CHECKOUT" },
-    { label: tStatic("utilities.payment", "PAYMENT_CONSTANTS.RECURRING_CHARGE"), value: "RECURRING_CHARGE" },
+    { label: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_CONSTANTS.ALL_FLOWS"), value: "all" },
+    { label: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_CONSTANTS.HOSTED_CHECKOUT"), value: "HOSTED_CHECKOUT" },
+    { label: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_CONSTANTS.RECURRING_CHARGE"), value: "RECURRING_CHARGE" },
   ] as const;
 
 export const PAYMENT_LIST_REFRESH_INTERVAL_MS = 15_000;
@@ -99,14 +101,14 @@ export const getPaymentMethodOptions = () =>
   [
     {
       value: "card",
-      label: tStatic("utilities.payment", "PAYMENT_CONSTANTS.CARD"),
-      hint: tStatic("utilities.payment", "PAYMENT_CONSTANTS.CARD_HINT"),
+      label: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_CONSTANTS.CARD"),
+      hint: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_CONSTANTS.CARD_HINT"),
     },
     { value: "twint", label: "TWINT", hint: undefined },
     {
       value: "paypal",
       label: "PayPal",
-      hint: tStatic("utilities.payment", "PAYMENT_CONSTANTS.PAYPAL_HINT"),
+      hint: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_CONSTANTS.PAYPAL_HINT"),
     },
     { value: "klarna", label: "Klarna", hint: undefined },
     { value: "link", label: "Link", hint: undefined },

@@ -38,10 +38,10 @@ export const SigninForm = () => {
   const onSubmitHandler = async (values: z.infer<ReturnType<typeof createSigninFormSchema>>) => {
     try {
       const res = await mutateAsync(values);
-      if (res.enable_mfa)
-        return navigate(
-          `/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`,
-        );
+      if (res.enable_mfa) {
+        navigate(`/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`);
+        return;
+      }
 
       // For localhost, save tokens in store for Authorization Bearer
       const isLocalhost = getRuntimeEnv(

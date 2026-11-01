@@ -2,6 +2,31 @@ import { Fragment } from "react";
 
 const TAG = /<(strong|em|code|a)>(.*?)<\/\1>/g;
 
+interface TagOptions {
+  codeClassName?: string;
+  href?: string;
+  linkClassName?: string;
+}
+
+const renderTag = (tag: string, inner: string, { codeClassName, href, linkClassName }: TagOptions): React.ReactNode => {
+  switch (tag) {
+    case "strong":
+      return <strong>{inner}</strong>;
+    case "em":
+      return <em>{inner}</em>;
+    case "a":
+      return href ? (
+        <a href={href} className={linkClassName}>
+          {inner}
+        </a>
+      ) : (
+        inner
+      );
+    default:
+      return <code className={codeClassName}>{inner}</code>;
+  }
+};
+
 /**
  * Renders a translated sentence that carries inline emphasis: `<strong>`, `<em>`, `<code>` and `<a>` in
  * the text become real elements, everything else stays plain text. Built from parsed pieces, never
@@ -31,25 +56,7 @@ export const RichText = ({
 
     const [, tag, inner] = match;
 
-    pieces.push({
-      key: start,
-      node:
-        tag === "strong" ? (
-          <strong>{inner}</strong>
-        ) : tag === "em" ? (
-          <em>{inner}</em>
-        ) : tag === "a" ? (
-          href ? (
-            <a href={href} className={linkClassName}>
-              {inner}
-            </a>
-          ) : (
-            inner
-          )
-        ) : (
-          <code className={codeClassName}>{inner}</code>
-        ),
-    });
+    pieces.push({ key: start, node: renderTag(tag, inner, { codeClassName, href, linkClassName }) });
     cursor = start + match[0].length;
   }
 

@@ -545,9 +545,6 @@ export interface SubscriptionPlanChangePreview {
   quotedAtUtc: string;
 }
 
-/** The wording shown for a plan change; it is translated, so it is plain text. */
-export type PlanChangeLabel = string;
-
 /**
  * A single entitlement's live decision. Reading one is a check, not enforcement — two callers
  * both a unit under the limit can both read `allowed: true`, and only the usage call below tells

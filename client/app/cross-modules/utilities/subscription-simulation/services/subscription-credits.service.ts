@@ -14,6 +14,8 @@ import type {
 import { SubscriptionOperationError } from "./subscription-simulation.service";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 interface ApiResponse<T> {
   success: boolean;
   data: T | null;
@@ -71,7 +73,7 @@ export const subscriptionCreditsService = {
           `${creditsPath(subscriptionId)}/preview`,
           request,
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE"),
     ),
 
   purchase: (subscriptionId: string, request: CreditPurchaseRequest) =>
@@ -81,7 +83,7 @@ export const subscriptionCreditsService = {
           creditsPath(subscriptionId),
           request,
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_2"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_2"),
     ),
 
   listGrants: (subscriptionId: string, organizationId?: string) =>
@@ -90,7 +92,7 @@ export const subscriptionCreditsService = {
         serviceInstances.utitlitiesService.get<ApiResponse<CreditGrant[]>>(
           `${creditsPath(subscriptionId)}${scopeQuery(organizationId)}`,
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_3"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_3"),
     ),
 
   grant: (subscriptionId: string, request: GrantCreditsRequest) =>
@@ -100,7 +102,7 @@ export const subscriptionCreditsService = {
           `${creditsPath(subscriptionId)}/grants`,
           request,
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_4"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_4"),
     ),
 
   move: (subscriptionId: string, request: MoveCreditsRequest) =>
@@ -110,6 +112,6 @@ export const subscriptionCreditsService = {
           `${creditsPath(subscriptionId)}/moves`,
           request,
         ),
-      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_5"),
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_5"),
     ),
 };

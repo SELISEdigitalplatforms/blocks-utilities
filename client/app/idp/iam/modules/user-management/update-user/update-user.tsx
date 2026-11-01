@@ -54,12 +54,18 @@ export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => 
         itemId: id,
         projectKey,
       });
-      if (!res.isSuccess) return showErrorToast({ errors: res.errors });
+      if (!res.isSuccess) {
+        showErrorToast({ errors: res.errors });
+        return;
+      }
       showSuccessToast({ description: t("UPDATE_USER.USER_UPDATED_SUCCESSFULLY") });
       form.reset();
       setOpen(false);
     } catch (error) {
-      if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
+      if (isErrorWithErrors(error)) {
+        showErrorToast({ errors: error.errors });
+        return;
+      }
       showErrorToast({ errors: t("UPDATE_USER.SOMETHING_WENT_WRONG") });
     }
   };

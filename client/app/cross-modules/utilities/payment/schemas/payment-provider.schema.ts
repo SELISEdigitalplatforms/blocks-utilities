@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { PaymentProviderName } from "../models/payment-provider.model";
 import { tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
+
 const optionalText = (maximumLength: number) =>
   z
     .string()
@@ -14,7 +16,7 @@ const publicHttpsUrl = () =>
   z
   .string()
   .trim()
-  .min(1, tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.ENTER_FRONTEND_RESULT_URL"))
+  .min(1, tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.ENTER_FRONTEND_RESULT_URL"))
   .refine((value) => {
     try {
       const url = new URL(value);
@@ -22,7 +24,7 @@ const publicHttpsUrl = () =>
     } catch {
       return false;
     }
-  }, tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.ENTER_ABSOLUTE_HTTPS_URL"));
+  }, tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.ENTER_ABSOLUTE_HTTPS_URL"));
 
 const providerConfigurationShape = () => ({
   frontendResultUrl: publicHttpsUrl(),
@@ -31,7 +33,7 @@ const providerConfigurationShape = () => ({
     .trim()
     .refine(
       (value) => value.length === 0 || /^[A-Za-z]{2}$/.test(value),
-      tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.TWO_LETTER_COUNTRY_CODE"),
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.TWO_LETTER_COUNTRY_CODE"),
     ),
   manualCapture: z.boolean(),
   // Held as text so "left blank" (unknown) and "0" (captures at once) stay distinct; a number
@@ -43,12 +45,12 @@ const providerConfigurationShape = () => ({
       (value) =>
         value.length === 0 ||
         (/^\d+$/.test(value) && Number(value) <= 168),
-      tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.CAPTURE_DELAY_HOURS"),
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.CAPTURE_DELAY_HOURS"),
     )
     .default(""),
   maxRefundDays: z.coerce
     .number()
-    .int(tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.WHOLE_NUMBER"))
+    .int(tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.WHOLE_NUMBER"))
     .min(0)
     .max(3650),
   storeId: optionalText(200),
@@ -69,7 +71,7 @@ const providerConfigurationShape = () => ({
     .max(100)
     .refine(
       (value) => value.length === 0 || value.startsWith("pmc_"),
-      tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.PMC_PREFIX"),
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.PMC_PREFIX"),
     )
     .optional()
     .or(z.literal("")),
@@ -110,7 +112,7 @@ export const createRegisterPaymentProviderSchema = () =>
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["apiBaseUrl"],
-          message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.ADYEN_REQUIRES_ITS_CHECKOUT_API"),
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.ADYEN_REQUIRES_ITS_CHECKOUT_API"),
         });
       }
 
@@ -118,7 +120,7 @@ export const createRegisterPaymentProviderSchema = () =>
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["webhookHmacKey"],
-          message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.USE_THE_64_CHARACTER_HEXADECIMAL"),
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.USE_THE_64_CHARACTER_HEXADECIMAL"),
         });
       }
 
@@ -126,7 +128,7 @@ export const createRegisterPaymentProviderSchema = () =>
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["tokenHmacKey"],
-          message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.USE_THE_64_CHARACTER_HEXADECIMAL_2"),
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.USE_THE_64_CHARACTER_HEXADECIMAL_2"),
         });
       }
 
@@ -140,7 +142,7 @@ export const createRegisterPaymentProviderSchema = () =>
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["apiKey"],
-        message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.STRIPE_API_KEYS_START_WITH"),
+        message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_API_KEYS_START_WITH"),
       });
     }
 
@@ -148,7 +150,7 @@ export const createRegisterPaymentProviderSchema = () =>
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["webhookHmacKey"],
-        message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.STRIPE_ENDPOINT_SECRETS_START_WITH"),
+        message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_ENDPOINT_SECRETS_START_WITH"),
       });
     }
   });
@@ -177,7 +179,7 @@ export const createRotatePaymentProviderSchema = (
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["apiKey"],
-          message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.ENTER_AT_LEAST_ONE_CREDENTIAL"),
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.ENTER_AT_LEAST_ONE_CREDENTIAL"),
         });
       }
 
@@ -192,7 +194,7 @@ export const createRotatePaymentProviderSchema = (
             context.addIssue({
               code: z.ZodIssueCode.custom,
               path: [field],
-              message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.USE_A_64_CHARACTER_HEXADECIMAL"),
+              message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.USE_A_64_CHARACTER_HEXADECIMAL"),
             });
           }
         });
@@ -208,7 +210,7 @@ export const createRotatePaymentProviderSchema = (
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["apiKey"],
-          message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.STRIPE_API_KEYS_START_WITH"),
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_API_KEYS_START_WITH"),
         });
       }
 
@@ -219,7 +221,7 @@ export const createRotatePaymentProviderSchema = (
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["webhookHmacKey"],
-          message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.STRIPE_ENDPOINT_SECRETS_START_WITH"),
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_ENDPOINT_SECRETS_START_WITH"),
         });
       }
 
@@ -227,7 +229,7 @@ export const createRotatePaymentProviderSchema = (
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["tokenHmacKey"],
-          message: tStatic("utilities.payment", "PAYMENT_PROVIDER_SCHEMA.STRIPE_DOES_NOT_USE_A"),
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_DOES_NOT_USE_A"),
         });
       }
     });

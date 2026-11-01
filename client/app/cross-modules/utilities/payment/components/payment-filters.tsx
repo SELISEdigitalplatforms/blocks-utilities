@@ -28,6 +28,8 @@ import {
 import type { PaymentFilters } from "../models/payment.model";
 import { PaymentMultiSelect } from "./payment-multi-select";
 
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
+
 interface PaymentFiltersPanelProps {
   value: PaymentFilters;
   activeFilterCount: number;
@@ -51,7 +53,7 @@ const validateFilters = (filters: PaymentFilters): string | null => {
     maxAmount !== undefined &&
     minAmount > maxAmount
   ) {
-    return tStatic("utilities.payment", "PAYMENT_FILTERS.MAX_AMOUNT_BELOW_MIN");
+    return tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_FILTERS.MAX_AMOUNT_BELOW_MIN");
   }
 
   if (
@@ -59,14 +61,14 @@ const validateFilters = (filters: PaymentFilters): string | null => {
     filters.paymentDateTo &&
     filters.paymentDateFrom > filters.paymentDateTo
   ) {
-    return tStatic("utilities.payment", "PAYMENT_FILTERS.END_DATE_BEFORE_START");
+    return tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_FILTERS.END_DATE_BEFORE_START");
   }
 
   if (
     filters.currencyCode &&
     !/^[A-Z]{3}$/.test(filters.currencyCode)
   ) {
-    return tStatic("utilities.payment", "PAYMENT_FILTERS.CURRENCY_THREE_LETTERS");
+    return tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_FILTERS.CURRENCY_THREE_LETTERS");
   }
 
   return null;
@@ -79,7 +81,7 @@ export const PaymentFiltersPanel = ({
   onApply,
   onReset,
 }: PaymentFiltersPanelProps) => {
-  const { t } = useT("utilities.payment");
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   const [expanded, setExpanded] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 

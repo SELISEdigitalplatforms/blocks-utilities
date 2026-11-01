@@ -41,6 +41,9 @@ import { SubscriptionStatusBadge } from "./subscription-status-badge";
 import { describePendingMove } from "../utilities/plan-change-label";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+const MEMBERS_CARD_TRY_AGAIN_2 = "MEMBERS_CARD.TRY_AGAIN_2";
+
 const LIVE_STATUSES = new Set(["Trialing", "Active", "PastDue"]);
 
 /**
@@ -57,7 +60,7 @@ export const MembersCard = ({
   plans: SubscriptionPlan[] | undefined;
   organizationId: string | undefined;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { data: subscriptions, isError, error, refetch } =
     useMemberBasedSubscriptions(organizationId);
 
@@ -117,7 +120,7 @@ const SubscriptionPlaces = ({
   organizationId: string | undefined;
   onRefresh: () => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isChangingPlaces, setIsChangingPlaces] = useState(false);
   // Here because current never returns a user-wise subscription, so the current subscription
@@ -161,7 +164,7 @@ const SubscriptionPlaces = ({
       toast({
         variant: "destructive",
         title: t("MEMBERS_CARD.COULD_NOT_RELEASE"),
-        description: failure instanceof Error ? failure.message : t("MEMBERS_CARD.TRY_AGAIN_2"),
+        description: failure instanceof Error ? failure.message : t(MEMBERS_CARD_TRY_AGAIN_2),
       });
     }
   };
@@ -175,7 +178,9 @@ const SubscriptionPlaces = ({
           <SubscriptionStatusBadge status={subscription.status} />
           {members ? (
             <span className="text-xs text-muted-foreground">
-              {(scheduled !== null ? t("MEMBERS_CARD.OF_PLACES_HELD_DROPS", { held: members.held, purchased: members.purchased, scheduled, cutOn: cutOn ?? "" }) : t("MEMBERS_CARD.OF_PLACES_HELD", { held: members.held, purchased: members.purchased }))}
+              {scheduled === null
+                ? t("MEMBERS_CARD.OF_PLACES_HELD", { held: members.held, purchased: members.purchased })
+                : t("MEMBERS_CARD.OF_PLACES_HELD_DROPS", { held: members.held, purchased: members.purchased, scheduled, cutOn: cutOn ?? "" })}
             </span>
           ) : null}
         </div>
@@ -237,7 +242,7 @@ const SubscriptionPlaces = ({
                     toast({
                       variant: "destructive",
                       title: t("MEMBERS_CARD.COULD_NOT_UNDO_IT"),
-                      description: failure instanceof Error ? failure.message : t("MEMBERS_CARD.TRY_AGAIN_2"),
+                      description: failure instanceof Error ? failure.message : t(MEMBERS_CARD_TRY_AGAIN_2),
                     }),
                 },
               )
@@ -427,13 +432,13 @@ const reportPlacesAfterCancel = async (canceled: SimulatedSubscription) => {
       members.held === 0
         ? {
             variant: "success",
-            title: tStatic("utilities.subscription-simulation", "MEMBERS_CARD.EVERY_PLACE_RELEASED"),
-            description: tStatic("utilities.subscription-simulation", "MEMBERS_CARD.HAS_ENDED_AND_NOBODY_HOLDS", { planName: canceled.planName }),
+            title: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.EVERY_PLACE_RELEASED"),
+            description: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.HAS_ENDED_AND_NOBODY_HOLDS", { planName: canceled.planName }),
           }
         : {
             variant: "destructive",
-            title: tStatic("utilities.subscription-simulation", "MEMBERS_CARD.PLACES_STILL_HELD", { count: members.held }),
-            description: tStatic("utilities.subscription-simulation", "MEMBERS_CARD.HAS_ENDED_BUT_STILL_LISTS", { planName: canceled.planName, users: members.seats
+            title: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.PLACES_STILL_HELD", { count: members.held }),
+            description: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.HAS_ENDED_BUT_STILL_LISTS", { planName: canceled.planName, users: members.seats
               .map((seat) => seat.userId)
               .join(", ") }),
           },
@@ -441,15 +446,15 @@ const reportPlacesAfterCancel = async (canceled: SimulatedSubscription) => {
   } catch (failure) {
     toast({
       variant: "destructive",
-      title: tStatic("utilities.subscription-simulation", "MEMBERS_CARD.COULD_NOT_READ_THE_PLACES"),
-      description: failure instanceof Error ? failure.message : tStatic("utilities.subscription-simulation", "MEMBERS_CARD.TRY_AGAIN_2"),
+      title: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.COULD_NOT_READ_THE_PLACES"),
+      description: failure instanceof Error ? failure.message : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, MEMBERS_CARD_TRY_AGAIN_2),
     });
   }
 };
 
 /** The current subscription card shows a harness run in full; here a line is enough. */
 const harnessToast = () =>
-  toast({ variant: "success", title: tStatic("utilities.subscription-simulation", "MEMBERS_CARD.HARNESS_RUN_FINISHED"), description: tStatic("utilities.subscription-simulation", "MEMBERS_CARD.RE_READ_THE_CARD_FOR") });
+  toast({ variant: "success", title: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.HARNESS_RUN_FINISHED"), description: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.RE_READ_THE_CARD_FOR") });
 
 /** One name per line; commas and spaces also separate, since ids are pasted from anywhere. */
 const parseUserIds = (text: string): string[] => [
@@ -477,7 +482,7 @@ export const AssignMembersDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [text, setText] = useState("");
   const [outcome, setOutcome] = useState<SubscriptionMemberAssignment | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -494,6 +499,10 @@ export const AssignMembersDialog = ({
       setFailure(error instanceof Error ? error.message : "Nobody could be assigned.");
     }
   };
+
+  const idleAssignLabel = userIds.length
+    ? t("MEMBERS_CARD.ASSIGN_PEOPLE", { count: userIds.length })
+    : t("MEMBERS_CARD.ASSIGN_NONE");
 
   return (
     <Dialog open={open} onOpenChange={(next) => !assign.isPending && onOpenChange(next)}>
@@ -540,9 +549,7 @@ export const AssignMembersDialog = ({
             </>
           ) : (
             <Button onClick={submit} disabled={userIds.length === 0 || assign.isPending}>
-              {assign.isPending
-                ? t("MEMBERS_CARD.ASSIGNING")
-                : userIds.length ? t("MEMBERS_CARD.ASSIGN_PEOPLE", { count: userIds.length }) : t("MEMBERS_CARD.ASSIGN_NONE")}
+              {assign.isPending ? t("MEMBERS_CARD.ASSIGNING") : idleAssignLabel}
             </Button>
           )}
         </DialogFooter>
@@ -552,7 +559,7 @@ export const AssignMembersDialog = ({
 };
 
 const AssignmentOutcome = ({ outcome }: { outcome: SubscriptionMemberAssignment }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   return (
   <div className="space-y-3 text-sm">
     <section aria-label={t("MEMBERS_CARD.ASSIGNED")}>

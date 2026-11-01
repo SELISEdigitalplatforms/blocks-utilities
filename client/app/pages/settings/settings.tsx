@@ -30,6 +30,8 @@ import { tStatic, useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { formatDate } from "@/lib/utils";
 
+const UTILITIES_CONSOLE_MODULE = "utilities.console";
+
 const SettingsLoading = () => (
   <main className="p-6">
     <Skeleton className="h-8 w-24" />
@@ -63,15 +65,15 @@ const createProjectNameSchema = () =>
     name: z
       .string()
       .trim()
-      .min(1, tStatic("utilities.console", "SETTINGS.NAME_IS_REQUIRED"))
-      .min(3, tStatic("utilities.console", "SETTINGS.PROJECT_NAME_MIN_LENGTH"))
-      .max(100, tStatic("utilities.console", "SETTINGS.PROJECT_NAME_MAX_LENGTH")),
+      .min(1, tStatic(UTILITIES_CONSOLE_MODULE, "SETTINGS.NAME_IS_REQUIRED"))
+      .min(3, tStatic(UTILITIES_CONSOLE_MODULE, "SETTINGS.PROJECT_NAME_MIN_LENGTH"))
+      .max(100, tStatic(UTILITIES_CONSOLE_MODULE, "SETTINGS.PROJECT_NAME_MAX_LENGTH")),
   });
 
 type ProjectNameForm = z.infer<ReturnType<typeof createProjectNameSchema>>;
 
 export const SettingsPage = () => {
-  const { t } = useT("utilities.console");
+  const { t } = useT(UTILITIES_CONSOLE_MODULE);
   const { selectedProject, selectedTenantGroup, setSelectedProject } = useProjectStore();
 
   const { data: projectsData, isLoading } = useGetProjects(selectedTenantGroup || "");

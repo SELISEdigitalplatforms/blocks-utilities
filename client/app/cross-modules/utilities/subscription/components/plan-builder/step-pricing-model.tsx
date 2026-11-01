@@ -67,6 +67,11 @@ export const StepPricingModel = ({
   // Watched, not read from useFieldArray's snapshot, which only refreshes when the list
   // itself changes — see step-usage-limits for the same trap.
   const meterValues = useWatch({ control, name: "meters" });
+  const includedLabel = (meter: (typeof meterValues)[number] | undefined): string => {
+    if (meter?.resetPolicy === 1) return t("STEP_PRICING_MODEL.INCLUDED_LIFETIME");
+    if (meter?.unitLabel) return t("STEP_PRICING_MODEL.INCLUDED_PER_PERIOD_UNIT", { unit: meter.unitLabel });
+    return t("STEP_PRICING_MODEL.INCLUDED_PER_PERIOD");
+  };
   const quantityItemValues = useWatch({ control, name: "quantityItems" });
   const hasBands = (quantityItemValues ?? []).some(
     (item) => (item?.quantityDiscountTiers?.length ?? 0) > 0,
@@ -332,13 +337,7 @@ export const StepPricingModel = ({
                 render={({ field: inputField }) => (
                   <FormItem>
                     <FormLabel className="text-xs">
-                      {meterValues?.[index]?.resetPolicy === 1
-                        ? t("STEP_PRICING_MODEL.INCLUDED_LIFETIME")
-                        : meterValues?.[index]?.unitLabel
-                          ? t("STEP_PRICING_MODEL.INCLUDED_PER_PERIOD_UNIT", {
-                              unit: meterValues[index].unitLabel,
-                            })
-                          : t("STEP_PRICING_MODEL.INCLUDED_PER_PERIOD")}
+                      {includedLabel(meterValues?.[index])}
                     </FormLabel>
                     <FormControl>
                       {/* Stepped to the meter's own granularity. Without it the browser's own
@@ -615,17 +614,17 @@ const PlacesExplanation = ({ mode }: { mode: PlacesMode }) => {
     <div className="space-y-2 rounded-md bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
       <p>{t("STEP_PRICING_MODEL.PLACES_INTRO")}</p>
 
-      {mode !== "flat" ? (
+      {mode === "flat" ? null : (
         <p>
           <RichText text={t("STEP_PRICING_MODEL.PLACES_PER_UNIT")} />
         </p>
-      ) : null}
+      )}
 
-      {mode !== "perPlace" ? (
+      {mode === "perPlace" ? null : (
         <p>
           <RichText text={t("STEP_PRICING_MODEL.PLACES_FLAT")} />
         </p>
-      ) : null}
+      )}
     </div>
   );
 };

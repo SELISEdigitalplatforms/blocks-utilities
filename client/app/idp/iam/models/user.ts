@@ -2,6 +2,8 @@ import { tStatic } from "@seliseblocks/genesis-os";
 import { IPermission } from "./permission";
 import { IRole } from "./role";
 
+const UTILITIES_IDP_MODULE = "utilities.idp";
+
 type Id = string;
 export interface User {
   itemId: string;
@@ -257,15 +259,15 @@ export interface IPATResponse {
 export const getUserStatusOptions = () => [
   {
     value: "Active",
-    label: tStatic("utilities.idp", "USER.ACTIVE"),
+    label: tStatic(UTILITIES_IDP_MODULE, "USER.ACTIVE"),
   },
   {
     value: "Inactive",
-    label: tStatic("utilities.idp", "USER.INACTIVE"),
+    label: tStatic(UTILITIES_IDP_MODULE, "USER.INACTIVE"),
   },
   {
     value: "Verified",
-    label: tStatic("utilities.idp", "USER.VERIFIED"),
+    label: tStatic(UTILITIES_IDP_MODULE, "USER.VERIFIED"),
   },
 ];
 

@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { Logo } from "@/components/logo";
 import { Loader } from "lucide-react";
 import { extractOIDCParams } from "@blocks-idp/authentication/utils/oidc-utils";
-import { LanguageSelector, useT, tStatic } from "@seliseblocks/genesis-os";
+import { LanguageSelector, useT } from "@seliseblocks/genesis-os";
 
 type OIDCContextType = {
   logoUrl?: string;

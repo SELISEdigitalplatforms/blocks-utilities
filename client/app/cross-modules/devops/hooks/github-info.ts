@@ -8,6 +8,10 @@ import {
 } from "../models/utils";
 import { useProjectStore, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_CONSOLE_MODULE = "utilities.console";
+const GITHUB_INFO_PROJECT_ID_IS_REQUIRED = "GITHUB_INFO.PROJECT_ID_IS_REQUIRED";
+const REPO_BUILDS_KEY = "repo-builds";
+
 
 export const useGithubVerification = (code: string) => {
   const projectKey = useProjectStore().selectedProject?.tenantId || "";
@@ -116,7 +120,7 @@ export const useGetAllProjects = (
     queryKey: ["projects", projectId],
     queryFn: () => {
       if (!projectId) {
-        throw new Error(tStatic("utilities.console", "GITHUB_INFO.PROJECT_ID_IS_REQUIRED"));
+        throw new Error(tStatic(UTILITIES_CONSOLE_MODULE, GITHUB_INFO_PROJECT_ID_IS_REQUIRED));
       }
       return githubInfoService.getAllProjects(projectId);
     },
@@ -137,10 +141,10 @@ export const useGetAllRepoBuilds = (
   },
 ) => {
   return useQuery({
-    queryKey: ["repo-builds", projectId],
+    queryKey: [REPO_BUILDS_KEY, projectId],
     queryFn: () => {
       if (!projectId) {
-        throw new Error(tStatic("utilities.console", "GITHUB_INFO.PROJECT_ID_IS_REQUIRED"));
+        throw new Error(tStatic(UTILITIES_CONSOLE_MODULE, GITHUB_INFO_PROJECT_ID_IS_REQUIRED));
       }
       return githubInfoService.getAllRepoBuilds(projectId);
     },
@@ -165,7 +169,7 @@ export const useGetRepoDetails = (
     queryKey: ["repo-details", projectKey, repoId],
     queryFn: () => {
       if (!projectKey || !repoId) {
-        throw new Error(tStatic("utilities.console", "GITHUB_INFO.PROJECT_KEY_AND_REPO_ID"));
+        throw new Error(tStatic(UTILITIES_CONSOLE_MODULE, "GITHUB_INFO.PROJECT_KEY_AND_REPO_ID"));
       }
       return githubInfoService.getRepoDetails(projectKey, repoId);
     },
@@ -223,7 +227,7 @@ export const useGetCardProjectAndBranch = (buildId: string) => {
     queryKey: ["project-repo", buildId],
     queryFn: () => {
       if (!buildId) {
-        throw new Error(tStatic("utilities.console", "GITHUB_INFO.PROJECT_ID_IS_REQUIRED"));
+        throw new Error(tStatic(UTILITIES_CONSOLE_MODULE, GITHUB_INFO_PROJECT_ID_IS_REQUIRED));
       }
       return githubInfoService.getCardRepoAndBranches(buildId, projectKey);
     },
@@ -241,7 +245,7 @@ export const useChangeBuildSpecs = () => {
     onSuccess: (data) => {
       queryClient.setQueryData(["build-specs"], data);
       queryClient.invalidateQueries({ queryKey: ["repo-specs"] });
-      queryClient.invalidateQueries({ queryKey: ["repo-builds"] });
+      queryClient.invalidateQueries({ queryKey: [REPO_BUILDS_KEY] });
     },
     onError: (error) => {
       console.error("Build specs change failed:", error);
@@ -256,7 +260,7 @@ export const useChangeRepoSpecs = () => {
     mutationFn: (payload: IChangeRepoSpecs) => githubInfoService.changeRepoSpecs(payload),
     onSuccess: (data) => {
       queryClient.setQueryData(["repo-specs"], data);
-      queryClient.invalidateQueries({ queryKey: ["repo-builds"] });
+      queryClient.invalidateQueries({ queryKey: [REPO_BUILDS_KEY] });
     },
     onError: (error) => {
       console.error("Build specs change failed:", error);

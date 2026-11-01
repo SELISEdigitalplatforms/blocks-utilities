@@ -16,11 +16,13 @@ import { SSOProviderConfigFormFieldType } from "../sso-provider-config.type";
 import { SSOProviderConfigFormField } from "./sso-provider-config-form-fields";
 import { SsoConfigForms } from "./sso-provider-config-forms";
 
+const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
+
 const getSsoOwnSsoFormFields = (): SSOProviderConfigFormFieldType[] => [
   ...createCommonOAuthFields({ clientId: { description: "" } }),
   {
     id: "6",
-    label: tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.WELL_KNOWN_URL"),
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.WELL_KNOWN_URL"),
     type: "input",
     name: "wellKnownUrl",
   },
@@ -36,13 +38,13 @@ type FormValue = {
 };
 
 const createSchema = () => createSsoProviderConfigBaseSchema().extend({
-  clientId: z.string().trim().nonempty(tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.CLIENT_ID_IS_REQUIRED")),
-  clientSecret: z.string().trim().nonempty(tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.CLIENT_SECRET_IS_REQUIRED")),
-  wellKnownUrl: z.string().url({ message: tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.WELL_KNOWN_URL_MUST_BE") }).trim(),
+  clientId: z.string().trim().nonempty(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.CLIENT_ID_IS_REQUIRED")),
+  clientSecret: z.string().trim().nonempty(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.CLIENT_SECRET_IS_REQUIRED")),
+  wellKnownUrl: z.string().url({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.WELL_KNOWN_URL_MUST_BE") }).trim(),
 });
 
 export const SSOProviderConfigOwnSSOForm: React.FC<SsoConfigForms> = ({ configuration }) => {
-  const { t } = useT("utilities.idp.authentication");
+  const { t } = useT(UTILITIES_IDP_AUTHENTICATION_MODULE);
   const projectKey = useProjectStore()?.selectedProject?.tenantId || "";
   const { mutateAsync } = useSaveSsoCredential();
 

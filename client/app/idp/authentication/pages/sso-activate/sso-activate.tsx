@@ -21,6 +21,8 @@ import { oauthService } from "@blocks-idp/authentication/services/oauth.service"
 import { sanitizeProviderUrl } from "@blocks-idp/authentication/utils/sanitize-provider-url.util";
 import { Link } from "react-router";
 
+const SSO_ACTIVATE_SOMETHING_WENT_WRONG = "SSO_ACTIVATE.SOMETHING_WENT_WRONG";
+
 type SsoActivateProps = {
   oauthParams: { code: string; username: string };
 };
@@ -47,7 +49,7 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
   const handleUseDifferentAccount = async () => {
     const audience = sessionStorage.getItem("clicked_sso_audience");
     if (!providerKey || !audience) {
-      return showErrorToast({ errors: t("SSO_ACTIVATE.SOMETHING_WENT_WRONG") });
+      return showErrorToast({ errors: t(SSO_ACTIVATE_SOMETHING_WENT_WRONG) });
     }
 
     try {
@@ -65,13 +67,15 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
     } catch (error) {
       if (isErrorWithErrors(error))
         return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: t("SSO_ACTIVATE.SOMETHING_WENT_WRONG") });
+      showErrorToast({ errors: t(SSO_ACTIVATE_SOMETHING_WENT_WRONG) });
     }
   };
 
   const handleActivate = async () => {
-    if (!oauthParams?.code)
-      return showErrorToast({ errors: t("SSO_ACTIVATE.CODE_IS_MISSING") });
+    if (!oauthParams?.code) {
+      showErrorToast({ errors: t("SSO_ACTIVATE.CODE_IS_MISSING") });
+      return;
+    }
     setIsPending(true);
     try {
       const key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
@@ -109,7 +113,7 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
         setAuthenticated();
         navigate("/services/language");
       } else {
-        showErrorToast({ errors: data.errors || t("SSO_ACTIVATE.SOMETHING_WENT_WRONG") });
+        showErrorToast({ errors: data.errors || t(SSO_ACTIVATE_SOMETHING_WENT_WRONG) });
       }
     } catch (error) {
       if (JSON.stringify(error).includes("expire")) {
@@ -119,7 +123,7 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
       } else if (isErrorWithErrors(error)) {
         showErrorToast({ errors: error.errors });
       } else {
-        showErrorToast({ errors: t("SSO_ACTIVATE.SOMETHING_WENT_WRONG") });
+        showErrorToast({ errors: t(SSO_ACTIVATE_SOMETHING_WENT_WRONG) });
       }
     } finally {
       setIsPending(false);

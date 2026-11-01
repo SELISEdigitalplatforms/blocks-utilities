@@ -76,13 +76,10 @@ export const describeCreditTerms = (credit: CreditTermsSummary): string => {
         min: credit.minQuantity.toLocaleString(),
       });
 
+  const taxKey =
+    credit.taxMode === "Inclusive" ? "CREDIT_TERMS_FORMAT.TAX_INCLUDED" : "CREDIT_TERMS_FORMAT.TAX_ADDED";
   const tax = credit.taxRateBasisPoints
-    ? tSubscription(
-        credit.taxMode === "Inclusive"
-          ? "CREDIT_TERMS_FORMAT.TAX_INCLUDED"
-          : "CREDIT_TERMS_FORMAT.TAX_ADDED",
-        { rate: credit.taxRateBasisPoints / 100 },
-      )
+    ? tSubscription(taxKey, { rate: credit.taxRateBasisPoints / 100 })
     : null;
 
   const parts = [

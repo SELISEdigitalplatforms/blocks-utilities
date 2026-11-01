@@ -40,6 +40,8 @@ import type {
 import { labelPlanChange } from "../utilities/plan-change-label";
 import { useT, tStatic } from "@seliseblocks/genesis-os";
 
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+
 /**
  * Moving a subscription to another plan or price.
  *
@@ -63,7 +65,7 @@ export const ChangePlanDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
-  const { t } = useT("utilities.subscription-simulation");
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const preview = usePreviewPlanChange();
   const apply = useChangeSubscriptionPlan();
   const withdrawCancellation = useWithdrawCancellation();
@@ -231,13 +233,9 @@ export const ChangePlanDialog = ({
       const gap = billingProfileGapOf(failure);
 
       setConfirmationProfileGap(gap);
-      setFormError(
-        gap
-          ? null
-          : describePlanChangeRefusal(failure?.code) ||
-              failure?.message ||
-              (error instanceof Error ? error.message : t("CHANGE_PLAN_DIALOG.THE_PLAN_COULD_NOT_BE")),
-      );
+      const fallbackMessage =
+        error instanceof Error ? error.message : t("CHANGE_PLAN_DIALOG.THE_PLAN_COULD_NOT_BE");
+      setFormError(gap ? null : describePlanChangeRefusal(failure?.code) || failure?.message || fallbackMessage);
       // The quote may no longer describe what a retry would charge.
       setQuote(null);
     }
@@ -265,6 +263,10 @@ export const ChangePlanDialog = ({
   };
 
   const blocked = (quote?.blockers.length ?? 0) > 0 || subscription.cancelAtPeriodEnd;
+  const immediateHeadline =
+    (quote?.chargeMinor ?? 0) > 0
+      ? t("CHANGE_PLAN_DIALOG.CHARGED_NOW")
+      : t("CHANGE_PLAN_DIALOG.APPLIES_NOW_NOTHING_CHARGED");
   const previewProfileGap = quote?.blockers
     .map((blocker) =>
       billingProfileGapOf({
@@ -390,9 +392,7 @@ export const ChangePlanDialog = ({
               <div className="flex items-center justify-between">
                 <p className="font-medium">
                   {quote.timing === "Immediate"
-                    ? quote.chargeMinor > 0
-                      ? t("CHANGE_PLAN_DIALOG.CHARGED_NOW")
-                      : t("CHANGE_PLAN_DIALOG.APPLIES_NOW_NOTHING_CHARGED")
+                    ? immediateHeadline
                     : t("CHANGE_PLAN_DIALOG.EFFECTIVE", { effectiveAtUtc: formatDate(quote.effectiveAtUtc) })}
                 </p>
                 <Badge variant={quote.timing === "Immediate" ? "default" : "secondary"}>
@@ -506,17 +506,17 @@ const formatDate = (isoDate: string) => new Date(isoDate).toLocaleString();
 const describePlanChangeRefusal = (code: string | undefined): string | null => {
   switch (code) {
     case "subscription_cancellation_scheduled":
-      return tStatic("utilities.subscription-simulation", "CHANGE_PLAN_DIALOG.THIS_SUBSCRIPTION_IS_SCHEDULED_TO");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_PLAN_DIALOG.THIS_SUBSCRIPTION_IS_SCHEDULED_TO");
     case "subscription_pending_quantity_change_exists":
-      return tStatic("utilities.subscription-simulation", "CHANGE_PLAN_DIALOG.A_QUANTITY_CHANGE_IS_ALREADY");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_PLAN_DIALOG.A_QUANTITY_CHANGE_IS_ALREADY");
     case "subscription_quantity_change_in_flight":
-      return tStatic("utilities.subscription-simulation", "CHANGE_PLAN_DIALOG.A_QUANTITY_CHANGE_IS_STILL");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_PLAN_DIALOG.A_QUANTITY_CHANGE_IS_STILL");
     // subscription_initial_annual_period_prepaid is retired: a prepaid opening stub no longer
     // refuses a compatible plan change outright — it settles the stub and the paid year together
     // instead (the quote above already reflects that combined charge). Only an unpaid stub still
     // refuses one outright, below.
     case "subscription_initial_annual_period_unpaid":
-      return tStatic("utilities.subscription-simulation", "CHANGE_PLAN_DIALOG.THIS_SUBSCRIPTION_S_FIRST_YEAR");
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_PLAN_DIALOG.THIS_SUBSCRIPTION_S_FIRST_YEAR");
     default:
       return null;
   }

@@ -73,7 +73,8 @@ export const SignupForm = ({
       });
       if (!res.isSuccess) {
         resetCaptcha();
-        return showErrorToast({ errors: res.errors });
+        showErrorToast({ errors: res.errors });
+        return;
       }
       navigate(`/signup-email-sent?email=${values.email}`);
     } catch (error) {
