@@ -12,6 +12,7 @@ import type {
   PlanMeterSubLimit,
 } from "../../subscription/models/subscription-plan.model";
 import { describePaceWindow } from "../../subscription/utilities/member-plan-format";
+import { useT } from "@seliseblocks/genesis-os";
 
 /**
  * One meter's consume control.
@@ -39,6 +40,7 @@ export const UsageMeterRow = ({
   usage: MeterUsage | undefined;
   organizationId: string | undefined;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const { mutateAsync: recordUsage } = useRecordUsage();
 
   const [quantity, setQuantity] = useState("1");
@@ -65,7 +67,7 @@ export const UsageMeterRow = ({
   const consume = async () => {
     const parsedQuantity = Number(quantity);
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
-      setLastResult({ message: "Enter a quantity greater than zero.", tone: "error" });
+      setLastResult({ message: t("USAGE_METER_ROW.ENTER_A_QUANTITY_GREATER_THAN"), tone: "error" });
       return;
     }
 
@@ -81,7 +83,7 @@ export const UsageMeterRow = ({
         );
         if (!checked.allowed) {
           setLastResult({
-            message: `Blocked before recording — ${checked.reason}.`,
+            message: t("USAGE_METER_ROW.BLOCKED_BEFORE_RECORDING", { reason: checked.reason }),
             tone: "blocked",
           });
           return;
@@ -96,7 +98,7 @@ export const UsageMeterRow = ({
           checked.remaining < parsedQuantity
         ) {
           setLastResult({
-            message: `Blocked before recording — only ${checked.remaining} ${meter.unitLabel}${checked.remaining === 1 ? "" : "s"} remaining.`,
+            message: t("USAGE_METER_ROW.BLOCKED_BEFORE_RECORDING_ONLY", { remaining: checked.remaining, unit: `${meter.unitLabel}${checked.remaining === 1 ? "" : "s"}` }),
             tone: "blocked",
           });
           return;
@@ -129,20 +131,22 @@ export const UsageMeterRow = ({
       const reporting = passed.filter((limit) => limit.behaviour !== "Refuse").map(describeLimit).join(" and ");
       const refusedByPace = !result.allowed && refusing !== "";
       const units = `${result.unitLabel}${result.included === 1 ? "" : "s"}`;
-      const recordedLine = `Recorded. ${result.used}/${result.included} ${units} used this period, ${result.remaining} remaining${result.overage ? `, ${result.overage} over` : ""}.`;
+      const recordedLine = result.overage
+        ? t("USAGE_METER_ROW.RECORDED_WITH_OVERAGE", { used: result.used, included: result.included, units, remaining: result.remaining, overage: result.overage })
+        : t("USAGE_METER_ROW.RECORDED", { used: result.used, included: result.included, units, remaining: result.remaining });
 
       setLastResult(
         result.allowed && result.subLimitExceeded
           ? {
-              message: `${recordedLine} Past the pace of ${exceeded || pace || "this meter"} — allowed, and reported so the caller can slow down.`,
+              message: t("USAGE_METER_ROW.PAST_THE_PACE_OF_ALLOWED", { recordedLine, pace: exceeded || pace || t("USAGE_METER_ROW.THIS_METER") }),
               tone: "over-pace",
             }
           : result.allowed
             ? { message: recordedLine, tone: "success" }
             : {
                 message: refusedByPace
-                  ? `Refused by the pace limit of ${refusing} — allowance remains, try again in the next window.${reporting ? ` Also over the pace of ${reporting}.` : ""}`
-                  : "Refused by the usage call — the allowance was exhausted between the check and this call.",
+                  ? t("USAGE_METER_ROW.REFUSED_BY_THE_PACE_LIMIT", { refusing, also: reporting ? t("USAGE_METER_ROW.ALSO_OVER_THE_PACE", { reporting }) : "" })
+                  : t("USAGE_METER_ROW.REFUSED_BY_THE_USAGE_CALL"),
                 tone: "blocked",
               },
       );
@@ -150,15 +154,15 @@ export const UsageMeterRow = ({
       if (!result.allowed) {
         toast({
           variant: "destructive",
-          title: "Usage refused",
+          title: t("USAGE_METER_ROW.USAGE_REFUSED"),
           description: refusedByPace
-            ? `${meter.displayName} is over its pace of ${refusing}.`
-            : `${meter.displayName} has no remaining allowance.`,
+            ? t("USAGE_METER_ROW.IS_OVER_ITS_PACE_OF", { displayName: meter.displayName, refusing })
+            : t("USAGE_METER_ROW.HAS_NO_REMAINING_ALLOWANCE", { displayName: meter.displayName }),
         });
       }
     } catch (error) {
       setLastResult({
-        message: error instanceof Error ? error.message : "The usage call failed.",
+        message: error instanceof Error ? error.message : t("USAGE_METER_ROW.THE_USAGE_CALL_FAILED"),
         tone: "error",
       });
     } finally {
@@ -173,17 +177,19 @@ export const UsageMeterRow = ({
           {meter.displayName}
           {lastResult?.tone === "over-pace" ? (
             <Badge variant="outline" className="border-amber-300 bg-amber-50 font-normal text-amber-800">
-              Over pace
+              {t("USAGE_METER_ROW.OVER_PACE")}
             </Badge>
           ) : null}
-          {pace ? <span className="text-xs font-normal text-muted-foreground">pace {pace}</span> : null}
+          {pace ? <span className="text-xs font-normal text-muted-foreground">{t("USAGE_METER_ROW.PACE_VALUE", { pace })}</span> : null}
         </p>
         <p className="text-xs text-muted-foreground">
           {current
-            ? `${current.used}/${current.included} ${current.unitLabel || meter.unitLabel}${current.included === 1 ? "" : "s"} used this period${current.overage ? `, ${current.overage} over` : ""}`
+            ? current.overage
+              ? t("USAGE_METER_ROW.USED_THIS_PERIOD_OVER", { used: current.used, included: current.included, units: `${current.unitLabel || meter.unitLabel}${current.included === 1 ? "" : "s"}`, overage: current.overage })
+              : t("USAGE_METER_ROW.USED_THIS_PERIOD", { used: current.used, included: current.included, units: `${current.unitLabel || meter.unitLabel}${current.included === 1 ? "" : "s"}` })
             : entitlementKey
-              ? `Entitlement: ${entitlementKey}`
-              : `No entitlement gates this meter — recording goes straight through.`}
+              ? t("USAGE_METER_ROW.ENTITLEMENT", { entitlementKey })
+              : t("USAGE_METER_ROW.NO_ENTITLEMENT_GATES_THIS_METER")}
         </p>
         {lastResult && (
           <p
@@ -215,11 +221,11 @@ export const UsageMeterRow = ({
           value={quantity}
           onChange={(event) => setQuantity(event.target.value)}
           className="w-20"
-          aria-label={`Quantity to consume for ${meter.displayName}`}
+          aria-label={t("USAGE_METER_ROW.QUANTITY_TO_CONSUME_FOR", { displayName: meter.displayName })}
         />
         <Button size="sm" onClick={consume} disabled={phase !== "idle"}>
           {phase !== "idle" && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-          {phase === "checking" ? "Checking…" : phase === "recording" ? "Recording…" : "Consume"}
+          {phase === "checking" ? t("USAGE_METER_ROW.CHECKING") : phase === "recording" ? t("USAGE_METER_ROW.RECORDING") : t("USAGE_METER_ROW.CONSUME")}
         </Button>
       </div>
     </div>

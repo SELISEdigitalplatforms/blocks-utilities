@@ -15,6 +15,7 @@ import type {
   SubscriptionSimulationJobRunResponse,
   UpdateDataFieldRequest,
 } from "../models/subscription-simulation-harness.model";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 interface HarnessApiError {
   code: string;
@@ -112,7 +113,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/mark-payment-succeeded`,
       request,
-      "The payment outcome could not be simulated.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_PAYMENT_OUTCOME_COULD_NOT"),
     );
   }
 
@@ -123,7 +124,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/mark-payment-failed`,
       request,
-      "The payment outcome could not be simulated.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_PAYMENT_OUTCOME_COULD_NOT"),
     );
   }
 
@@ -134,7 +135,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/advance-renewal`,
       request,
-      "The renewal could not be advanced.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_RENEWAL_COULD_NOT_BE"),
     );
   }
 
@@ -145,7 +146,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/close-usage-period`,
       request,
-      "The usage period could not be closed.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_USAGE_PERIOD_COULD_NOT"),
     );
   }
 
@@ -156,7 +157,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/jobs/run-due`,
       request,
-      "The due background work could not be run.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DUE_BACKGROUND_WORK_COULD"),
     );
   }
 
@@ -165,7 +166,7 @@ class SubscriptionSimulationHarnessService {
    * `find`/`update` can reach before trying either.
    */
   async getDataPolicy(): Promise<SubscriptionSimulationDataPolicyResponse[]> {
-    return this.get(`${SIMULATION_HARNESS_ENDPOINT}/data/policy`, "The data console policy could not be loaded.");
+    return this.get(`${SIMULATION_HARNESS_ENDPOINT}/data/policy`, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DATA_CONSOLE_POLICY_COULD"));
   }
 
   async findData(
@@ -176,7 +177,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.dataPath(subscriptionId, logicalCollection)}/find`,
       request,
-      "The data could not be read.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DATA_COULD_NOT_BE"),
     );
   }
 
@@ -188,7 +189,7 @@ class SubscriptionSimulationHarnessService {
     return this.post(
       `${this.dataPath(subscriptionId, logicalCollection)}/update`,
       request,
-      "The field could not be updated.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_FIELD_COULD_NOT_BE"),
     );
   }
 

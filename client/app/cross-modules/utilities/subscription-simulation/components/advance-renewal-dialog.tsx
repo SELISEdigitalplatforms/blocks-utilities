@@ -23,18 +23,19 @@ import type {
   SimulatedRenewalOutcome,
   SubscriptionSimulationActionResponse,
 } from "../models/subscription-simulation-harness.model";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
 /** Not a server value — selecting this omits `paymentOutcome` so the real gateway decides. */
 const REAL_GATEWAY = "RealGateway" as const;
 
-const OUTCOMES: { value: SimulatedRenewalOutcome | typeof REAL_GATEWAY; label: string }[] = [
-  { value: REAL_GATEWAY, label: "Real payment gateway (no script)" },
-  { value: "Succeeded", label: "Succeeded" },
-  { value: "Declined", label: "Declined" },
-  { value: "InsufficientFunds", label: "Insufficient funds" },
-  { value: "PaymentMethodExpired", label: "Payment method expired" },
-  { value: "ProviderUnavailable", label: "Provider unavailable" },
-  { value: "OutcomeUnknown", label: "Outcome unknown" },
+const getOutcomes = (): { value: SimulatedRenewalOutcome | typeof REAL_GATEWAY; label: string }[] => [
+  { value: REAL_GATEWAY, label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.REAL_PAYMENT_GATEWAY_NO_SCRIPT") },
+  { value: "Succeeded", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.SUCCEEDED") },
+  { value: "Declined", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.DECLINED") },
+  { value: "InsufficientFunds", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.INSUFFICIENT_FUNDS") },
+  { value: "PaymentMethodExpired", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.PAYMENT_METHOD_EXPIRED") },
+  { value: "ProviderUnavailable", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.PROVIDER_UNAVAILABLE") },
+  { value: "OutcomeUnknown", label: tStatic("utilities.subscription-simulation", "ADVANCE_RENEWAL_DIALOG.OUTCOME_UNKNOWN") },
 ];
 
 export const AdvanceRenewalDialog = ({
@@ -50,6 +51,7 @@ export const AdvanceRenewalDialog = ({
   onOpenChange: (open: boolean) => void;
   onResult: (result: SubscriptionSimulationActionResponse) => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const { mutateAsync, isPending } = useAdvanceRenewal();
 
   const [selection, setSelection] = useState<SimulatedRenewalOutcome | typeof REAL_GATEWAY>(
@@ -72,15 +74,15 @@ export const AdvanceRenewalDialog = ({
 
       toast({
         variant: paymentOutcome && paymentOutcome !== "Succeeded" ? "destructive" : "success",
-        title: "Renewal advanced",
+        title: t("ADVANCE_RENEWAL_DIALOG.RENEWAL_ADVANCED"),
         description: paymentOutcome
-          ? `Charged as ${paymentOutcome}.`
-          : "Charged against the real payment gateway.",
+          ? t("ADVANCE_RENEWAL_DIALOG.CHARGED_AS", { paymentOutcome })
+          : t("ADVANCE_RENEWAL_DIALOG.CHARGED_AGAINST_THE_REAL_PAYMENT"),
       });
 
       onOpenChange(false);
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "The renewal could not be advanced.");
+      setFormError(error instanceof Error ? error.message : t("ADVANCE_RENEWAL_DIALOG.THE_RENEWAL_COULD_NOT_BE"));
     }
   };
 
@@ -95,18 +97,14 @@ export const AdvanceRenewalDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Advance renewal</DialogTitle>
+          <DialogTitle>{t("ADVANCE_RENEWAL_DIALOG.ADVANCE_RENEWAL")}</DialogTitle>
           <DialogDescription>
-            Sends{" "}
-            <code>POST /api/subscription-simulation/subscriptions/{subscriptionId}/advance-renewal</code>
-            — forces an immediate renewal attempt with a scripted outcome, without waiting for the
-            fee schedule&apos;s own due date.
-          </DialogDescription>
+            {t("ADVANCE_RENEWAL_DIALOG.SENDS_FORCES_AN_IMMEDIATE_RENEWAL", { endpoint: `POST /api/subscription-simulation/subscriptions/${subscriptionId}/advance-renewal` })}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="advance-renewal-outcome">Payment outcome</Label>
+            <Label htmlFor="advance-renewal-outcome">{t("ADVANCE_RENEWAL_DIALOG.PAYMENT_OUTCOME")}</Label>
             <Select
               value={selection}
               onValueChange={(value) =>
@@ -117,7 +115,7 @@ export const AdvanceRenewalDialog = ({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {OUTCOMES.map((option) => (
+                {getOutcomes().map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -127,11 +125,7 @@ export const AdvanceRenewalDialog = ({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Advances the one renewal due for the current fee period — there is no simulated clock,
-            so this cannot run several future periods in one call.{" "}
-            {selection === REAL_GATEWAY
-              ? "This will place a real charge against whatever payment provider account is configured (e.g. a Stripe test account)."
-              : "Scripting an outcome here never reaches the real payment gateway."}
+            {(selection === REAL_GATEWAY ? t("ADVANCE_RENEWAL_DIALOG.ADVANCES_REAL_GATEWAY") : t("ADVANCE_RENEWAL_DIALOG.ADVANCES_SCRIPTED"))}
           </p>
 
           {formError && <p className="text-sm text-destructive">{formError}</p>}
@@ -139,11 +133,11 @@ export const AdvanceRenewalDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button onClick={submit} disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Advance renewal
+            {t("ADVANCE_RENEWAL_DIALOG.ADVANCE_RENEWAL")}
           </Button>
         </DialogFooter>
       </DialogContent>

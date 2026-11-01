@@ -17,12 +17,13 @@ import type {
   SimulationWorkType,
   SubscriptionSimulationJobRunResponse,
 } from "../models/subscription-simulation-harness.model";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
-const WORK_TYPES: { value: SimulationWorkType; label: string }[] = [
-  { value: "Renewal", label: "Renewal" },
-  { value: "UsagePeriodClosure", label: "Usage period closure" },
-  { value: "UsageInvoiceCharge", label: "Usage invoice charge" },
-  { value: "OutboxPublication", label: "Outbox publication" },
+const getWorkTypes = (): { value: SimulationWorkType; label: string }[] => [
+  { value: "Renewal", label: tStatic("utilities.subscription-simulation", "RUN_DUE_JOBS_DIALOG.RENEWAL") },
+  { value: "UsagePeriodClosure", label: tStatic("utilities.subscription-simulation", "RUN_DUE_JOBS_DIALOG.USAGE_PERIOD_CLOSURE") },
+  { value: "UsageInvoiceCharge", label: tStatic("utilities.subscription-simulation", "RUN_DUE_JOBS_DIALOG.USAGE_INVOICE_CHARGE") },
+  { value: "OutboxPublication", label: tStatic("utilities.subscription-simulation", "RUN_DUE_JOBS_DIALOG.OUTBOX_PUBLICATION") },
 ];
 
 export const RunDueJobsDialog = ({
@@ -38,6 +39,7 @@ export const RunDueJobsDialog = ({
   onOpenChange: (open: boolean) => void;
   onResult: (result: SubscriptionSimulationJobRunResponse) => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const { mutateAsync, isPending } = useRunDueJobs();
 
   const [selected, setSelected] = useState<Set<SimulationWorkType>>(new Set());
@@ -68,14 +70,14 @@ export const RunDueJobsDialog = ({
 
       toast({
         variant: "success",
-        title: "Due jobs run",
-        description: `${result.completed} completed, ${result.notDue} not due.`,
+        title: t("RUN_DUE_JOBS_DIALOG.DUE_JOBS_RUN"),
+        description: t("RUN_DUE_JOBS_DIALOG.COMPLETED_NOT_DUE", { completed: result.completed, notDue: result.notDue }),
       });
 
       onOpenChange(false);
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : "The due background work could not be run.",
+        error instanceof Error ? error.message : t("RUN_DUE_JOBS_DIALOG.THE_DUE_BACKGROUND_WORK_COULD"),
       );
     }
   };
@@ -91,22 +93,15 @@ export const RunDueJobsDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Run due jobs</DialogTitle>
+          <DialogTitle>{t("RUN_DUE_JOBS_DIALOG.RUN_DUE_JOBS")}</DialogTitle>
           <DialogDescription>
-            Sends{" "}
-            <code>
-              POST /api/subscription-simulation/subscriptions/{subscriptionId}/jobs/run-due
-            </code>
-            — runs whichever due background work exists for this one subscription right now.
-            Never a tenant-wide sweep, and never a scripted outcome: a renewal or a usage-invoice
-            charge run here goes to the real payment gateway.
-          </DialogDescription>
+            {t("RUN_DUE_JOBS_DIALOG.SENDS_RUNS_WHICHEVER_DUE", { endpoint: `POST /api/subscription-simulation/subscriptions/${subscriptionId}/jobs/run-due` })}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Work types</Label>
-            {WORK_TYPES.map((workType) => (
+            <Label>{t("RUN_DUE_JOBS_DIALOG.WORK_TYPES")}</Label>
+            {getWorkTypes().map((workType) => (
               <div className="flex items-center gap-2" key={workType.value}>
                 <Checkbox
                   id={`run-due-jobs-${workType.value}`}
@@ -119,7 +114,7 @@ export const RunDueJobsDialog = ({
               </div>
             ))}
             <p className="text-xs text-muted-foreground">
-              Leave everything unchecked to run every work type this endpoint knows about.
+              {t("RUN_DUE_JOBS_DIALOG.LEAVE_EVERYTHING_UNCHECKED_TO_RUN")}
             </p>
           </div>
 
@@ -128,11 +123,11 @@ export const RunDueJobsDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button onClick={submit} disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Run due jobs
+            {t("RUN_DUE_JOBS_DIALOG.RUN_DUE_JOBS")}
           </Button>
         </DialogFooter>
       </DialogContent>

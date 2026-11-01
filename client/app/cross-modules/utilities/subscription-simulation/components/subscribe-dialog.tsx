@@ -37,6 +37,7 @@ import {
 } from "../../subscription/utilities/subscription-api-failure";
 import { BillingProfileIncompleteNotice } from "./billing-profile-incomplete-notice";
 import { MoneyBreakdown, formatDate, formatDay } from "./money-breakdown";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
 /**
  * Subscribing to a plan.
@@ -58,6 +59,7 @@ export const SubscribeDialog = ({
   onOpenChange: (open: boolean) => void;
   onSubscribed: (checkoutUrl: string | null) => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const preview = usePreviewSubscription();
   const subscribe = useSubscribeToPlan();
 
@@ -103,7 +105,7 @@ export const SubscribeDialog = ({
     | { valid: true; request: SubscribeToPlanRequest }
     | { valid: false; error: string } => {
     if (!priceId) {
-      return { valid: false, error: "Choose a price to subscribe on." };
+      return { valid: false, error: t("SUBSCRIBE_DIALOG.CHOOSE_A_PRICE_TO_SUBSCRIBE") };
     }
 
     const parsedQuantities: SubscriptionQuantity[] = [];
@@ -114,14 +116,14 @@ export const SubscribeDialog = ({
       if (!raw || !Number.isFinite(quantity) || quantity < item.minQuantity) {
         return {
           valid: false,
-          error: `${item.unitLabel} must be at least ${item.minQuantity}.`,
+          error: t("SUBSCRIBE_DIALOG.MUST_BE_AT_LEAST", { unitLabel: item.unitLabel, minQuantity: item.minQuantity }),
         };
       }
 
       if (item.maxQuantity != null && quantity > item.maxQuantity) {
         return {
           valid: false,
-          error: `${item.unitLabel} can be at most ${item.maxQuantity}.`,
+          error: t("SUBSCRIBE_DIALOG.CAN_BE_AT_MOST", { unitLabel: item.unitLabel, maxQuantity: item.maxQuantity }),
         };
       }
 
@@ -166,7 +168,7 @@ export const SubscribeDialog = ({
       );
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : "The subscription could not be previewed.",
+        error instanceof Error ? error.message : t("SUBSCRIBE_DIALOG.THE_SUBSCRIPTION_COULD_NOT_BE"),
       );
       setQuote(null);
       setDiscountNotice(null);
@@ -188,10 +190,10 @@ export const SubscribeDialog = ({
 
       toast({
         variant: "success",
-        title: "Subscription started",
+        title: t("SUBSCRIBE_DIALOG.SUBSCRIPTION_STARTED"),
         description: subscription.checkoutUrl
-          ? "Continue to checkout to activate it."
-          : `Status: ${subscription.status}.`,
+          ? t("SUBSCRIBE_DIALOG.CONTINUE_TO_CHECKOUT_TO_ACTIVATE")
+          : t("SUBSCRIBE_DIALOG.STATUS", { status: subscription.status }),
       });
 
       onOpenChange(false);
@@ -206,7 +208,7 @@ export const SubscribeDialog = ({
           : failure?.message ||
               (error instanceof Error
                 ? error.message
-                : "The subscription could not be started."),
+                : t("SUBSCRIBE_DIALOG.THE_SUBSCRIPTION_COULD_NOT_BE_2")),
       );
       // What was shown no longer describes what a retry would charge — the failed attempt may
       // itself have changed something a fresh quote needs to account for.
@@ -247,19 +249,18 @@ export const SubscribeDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Subscribe to {plan.displayName}</DialogTitle>
+          <DialogTitle>{t("SUBSCRIBE_DIALOG.SUBSCRIBE_TO", { displayName: plan.displayName })}</DialogTitle>
           <DialogDescription>
-            Sends <code>POST /api/subscriptions</code> exactly as an integrating application
-            would.
+            {t("SUBSCRIBE_DIALOG.SENDS_EXACTLY", { endpoint: "POST /api/subscriptions" })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="subscribe-price">Price</Label>
+            <Label htmlFor="subscribe-price">{t("SUBSCRIBE_DIALOG.PRICE")}</Label>
             <Select value={priceId} onValueChange={editPrice}>
               <SelectTrigger id="subscribe-price">
-                <SelectValue placeholder="Choose a price" />
+                <SelectValue placeholder={t("SUBSCRIBE_DIALOG.CHOOSE_A_PRICE")} />
               </SelectTrigger>
               <SelectContent>
                 {plan.prices.map((price) => (
@@ -277,7 +278,7 @@ export const SubscribeDialog = ({
                 {item.unitLabel}
                 {plan.prices.find((price) => price.priceId === priceId)?.quantityItemKey ===
                 item.itemKey
-                  ? " (price multiplier)"
+                  ? t("SUBSCRIBE_DIALOG.PRICE_MULTIPLIER")
                   : ""}
               </Label>
               <Input
@@ -292,12 +293,12 @@ export const SubscribeDialog = ({
           ))}
 
           <div className="space-y-1.5">
-            <Label htmlFor="subscribe-discount">Discount code (optional)</Label>
+            <Label htmlFor="subscribe-discount">{t("SUBSCRIBE_DIALOG.DISCOUNT_CODE_OPTIONAL")}</Label>
             <Input
               id="subscribe-discount"
               value={discountCode}
               onChange={(event) => editDiscount(event.target.value)}
-              placeholder="e.g. LAUNCH20"
+              placeholder={t("SUBSCRIBE_DIALOG.E_G_LAUNCH20")}
             />
             {discountNotice ? (
               <p
@@ -305,7 +306,7 @@ export const SubscribeDialog = ({
                 data-testid="subscribe-discount-notice"
               >
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>{discountNotice} The price below excludes it.</span>
+                <span>{t("SUBSCRIBE_DIALOG.THE_PRICE_BELOW_EXCLUDES_IT", { discountNotice })}</span>
               </p>
             ) : null}
           </div>
@@ -322,15 +323,15 @@ export const SubscribeDialog = ({
                   data-testid="subscribe-trial-used-notice"
                 >
                   <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>You have already used this plan&apos;s free trial, so this subscription starts paid.</span>
+                  <span>{t("SUBSCRIBE_DIALOG.YOU_HAVE_ALREADY_USED_THIS")}</span>
                 </p>
               ) : null}
               <div className="flex items-center justify-between">
                 <p className="font-medium">
-                  {quote.totalDueNowMinor > 0 ? "Due now" : "Nothing due now"}
+                  {quote.totalDueNowMinor > 0 ? t("SUBSCRIBE_DIALOG.DUE_NOW") : t("SUBSCRIBE_DIALOG.NOTHING_DUE_NOW")}
                 </p>
                 <Badge variant={quote.prorated ? "secondary" : "default"}>
-                  {quote.prorated ? `${quote.coveredDays}/${quote.totalDays} days` : "Full period"}
+                  {quote.prorated ? t("SUBSCRIBE_DIALOG.DAYS", { coveredDays: (quote.coveredDays) ?? "", totalDays: (quote.totalDays) ?? "" }) : t("SUBSCRIBE_DIALOG.FULL_PERIOD")}
                 </Badge>
               </div>
 
@@ -342,14 +343,14 @@ export const SubscribeDialog = ({
                 promotionalDiscountMinor={quote.promotionalDiscountMinor}
                 netSubtotalMinor={quote.netSubtotalMinor}
                 tax={quote.tax}
-                totalLabel="Total due now"
+                totalLabel={t("SUBSCRIBE_DIALOG.TOTAL_DUE_NOW")}
                 totalMinor={quote.totalDueNowMinor}
               />
 
               {quote.nextCharge.prorated ? (
                 <div className="border-t pt-2">
                   <MoneyBreakdown
-                    label="First charge after trial"
+                    label={t("SUBSCRIBE_DIALOG.FIRST_CHARGE_AFTER_TRIAL")}
                     labelValue={formatDay(quote.nextCharge.chargeAtUtc)}
                     currencyCode={quote.currencyCode}
                     subtotalMinor={quote.nextCharge.subtotalMinor}
@@ -357,13 +358,11 @@ export const SubscribeDialog = ({
                     promotionalDiscountMinor={quote.nextCharge.promotionalDiscountMinor}
                     netSubtotalMinor={quote.nextCharge.netSubtotalMinor}
                     tax={quote.nextCharge.tax}
-                    totalLabel="Total"
+                    totalLabel={t("SUBSCRIBE_DIALOG.TOTAL")}
                     totalMinor={quote.nextCharge.totalMinor}
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {quote.nextCharge.coveredDays}/{quote.nextCharge.totalDays} days — the trial
-                    ends mid-month, so this first charge covers only the days left in it.
-                  </p>
+                    {t("SUBSCRIBE_DIALOG.DAYS_THE_TRIAL_ENDS_MID", { coveredDays: (quote.nextCharge.coveredDays) ?? "", totalDays: (quote.nextCharge.totalDays) ?? "" })}</p>
                 </div>
               ) : null}
 
@@ -372,10 +371,10 @@ export const SubscribeDialog = ({
                   <MoneyBreakdown
                     label={
                       quote.nextCharge.prorated
-                        ? "Recurring price"
+                        ? t("SUBSCRIBE_DIALOG.RECURRING_PRICE")
                         : quote.trialEndsAtUtc
-                          ? "First renewal"
-                          : "Next renewal"
+                          ? t("SUBSCRIBE_DIALOG.FIRST_RENEWAL")
+                          : t("SUBSCRIBE_DIALOG.NEXT_RENEWAL")
                     }
                     labelValue={
                       quote.nextRenewal.renewalAtUtc
@@ -388,7 +387,7 @@ export const SubscribeDialog = ({
                     promotionalDiscountMinor={recurring.promotionalDiscountMinor}
                     netSubtotalMinor={recurring.netSubtotalMinor}
                     tax={recurring.tax}
-                    totalLabel="Total"
+                    totalLabel={t("SUBSCRIBE_DIALOG.TOTAL")}
                     totalMinor={recurring.totalMinor}
                   />
                 </div>
@@ -396,7 +395,7 @@ export const SubscribeDialog = ({
 
               {quote.requiresCardSetup && quote.totalDueNowMinor === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Nothing is charged now, but a card is required to start this subscription.
+                  {t("SUBSCRIBE_DIALOG.NOTHING_IS_CHARGED_NOW_BUT")}
                 </p>
               ) : null}
               {quote.campaign ? (
@@ -406,28 +405,21 @@ export const SubscribeDialog = ({
                 >
                   <p>{quote.campaign.description}</p>
                   <p className="text-xs">
-                    Standard pricing resumes {formatDate(quote.campaign.discountEndsAtUtc)}.
-                  </p>
+                    {t("SUBSCRIBE_DIALOG.STANDARD_PRICING_RESUMES", { discountEndsAtUtc: formatDate(quote.campaign.discountEndsAtUtc) })}</p>
                   {quote.campaign.temporaryEntitlementKey ? (
                     <p className="text-xs">
-                      {quote.campaign.temporaryEntitlementKey} limited to{" "}
-                      {quote.campaign.temporaryEntitlementLimit} while this offer runs.
-                    </p>
+                      {t("SUBSCRIBE_DIALOG.LIMITED_TO_WHILE_THIS_OFFER", { temporaryEntitlementKey: quote.campaign.temporaryEntitlementKey, temporaryEntitlementLimit: (quote.campaign.temporaryEntitlementLimit) ?? "" })}</p>
                   ) : null}
                 </div>
               ) : null}
               {quote.pendingAnnualPeriod ? (
                 <p className="text-xs text-muted-foreground">
-                  Also buys the year starting {formatDate(quote.pendingAnnualPeriod.startUtc)}
-                  {quote.pendingAnnualPeriod.collectedWithCheckout
-                    ? " — included in the total above."
-                    : ", collected separately when it starts."}
+                  {(quote.pendingAnnualPeriod.collectedWithCheckout ? t("SUBSCRIBE_DIALOG.ALSO_BUYS_YEAR_INCLUDED", { startUtc: formatDate(quote.pendingAnnualPeriod.startUtc) }) : t("SUBSCRIBE_DIALOG.ALSO_BUYS_YEAR_SEPARATE", { startUtc: formatDate(quote.pendingAnnualPeriod.startUtc) }))}
                 </p>
               ) : null}
               {quote.quoteValidUntilUtc ? (
                 <p className="text-xs text-muted-foreground">
-                  This price holds until {formatDate(quote.quoteValidUntilUtc)}.
-                </p>
+                  {t("SUBSCRIBE_DIALOG.THIS_PRICE_HOLDS_UNTIL", { quoteValidUntilUtc: formatDate(quote.quoteValidUntilUtc) })}</p>
               ) : null}
 
               {quote.blockers
@@ -449,11 +441,11 @@ export const SubscribeDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button variant="outline" onClick={runPreview} disabled={busy}>
             {preview.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Preview
+            {t("SUBSCRIBE_DIALOG.PREVIEW")}
           </Button>
           {/* Nothing is charged without a quote on screen, and the quote is discarded the moment
               anything that would change the price is edited — so this button can only ever send
@@ -461,7 +453,7 @@ export const SubscribeDialog = ({
               confirming it would be refused. */}
           <Button onClick={submit} disabled={busy || quote === null || blocked}>
             {subscribe.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Subscribe
+            {t("SUBSCRIBE_DIALOG.SUBSCRIBE")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -494,9 +486,9 @@ const subtotalPartsOf = (
 
   return [
     {
-      label: `${formatDay(quote.periodStartUtc)}–${formatDay(quote.periodEndUtc)} (pro-rated)`,
+      label: tStatic("utilities.subscription-simulation", "SUBSCRIBE_DIALOG.PRO_RATED", { periodStartUtc: formatDay(quote.periodStartUtc), periodEndUtc: formatDay(quote.periodEndUtc) }),
       amountMinor: stubMinor,
     },
-    { label: `Year from ${formatDay(annual.startUtc)}`, amountMinor: annual.grossAmountMinor },
+    { label: tStatic("utilities.subscription-simulation", "SUBSCRIBE_DIALOG.YEAR_FROM", { startUtc: formatDay(annual.startUtc) }), amountMinor: annual.grossAmountMinor },
   ];
 };

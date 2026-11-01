@@ -12,6 +12,7 @@ import type {
   MoveCreditsRequest,
 } from "../models/subscription-simulation.model";
 import { SubscriptionOperationError } from "./subscription-simulation.service";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 interface ApiResponse<T> {
   success: boolean;
@@ -70,7 +71,7 @@ export const subscriptionCreditsService = {
           `${creditsPath(subscriptionId)}/preview`,
           request,
         ),
-      "The credits could not be quoted.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE"),
     ),
 
   purchase: (subscriptionId: string, request: CreditPurchaseRequest) =>
@@ -80,7 +81,7 @@ export const subscriptionCreditsService = {
           creditsPath(subscriptionId),
           request,
         ),
-      "The credits could not be bought.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_2"),
     ),
 
   listGrants: (subscriptionId: string, organizationId?: string) =>
@@ -89,7 +90,7 @@ export const subscriptionCreditsService = {
         serviceInstances.utitlitiesService.get<ApiResponse<CreditGrant[]>>(
           `${creditsPath(subscriptionId)}${scopeQuery(organizationId)}`,
         ),
-      "The credits could not be loaded.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_3"),
     ),
 
   grant: (subscriptionId: string, request: GrantCreditsRequest) =>
@@ -99,7 +100,7 @@ export const subscriptionCreditsService = {
           `${creditsPath(subscriptionId)}/grants`,
           request,
         ),
-      "The credits could not be granted.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_4"),
     ),
 
   move: (subscriptionId: string, request: MoveCreditsRequest) =>
@@ -109,6 +110,6 @@ export const subscriptionCreditsService = {
           `${creditsPath(subscriptionId)}/moves`,
           request,
         ),
-      "The credits could not be moved.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_CREDITS_SERVICE.THE_CREDITS_COULD_NOT_BE_5"),
     ),
 };

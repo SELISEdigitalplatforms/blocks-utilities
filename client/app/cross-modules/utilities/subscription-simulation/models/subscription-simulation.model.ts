@@ -545,11 +545,8 @@ export interface SubscriptionPlanChangePreview {
   quotedAtUtc: string;
 }
 
-export type PlanChangeLabel =
-  | "Upgrade"
-  | "Downgrade"
-  | "Switch plan"
-  | "Change billing cadence";
+/** The wording shown for a plan change; it is translated, so it is plain text. */
+export type PlanChangeLabel = string;
 
 /**
  * A single entitlement's live decision. Reading one is a check, not enforcement — two callers

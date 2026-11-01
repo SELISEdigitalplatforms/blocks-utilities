@@ -38,6 +38,7 @@ import type {
   SubscriptionQuantity,
 } from "../models/subscription-simulation.model";
 import { labelPlanChange } from "../utilities/plan-change-label";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
 /**
  * Moving a subscription to another plan or price.
@@ -62,6 +63,7 @@ export const ChangePlanDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const preview = usePreviewPlanChange();
   const apply = useChangeSubscriptionPlan();
   const withdrawCancellation = useWithdrawCancellation();
@@ -131,14 +133,13 @@ export const ChangePlanDialog = ({
     | { valid: true; request: ChangeSubscriptionPlanRequest }
     | { valid: false; error: string } => {
     if (!targetPlan || !priceId) {
-      return { valid: false, error: "Choose a target plan and price." };
+      return { valid: false, error: t("CHANGE_PLAN_DIALOG.CHOOSE_A_TARGET_PLAN_AND") };
     }
 
     if (currencyMismatch) {
       return {
         valid: false,
-        error: "This price is in a different currency. A currency change needs a cancel and a " +
-          "fresh subscription, not a plan change.",
+        error: t("CHANGE_PLAN_DIALOG.THIS_PRICE_IS_IN_A"),
       };
     }
 
@@ -148,11 +149,11 @@ export const ChangePlanDialog = ({
       const quantity = Number(raw);
 
       if (!raw || !Number.isFinite(quantity) || quantity < item.minQuantity) {
-        return { valid: false, error: `${item.unitLabel} must be at least ${item.minQuantity}.` };
+        return { valid: false, error: t("CHANGE_PLAN_DIALOG.MUST_BE_AT_LEAST", { unitLabel: item.unitLabel, minQuantity: item.minQuantity }) };
       }
 
       if (item.maxQuantity != null && quantity > item.maxQuantity) {
-        return { valid: false, error: `${item.unitLabel} can be at most ${item.maxQuantity}.` };
+        return { valid: false, error: t("CHANGE_PLAN_DIALOG.CAN_BE_AT_MOST", { unitLabel: item.unitLabel, maxQuantity: item.maxQuantity }) };
       }
 
       parsedQuantities.push({ itemKey: item.itemKey, quantity });
@@ -189,7 +190,7 @@ export const ChangePlanDialog = ({
       );
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : "The plan change could not be previewed.",
+        error instanceof Error ? error.message : t("CHANGE_PLAN_DIALOG.THE_PLAN_CHANGE_COULD_NOT"),
       );
       setQuote(null);
     }
@@ -216,10 +217,10 @@ export const ChangePlanDialog = ({
 
       toast({
         variant: "success",
-        title: scheduledFor ? "Plan change scheduled" : `${moveLabel ?? "Plan changed"}`,
+        title: scheduledFor ? t("CHANGE_PLAN_DIALOG.PLAN_CHANGE_SCHEDULED") : `${moveLabel ?? "Plan changed"}`,
         description: scheduledFor
-          ? `Moving to ${targetPlan!.displayName} on ${formatDate(scheduledFor)}. Nothing was charged.`
-          : `Now on ${targetPlan!.displayName}.`,
+          ? t("CHANGE_PLAN_DIALOG.MOVING_TO_ON_NOTHING_WAS", { displayName: targetPlan!.displayName, scheduledFor: formatDate(scheduledFor) })
+          : t("CHANGE_PLAN_DIALOG.NOW_ON", { displayName: targetPlan!.displayName }),
       });
 
       onOpenChange(false);
@@ -235,7 +236,7 @@ export const ChangePlanDialog = ({
           ? null
           : describePlanChangeRefusal(failure?.code) ||
               failure?.message ||
-              (error instanceof Error ? error.message : "The plan could not be changed."),
+              (error instanceof Error ? error.message : t("CHANGE_PLAN_DIALOG.THE_PLAN_COULD_NOT_BE")),
       );
       // The quote may no longer describe what a retry would charge.
       setQuote(null);
@@ -250,15 +251,15 @@ export const ChangePlanDialog = ({
       });
       toast({
         variant: "success",
-        title: "Cancellation undone",
-        description: "This subscription keeps renewing as before.",
+        title: t("CHANGE_PLAN_DIALOG.CANCELLATION_UNDONE"),
+        description: t("CHANGE_PLAN_DIALOG.THIS_SUBSCRIPTION_KEEPS_RENEWING"),
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Could not undo the cancellation",
+        title: t("CHANGE_PLAN_DIALOG.COULD_NOT_UNDO_THE_CANCELLATION"),
         description:
-          error instanceof Error ? error.message : "The cancellation could not be undone.",
+          error instanceof Error ? error.message : t("CHANGE_PLAN_DIALOG.THE_CANCELLATION_COULD_NOT_BE"),
       });
     }
   };
@@ -285,10 +286,9 @@ export const ChangePlanDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Change plan</DialogTitle>
+          <DialogTitle>{t("CHANGE_PLAN_DIALOG.CHANGE_PLAN")}</DialogTitle>
           <DialogDescription>
-            Sends <code>PUT /api/subscriptions/{subscription.subscriptionId}/plan</code> — the
-            server follows the chosen price back to its plan and rebuilds billing from there.
+            {t("CHANGE_PLAN_DIALOG.SENDS_SERVER_FOLLOWS_PRICE", { endpoint: `PUT /api/subscriptions/${subscription.subscriptionId}/plan` })}
           </DialogDescription>
         </DialogHeader>
 
@@ -300,32 +300,29 @@ export const ChangePlanDialog = ({
             >
               <span className="flex items-start gap-1.5">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                This subscription is scheduled to cancel on{" "}
-                {formatDate(subscription.currentPeriodEndUtc)}. Undo the cancellation to change
-                plan.
-              </span>
+                {t("CHANGE_PLAN_DIALOG.THIS_SUBSCRIPTION_IS_SCHEDULED_TO_2", { currentPeriodEndUtc: formatDate(subscription.currentPeriodEndUtc) })}</span>
               <Button
                 size="sm"
                 variant="outline"
                 onClick={undoCancellation}
                 disabled={busy}
               >
-                Undo cancellation
+                {t("CHANGE_PLAN_DIALOG.UNDO_CANCELLATION")}
               </Button>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="change-plan-target">Target plan</Label>
+            <Label htmlFor="change-plan-target">{t("CHANGE_PLAN_DIALOG.TARGET_PLAN")}</Label>
             <Select value={targetPlanId} onValueChange={selectTargetPlan}>
               <SelectTrigger id="change-plan-target">
-                <SelectValue placeholder="Choose a plan" />
+                <SelectValue placeholder={t("CHANGE_PLAN_DIALOG.CHOOSE_A_PLAN")} />
               </SelectTrigger>
               <SelectContent>
                 {plans.map((plan) => (
                   <SelectItem key={plan.planId} value={plan.planId}>
                     {plan.displayName}
-                    {plan.planId === currentPlan?.planId ? " (current)" : ""}
+                    {plan.planId === currentPlan?.planId ? ` ${t("CHANGE_PLAN_DIALOG.CURRENT_SUFFIX")}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -334,10 +331,10 @@ export const ChangePlanDialog = ({
 
           {targetPlan && (
             <div className="space-y-1.5">
-              <Label htmlFor="change-plan-price">Target price</Label>
+              <Label htmlFor="change-plan-price">{t("CHANGE_PLAN_DIALOG.TARGET_PRICE")}</Label>
               <Select value={priceId} onValueChange={selectPrice}>
                 <SelectTrigger id="change-plan-price">
-                  <SelectValue placeholder="Choose a price" />
+                  <SelectValue placeholder={t("CHANGE_PLAN_DIALOG.CHOOSE_A_PRICE")} />
                 </SelectTrigger>
                 <SelectContent>
                   {targetPlan.prices.map((price) => (
@@ -352,13 +349,13 @@ export const ChangePlanDialog = ({
 
           {moveLabel && (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">This is labelled as</span>
+              <span className="text-xs text-muted-foreground">{t("CHANGE_PLAN_DIALOG.THIS_IS_LABELLED_AS")}</span>
               <Badge variant="info" className="font-normal">
                 {moveLabel}
               </Badge>
               {currencyMismatch && (
                 <Badge variant="error" className="font-normal">
-                  Currency mismatch
+                  {t("CHANGE_PLAN_DIALOG.CURRENCY_MISMATCH")}
                 </Badge>
               )}
             </div>
@@ -379,9 +376,7 @@ export const ChangePlanDialog = ({
           ))}
 
           <p className="text-xs text-muted-foreground">
-            Preview to see whether this applies immediately or at the end of the paid period.
-            An immediate change may require payment; a scheduled one charges nothing and creates
-            no refund or credit today.
+            {t("CHANGE_PLAN_DIALOG.PREVIEW_TO_SEE_WHETHER_THIS")}
           </p>
 
           {profileGap && (
@@ -396,27 +391,24 @@ export const ChangePlanDialog = ({
                 <p className="font-medium">
                   {quote.timing === "Immediate"
                     ? quote.chargeMinor > 0
-                      ? "Charged now"
-                      : "Applies now, nothing charged"
-                    : `Effective ${formatDate(quote.effectiveAtUtc)}`}
+                      ? t("CHANGE_PLAN_DIALOG.CHARGED_NOW")
+                      : t("CHANGE_PLAN_DIALOG.APPLIES_NOW_NOTHING_CHARGED")
+                    : t("CHANGE_PLAN_DIALOG.EFFECTIVE", { effectiveAtUtc: formatDate(quote.effectiveAtUtc) })}
                 </p>
                 <Badge variant={quote.timing === "Immediate" ? "default" : "secondary"}>
                   {quote.timing === "Immediate"
                     ? formatMoney(quote.chargeMinor, quote.currencyCode)
-                    : "Nothing due today"}
+                    : t("CHANGE_PLAN_DIALOG.NOTHING_DUE_TODAY")}
                 </Badge>
               </div>
 
               {quote.timing === "NextRenewal" ? (
                 <p className="text-xs text-warning-900" data-testid="plan-change-scheduled-note">
-                  You keep your current plan, at the price you are already paying, until{" "}
-                  {formatDate(quote.effectiveAtUtc)}. Nothing is charged or refunded today, and you
-                  can cancel this before it takes effect.
-                </p>
+                  {t("CHANGE_PLAN_DIALOG.YOU_KEEP_YOUR_CURRENT_PLAN", { effectiveAtUtc: formatDate(quote.effectiveAtUtc) })}</p>
               ) : null}
 
               <Row
-                label="Next full period"
+                label={t("CHANGE_PLAN_DIALOG.NEXT_FULL_PERIOD")}
                 value={formatMoney(quote.nextRenewalAmountMinor, quote.currencyCode)}
               />
               {quote.settlement.annual ? (
@@ -428,7 +420,7 @@ export const ChangePlanDialog = ({
                 // the combined total, never against either side alone.
                 <>
                   <Row
-                    label="Opening stub adjustment"
+                    label={t("CHANGE_PLAN_DIALOG.OPENING_STUB_ADJUSTMENT")}
                     value={formatMoney(
                       quote.settlement.target.proratedValueMinor -
                         quote.settlement.outgoing.proratedValueMinor,
@@ -436,7 +428,7 @@ export const ChangePlanDialog = ({
                     )}
                   />
                   <Row
-                    label="Prepaid annual-period adjustment"
+                    label={t("CHANGE_PLAN_DIALOG.PREPAID_ANNUAL_PERIOD_ADJUSTMENT")}
                     value={formatMoney(
                       quote.settlement.annual.netSettlementMinor,
                       quote.currencyCode,
@@ -448,20 +440,19 @@ export const ChangePlanDialog = ({
                   negative figure beside "nothing is refunded" read as a refund. */}
               {quote.timing === "Immediate" && quote.settlement.netSettlementMinor !== 0 ? (
                 <Row
-                  label="Net settlement"
+                  label={t("CHANGE_PLAN_DIALOG.NET_SETTLEMENT")}
                   value={formatMoney(quote.settlement.netSettlementMinor, quote.currencyCode)}
                 />
               ) : null}
               {quote.settlement.creditConsumedMinor > 0 ? (
                 <Row
-                  label="Paid from your credit"
+                  label={t("CHANGE_PLAN_DIALOG.PAID_FROM_YOUR_CREDIT")}
                   value={formatMoney(quote.settlement.creditConsumedMinor, quote.currencyCode)}
                 />
               ) : null}
 
               <p className="text-xs text-muted-foreground">
-                Priced against the current clock — a plan change is never frozen ahead of
-                confirming, so re-preview if this has sat open for a while.
+                {t("CHANGE_PLAN_DIALOG.PRICED_AGAINST_THE_CURRENT_CLOCK")}
               </p>
 
               {quote.blockers
@@ -483,7 +474,7 @@ export const ChangePlanDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button
             variant="outline"
@@ -491,11 +482,11 @@ export const ChangePlanDialog = ({
             disabled={busy || subscription.cancelAtPeriodEnd}
           >
             {preview.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Preview
+            {t("CHANGE_PLAN_DIALOG.PREVIEW")}
           </Button>
           <Button onClick={submit} disabled={busy || quote === null || blocked}>
             {apply.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Confirm change
+            {t("CHANGE_PLAN_DIALOG.CONFIRM_CHANGE")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -515,20 +506,17 @@ const formatDate = (isoDate: string) => new Date(isoDate).toLocaleString();
 const describePlanChangeRefusal = (code: string | undefined): string | null => {
   switch (code) {
     case "subscription_cancellation_scheduled":
-      return "This subscription is scheduled to cancel. Undo the cancellation before changing " +
-        "plan.";
+      return tStatic("utilities.subscription-simulation", "CHANGE_PLAN_DIALOG.THIS_SUBSCRIPTION_IS_SCHEDULED_TO");
     case "subscription_pending_quantity_change_exists":
-      return "A quantity change is already scheduled for the end of this period. Cancel it on the " +
-        "subscription first — only one change can be waiting at a time.";
+      return tStatic("utilities.subscription-simulation", "CHANGE_PLAN_DIALOG.A_QUANTITY_CHANGE_IS_ALREADY");
     case "subscription_quantity_change_in_flight":
-      return "A quantity change is still being settled. Try again once it finishes.";
+      return tStatic("utilities.subscription-simulation", "CHANGE_PLAN_DIALOG.A_QUANTITY_CHANGE_IS_STILL");
     // subscription_initial_annual_period_prepaid is retired: a prepaid opening stub no longer
     // refuses a compatible plan change outright — it settles the stub and the paid year together
     // instead (the quote above already reflects that combined charge). Only an unpaid stub still
     // refuses one outright, below.
     case "subscription_initial_annual_period_unpaid":
-      return "This subscription's first year has not been charged yet, so it cannot move to " +
-        "another plan until it is. A downgrade can still be scheduled now.";
+      return tStatic("utilities.subscription-simulation", "CHANGE_PLAN_DIALOG.THIS_SUBSCRIPTION_S_FIRST_YEAR");
     default:
       return null;
   }

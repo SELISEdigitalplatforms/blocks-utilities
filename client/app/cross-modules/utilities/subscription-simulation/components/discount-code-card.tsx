@@ -18,21 +18,22 @@ import type { DiscountCodePreview } from "../models/subscription-simulation.mode
 import type { SubscriptionPlan } from "../../subscription/models/subscription-plan.model";
 import { formatMoney, formatPrice } from "../../subscription/utilities/subscription-format";
 import { MoneyBreakdown, formatDate } from "./money-breakdown";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
 /**
  * How each verdict reads. The server's own status strings, kept verbatim as keys — an unmapped
  * one falls through to a neutral badge carrying the status itself rather than being swallowed,
  * because a status this screen does not recognize is still the answer the server gave.
  */
-const VERDICTS: Record<string, { label: string; variant: "success" | "error" | "info" }> = {
-  Applied: { label: "Applied", variant: "success" },
-  NotFound: { label: "No such code", variant: "error" },
-  NotStarted: { label: "Not started yet", variant: "info" },
-  Expired: { label: "Expired", variant: "error" },
-  NotApplicable: { label: "Not applicable here", variant: "error" },
-  AlreadyRedeemed: { label: "Already redeemed", variant: "error" },
-  Unavailable: { label: "Temporarily unavailable", variant: "info" },
-};
+const getVerdicts = (): Record<string, { label: string; variant: "success" | "error" | "info" }> => ({
+  Applied: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.APPLIED"), variant: "success" },
+  NotFound: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.NO_SUCH_CODE"), variant: "error" },
+  NotStarted: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.NOT_STARTED_YET"), variant: "info" },
+  Expired: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.EXPIRED"), variant: "error" },
+  NotApplicable: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.NOT_APPLICABLE_HERE"), variant: "error" },
+  AlreadyRedeemed: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.ALREADY_REDEEMED"), variant: "error" },
+  Unavailable: { label: tStatic("utilities.subscription-simulation", "DISCOUNT_CODE_CARD.TEMPORARILY_UNAVAILABLE"), variant: "info" },
+});
 
 /**
  * Trying a discount code out, without buying anything.
@@ -53,6 +54,7 @@ export const DiscountCodeCard = ({
   plans: SubscriptionPlan[];
   organizationId: string | undefined;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const preview = usePreviewDiscountCode();
 
   const [planCode, setPlanCode] = useState(plans[0]?.code ?? "");
@@ -79,12 +81,12 @@ export const DiscountCodeCard = ({
 
   const test = async () => {
     if (!plan || !priceId) {
-      setFormError("Choose a plan and a price to test the code against.");
+      setFormError(t("DISCOUNT_CODE_CARD.CHOOSE_A_PLAN_AND_A"));
       return;
     }
 
     if (!code.trim()) {
-      setFormError("Enter a discount code.");
+      setFormError(t("DISCOUNT_CODE_CARD.ENTER_A_DISCOUNT_CODE"));
       return;
     }
 
@@ -110,12 +112,12 @@ export const DiscountCodeCard = ({
     } catch (error) {
       setResult(null);
       setFormError(
-        error instanceof Error ? error.message : "The discount code could not be checked.",
+        error instanceof Error ? error.message : t("DISCOUNT_CODE_CARD.THE_DISCOUNT_CODE_COULD_NOT"),
       );
     }
   };
 
-  const verdict = result ? VERDICTS[result.status] : null;
+  const verdict = result ? getVerdicts()[result.status] : null;
   const quote = result?.quote;
 
   return (
@@ -123,25 +125,20 @@ export const DiscountCodeCard = ({
       <div className="border-b p-4 sm:p-5">
         <h2 className="flex items-center gap-2 font-semibold">
           <TicketPercent className="h-4 w-4" />
-          Discount code
+          {t("DISCOUNT_CODE_CARD.DISCOUNT_CODE")}
         </h2>
         <p className="text-xs text-muted-foreground">
-          Checks one code against a plan and price through
-          <code className="mx-1 rounded bg-muted px-1">
-            POST /api/subscription-discounts/preview
-          </code>
-          — the same validation a real signup runs. Nothing is charged and no redemption is
-          reserved, so a limited campaign is not spent by testing it.
+          {t("DISCOUNT_CODE_CARD.CHECKS_ONE_CODE", { endpoint: "POST /api/subscription-discounts/preview" })}
         </p>
       </div>
 
       <div className="space-y-4 p-4 sm:p-5">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-1.5">
-            <Label htmlFor="discount-test-plan">Plan</Label>
+            <Label htmlFor="discount-test-plan">{t("DISCOUNT_CODE_CARD.PLAN")}</Label>
             <Select value={planCode} onValueChange={editPlan}>
               <SelectTrigger id="discount-test-plan">
-                <SelectValue placeholder="Choose a plan" />
+                <SelectValue placeholder={t("DISCOUNT_CODE_CARD.CHOOSE_A_PLAN")} />
               </SelectTrigger>
               <SelectContent>
                 {plans.map((candidate) => (
@@ -154,10 +151,10 @@ export const DiscountCodeCard = ({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="discount-test-price">Price</Label>
+            <Label htmlFor="discount-test-price">{t("DISCOUNT_CODE_CARD.PRICE")}</Label>
             <Select value={priceId} onValueChange={(value) => edit(() => setPriceId(value))}>
               <SelectTrigger id="discount-test-price">
-                <SelectValue placeholder="Choose a price" />
+                <SelectValue placeholder={t("DISCOUNT_CODE_CARD.CHOOSE_A_PRICE")} />
               </SelectTrigger>
               <SelectContent>
                 {(plan?.prices ?? []).map((price) => (
@@ -170,19 +167,19 @@ export const DiscountCodeCard = ({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="discount-test-code">Code</Label>
+            <Label htmlFor="discount-test-code">{t("DISCOUNT_CODE_CARD.CODE")}</Label>
             <Input
               id="discount-test-code"
               value={code}
               onChange={(event) => edit(() => setCode(event.target.value))}
-              placeholder="e.g. LAUNCH20"
+              placeholder={t("DISCOUNT_CODE_CARD.E_G_LAUNCH20")}
             />
           </div>
         </div>
 
         <Button onClick={test} disabled={preview.isPending}>
           {preview.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Test code
+          {t("DISCOUNT_CODE_CARD.TEST_CODE")}
         </Button>
 
         {result && quote ? (
@@ -190,8 +187,8 @@ export const DiscountCodeCard = ({
             <div className="flex items-center justify-between gap-2">
               <p className="font-medium">
                 {result.status === "Applied"
-                  ? `Worth ${formatMoney(quote.promotionalDiscountMinor, quote.currencyCode)} on this price`
-                  : "Not applied — the standard price is shown"}
+                  ? t("DISCOUNT_CODE_CARD.WORTH_ON_THIS_PRICE", { promotionalDiscountMinor: formatMoney(quote.promotionalDiscountMinor, quote.currencyCode) })
+                  : t("DISCOUNT_CODE_CARD.NOT_APPLIED_THE_STANDARD_PRICE")}
               </p>
               <Badge variant={verdict?.variant ?? "info"}>
                 {verdict?.label ?? result.status}
@@ -203,7 +200,7 @@ export const DiscountCodeCard = ({
                 integrator actually has to handle, and not reconstructible from the sentence. */}
             {result.reasonCode ? (
               <p className="text-xs text-muted-foreground">
-                Reason code <code className="rounded bg-muted px-1">{result.reasonCode}</code>
+                {t("DISCOUNT_CODE_CARD.REASON_CODE_VALUE", { reasonCode: result.reasonCode })}
               </p>
             ) : null}
 
@@ -215,14 +212,14 @@ export const DiscountCodeCard = ({
                 promotionalDiscountMinor={quote.promotionalDiscountMinor}
                 netSubtotalMinor={quote.netSubtotalMinor}
                 tax={quote.tax}
-                totalLabel="Total due now"
+                totalLabel={t("DISCOUNT_CODE_CARD.TOTAL_DUE_NOW")}
                 totalMinor={quote.totalDueNowMinor}
               />
             </div>
 
             <div className="border-t pt-2">
               <MoneyBreakdown
-                label={quote.trialEndsAtUtc ? "First renewal" : "Next renewal"}
+                label={quote.trialEndsAtUtc ? t("DISCOUNT_CODE_CARD.FIRST_RENEWAL") : t("DISCOUNT_CODE_CARD.NEXT_RENEWAL")}
                 labelValue={
                   quote.nextRenewal.renewalAtUtc
                     ? formatDate(quote.nextRenewal.renewalAtUtc)
@@ -234,7 +231,7 @@ export const DiscountCodeCard = ({
                 promotionalDiscountMinor={quote.nextRenewal.promotionalDiscountMinor}
                 netSubtotalMinor={quote.nextRenewal.netSubtotalMinor}
                 tax={quote.nextRenewal.tax}
-                totalLabel="Total"
+                totalLabel={t("DISCOUNT_CODE_CARD.TOTAL")}
                 totalMinor={quote.nextRenewal.totalMinor}
               />
             </div>
@@ -243,13 +240,10 @@ export const DiscountCodeCard = ({
               <div className="space-y-1 rounded-md border border-blocks-primary-300 bg-blocks-primary-50 p-2 text-blocks-primary-900">
                 <p>{quote.campaign.description}</p>
                 <p className="text-xs">
-                  Standard pricing resumes {formatDate(quote.campaign.discountEndsAtUtc)}.
-                </p>
+                  {t("DISCOUNT_CODE_CARD.STANDARD_PRICING_RESUMES", { discountEndsAtUtc: formatDate(quote.campaign.discountEndsAtUtc) })}</p>
                 {quote.campaign.temporaryEntitlementKey ? (
                   <p className="text-xs">
-                    {quote.campaign.temporaryEntitlementKey} limited to{" "}
-                    {quote.campaign.temporaryEntitlementLimit} while this offer runs.
-                  </p>
+                    {t("DISCOUNT_CODE_CARD.LIMITED_TO_WHILE_THIS_OFFER", { temporaryEntitlementKey: quote.campaign.temporaryEntitlementKey, temporaryEntitlementLimit: (quote.campaign.temporaryEntitlementLimit) ?? "" })}</p>
                 ) : null}
               </div>
             ) : null}
@@ -259,7 +253,7 @@ export const DiscountCodeCard = ({
                 without touching the verdict above. */}
             {quote.blockers.map((blocker) => (
               <p key={blocker.code} className="text-xs text-muted-foreground">
-                Would block a real signup: {blocker.message}
+                {t("DISCOUNT_CODE_CARD.WOULD_BLOCK_A_REAL_SIGNUP", { message: blocker.message })}
               </p>
             ))}
           </div>

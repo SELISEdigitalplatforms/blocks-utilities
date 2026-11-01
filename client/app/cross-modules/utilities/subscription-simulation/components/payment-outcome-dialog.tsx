@@ -27,19 +27,20 @@ import type {
   SubscriptionPaymentPurpose,
   SubscriptionSimulationActionResponse,
 } from "../models/subscription-simulation-harness.model";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
-const PURPOSES: { value: SubscriptionPaymentPurpose; label: string }[] = [
-  { value: "InitialCharge", label: "Initial charge" },
-  { value: "Renewal", label: "Renewal" },
+const getPurposes = (): { value: SubscriptionPaymentPurpose; label: string }[] => [
+  { value: "InitialCharge", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.INITIAL_CHARGE") },
+  { value: "Renewal", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.RENEWAL") },
 ];
 
-const OUTCOMES: { value: SimulatedRenewalOutcome; label: string }[] = [
-  { value: "Succeeded", label: "Succeeded" },
-  { value: "Declined", label: "Declined" },
-  { value: "InsufficientFunds", label: "Insufficient funds" },
-  { value: "PaymentMethodExpired", label: "Payment method expired" },
-  { value: "ProviderUnavailable", label: "Provider unavailable" },
-  { value: "OutcomeUnknown", label: "Outcome unknown" },
+const getOutcomes = (): { value: SimulatedRenewalOutcome; label: string }[] => [
+  { value: "Succeeded", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.SUCCEEDED") },
+  { value: "Declined", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.DECLINED") },
+  { value: "InsufficientFunds", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.INSUFFICIENT_FUNDS") },
+  { value: "PaymentMethodExpired", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.PAYMENT_METHOD_EXPIRED") },
+  { value: "ProviderUnavailable", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.PROVIDER_UNAVAILABLE") },
+  { value: "OutcomeUnknown", label: tStatic("utilities.subscription-simulation", "PAYMENT_OUTCOME_DIALOG.OUTCOME_UNKNOWN") },
 ];
 
 export const PaymentOutcomeDialog = ({
@@ -55,6 +56,7 @@ export const PaymentOutcomeDialog = ({
   onOpenChange: (open: boolean) => void;
   onResult: (result: SubscriptionSimulationActionResponse) => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const succeeded = useMarkPaymentSucceeded();
   const failed = useMarkPaymentFailed();
   const isPending = succeeded.isPending || failed.isPending;
@@ -96,14 +98,14 @@ export const PaymentOutcomeDialog = ({
 
       toast({
         variant: outcome === "Succeeded" ? "success" : "destructive",
-        title: outcome === "Succeeded" ? "Payment marked succeeded" : "Payment marked failed",
-        description: `${paymentPurpose} settled as ${outcome}.`,
+        title: outcome === "Succeeded" ? t("PAYMENT_OUTCOME_DIALOG.PAYMENT_MARKED_SUCCEEDED") : t("PAYMENT_OUTCOME_DIALOG.PAYMENT_MARKED_FAILED"),
+        description: t("PAYMENT_OUTCOME_DIALOG.SETTLED_AS", { paymentPurpose, outcome }),
       });
 
       onOpenChange(false);
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : "The payment outcome could not be simulated.",
+        error instanceof Error ? error.message : t("PAYMENT_OUTCOME_DIALOG.THE_PAYMENT_OUTCOME_COULD_NOT"),
       );
     }
   };
@@ -119,21 +121,14 @@ export const PaymentOutcomeDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Simulate payment outcome</DialogTitle>
+          <DialogTitle>{t("PAYMENT_OUTCOME_DIALOG.SIMULATE_PAYMENT_OUTCOME")}</DialogTitle>
           <DialogDescription>
-            Sends{" "}
-            <code>
-              POST /api/subscription-simulation/subscriptions/{subscriptionId}/mark-payment-
-              {outcome === "Succeeded" ? "succeeded" : "failed"}
-            </code>
-            — settles the subscription&apos;s outstanding charge through the same path a real
-            provider confirmation would take.
-          </DialogDescription>
+            {t("PAYMENT_OUTCOME_DIALOG.SENDS_SETTLES_THE_SUBSCRIPTION_S", { endpoint: `POST /api/subscription-simulation/subscriptions/${subscriptionId}/mark-payment-${outcome === "Succeeded" ? "succeeded" : "failed"}` })}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="payment-outcome-purpose">Charge</Label>
+            <Label htmlFor="payment-outcome-purpose">{t("PAYMENT_OUTCOME_DIALOG.CHARGE")}</Label>
             <Select
               value={paymentPurpose}
               onValueChange={(value) => setPaymentPurpose(value as SubscriptionPaymentPurpose)}
@@ -142,7 +137,7 @@ export const PaymentOutcomeDialog = ({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PURPOSES.map((purpose) => (
+                {getPurposes().map((purpose) => (
                   <SelectItem key={purpose.value} value={purpose.value}>
                     {purpose.label}
                   </SelectItem>
@@ -152,7 +147,7 @@ export const PaymentOutcomeDialog = ({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="payment-outcome-outcome">Outcome</Label>
+            <Label htmlFor="payment-outcome-outcome">{t("PAYMENT_OUTCOME_DIALOG.OUTCOME")}</Label>
             <Select
               value={outcome}
               onValueChange={(value) => setOutcome(value as SimulatedRenewalOutcome)}
@@ -161,7 +156,7 @@ export const PaymentOutcomeDialog = ({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {OUTCOMES.map((option) => (
+                {getOutcomes().map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -173,23 +168,23 @@ export const PaymentOutcomeDialog = ({
           {outcome === "Succeeded" ? (
             <div className="space-y-1.5">
               <Label htmlFor="payment-outcome-provider-reference">
-                Provider reference (optional)
+                {t("PAYMENT_OUTCOME_DIALOG.PROVIDER_REFERENCE_OPTIONAL")}
               </Label>
               <Input
                 id="payment-outcome-provider-reference"
                 value={providerReference}
                 onChange={(event) => setProviderReference(event.target.value)}
-                placeholder="Generated when left blank"
+                placeholder={t("PAYMENT_OUTCOME_DIALOG.GENERATED_WHEN_LEFT_BLANK")}
               />
             </div>
           ) : (
             <div className="space-y-1.5">
-              <Label htmlFor="payment-outcome-error-code">Error code (optional)</Label>
+              <Label htmlFor="payment-outcome-error-code">{t("PAYMENT_OUTCOME_DIALOG.ERROR_CODE_OPTIONAL")}</Label>
               <Input
                 id="payment-outcome-error-code"
                 value={errorCode}
                 onChange={(event) => setErrorCode(event.target.value)}
-                placeholder="Overrides the outcome's default error code"
+                placeholder={t("PAYMENT_OUTCOME_DIALOG.OVERRIDES_THE_OUTCOME_S_DEFAULT")}
               />
             </div>
           )}
@@ -202,8 +197,7 @@ export const PaymentOutcomeDialog = ({
               className="mt-0.5"
             />
             <Label htmlFor="payment-outcome-run-processor" className="font-normal">
-              Also run the real settlement processor (activation or renewal). Leave unchecked to
-              only record the outcome and inspect the intermediate state.
+              {t("PAYMENT_OUTCOME_DIALOG.ALSO_RUN_THE_REAL_SETTLEMENT")}
             </Label>
           </div>
 
@@ -212,11 +206,11 @@ export const PaymentOutcomeDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button onClick={submit} disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Simulate
+            {t("PAYMENT_OUTCOME_DIALOG.SIMULATE")}
           </Button>
         </DialogFooter>
       </DialogContent>

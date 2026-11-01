@@ -5,6 +5,7 @@ import type {
   PlanChangeLabel,
   SimulatedSubscription,
 } from "../models/subscription-simulation.model";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 /**
  * What a booked change moves to: the plan, or — when only the billing changes — the new cadence.
@@ -15,7 +16,9 @@ export const describePendingMove = (
   pending: PendingPlanChange,
 ): string =>
   pending.targetPlanCode === subscription.planCode
-    ? `billing ${formatInterval(pending.interval, pending.intervalCount)}`
+    ? tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.BILLING_INTERVAL", {
+        interval: formatInterval(pending.interval, pending.intervalCount),
+      })
     : pending.targetPlanName;
 
 /**
@@ -27,7 +30,7 @@ export const labelPlanChange = (
   targetPlan: SubscriptionPlan,
 ): PlanChangeLabel => {
   if (currentPlan && currentPlan.planId === targetPlan.planId) {
-    return "Change billing cadence";
+    return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.CHANGE_BILLING_CADENCE");
   }
 
   if (
@@ -39,13 +42,13 @@ export const labelPlanChange = (
     const targetRank = targetPlan.familyRank ?? 0;
 
     if (targetRank > currentRank) {
-      return "Upgrade";
+      return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.UPGRADE");
     }
     if (targetRank < currentRank) {
-      return "Downgrade";
+      return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.DOWNGRADE");
     }
-    return "Change billing cadence";
+    return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.CHANGE_BILLING_CADENCE");
   }
 
-  return "Switch plan";
+  return tStatic("utilities.subscription-simulation", "PLAN_CHANGE_LABEL.SWITCH_PLAN");
 };

@@ -32,6 +32,7 @@ import {
 import { useAuditTrail } from "../hooks/use-audit-trail";
 import { formatMoney } from "../../subscription/utilities/subscription-format";
 import { AuditOutcomeBadge } from "./audit-outcome-badge";
+import { useT } from "@seliseblocks/genesis-os";
 
 const shortenId = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id);
 
@@ -48,6 +49,7 @@ export const AuditTrailDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const [limit, setLimit] = useState(AUDIT_TRAIL_DEFAULT_LIMIT);
 
   const {
@@ -63,16 +65,9 @@ export const AuditTrailDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] w-[95vw] max-w-5xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Audit trail — {planName}</DialogTitle>
+          <DialogTitle>{t("AUDIT_TRAIL_DIALOG.AUDIT_TRAIL", { planName })}</DialogTitle>
           <DialogDescription>
-            Sends{" "}
-            <code>
-              GET /api/subscriptions/{subscriptionId}/audit
-            </code>
-            . The immutable lifecycle trail for this subscription, newest first — it never carries
-            who performed an action or a payment identifier, and it is scoped to this subscription
-            only, not a tenant-wide audit search.
-          </DialogDescription>
+            {t("AUDIT_TRAIL_DIALOG.SENDS_THE_IMMUTABLE_LIFECYCLE", { endpoint: `GET /api/subscriptions/${subscriptionId}/audit` })}</DialogDescription>
         </DialogHeader>
 
         <div className="flex items-center justify-between gap-2">
@@ -80,13 +75,13 @@ export const AuditTrailDialog = ({
             value={String(limit)}
             onValueChange={(value) => setLimit(Number(value))}
           >
-            <SelectTrigger className="w-40" aria-label="Number of events">
+            <SelectTrigger className="w-40" aria-label={t("AUDIT_TRAIL_DIALOG.NUMBER_OF_EVENTS")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {AUDIT_TRAIL_LIMIT_OPTIONS.map((option) => (
                 <SelectItem key={option} value={String(option)}>
-                  Last {option}
+                  {t("AUDIT_TRAIL_DIALOG.LAST", { option })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -99,7 +94,7 @@ export const AuditTrailDialog = ({
             disabled={isFetching}
           >
             <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh
+            {t("common:REFRESH")}
           </Button>
         </div>
 
@@ -113,32 +108,32 @@ export const AuditTrailDialog = ({
           <div className="flex flex-col items-start gap-2">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">The audit trail could not be loaded</span>
+              <span className="font-medium">{t("AUDIT_TRAIL_DIALOG.THE_AUDIT_TRAIL_COULD_NOT")}</span>
             </div>
             <p className="text-sm text-muted-foreground">
-              {error instanceof Error ? error.message : "Try again in a moment."}
+              {error instanceof Error ? error.message : t("AUDIT_TRAIL_DIALOG.TRY_AGAIN_IN_A_MOMENT")}
             </p>
             <Button size="sm" variant="outline" onClick={() => refetch()}>
-              Try again
+              {t("AUDIT_TRAIL_DIALOG.TRY_AGAIN")}
             </Button>
           </div>
         ) : !events?.length ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            No audit events recorded for this subscription yet.
+            {t("AUDIT_TRAIL_DIALOG.NO_AUDIT_EVENTS_RECORDED_FOR")}
           </p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Time</TableHead>
-                <TableHead>Operation / stage</TableHead>
-                <TableHead>Outcome</TableHead>
-                <TableHead>Status transition</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Attempt</TableHead>
-                <TableHead>Error</TableHead>
-                <TableHead>IDs</TableHead>
+                <TableHead>{t("AUDIT_TRAIL_DIALOG.TIME")}</TableHead>
+                <TableHead>{t("AUDIT_TRAIL_DIALOG.OPERATION_STAGE")}</TableHead>
+                <TableHead>{t("AUDIT_TRAIL_DIALOG.OUTCOME")}</TableHead>
+                <TableHead>{t("AUDIT_TRAIL_DIALOG.STATUS_TRANSITION")}</TableHead>
+                <TableHead>{t("AUDIT_TRAIL_DIALOG.AMOUNT")}</TableHead>
+                <TableHead>{t("AUDIT_TRAIL_DIALOG.SOURCE")}</TableHead>
+                <TableHead>{t("AUDIT_TRAIL_DIALOG.ATTEMPT")}</TableHead>
+                <TableHead>{t("common:ERROR")}</TableHead>
+                <TableHead>{t("AUDIT_TRAIL_DIALOG.IDS")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -181,7 +176,7 @@ export const AuditTrailDialog = ({
                   <TableCell className="space-y-1 text-xs">
                     <CopyToClipboardButton textToCopy={event.correlationId} isHoverable>
                       <span title={event.correlationId}>
-                        corr {shortenId(event.correlationId)}
+                        {t("AUDIT_TRAIL_DIALOG.CORR", { correlationId: shortenId(event.correlationId) })}
                       </span>
                     </CopyToClipboardButton>
                     <CopyToClipboardButton textToCopy={event.operationId} isHoverable>

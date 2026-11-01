@@ -38,6 +38,7 @@ import type {
   SubscriptionPurchasePreview,
   UsageOveragePreviewResult,
 } from "../models/subscription-simulation.model";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 interface SimulationApiError {
   code: string;
@@ -145,7 +146,7 @@ class SubscriptionSimulationService {
 
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error, "The subscription could not be previewed."),
+          messageFrom(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_2")),
           subscribeErrorCode(error),
           error.status,
         );
@@ -186,7 +187,7 @@ class SubscriptionSimulationService {
 
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error, "The discount code could not be checked."),
+          messageFrom(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_DISCOUNT_CODE_COULD_NOT")),
           subscribeErrorCode(error),
           error.status,
         );
@@ -203,12 +204,12 @@ class SubscriptionSimulationService {
       >(SUBSCRIPTIONS_ENDPOINT, request);
 
       if (!response.success || !response.data) {
-        throw operationError(response, "The subscription could not be started.");
+        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, "The subscription could not be started.");
+      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));
     }
   }
 
@@ -236,12 +237,12 @@ class SubscriptionSimulationService {
       );
 
       if (!response.success || !response.data) {
-        throw operationError(response, "The payment method could not be set up.");
+        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PAYMENT_METHOD_COULD_NOT"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, "The payment method could not be set up.");
+      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PAYMENT_METHOD_COULD_NOT"));
     }
   }
 
@@ -263,7 +264,7 @@ class SubscriptionSimulationService {
     >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(request.subscriptionId)}?${query}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The subscription could not be canceled.");
+      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE"));
     }
 
     return response.data;
@@ -289,12 +290,12 @@ class SubscriptionSimulationService {
       );
 
       if (!response.success || !response.data) {
-        throw operationError(response, "The cancellation could not be undone.");
+        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_CANCELLATION_COULD_NOT_BE"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, "The cancellation could not be undone.");
+      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_CANCELLATION_COULD_NOT_BE"));
     }
   }
 
@@ -338,7 +339,7 @@ class SubscriptionSimulationService {
 
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error, "The plan change could not be previewed."),
+          messageFrom(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_CHANGE_COULD_NOT")),
           planChangeErrorCode(error),
           error.status,
         );
@@ -358,12 +359,12 @@ class SubscriptionSimulationService {
       >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/plan`, request);
 
       if (!response.success || !response.data) {
-        throw operationError(response, "The plan could not be changed.");
+        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_COULD_NOT_BE"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, "The plan could not be changed.");
+      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLAN_COULD_NOT_BE"));
     }
   }
 
@@ -390,12 +391,12 @@ class SubscriptionSimulationService {
       );
 
       if (!response.success || !response.data) {
-        throw operationError(response, "The scheduled plan change could not be cancelled.");
+        throw operationError(response, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SCHEDULED_PLAN_CHANGE_COULD"));
       }
 
       return response.data;
     } catch (error) {
-      throw operationError(error, "The scheduled plan change could not be cancelled.");
+      throw operationError(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SCHEDULED_PLAN_CHANGE_COULD"));
     }
   }
 
@@ -422,7 +423,7 @@ class SubscriptionSimulationService {
     >(`${ENTITLEMENTS_ENDPOINT}${suffix}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "Entitlements could not be loaded.");
+      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.ENTITLEMENTS_COULD_NOT_BE_LOADED"));
     }
 
     return response.data;
@@ -447,7 +448,7 @@ class SubscriptionSimulationService {
     >(`${ENTITLEMENTS_ENDPOINT}/${encodeURIComponent(entitlementKey)}${query}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The entitlement could not be checked.");
+      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_ENTITLEMENT_COULD_NOT_BE"));
     }
 
     return response.data;
@@ -474,7 +475,7 @@ class SubscriptionSimulationService {
     >(`${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/audit?${query}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The audit trail could not be loaded.");
+      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_AUDIT_TRAIL_COULD_NOT"));
     }
 
     return response.data;
@@ -559,7 +560,7 @@ class SubscriptionSimulationService {
       // outcome into "unknown" and every retry into a guess.
       if (error instanceof HttpError) {
         throw new SubscriptionOperationError(
-          messageFrom(error, "The quantity could not be changed."),
+          messageFrom(error, tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_QUANTITY_COULD_NOT_BE")),
           quantityErrorCode(error),
           error.status,
         );
@@ -580,7 +581,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.get<SimulationApiResponse<SimulatedSubscription[]>>(
           `${SUBSCRIPTIONS_MEMBER_BASED_ENDPOINT}${query}`,
         ),
-      "The subscriptions people are placed on could not be loaded.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTIONS_PEOPLE_ARE"),
     );
   }
 
@@ -594,7 +595,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.get<SimulationApiResponse<HeldPlace[]>>(
           `${SUBSCRIPTIONS_MINE_ENDPOINT}${query}`,
         ),
-      "Your places could not be loaded.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.YOUR_PLACES_COULD_NOT_BE"),
     );
   }
 
@@ -604,7 +605,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.get<SimulationApiResponse<SubscriptionMembers>>(
           this.membersPath(subscriptionId),
         ),
-      "The members could not be loaded.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_MEMBERS_COULD_NOT_BE"),
     );
   }
 
@@ -622,7 +623,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.post<
           SimulationApiResponse<SubscriptionMemberAssignment>
         >(this.membersPath(subscriptionId), request),
-      "Nobody could be assigned.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.NOBODY_COULD_BE_ASSIGNED"),
     );
   }
 
@@ -632,7 +633,7 @@ class SubscriptionSimulationService {
         serviceInstances.utitlitiesService.delete<SimulationApiResponse<SubscriptionMember>>(
           `${this.membersPath(subscriptionId)}/${encodeURIComponent(userId)}`,
         ),
-      "The place could not be released.",
+      tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_PLACE_COULD_NOT_BE"),
     );
   }
 
@@ -678,7 +679,7 @@ class SubscriptionSimulationService {
     >(`${SUBSCRIPTION_USAGE_CURRENT_ENDPOINT}${query}`);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "Current usage could not be loaded.");
+      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.CURRENT_USAGE_COULD_NOT_BE"));
     }
 
     return response.data;
@@ -704,7 +705,7 @@ class SubscriptionSimulationService {
           return [];
         }
 
-        throw new Error(response.error?.message || "Your usage could not be loaded.");
+        throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.YOUR_USAGE_COULD_NOT_BE"));
       }
 
       return response.data;
@@ -727,7 +728,7 @@ class SubscriptionSimulationService {
     >(SUBSCRIPTION_USAGE_ENDPOINT, request);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The usage could not be recorded.");
+      throw new Error(response.error?.message || tStatic("utilities.subscription-simulation", "SUBSCRIPTION_SIMULATION_SERVICE.THE_USAGE_COULD_NOT_BE"));
     }
 
     return response.data;
