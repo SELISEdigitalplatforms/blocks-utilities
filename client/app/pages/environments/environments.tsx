@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CircleHelp } from "lucide-react";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { AddEnvironmentModal } from "@/components/environment-card/add-environment-modal";
 import {
@@ -42,6 +42,7 @@ const ProjectGroupLoading = () => (
 );
 
 export const EnvironmentsPage = () => {
+  const { t } = useT("utilities.console");
   const groupId = useProjectStore().selectedTenantGroup;
   const {
     data: environmentList,
@@ -73,13 +74,13 @@ export const EnvironmentsPage = () => {
     <main className="flex flex-1 flex-col gap-4 p-6 md:gap-6">
       <div>
         <div className="mb-6 flex flex-row justify-between">
-          <h4 className="text-lg font-semibold md:text-xl">Environments</h4>
+          <h4 className="text-lg font-semibold md:text-xl">{t("ENVIRONMENTS.ENVIRONMENTS")}</h4>
         </div>
 
         {environmentList[0]?.isShared && (
           <div className="mb-4 mt-6 border-b-2 border-border pb-2">
             <h5 className="text-sm font-medium text-muted-foreground">
-              Shared with you
+              {t("ENVIRONMENTS.SHARED_WITH_YOU")}
             </h5>
           </div>
         )}
@@ -98,7 +99,7 @@ export const EnvironmentsPage = () => {
             <>
               <div className="mb-4 mt-8 border-b-2 border-border pb-2">
                 <h5 className="text-sm font-medium text-muted-foreground">
-                  Others
+                  {t("ENVIRONMENTS.OTHERS")}
                 </h5>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -124,17 +125,17 @@ export const EnvironmentsPage = () => {
         <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] overflow-y-auto rounded-lg border p-6 shadow-lg md:max-h-[85vh] md:w-[500px]">
           <DialogHeader className="mb-4">
             <DialogTitle className="text-lg md:text-xl">
-              Add Environment
+              {t("ENVIRONMENTS.ADD_ENVIRONMENT")}
             </DialogTitle>
             <DialogDescription className="flex flex-col gap-2 text-sm md:flex-row md:items-start md:gap-2">
               <span className="flex flex-row items-start gap-2">
-                <span>Please add the environments you want to configure.</span>
+                <span>{t("ENVIRONMENTS.PLEASE_ADD_THE_ENVIRONMENTS_YOU")}</span>
                 <Tooltip>
                   <TooltipTrigger type="button" asChild>
                     <CircleHelp className="mt-0.5 h-4 w-4 flex-shrink-0" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-xs font-normal md:max-w-96 md:text-sm">
-                    You must have the corresponding branch in your repository.
+                    {t("ENVIRONMENTS.YOU_MUST_HAVE_THE_CORRESPONDING")}
                   </TooltipContent>
                 </Tooltip>
               </span>

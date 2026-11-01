@@ -35,6 +35,7 @@ import {
   SUBSCRIPTION_ENDPOINTS,
   CLOUD_BUILD_ENDPOINTS,
 } from "@blocks-identifier/constants/endpoint.constant";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 export class ProjectService {
   getProjects(page = 0, pageSize = 100, tenantGroupId = ""): Promise<IProjectGroup[]> {
@@ -165,7 +166,7 @@ export class ProjectService {
         // HTTP error
         return {
           isValid: false,
-          error: `Invalid, provide a valid jwks URL`,
+          error: tStatic("utilities.console", "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS"),
         };
       }
 
@@ -175,7 +176,7 @@ export class ProjectService {
         // Response is not JSON
         return {
           isValid: false,
-          error: "Invalid, provide a valid jwks URL",
+          error: tStatic("utilities.console", "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS"),
         };
       }
 
@@ -187,7 +188,7 @@ export class ProjectService {
         // Missing or invalid 'keys' array in JWKS
         return {
           isValid: false,
-          error: "Invalid, provide a valid jwks URL",
+          error: tStatic("utilities.console", "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS"),
         };
       }
 
@@ -196,7 +197,7 @@ export class ProjectService {
       console.error("JWKS URL Validation Error:", error);
       return {
         isValid: false,
-        error: "Invalid, provide a valid jwks URL",
+        error: tStatic("utilities.console", "PROJECT_SERVICE.INVALID_PROVIDE_A_VALID_JWKS"),
       };
     }
   }

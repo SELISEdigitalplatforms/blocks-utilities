@@ -6,7 +6,7 @@ import {
   IChangeSettings,
   IManualDeploymentPayload,
 } from "../models/utils";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, tStatic } from "@seliseblocks/genesis-os";
 
 
 export const useGithubVerification = (code: string) => {
@@ -116,7 +116,7 @@ export const useGetAllProjects = (
     queryKey: ["projects", projectId],
     queryFn: () => {
       if (!projectId) {
-        throw new Error("Project ID is required");
+        throw new Error(tStatic("utilities.console", "GITHUB_INFO.PROJECT_ID_IS_REQUIRED"));
       }
       return githubInfoService.getAllProjects(projectId);
     },
@@ -140,7 +140,7 @@ export const useGetAllRepoBuilds = (
     queryKey: ["repo-builds", projectId],
     queryFn: () => {
       if (!projectId) {
-        throw new Error("Project ID is required");
+        throw new Error(tStatic("utilities.console", "GITHUB_INFO.PROJECT_ID_IS_REQUIRED"));
       }
       return githubInfoService.getAllRepoBuilds(projectId);
     },
@@ -165,7 +165,7 @@ export const useGetRepoDetails = (
     queryKey: ["repo-details", projectKey, repoId],
     queryFn: () => {
       if (!projectKey || !repoId) {
-        throw new Error("Project Key and Repo ID are required");
+        throw new Error(tStatic("utilities.console", "GITHUB_INFO.PROJECT_KEY_AND_REPO_ID"));
       }
       return githubInfoService.getRepoDetails(projectKey, repoId);
     },
@@ -223,7 +223,7 @@ export const useGetCardProjectAndBranch = (buildId: string) => {
     queryKey: ["project-repo", buildId],
     queryFn: () => {
       if (!buildId) {
-        throw new Error("Project ID is required");
+        throw new Error(tStatic("utilities.console", "GITHUB_INFO.PROJECT_ID_IS_REQUIRED"));
       }
       return githubInfoService.getCardRepoAndBranches(buildId, projectKey);
     },

@@ -3,14 +3,16 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { MagicUrlDialog } from "@blocks-utilities/magic-url/components/magic-url-dialog/magic-url-dialog";
+import { useT } from "@seliseblocks/genesis-os";
 
 export default function MagicUrlPage() {
+  const { t } = useT("utilities.console");
   const [isShortenDialogOpen, setIsShortenDialogOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex w-full justify-between text-high-emphasis">
-        <h3 className="text-2xl font-bold tracking-tight">Magic URL</h3>
+        <h3 className="text-2xl font-bold tracking-tight">{t("MAGIC_URL.MAGIC_URL")}</h3>
         <div className="flex items-center">
           <Button
             size="sm"
@@ -19,7 +21,7 @@ export default function MagicUrlPage() {
             onClick={() => setIsShortenDialogOpen(true)}
           >
             <Plus className="h-5 w-5" />
-            <span className="sr-only sm:not-sr-only">Create Magic URL</span>
+            <span className="sr-only sm:not-sr-only">{t("MAGIC_URL.CREATE_MAGIC_URL")}</span>
           </Button>
         </div>
       </div>
