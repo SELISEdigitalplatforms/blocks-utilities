@@ -85,9 +85,18 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
-    public void The_customer_number_is_the_subscribers_organization_id()
+    public void The_organization_is_named_by_its_iam_name()
     {
-        Render().Should().Contain("<tr><th>Customer number</th><td>org-1</td></tr>");
+        Render(document => document.Subscriber.OrganizationName = "Northwind")
+            .Should().Contain("<tr><th>Organization</th><td>Northwind</td></tr>",
+                because: "an organization id names nothing a reader of the invoice recognises");
+    }
+
+    [Fact]
+    public void An_organization_with_no_recorded_name_falls_back_to_its_id()
+    {
+        Render().Should().Contain("<tr><th>Organization</th><td>org-1</td></tr>",
+            because: "subscriptions created before the name was recorded still need their organization identified");
     }
 
     [Fact]

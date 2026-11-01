@@ -1355,6 +1355,19 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task The_document_freezes_the_organization_name_the_subscription_recorded()
+    {
+        Subscribed(subscription => subscription.OrganizationName = "Northwind");
+        SettledRenewal();
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Subscriber.OrganizationName.Should().Be("Northwind",
+            because: "the worker issuing this has no token to ask IAM, so the name signup recorded is the only one there is");
+    }
+
+    [Fact]
     public async Task A_contact_recorded_with_its_id_for_a_name_is_named_by_its_email_instead()
     {
         Subscribed();

@@ -38,6 +38,16 @@ public sealed class SubscriptionDetail
     /// </remarks>
     public FinancialDocumentPerson? PurchasedBy { get; set; }
 
+    /// <summary>
+    /// The organization's name in IAM, as it was at signup. Null when IAM would not say, and on
+    /// subscriptions created before it was recorded.
+    /// </summary>
+    /// <remarks>
+    /// Captured at signup because that is the only time a caller's token is available to ask IAM
+    /// with. The documents that print it are issued by the worker, which has none.
+    /// </remarks>
+    public string? OrganizationName { get; set; }
+
     public string BillingAccountId { get; set; } = string.Empty;
 
     public SubscriptionStatus Status { get; set; } =
