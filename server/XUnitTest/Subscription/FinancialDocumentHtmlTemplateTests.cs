@@ -177,6 +177,44 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
+    public void A_line_for_the_year_after_a_stub_states_the_years_dates_rather_than_the_stubs()
+    {
+        // INV-2026-000027: the year line read "16.10.2026–31.10.2026 · 16 of 31 days" beside
+        // CHF 1,380.00, because every line printed the document's period, which is the stub.
+        var html = Render(document =>
+        {
+            document.Period.LocalStart = "2026-10-16";
+            document.Period.LocalEnd = "2026-11-01";
+            document.Period.IsProrated = true;
+            document.Period.ProratedDays = 16;
+            document.Period.ProratedTotalDays = 31;
+            document.Lines =
+            [
+                new FinancialDocumentLine { Description = "Tier 1 (2026-10-16 to 2026-10-31)", AmountMinor = 5_935 },
+                new FinancialDocumentLine
+                {
+                    Description = "Tier 1 (2026-11-01 to 2027-10-31)",
+                    AmountMinor = 138_000,
+                    Period = new FinancialDocumentPeriod
+                    {
+                        StartUtc = new DateTime(2026, 10, 31, 23, 0, 0, DateTimeKind.Utc),
+                        EndUtc = new DateTime(2027, 10, 31, 23, 0, 0, DateTimeKind.Utc),
+                        TimeZoneId = "Europe/Zurich",
+                        LocalStart = "2026-11-01",
+                        LocalEnd = "2027-11-01"
+                    }
+                }
+            ];
+        });
+
+        html.Should().Contain("16.10.2026–<br>31.10.2026", because: "the stub line still covers the stub");
+        html.Should().Contain("01.11.2026–<br>31.10.2027",
+            because: "a year's price beside a fortnight's dates reads as a year charged for sixteen days");
+        html.Split("16 of 31 days").Should().HaveCount(2,
+            because: "the year is not prorated, so only the stub carries the note");
+    }
+
+    [Fact]
     public void A_period_that_starts_and_ends_on_one_local_day_does_not_end_the_day_before()
     {
         var html = Render(document =>
