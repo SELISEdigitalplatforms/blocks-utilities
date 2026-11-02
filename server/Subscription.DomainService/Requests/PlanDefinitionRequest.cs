@@ -48,6 +48,12 @@ public abstract class PlanDefinitionRequest
     public bool TrialRequiresPaymentMethod { get; set; } = true;
 
     /// <summary>
+    /// One trial per organization on this plan, permanently. Off lets every signup trial it again.
+    /// Omit for the default, which is on.
+    /// </summary>
+    public bool OneTrialPerPlan { get; set; } = true;
+
+    /// <summary>
     /// Require a card before activation even when nothing is due today. Omit for the historical
     /// behaviour, which is to start a zero-amount subscription immediately.
     /// </summary>

@@ -225,6 +225,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // refused after this leaves the trial claim behind a subscription that never started, which
         // the next signup's TrialAlreadyClaimedAsync gives back.
         if (subscription.Trial is not null &&
+            plan.OneTrialPerPlan &&
             _trialUsages is not null &&
             TrialUsage.For(subscription, plan.SubscriberScope, plan.Code, _time.GetUtcNow().UtcDateTime)
                 is { } claim &&
@@ -1072,9 +1073,9 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         CancellationToken cancellationToken)
     {
         if (_trialUsages is null ||
+            !plan.OneTrialPerPlan ||
             !TrialDurationNormalizer.HasTrial(plan) ||
-            TrialUsage.SubjectOf(plan.SubscriberScope, context.OrganizationId, context.UserId)
-                is not { } subjectId)
+            TrialUsage.SubjectOf(context.OrganizationId) is not { } subjectId)
         {
             return false;
         }

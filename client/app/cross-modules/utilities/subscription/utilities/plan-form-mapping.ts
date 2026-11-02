@@ -34,6 +34,7 @@ const toPlanDefinition = (values: CreateSubscriptionPlanFormValues) => ({
   trialDurationKind: values.trialDurationKind,
   trialDurationCount: values.trialDurationCount,
   trialRequiresPaymentMethod: values.trialRequiresPaymentMethod,
+  oneTrialPerPlan: values.oneTrialPerPlan,
   requirePaymentMethodUpfront: values.requirePaymentMethodUpfront,
   usageInterval: values.usageInterval,
   usageIntervalCount: values.usageIntervalCount,
@@ -207,6 +208,8 @@ export const planToFormValues = (
   trialDurationKind: plan.trialDurationKind ?? undefined,
   trialDurationCount: plan.trialDurationCount ?? undefined,
   trialRequiresPaymentMethod: plan.trialRequiresPaymentMethod,
+  // Absent from a server that predates the setting, which keeps one trial per plan.
+  oneTrialPerPlan: plan.oneTrialPerPlan ?? true,
   // Defaulted here rather than in the schema, because a plan the server stored before this
   // existed answers with nothing at all — and reading that as "leave it as it was" would turn a
   // duplicate of an old plan into one that suddenly demands a card.

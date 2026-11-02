@@ -52,6 +52,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
             TrialDurationKind = hasTrial ? plan.TrialDurationKind.ToString() : null,
             TrialDurationCount = hasTrial ? trialCount : null,
             TrialRequiresPaymentMethod = plan.TrialRequiresPaymentMethod,
+            OneTrialPerPlan = plan.OneTrialPerPlan,
             RequirePaymentMethodUpfront = plan.RequirePaymentMethodUpfront,
             Version = plan.Version,
             HasSubscribers = hasSubscribers,

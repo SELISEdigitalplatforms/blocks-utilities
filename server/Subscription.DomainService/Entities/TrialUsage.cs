@@ -4,15 +4,18 @@ using Subscription.DomainService.Enums;
 namespace Subscription.DomainService.Entities;
 
 /// <summary>
-/// One subscriber's claim on one plan's trial.
+/// One organization's claim on one plan's trial.
 /// </summary>
 /// <remarks>
-/// This is what makes "one trial per plan" true rather than merely likely. Without it a subscriber
-/// could cancel and sign up again, and get the trial again, for as long as they cared to.
+/// This is what makes "one trial per plan" true rather than merely likely. Without it an
+/// organization could cancel and sign up again, and get the trial again, for as long as it cared
+/// to. Only written for a plan with <see cref="Plan.OneTrialPerPlan"/> on.
 /// <para>
-/// Who "the subscriber" is follows the plan's <see cref="SubscriberScope"/>: the organization for
-/// an organization-wise plan, and the person who bought it for a user-wise one, since a user-wise
-/// subscription is still held by an organization and several of them can sit side by side. The
+/// The claim belongs to the organization whatever the plan's <see cref="SubscriberScope"/>. Keyed on
+/// the buyer, a user-wise plan let an organization trial it again by switching who bought it, and
+/// refused a person's trial for an organization that had never had it because they had used it
+/// elsewhere. The scope stays on the record and in the index so rows written before this — keyed on
+/// the buyer — stay valid alongside; see <see cref="Repositories.TrialUsageRepository"/>. The
 /// plan is identified by its <see cref="PlanSnapshot.Code"/>, which survives catalogue edits — an
 /// id would give every edited plan a fresh trial.
 /// </para>
@@ -32,12 +35,15 @@ public sealed class TrialUsage
 
     public SubscriberScope Scope { get; set; }
 
-    /// <summary>The organization id for an organization-wise plan, the buyer's user id for a user-wise one.</summary>
+    /// <summary>
+    /// The organization id. A user-wise row written before trials were per organization holds the
+    /// buyer's user id instead, and is never read again.
+    /// </summary>
     public string SubjectId { get; set; } = string.Empty;
 
     public string PlanCode { get; set; } = string.Empty;
 
-    /// <summary>The organization that held the subscription, kept for audit whatever the scope.</summary>
+    /// <summary>The organization that held the subscription. Equal to <see cref="SubjectId"/> on every row written now.</summary>
     public string OrganizationId { get; set; } = string.Empty;
 
     public string SubscriptionId { get; set; } = string.Empty;
@@ -49,10 +55,10 @@ public sealed class TrialUsage
     public DateTime? ReleasedAtUtc { get; set; }
 
     /// <summary>
-    /// Who claims a trial on <paramref name="planCode"/> for this subscription, or null when nobody
-    /// can be identified: a user-wise signup made without a user — an API key, or the console acting
-    /// for an organization. Those are deliberately not limited, by product decision, rather than
-    /// all sharing one empty-string slot.
+    /// The claim this subscription makes on <paramref name="planCode"/>'s trial, or null when it has
+    /// no organization to make it for — rather than all such signups sharing one empty-string slot.
+    /// A user-wise signup made without a user, by an API key or the console, claims for its
+    /// organization like any other.
     /// </summary>
     public static TrialUsage? For(
         SubscriptionDetail subscription,
@@ -62,7 +68,7 @@ public sealed class TrialUsage
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
-        var subjectId = SubjectOf(scope, subscription.OrganizationId, subscription.PurchasedBy?.UserId);
+        var subjectId = SubjectOf(subscription.OrganizationId);
 
         return subjectId is null
             ? null
@@ -78,10 +84,7 @@ public sealed class TrialUsage
             };
     }
 
-    /// <summary>Who a trial on a plan of this scope belongs to, or null when nobody can be identified.</summary>
-    public static string? SubjectOf(SubscriberScope scope, string organizationId, string? buyerUserId)
-    {
-        var subjectId = scope == SubscriberScope.User ? buyerUserId : organizationId;
-        return string.IsNullOrEmpty(subjectId) ? null : subjectId;
-    }
+    /// <summary>Who a trial belongs to — the organization — or null when there is none.</summary>
+    public static string? SubjectOf(string organizationId) =>
+        string.IsNullOrEmpty(organizationId) ? null : organizationId;
 }
