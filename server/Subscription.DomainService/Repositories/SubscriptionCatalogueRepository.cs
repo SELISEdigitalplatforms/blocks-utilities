@@ -299,6 +299,7 @@ public sealed class SubscriptionCatalogueRepository : ISubscriptionCatalogueRepo
             .Set(existing => existing.TrialDurationKind, plan.TrialDurationKind)
             .Set(existing => existing.TrialDurationCount, plan.TrialDurationCount)
             .Set(existing => existing.TrialRequiresPaymentMethod, plan.TrialRequiresPaymentMethod)
+            .Set(existing => existing.OneTrialPerPlan, plan.OneTrialPerPlan)
             .Set(existing => existing.RequirePaymentMethodUpfront, plan.RequirePaymentMethodUpfront)
             .Set(existing => existing.TrialGrants, plan.TrialGrants)
             .Set(existing => existing.LastUpdatedDateUtc, DateTime.UtcNow)

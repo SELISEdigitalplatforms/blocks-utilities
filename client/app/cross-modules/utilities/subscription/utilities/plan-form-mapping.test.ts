@@ -496,6 +496,26 @@ describe("requiring a card before activation", () => {
   });
 });
 
+describe("one trial per plan", () => {
+  it("survives the trip through the form and back onto an edit when switched off", () => {
+    const values = planToFormValues(storedPlan({ oneTrialPerPlan: false }));
+
+    expect(values.oneTrialPerPlan).toBe(false);
+    expect(toUpdatePlanRequest(values).oneTrialPerPlan).toBe(false);
+  });
+
+  /**
+   * Read as off, saving an edit of an older plan would quietly let every organization that already
+   * had its trial take it again.
+   */
+  it("reads a plan from a server that never sent the field as on", () => {
+    const values = planToFormValues(storedPlan());
+
+    expect(values.oneTrialPerPlan).toBe(true);
+    expect(toUpdatePlanRequest(values).oneTrialPerPlan).toBe(true);
+  });
+});
+
 describe("a meter's decimal places", () => {
   /**
    * A plan stored before fractional quantities existed carries no scale at all, and has to reopen
