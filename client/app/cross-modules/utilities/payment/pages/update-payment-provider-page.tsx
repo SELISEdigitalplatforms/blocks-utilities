@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Pencil, ShieldCheck } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { useNavigate, useParams } from "react-router";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
@@ -52,7 +52,7 @@ export const UpdatePaymentProviderPage = () => {
   );
 
   const form = useForm<UpdatePaymentProviderFormValues>({
-    resolver: zodResolver(updatePaymentProviderSchema),
+    resolver: zodResolver(updatePaymentProviderSchema) as Resolver<UpdatePaymentProviderFormValues>,
     mode: "onBlur",
     defaultValues: {
       frontendResultUrl: "",

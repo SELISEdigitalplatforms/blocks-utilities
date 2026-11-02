@@ -1821,15 +1821,25 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document!.Lines.Should().HaveCount(2);
 
         // The stub, priced from the monthly basis the yearly price names rather than from the year.
-        document.Lines[0].Description.Should().Be("Tier 3 (2026-09-15 to 2026-10-01)");
+        document.Lines[0].Description.Should().Be("Tier 3 (2026-09-15 to 2026-09-30)",
+            because: "the stub's last day of service is the 30th; the 1st is the first day of the year after it");
         document.Lines[0].UnitAmountMinor.Should().Be(87_400,
             "the days before the first are worth a fraction of a month, not a fraction of a year");
         document.Lines[0].AmountMinor.Should().Be(StubGrossMinor);
 
         // And the year, over the year's own dates.
-        document.Lines[1].Description.Should().Be("Tier 3 (2026-10-01 to 2027-10-01)");
+        document.Lines[1].Description.Should().Be("Tier 3 (2026-10-01 to 2027-09-30)",
+            because: "a year from the 1st of October ends on the 30th of September, as the Period column already says");
         document.Lines[1].UnitAmountMinor.Should().Be(AnnualGrossMinor);
         document.Lines[1].AmountMinor.Should().Be(AnnualGrossMinor);
+
+        // And its Period column says the year too, not the stub the document's own period is.
+        document.Lines[0].Period.Should().BeNull(because: "the stub is the document's own period");
+        document.Lines[1].Period.Should().NotBeNull();
+        document.Lines[1].Period!.LocalStart.Should().Be("2026-10-01",
+            because: "the year line's Period column otherwise printed the stub's dates and proration");
+        document.Lines[1].Period!.LocalEnd.Should().Be("2027-10-01");
+        document.Lines[1].Period!.IsProrated.Should().BeFalse(because: "the year is bought whole");
 
         // The lines are the subtotal, item by item, exactly as they are for a one-period invoice.
         document.Lines.Sum(line => line.AmountMinor)

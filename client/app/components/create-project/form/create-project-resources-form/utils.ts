@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isParsableUrl } from "@/lib/url-format";
 
 export interface Asset {
   id?: number;
@@ -17,7 +18,7 @@ export const CreateProjectResourcesFormSchema = z.object({
       z.object({
         id: z.number().optional(),
         name: z.string().min(1, "Asset name is required"),
-        html_url: z.string().url("Link must be a valid URL"),
+        html_url: z.string().refine(isParsableUrl, "Link must be a valid URL"),
         full_name: z.string().optional(),
       }),
     )

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
 import { Form } from "@/components/ui-kits/form/form";
@@ -34,7 +34,7 @@ export const CreateProjectResourcesForm = () => {
 
   const form = useForm<{ assets: Asset[] }>({
     values: formData[1],
-    resolver: zodResolver(CreateProjectResourcesFormSchema),
+    resolver: zodResolver(CreateProjectResourcesFormSchema) as Resolver<{ assets: Asset[] }>,
   });
 
   const [selectedRepositories, setSelectedRepositories] = useState<IRepository[]>(
