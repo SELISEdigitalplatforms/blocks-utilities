@@ -282,6 +282,62 @@ public sealed class CalendarAnnualChargeTimingTests
         pending.DiscountApplied.Should().BeTrue("the code reduced the year, so it is being used");
     }
 
+    /// <summary>
+    /// A code set to replace the price's own discount replaces it on the stub too, rather than
+    /// leaving the stub to the 8% while the year takes the code.
+    /// </summary>
+    /// <remarks>
+    /// INV-2026-000027: a 50% ReplaceBuiltIn code invoiced as "8% automatic" on the stub and "50%
+    /// promotional" on the year — two discounts, where the code's setting promised one.
+    /// </remarks>
+    [Fact]
+    public async Task A_code_that_replaces_the_automatic_discount_replaces_it_on_the_stub_too()
+    {
+        GivenDiscount(new DiscountTerms
+        {
+            Code = "half",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 5_000,
+            DurationPeriods = 1
+        }, new CampaignTerms
+        {
+            Precedence = CampaignPrecedence.ReplaceBuiltIn,
+            PrecedenceConfigured = true
+        });
+
+        await Subscribe(discountCode: "half");
+
+        // Seven of August's thirty-one dates of CHF 950 is CHF 214.52; half of it, and no 8%.
+        _created!.InitialChargeAmountMinor.Should().Be(10_726,
+            because: "the code replaces the automatic discount on every period it covers, the stub included");
+        _created.InitialChargeDiscountApplied.Should().BeTrue();
+
+        _created.PendingAnnualPeriod!.AmountMinor.Should().Be(570_000,
+            because: "the year keeps the code — the stub reaching back for it must not spend it");
+        _created.PendingAnnualPeriod.DiscountApplied.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_code_that_only_competes_with_the_automatic_discount_still_leaves_the_stub_to_it()
+    {
+        GivenDiscount(new DiscountTerms
+        {
+            Code = "half",
+            Kind = DiscountKind.Percent,
+            PercentBasisPoints = 5_000,
+            DurationPeriods = 1
+        }, new CampaignTerms
+        {
+            Precedence = CampaignPrecedence.BestDiscount,
+            PrecedenceConfigured = true
+        });
+
+        await Subscribe(discountCode: "half");
+
+        _created!.InitialChargeAmountMinor.Should().Be(StubMinor,
+            because: "only a replacing code reaches back to the stub; an ordinary one still belongs to the year");
+    }
+
     [Fact]
     public async Task A_prepaid_year_carries_its_discount_into_the_single_charge()
     {
@@ -364,7 +420,7 @@ public sealed class CalendarAnnualChargeTimingTests
         Quantities = [new SubscriptionQuantityRequest { ItemKey = "seat", Quantity = 1 }]
     };
 
-    private void GivenDiscount(DiscountTerms terms) =>
+    private void GivenDiscount(DiscountTerms terms, CampaignTerms? campaign = null) =>
         _discounts
             .Setup(repository => repository.FindActiveByCodeAsync(
                 TenantId, OrganizationId, terms.Code, It.IsAny<CancellationToken>()))
@@ -373,7 +429,8 @@ public sealed class CalendarAnnualChargeTimingTests
                 TenantId = TenantId,
                 Code = terms.Code,
                 CurrencyCode = "CHF",
-                Terms = terms
+                Terms = terms,
+                Campaign = campaign ?? new CampaignTerms()
             });
 
     private SubscriptionCreationService Service() => new(

@@ -1348,16 +1348,16 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         if (subscription.Trial is null)
         {
             // Ordinary promotional codes belong to the year, not to the days before it. A
-            // FirstAnnualPeriod campaign is the explicit exception: its authored offer discounts
-            // both the opening stub and the first year, while accounting below ensures the stub
-            // does not consume the annual benefit.
+            // FirstAnnualPeriod campaign and a code that replaces the price's own discount are the
+            // exceptions (see SubscriptionDiscountPeriodAccounting.StubTakesCode), while accounting
+            // below ensures the stub does not consume the annual benefit.
             var charge = SubscriptionAmountCalculator.FirstPeriodCharge(
                 subscription,
                 fraction,
                 now,
                 includePromotionalDiscount:
                     annual is null ||
-                    subscription.Discount?.Campaign.Kind == CampaignKind.FirstAnnualPeriod);
+                    SubscriptionDiscountPeriodAccounting.StubTakesCode(subscription.Discount));
 
             stubCharge = charge;
 
@@ -1577,8 +1577,9 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             pricingInstantUtc,
             fraction,
             // A promotional code belongs to the year it was meant for, not the days before it --
-            // the same rule the real conversion applies.
-            includePromotionalDiscount: convertingAnnual is null);
+            // the same rule, and the same exceptions, the real conversion applies.
+            includePromotionalDiscount: convertingAnnual is null ||
+                SubscriptionDiscountPeriodAccounting.StubTakesCode(subscription.Discount));
 
         DateTime periodStartUtc;
         DateTime periodEndUtc;
