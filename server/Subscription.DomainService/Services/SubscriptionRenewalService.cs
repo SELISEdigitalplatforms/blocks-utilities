@@ -335,8 +335,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription,
                 pricingInstantUtc,
                 fraction,
-                // A promotional code belongs to the year, so a yearly stub is priced without one.
-                includePromotionalDiscount: convertingAnnual is null);
+                // A promotional code belongs to the year, so a yearly stub is priced without one --
+                // unless the code is one of the kinds that reaches back to the stub.
+                includePromotionalDiscount: convertingAnnual is null ||
+                    SubscriptionDiscountPeriodAccounting.StubTakesCode(subscription.Discount));
 
         // "Collect the year with the first payment" — and for a card-free trial this conversion is
         // the first payment there has ever been. Taken together with the stub in one charge, and
