@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FormProvider, useForm, useWatch } from "react-hook-form";
+import { FormProvider, useForm, useWatch, type Resolver } from "react-hook-form";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { Card } from "@/components/ui-kits/card/card";
@@ -135,7 +135,7 @@ const PlanBuilderWizard = ({
   );
 
   const form = useForm<CreateSubscriptionPlanFormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schema) as Resolver<CreateSubscriptionPlanFormValues>,
     mode: "onBlur",
     defaultValues,
   });

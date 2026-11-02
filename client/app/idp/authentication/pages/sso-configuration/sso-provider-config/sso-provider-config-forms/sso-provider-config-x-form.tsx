@@ -1,5 +1,5 @@
 import React from "react";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 
 import { Form, FormField } from "@/components/ui-kits/form/form";
 import { Button } from "@/components/ui-kits/button/button";
@@ -16,20 +16,21 @@ import { ssoOAuthProviderSchema } from "../sso-provider-config.schema";
 const SSOXFormFields = createCommonOAuthFields();
 
 export const SSOProviderConfigXForm: React.FC<SsoConfigForms> = ({ save, configuration }) => {
+  const values = configuration || {
+    provider: SSO_PROVIDERS.x,
+    audience: "",
+    clientId: "",
+    clientSecret: "",
+    redirectUrl: "",
+    initialRoles: [],
+    initialPermissions: [],
+    // Hardcoded default role for now; will use API response later
+    userRoles: [{ name: "user", slug: "user", description: "default role", itemId: "1234" }],
+    userPermissions: [],
+  };
   const form = useForm({
-    values: configuration || {
-      provider: SSO_PROVIDERS.x,
-      audience: "",
-      clientId: "",
-      clientSecret: "",
-      redirectUrl: "",
-      initialRoles: [],
-      initialPermissions: [],
-      // Hardcoded default role for now; will use API response later
-      userRoles: [{ name: "user", slug: "user", description: "default role", itemId: "1234" }],
-      userPermissions: [],
-    },
-    resolver: zodResolver(ssoOAuthProviderSchema),
+    values,
+    resolver: zodResolver(ssoOAuthProviderSchema) as unknown as Resolver<typeof values>,
   });
   return (
     <Form {...form}>

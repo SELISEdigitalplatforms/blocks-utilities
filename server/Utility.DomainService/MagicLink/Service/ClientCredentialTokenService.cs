@@ -50,15 +50,18 @@ namespace Utility.DomainService.MagicLink.Service
         private readonly ILogger<ClientCredentialTokenService> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
+        private readonly IClientCredentialSecretResolver _secretResolver;
 
         public ClientCredentialTokenService(
             ILogger<ClientCredentialTokenService> logger,
             IHttpClientFactory httpClientFactory,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IClientCredentialSecretResolver secretResolver)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;
+            _secretResolver = secretResolver;
         }
 
         /// <summary>
@@ -77,6 +80,14 @@ namespace Utility.DomainService.MagicLink.Service
             {
                 _logger.LogInformation("Getting token for ClientId: {ClientId}", clientCredentials.ItemId);
 
+                // From Blocks Secrets when the credential has moved there, else the plaintext field.
+                var clientSecret = await _secretResolver.GetSecretAsync(clientCredentials, projectKey);
+                if (string.IsNullOrEmpty(clientSecret))
+                {
+                    _logger.LogWarning("No client secret available for ClientId: {ClientId}; no token requested", clientCredentials.ItemId);
+                    return null;
+                }
+
                 var authEndpoint = ResolveTokenEndpoint(_configuration);
 
                 using var client = _httpClientFactory.CreateClient();
@@ -89,7 +100,7 @@ namespace Utility.DomainService.MagicLink.Service
                 {
                     { "grant_type", "client_credential" },
                     { "client_id", clientCredentials.ItemId },
-                    { "client_secret", clientCredentials.ClientSecret }
+                    { "client_secret", clientSecret }
                 };
 
                 var content = new FormUrlEncodedContent(formData);

@@ -85,9 +85,18 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
-    public void The_customer_number_is_the_subscribers_organization_id()
+    public void The_organization_is_named_by_its_iam_name()
     {
-        Render().Should().Contain("<tr><th>Customer number</th><td>org-1</td></tr>");
+        Render(document => document.Subscriber.OrganizationName = "Northwind")
+            .Should().Contain("<tr><th>Organization</th><td>Northwind</td></tr>",
+                because: "an organization id names nothing a reader of the invoice recognises");
+    }
+
+    [Fact]
+    public void An_organization_with_no_recorded_name_falls_back_to_its_id()
+    {
+        Render().Should().Contain("<tr><th>Organization</th><td>org-1</td></tr>",
+            because: "subscriptions created before the name was recorded still need their organization identified");
     }
 
     [Fact]
@@ -165,6 +174,44 @@ public sealed class FinancialDocumentHtmlTemplateTests
             "Europe/Zurich · 2 of 30 days",
             "the proration is what reconciles Price with Value on the same row");
         html.Should().NotContain("01.10.2026");
+    }
+
+    [Fact]
+    public void A_line_for_the_year_after_a_stub_states_the_years_dates_rather_than_the_stubs()
+    {
+        // INV-2026-000027: the year line read "16.10.2026–31.10.2026 · 16 of 31 days" beside
+        // CHF 1,380.00, because every line printed the document's period, which is the stub.
+        var html = Render(document =>
+        {
+            document.Period.LocalStart = "2026-10-16";
+            document.Period.LocalEnd = "2026-11-01";
+            document.Period.IsProrated = true;
+            document.Period.ProratedDays = 16;
+            document.Period.ProratedTotalDays = 31;
+            document.Lines =
+            [
+                new FinancialDocumentLine { Description = "Tier 1 (2026-10-16 to 2026-10-31)", AmountMinor = 5_935 },
+                new FinancialDocumentLine
+                {
+                    Description = "Tier 1 (2026-11-01 to 2027-10-31)",
+                    AmountMinor = 138_000,
+                    Period = new FinancialDocumentPeriod
+                    {
+                        StartUtc = new DateTime(2026, 10, 31, 23, 0, 0, DateTimeKind.Utc),
+                        EndUtc = new DateTime(2027, 10, 31, 23, 0, 0, DateTimeKind.Utc),
+                        TimeZoneId = "Europe/Zurich",
+                        LocalStart = "2026-11-01",
+                        LocalEnd = "2027-11-01"
+                    }
+                }
+            ];
+        });
+
+        html.Should().Contain("16.10.2026–<br>31.10.2026", because: "the stub line still covers the stub");
+        html.Should().Contain("01.11.2026–<br>31.10.2027",
+            because: "a year's price beside a fortnight's dates reads as a year charged for sixteen days");
+        html.Split("16 of 31 days").Should().HaveCount(2,
+            because: "the year is not prorated, so only the stub carries the note");
     }
 
     [Fact]

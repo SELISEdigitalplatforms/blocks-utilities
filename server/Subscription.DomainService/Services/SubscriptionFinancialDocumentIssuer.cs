@@ -2054,13 +2054,19 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                     stubQuantityItems ?? terms.QuantityItems,
                     stubUnitAmountMinor,
                     opening.StubGrossMinor,
-                    $"{LocalDate(period.StartUtc, zone)} to {LocalDate(period.EndUtc, zone)}"),
+                    ServiceRange(period.StartUtc, period.EndUtc, zone)),
                 .. PeriodLines(
                     terms,
                     terms.QuantityItems,
                     terms.Subject.UnitAmountMinor,
                     year.GrossAmountMinor,
-                    $"{LocalDate(year.StartUtc, zone)} to {LocalDate(year.EndUtc, zone)}")
+                    ServiceRange(year.StartUtc, year.EndUtc, zone),
+                    WithLocalDates(new FinancialDocumentPeriod
+                    {
+                        StartUtc = year.StartUtc,
+                        EndUtc = year.EndUtc,
+                        TimeZoneId = zone
+                    }))
             ];
         }
 
@@ -2080,12 +2086,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// The dates this period covers, named on every line, for a charge that covers more than one.
     /// Null where the document's own period already says it.
     /// </param>
+    /// <param name="linePeriod">
+    /// The period for the lines' Period column, where it is not the document's own. Null otherwise.
+    /// </param>
     private static List<FinancialDocumentLine> PeriodLines(
         DocumentTerms terms,
         IReadOnlyList<SubscriptionQuantityItem> quantityItems,
         long unitAmountMinor,
         long grossMinor,
-        string? periodLabel)
+        string? periodLabel,
+        FinancialDocumentPeriod? linePeriod = null)
     {
         var suffix = periodLabel is { Length: > 0 } label ? $" ({label})" : string.Empty;
 
@@ -2109,7 +2119,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                     Description = $"{terms.Subject.PlanName}{suffix}",
                     Quantity = 1,
                     UnitAmountMinor = unitAmountMinor,
-                    AmountMinor = grossMinor
+                    AmountMinor = grossMinor,
+                    Period = linePeriod
                 }
             ];
         }
@@ -2124,7 +2135,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 Quantity = item.Quantity,
                 UnitAmountMinor = item.UnitAmountMinor,
                 AmountMinor = item.UnitAmountMinor * item.Quantity,
-                ItemKey = item.ItemKey
+                ItemKey = item.ItemKey,
+                Period = linePeriod
             })
             .ToList();
     }
@@ -2144,6 +2156,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         new()
         {
             OrganizationId = subscription.OrganizationId,
+            OrganizationName = subscription.OrganizationName,
             LegalName = profile?.LegalName is { Length: > 0 } legalName
                 ? legalName
                 : subscription.OrganizationId,
@@ -2265,18 +2278,34 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         return period;
     }
 
-    private static string LocalDate(DateTime instantUtc, string timeZoneId)
-    {
-        if (instantUtc == default)
-        {
-            return string.Empty;
-        }
+    private static string LocalDate(DateTime instantUtc, string timeZoneId) =>
+        instantUtc == default
+            ? string.Empty
+            : LocalDay(instantUtc, timeZoneId).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-        var local = BillingLocalTime.TryFindTimeZone(timeZoneId, out var timeZone)
+    private static DateOnly LocalDay(DateTime instantUtc, string timeZoneId) =>
+        DateOnly.FromDateTime(BillingLocalTime.TryFindTimeZone(timeZoneId, out var timeZone)
             ? BillingLocalTime.ToLocal(instantUtc, timeZone)
-            : instantUtc;
+            : instantUtc);
 
-        return local.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// A period as a line description states it: its first and last local day of service.
+    /// </summary>
+    /// <remarks>
+    /// The stored end is the boundary the next period starts at, so its own date is the first day no
+    /// longer covered. Printed as-is, a stub ending on the 31st reads "to 2026-11-01" beside a Period
+    /// column that says 31.10.2026 — the same rule as the template's LastServiceDay, applied here
+    /// because a description is frozen into the document when it is issued.
+    /// </remarks>
+    private static string ServiceRange(DateTime startUtc, DateTime endUtc, string timeZoneId)
+    {
+        var start = LocalDay(startUtc, timeZoneId);
+        var end = LocalDay(endUtc, timeZoneId);
+        var last = end > start ? end.AddDays(-1) : start;
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{start:yyyy-MM-dd} to {last:yyyy-MM-dd}");
     }
 
     /// <summary>

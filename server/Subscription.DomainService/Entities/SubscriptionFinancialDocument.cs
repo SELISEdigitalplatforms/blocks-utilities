@@ -205,6 +205,12 @@ public sealed class FinancialDocumentParty
 {
     public string OrganizationId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The organization's name in IAM. Not the billing profile's legal name: that is the entity
+    /// invoiced, which the subscriber chose and which need not match the organization.
+    /// </summary>
+    public string? OrganizationName { get; set; }
+
     public string LegalName { get; set; } = string.Empty;
 
     public string? DisplayName { get; set; }
@@ -380,6 +386,16 @@ public sealed class FinancialDocumentLine
 
     /// <summary>A quantity item key or a meter key, so a client can group lines it recognises.</summary>
     public string? ItemKey { get; set; }
+
+    /// <summary>
+    /// The period this line covers, where it is not the document's own. Null on every other line.
+    /// </summary>
+    /// <remarks>
+    /// A calendar-aligned yearly signup bills its stub and the year after it on one invoice. The
+    /// document's period is the stub, so without this the year's line printed the stub's dates and
+    /// "16 of 31 days" beside a year's price.
+    /// </remarks>
+    public FinancialDocumentPeriod? Period { get; set; }
 }
 
 /// <summary>
