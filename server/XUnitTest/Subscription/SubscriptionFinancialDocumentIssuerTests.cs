@@ -1833,6 +1833,14 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document.Lines[1].UnitAmountMinor.Should().Be(AnnualGrossMinor);
         document.Lines[1].AmountMinor.Should().Be(AnnualGrossMinor);
 
+        // And its Period column says the year too, not the stub the document's own period is.
+        document.Lines[0].Period.Should().BeNull(because: "the stub is the document's own period");
+        document.Lines[1].Period.Should().NotBeNull();
+        document.Lines[1].Period!.LocalStart.Should().Be("2026-10-01",
+            because: "the year line's Period column otherwise printed the stub's dates and proration");
+        document.Lines[1].Period!.LocalEnd.Should().Be("2027-10-01");
+        document.Lines[1].Period!.IsProrated.Should().BeFalse(because: "the year is bought whole");
+
         // The lines are the subtotal, item by item, exactly as they are for a one-period invoice.
         document.Lines.Sum(line => line.AmountMinor)
             .Should().Be(document.Amounts.GrossSubtotalMinor);

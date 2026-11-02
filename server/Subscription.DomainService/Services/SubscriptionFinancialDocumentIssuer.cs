@@ -2060,7 +2060,13 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                     terms.QuantityItems,
                     terms.Subject.UnitAmountMinor,
                     year.GrossAmountMinor,
-                    ServiceRange(year.StartUtc, year.EndUtc, zone))
+                    ServiceRange(year.StartUtc, year.EndUtc, zone),
+                    WithLocalDates(new FinancialDocumentPeriod
+                    {
+                        StartUtc = year.StartUtc,
+                        EndUtc = year.EndUtc,
+                        TimeZoneId = zone
+                    }))
             ];
         }
 
@@ -2080,12 +2086,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// The dates this period covers, named on every line, for a charge that covers more than one.
     /// Null where the document's own period already says it.
     /// </param>
+    /// <param name="linePeriod">
+    /// The period for the lines' Period column, where it is not the document's own. Null otherwise.
+    /// </param>
     private static List<FinancialDocumentLine> PeriodLines(
         DocumentTerms terms,
         IReadOnlyList<SubscriptionQuantityItem> quantityItems,
         long unitAmountMinor,
         long grossMinor,
-        string? periodLabel)
+        string? periodLabel,
+        FinancialDocumentPeriod? linePeriod = null)
     {
         var suffix = periodLabel is { Length: > 0 } label ? $" ({label})" : string.Empty;
 
@@ -2109,7 +2119,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                     Description = $"{terms.Subject.PlanName}{suffix}",
                     Quantity = 1,
                     UnitAmountMinor = unitAmountMinor,
-                    AmountMinor = grossMinor
+                    AmountMinor = grossMinor,
+                    Period = linePeriod
                 }
             ];
         }
@@ -2124,7 +2135,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 Quantity = item.Quantity,
                 UnitAmountMinor = item.UnitAmountMinor,
                 AmountMinor = item.UnitAmountMinor * item.Quantity,
-                ItemKey = item.ItemKey
+                ItemKey = item.ItemKey,
+                Period = linePeriod
             })
             .ToList();
     }
