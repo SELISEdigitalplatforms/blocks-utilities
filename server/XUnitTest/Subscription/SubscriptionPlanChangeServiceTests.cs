@@ -398,6 +398,46 @@ public sealed class SubscriptionPlanChangeServiceTests
         result.ErrorCode.Should().Be("subscription_plan_change_scope_mismatch");
     }
 
+    [Theory]
+    [InlineData(500, false)]
+    [InlineData(4, true)]
+    public async Task A_trialing_plan_change_is_held_to_the_target_plans_trial_maximum(
+        long requested, bool accepted)
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Trialing, 1_000);
+        _subscription.QuantityItems =
+            [new SubscriptionQuantityItem { ItemKey = "seat", UnitLabel = "seat", Quantity = 2 }];
+
+        var target = NewPlan();
+        target.QuantityItems =
+        [
+            new PlanQuantityItem
+            {
+                ItemKey = "seat", UnitLabel = "seat", MinQuantity = 1, MaxQuantity = 1_000,
+                TrialMaxQuantity = 5
+            }
+        ];
+        _catalogue
+            .Setup(repository => repository.FindPlanByCodeAsync(
+                TenantId, OrganizationId, "premium", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(target);
+
+        var request = Request();
+        request.Quantities = [new SubscriptionQuantityRequest { ItemKey = "seat", Quantity = requested }];
+
+        var result = await Service().ChangePlanAsync("sub-1", request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().Be(
+            accepted,
+            "a trialing plan change is applied free, so without the ceiling moving plan is the " +
+            "way round it");
+
+        if (!accepted)
+        {
+            result.ErrorCode.Should().Be("subscription_trial_quantity_exceeded");
+        }
+    }
+
     [Fact]
     public async Task A_different_billing_interval_rebuilds_the_fee_schedule()
     {

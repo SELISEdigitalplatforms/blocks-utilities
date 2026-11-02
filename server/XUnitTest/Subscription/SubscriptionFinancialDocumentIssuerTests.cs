@@ -1355,6 +1355,19 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task The_document_freezes_the_organization_name_the_subscription_recorded()
+    {
+        Subscribed(subscription => subscription.OrganizationName = "Northwind");
+        SettledRenewal();
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.Subscriber.OrganizationName.Should().Be("Northwind",
+            because: "the worker issuing this has no token to ask IAM, so the name signup recorded is the only one there is");
+    }
+
+    [Fact]
     public async Task A_contact_recorded_with_its_id_for_a_name_is_named_by_its_email_instead()
     {
         Subscribed();
@@ -1380,6 +1393,36 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document!.InitiatedBy.Name.Should().Be("linus@northwind.example",
             because: "an invoice that says it was initiated by a GUID names nobody the reader can recognise");
         document.InitiatedBy.UserId.Should().Be("user-8");
+    }
+
+    [Fact]
+    public async Task A_buyer_settled_by_the_worker_is_named_from_their_signup_not_by_their_id()
+    {
+        Subscribed(subscription => subscription.PurchasedBy = SubscriptionDocumentSourceFactory.ActorOf(
+            "user-42", "Ada Byron", "ada@northwind.example"));
+        SettledRenewal(payment => payment.UserId = "user-42");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.InitiatedBy.Name.Should().Be("Ada Byron",
+            because: "the worker only knows the payer's id, and a first invoice reading 'Initiated by' a GUID names nobody the buyer recognises");
+        document.InitiatedBy.Email.Should().Be("ada@northwind.example");
+        document.InitiatedBy.UserId.Should().Be("user-42");
+    }
+
+    [Fact]
+    public async Task Someone_other_than_the_buyer_is_not_named_as_the_buyer()
+    {
+        Subscribed(subscription => subscription.PurchasedBy = SubscriptionDocumentSourceFactory.ActorOf(
+            "user-42", "Ada Byron", "ada@northwind.example"));
+        SettledRenewal(payment => payment.UserId = "user-7");
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.InitiatedBy.Name.Should().Be("Grace Hopper",
+            because: "a colleague's plan change attributed to the original buyer names somebody who did nothing");
     }
 
     [Fact]
@@ -1778,13 +1821,15 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         document!.Lines.Should().HaveCount(2);
 
         // The stub, priced from the monthly basis the yearly price names rather than from the year.
-        document.Lines[0].Description.Should().Be("Tier 3 (2026-09-15 to 2026-10-01)");
+        document.Lines[0].Description.Should().Be("Tier 3 (2026-09-15 to 2026-09-30)",
+            because: "the stub's last day of service is the 30th; the 1st is the first day of the year after it");
         document.Lines[0].UnitAmountMinor.Should().Be(87_400,
             "the days before the first are worth a fraction of a month, not a fraction of a year");
         document.Lines[0].AmountMinor.Should().Be(StubGrossMinor);
 
         // And the year, over the year's own dates.
-        document.Lines[1].Description.Should().Be("Tier 3 (2026-10-01 to 2027-10-01)");
+        document.Lines[1].Description.Should().Be("Tier 3 (2026-10-01 to 2027-09-30)",
+            because: "a year from the 1st of October ends on the 30th of September, as the Period column already says");
         document.Lines[1].UnitAmountMinor.Should().Be(AnnualGrossMinor);
         document.Lines[1].AmountMinor.Should().Be(AnnualGrossMinor);
 

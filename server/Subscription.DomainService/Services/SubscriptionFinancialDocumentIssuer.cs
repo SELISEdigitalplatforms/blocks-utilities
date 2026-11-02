@@ -1213,6 +1213,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             BillingContact = ContactSnapshot(profile),
             InitiatedBy = InitiatorSnapshot(
                 initiatedBy,
+                subscription.PurchasedBy,
                 profile,
                 initiatedByUserId,
                 documentType,
@@ -2053,13 +2054,13 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                     stubQuantityItems ?? terms.QuantityItems,
                     stubUnitAmountMinor,
                     opening.StubGrossMinor,
-                    $"{LocalDate(period.StartUtc, zone)} to {LocalDate(period.EndUtc, zone)}"),
+                    ServiceRange(period.StartUtc, period.EndUtc, zone)),
                 .. PeriodLines(
                     terms,
                     terms.QuantityItems,
                     terms.Subject.UnitAmountMinor,
                     year.GrossAmountMinor,
-                    $"{LocalDate(year.StartUtc, zone)} to {LocalDate(year.EndUtc, zone)}")
+                    ServiceRange(year.StartUtc, year.EndUtc, zone))
             ];
         }
 
@@ -2143,6 +2144,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         new()
         {
             OrganizationId = subscription.OrganizationId,
+            OrganizationName = subscription.OrganizationName,
             LegalName = profile?.LegalName is { Length: > 0 } legalName
                 ? legalName
                 : subscription.OrganizationId,
@@ -2171,6 +2173,12 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// employee changes a plan, and printing the second is a document naming somebody who did nothing.
     /// </para>
     /// <para>
+    /// Before that contact, the buyer as the subscription captured them at signup — but only when the
+    /// buyer is the one who acted. Most actors reach here as a bare id, because the settlement that
+    /// issues the document runs in the worker with no session to read a name from, while signup ran in
+    /// the buyer's own request and kept the name their identity provider gave.
+    /// </para>
+    /// <para>
     /// With no user at all, the system is named for what it actually did. <c>System renewal</c> is
     /// reserved for the clock renewing a subscription; a refund credit note says <c>System refund</c>,
     /// because a refund is not a renewal and a document should not say it was.
@@ -2178,6 +2186,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// </remarks>
     private static FinancialDocumentPerson InitiatorSnapshot(
         FinancialDocumentPerson? captured,
+        FinancialDocumentPerson? purchasedBy,
         SubscriptionBillingProfile? profile,
         string? userId,
         FinancialDocumentType documentType,
@@ -2193,6 +2202,17 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         if (string.IsNullOrWhiteSpace(actingUserId))
         {
             return new FinancialDocumentPerson { Name = SystemLabelFor(documentType, refundId) };
+        }
+
+        if (string.Equals(purchasedBy?.UserId, actingUserId, StringComparison.Ordinal)
+            && NameOf(purchasedBy!.Name, actingUserId) is { } buyerName)
+        {
+            return new FinancialDocumentPerson
+            {
+                UserId = actingUserId,
+                Name = buyerName,
+                Email = purchasedBy.Email
+            };
         }
 
         var contact = profile?.Contacts
@@ -2246,18 +2266,34 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         return period;
     }
 
-    private static string LocalDate(DateTime instantUtc, string timeZoneId)
-    {
-        if (instantUtc == default)
-        {
-            return string.Empty;
-        }
+    private static string LocalDate(DateTime instantUtc, string timeZoneId) =>
+        instantUtc == default
+            ? string.Empty
+            : LocalDay(instantUtc, timeZoneId).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-        var local = BillingLocalTime.TryFindTimeZone(timeZoneId, out var timeZone)
+    private static DateOnly LocalDay(DateTime instantUtc, string timeZoneId) =>
+        DateOnly.FromDateTime(BillingLocalTime.TryFindTimeZone(timeZoneId, out var timeZone)
             ? BillingLocalTime.ToLocal(instantUtc, timeZone)
-            : instantUtc;
+            : instantUtc);
 
-        return local.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// A period as a line description states it: its first and last local day of service.
+    /// </summary>
+    /// <remarks>
+    /// The stored end is the boundary the next period starts at, so its own date is the first day no
+    /// longer covered. Printed as-is, a stub ending on the 31st reads "to 2026-11-01" beside a Period
+    /// column that says 31.10.2026 — the same rule as the template's LastServiceDay, applied here
+    /// because a description is frozen into the document when it is issued.
+    /// </remarks>
+    private static string ServiceRange(DateTime startUtc, DateTime endUtc, string timeZoneId)
+    {
+        var start = LocalDay(startUtc, timeZoneId);
+        var end = LocalDay(endUtc, timeZoneId);
+        var last = end > start ? end.AddDays(-1) : start;
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{start:yyyy-MM-dd} to {last:yyyy-MM-dd}");
     }
 
     /// <summary>

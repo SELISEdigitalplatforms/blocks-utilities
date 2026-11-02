@@ -66,6 +66,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     MinQuantity = item.MinQuantity,
                     MaxQuantity = item.MaxQuantity,
                     DefaultQuantity = item.DefaultQuantity,
+                    TrialMaxQuantity = item.TrialMaxQuantity,
                     CountsMembers = item.CountsMembers,
                     QuantityDiscountTiers = item.QuantityDiscountTiers
                         .Select(tier => new QuantityDiscountTierResponse

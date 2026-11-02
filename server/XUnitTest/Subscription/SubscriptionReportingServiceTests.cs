@@ -37,7 +37,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<string?>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
-                It.IsAny<UsageReportGranularity>(),
+                It.IsAny<ReportGranularity>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
@@ -45,6 +45,14 @@ public sealed class SubscriptionReportingServiceTests
             .Setup(reports => reports.ListByStatusAsync(
                 It.IsAny<string>(),
                 It.IsAny<IReadOnlyCollection<SubscriptionStatus>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        _reports
+            .Setup(reports => reports.ListRecurringRevenueSnapshotsAsync(
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
@@ -266,7 +274,7 @@ public sealed class SubscriptionReportingServiceTests
                 null,
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
-                It.IsAny<UsageReportGranularity>(),
+                It.IsAny<ReportGranularity>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
@@ -299,7 +307,7 @@ public sealed class SubscriptionReportingServiceTests
         var dayUtc = DateTime.SpecifyKind(DateTime.Parse(day, null), DateTimeKind.Utc);
 
         SubscriptionReportingRepository
-            .BucketStart(dayUtc, UsageReportGranularity.Week)
+            .BucketStart(dayUtc, ReportGranularity.Week)
             .Should().Be(
                 DateTime.SpecifyKind(DateTime.Parse(monday, null), DateTimeKind.Utc),
                 "a week that crosses a month boundary must still start on its Monday");
@@ -354,7 +362,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<string?>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
-                It.IsAny<UsageReportGranularity>(),
+                It.IsAny<ReportGranularity>(),
                 It.IsAny<CancellationToken>()),
             Times.Never,
             "an unbounded range is a full ledger scan and must be refused, not merely slow");
@@ -384,7 +392,7 @@ public sealed class SubscriptionReportingServiceTests
                 null,
                 new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
                 new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
-                UsageReportGranularity.Month,
+                ReportGranularity.Month,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -400,9 +408,9 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
-                new("CHF", FinancialDocumentType.Invoice, 50_000, 5),
-                new("CHF", FinancialDocumentType.TrialInvoice, 0, 2),
-                new("CHF", FinancialDocumentType.CreditNote, 7_000, 1)
+                new("CHF", FinancialDocumentType.Invoice, 50_000, 5, Now.Date),
+                new("CHF", FinancialDocumentType.TrialInvoice, 0, 2, Now.Date),
+                new("CHF", FinancialDocumentType.CreditNote, 7_000, 1, Now.Date)
             ]);
 
         _reports
@@ -411,10 +419,10 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new("CHF", 12_000, 3)]);
+            .ReturnsAsync([new("CHF", 12_000, 3, Now.Date)]);
 
         var result = await _service.GetRevenueAsync(
-            new GetRevenueReportRequest(), "correlation-1", CancellationToken.None);
+            new GetBucketedReportRequest(), "correlation-1", CancellationToken.None);
 
         var currency = result.Value!.Currencies.Single();
 
@@ -436,7 +444,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new("CHF", FinancialDocumentType.Invoice, 50_000, 5)]);
+            .ReturnsAsync([new("CHF", FinancialDocumentType.Invoice, 50_000, 5, Now.Date)]);
 
         _reports
             .Setup(reports => reports.AggregateOverageRevenueAsync(
@@ -444,10 +452,10 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new("EUR", 12_000, 3)]);
+            .ReturnsAsync([new("EUR", 12_000, 3, Now.Date)]);
 
         var result = await _service.GetRevenueAsync(
-            new GetRevenueReportRequest(), "correlation-1", CancellationToken.None);
+            new GetBucketedReportRequest(), "correlation-1", CancellationToken.None);
 
         result.Value!.Currencies.Should().HaveCount(2);
         result.Value.Currencies.Single(entry => entry.CurrencyCode == "EUR")
@@ -929,6 +937,182 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
+
+    [Fact]
+    public async Task Revenue_is_folded_into_monday_weeks_that_sum_to_the_window_total()
+    {
+        // 15 March 2026 is a Sunday, so the 10th and the 15th share a week and the 16th opens
+        // the next one.
+        var sunday = new DateTime(2026, 3, 15, 0, 0, 0, DateTimeKind.Utc);
+
+        _reports
+            .Setup(reports => reports.AggregateDocumentRevenueAsync(
+                "tenant-1",
+                It.IsAny<DateTime>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new("CHF", FinancialDocumentType.Invoice, 10_000, 1, sunday.AddDays(-5)),
+                new("CHF", FinancialDocumentType.Invoice, 20_000, 2, sunday),
+                new("CHF", FinancialDocumentType.Invoice, 40_000, 1, sunday.AddDays(1))
+            ]);
+
+        _reports
+            .Setup(reports => reports.AggregateOverageRevenueAsync(
+                "tenant-1",
+                It.IsAny<DateTime>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new("CHF", 5_000, 1, sunday.AddDays(2))]);
+
+        var result = await _service.GetRevenueAsync(
+            new GetBucketedReportRequest { Granularity = "week" },
+            "correlation-1",
+            CancellationToken.None);
+
+        var report = result.Value!;
+
+        report.Granularity.Should().Be("week");
+        report.Periods.Select(period => period.BucketStartUtc).Should().Equal(
+            new DateTime(2026, 3, 9, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 3, 16, 0, 0, 0, DateTimeKind.Utc));
+        report.Periods[0].Currencies.Single().SubscriptionRevenueMinor.Should().Be(
+            30_000,
+            "Tuesday and Sunday belong to the week that opened on Monday the 9th");
+        report.Periods[1].Currencies.Single().TotalRevenueMinor.Should().Be(
+            45_000,
+            "overage settled on the Wednesday belongs to the same week as Monday's fee");
+        report.Periods.Sum(period => period.Currencies.Single().TotalRevenueMinor)
+            .Should().Be(
+                report.Currencies.Single().TotalRevenueMinor,
+                "the periods are the window cut into pieces and must never add up to a " +
+                "different figure than the window itself");
+    }
+
+    [Fact]
+    public async Task A_revenue_granularity_the_endpoint_does_not_understand_is_refused()
+    {
+        var result = await _service.GetRevenueAsync(
+            new GetBucketedReportRequest { Granularity = "fortnight" },
+            "correlation-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        result.ValidationErrors.Should().ContainKey(nameof(GetBucketedReportRequest.Granularity));
+    }
+
+    [Fact]
+    public async Task The_trend_reports_each_week_at_its_last_capture_and_skips_weeks_with_none()
+    {
+        var firstMonday = new DateTime(2026, 3, 2, 0, 0, 0, DateTimeKind.Utc);
+
+        _reports
+            .Setup(reports => reports.ListRecurringRevenueSnapshotsAsync(
+                "tenant-1",
+                It.IsAny<DateTime>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                Snapshot(firstMonday, 10_000),
+                Snapshot(firstMonday.AddDays(6), 12_000),
+                Snapshot(firstMonday.AddDays(21), 15_000)
+            ]);
+
+        var result = await _service.GetRecurringRevenueTrendAsync(
+            new GetBucketedReportRequest { Granularity = "week" },
+            "correlation-1",
+            CancellationToken.None);
+
+        var periods = result.Value!.Periods;
+
+        periods.Select(period => period.BucketStartUtc).Should().Equal(
+            [firstMonday, firstMonday.AddDays(21)],
+            "a week with no capture is absent, never a zero that would read as every " +
+            "subscriber having left");
+        periods[0].SnapshotDayUtc.Should().Be(firstMonday.AddDays(6));
+        periods[0].Currencies.Single().NetMonthlyMinor.Should().Be(
+            12_000,
+            "run-rate is a level, so a week reports where it closed rather than a sum of its days");
+        periods[0].Currencies.Single().NetAnnualMinor.Should().Be(144_000);
+    }
+
+    [Fact]
+    public async Task Todays_run_rate_is_captured_with_the_same_figures_as_the_live_report()
+    {
+        GivenSubscriptions(
+            Subscription("CHF", 10_000, BillingInterval.Month),
+            Subscription("CHF", 120_000, BillingInterval.Year));
+
+        RecurringRevenueSnapshot? saved = null;
+
+        _reports
+            .Setup(reports => reports.SaveRecurringRevenueSnapshotAsync(
+                It.IsAny<RecurringRevenueSnapshot>(), It.IsAny<CancellationToken>()))
+            .Callback<RecurringRevenueSnapshot, CancellationToken>((snapshot, _) => saved = snapshot)
+            .Returns(Task.CompletedTask);
+
+        var written = await _service.CaptureRecurringRevenueSnapshotAsync(
+            "tenant-1", CancellationToken.None);
+
+        var live = await WhenRecurringRevenue();
+
+        written.Should().BeTrue();
+        saved.Should().NotBeNull();
+        saved!.TenantId.Should().Be("tenant-1");
+        saved.DayUtc.Should().Be(Now.Date, "a capture stands for the UTC day it was taken on");
+        saved.SubscriptionCount.Should().Be(2);
+        saved.Currencies.Single().NetMonthlyMinor.Should().Be(
+            live.Currencies.Single().NetMonthlyMinor,
+            "a trend whose latest point disagreed with the live figure would leave a reader " +
+            "unsure which one to believe");
+    }
+
+    [Fact]
+    public async Task A_day_already_captured_is_neither_recomputed_nor_rewritten()
+    {
+        _reports
+            .Setup(reports => reports.ListRecurringRevenueSnapshotsAsync(
+                "tenant-1", Now.Date, Now.Date.AddDays(1), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Snapshot(Now.Date, 10_000)]);
+
+        var written = await _service.CaptureRecurringRevenueSnapshotAsync(
+            "tenant-1", CancellationToken.None);
+
+        written.Should().BeFalse();
+        _reports.Verify(
+            reports => reports.ListByStatusAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyCollection<SubscriptionStatus>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the sweep asks on every pass, and reading every live subscription each time would " +
+            "be the expensive half of the work done for nothing");
+        _reports.Verify(
+            reports => reports.SaveRecurringRevenueSnapshotAsync(
+                It.IsAny<RecurringRevenueSnapshot>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    private static RecurringRevenueSnapshot Snapshot(DateTime dayUtc, long netMonthlyMinor) =>
+        new()
+        {
+            TenantId = "tenant-1",
+            DayUtc = dayUtc,
+            SubscriptionCount = 1,
+            Currencies =
+            [
+                new RecurringRevenueSnapshotCurrency
+                {
+                    CurrencyCode = "CHF",
+                    GrossMonthlyMinor = netMonthlyMinor,
+                    NetMonthlyMinor = netMonthlyMinor,
+                    SubscriptionCount = 1
+                }
+            ]
+        };
 
     private void GivenSubscriptions(params SubscriptionDetail[] subscriptions) =>
         _reports

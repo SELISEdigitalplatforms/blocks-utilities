@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Enums;
+using Subscription.DomainService.Reporting;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
@@ -46,6 +47,7 @@ public sealed class SubscriptionRepairAnnouncer
     private readonly ISubscriptionCreditPurchaseRepository? _creditPurchases;
     private readonly ISubscriptionCreditGrantRepository? _creditGrants;
     private readonly IStoredPaymentMethodRepository? _storedMethods;
+    private readonly ISubscriptionReportingService? _reports;
 
     public SubscriptionRepairAnnouncer(
         ISubscriptionWorkScheduler scheduler,
@@ -71,7 +73,9 @@ public sealed class SubscriptionRepairAnnouncer
         ISubscriptionCreditPurchaseRepository? creditPurchases = null,
         ISubscriptionCreditGrantRepository? creditGrants = null,
         // Optional for the same reason: absent, expiring cards are simply never announced.
-        IStoredPaymentMethodRepository? storedMethods = null)
+        IStoredPaymentMethodRepository? storedMethods = null,
+        // Optional for the same reason: absent, no recurring revenue is captured.
+        ISubscriptionReportingService? reports = null)
     {
         _scheduler = scheduler;
         _subscriptions = subscriptions;
@@ -89,6 +93,7 @@ public sealed class SubscriptionRepairAnnouncer
         _creditPurchases = creditPurchases;
         _creditGrants = creditGrants;
         _storedMethods = storedMethods;
+        _reports = reports;
     }
 
     /// <summary>
@@ -158,6 +163,25 @@ public sealed class SubscriptionRepairAnnouncer
                 _logger.LogWarning(
                     exception,
                     "Repair sweep could not repair usage projections; scheduling due work anyway " +
+                    "TenantId={TenantId}",
+                    PaymentLogValue.Id(tenantId));
+            }
+        }
+
+        // Captured inline for the same reason as the projections above: one row in reporting's own
+        // collection, read by nothing that bills. Contained for the same reason too, since a
+        // missing point on a chart must never be what stops a renewal being scheduled.
+        if (_reports is not null)
+        {
+            try
+            {
+                await _reports.CaptureRecurringRevenueSnapshotAsync(tenantId, stoppingToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Repair sweep could not capture recurring revenue; scheduling due work anyway " +
                     "TenantId={TenantId}",
                     PaymentLogValue.Id(tenantId));
             }

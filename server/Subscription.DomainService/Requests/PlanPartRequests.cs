@@ -16,6 +16,12 @@ public sealed class PlanQuantityItemRequest
     public long DefaultQuantity { get; set; } = 1;
 
     /// <summary>
+    /// The most units a trialing subscription may hold; units added during the trial up to it are
+    /// free. Null: the trial covers the signup quantity and units cannot be added until it ends.
+    /// </summary>
+    public long? TrialMaxQuantity { get; set; }
+
+    /// <summary>
     /// Whether this quantity is how many people may hold a seat. Required on a user-wise plan
     /// selling more than one quantity, and exactly one item may carry it.
     /// </summary>

@@ -137,6 +137,11 @@ export interface PlanQuantityItem {
   minQuantity: number;
   maxQuantity: number | null;
   defaultQuantity: number;
+  /**
+   * The most a trialing subscription may hold; units added during the trial up to it are free.
+   * Null: the trial covers the signup quantity only. Absent on older responses.
+   */
+  trialMaxQuantity?: number | null;
   /** Optional for the same reason trial grants are: plans stored before this lack it. */
   quantityDiscountTiers?: QuantityDiscountTier[];
   /** Whether this quantity is how many people a user-wise plan seats. Absent on older responses. */
@@ -369,6 +374,7 @@ export interface CreatePlanQuantityItemRequest {
   minQuantity: number;
   maxQuantity?: number;
   defaultQuantity: number;
+  trialMaxQuantity?: number;
   countsMembers: boolean;
   /** Omitted rather than sent empty, so a plan with no bands stays a plan with no bands. */
   quantityDiscountTiers?: CreateQuantityDiscountTierRequest[];

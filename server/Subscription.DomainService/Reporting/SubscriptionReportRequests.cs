@@ -51,7 +51,34 @@ public sealed class GetUsageReportRequest
 }
 
 /// <summary>
-/// How a revenue or coupon report is bounded. Both read documents by the date they were issued.
+/// A window and the bucket size to fold it into, for the billed revenue report and the recurring
+/// revenue trend.
+/// </summary>
+public sealed class GetBucketedReportRequest
+{
+    /// <summary>Inclusive. Defaults to the first instant of the current UTC month.</summary>
+    [Description(
+        "Start of the window, inclusive. Defaults to the first instant of the current UTC month.")]
+    public DateTime? FromUtc { get; set; }
+
+    /// <summary>Exclusive. Defaults to the first instant of the next UTC month.</summary>
+    [Description(
+        "End of the window, exclusive, so consecutive windows tile exactly. Defaults to the " +
+        "first instant of the next UTC month. The window may not exceed 366 days.")]
+    public DateTime? ToUtc { get; set; }
+
+    /// <summary>
+    /// <c>day</c>, <c>week</c> or <c>month</c>. Weeks start on Monday. Anything else is refused
+    /// rather than guessed at, for the same reason as on the usage report.
+    /// </summary>
+    [Description(
+        "Bucket size: 'day', 'week' (Monday-start) or 'month'. Defaults to 'month'. Any other " +
+        "value is refused rather than guessed at.")]
+    public string? Granularity { get; set; }
+}
+
+/// <summary>
+/// How the coupon report is bounded. It reads documents by the date they were issued.
 /// </summary>
 public sealed class GetRevenueReportRequest
 {

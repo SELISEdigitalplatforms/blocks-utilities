@@ -29,6 +29,10 @@ namespace Subscription.DomainService.Services;
 /// and applied by the renewal.</item>
 /// </list>
 /// <para>
+/// A trial is the exception to both: it paid for nothing, so an increase within its ceiling and
+/// any decrease apply at once and move no money. The conversion bills whatever is held by then.
+/// </para>
+/// <para>
 /// Both directions price through <see cref="QuantityDiscountCalculator"/>, so crossing a volume
 /// band is an ordinary consequence of the quantity moving rather than a separate operation.
 /// </para>
@@ -342,6 +346,36 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             QuantityDiscountCalculator.PricedUnits(subscription.Price, target)
                 .CompareTo(QuantityDiscountCalculator.PricedUnits(subscription.Price, effective));
 
+        // Before the trial branch, because a decrease during a trial takes the seats away now and
+        // the people on them need taking off first just the same.
+        if (direction < 0 &&
+            await OccupiedBeyondAsync(subscription, target, cancellationToken) is { } stranded)
+        {
+            return SubscriptionOperationResult<QuantityChangeResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_member_seats_occupied",
+                stranded == 1
+                    ? "1 person has to come off before this change can take a seat away. Take them off first."
+                    : $"{stranded} people have to come off before this change can take their seats away. Take them off first.",
+                correlationId);
+        }
+
+        // A trial has paid for nothing, so there is no paid remainder to prorate against. Priced
+        // through the calculator, the trial window was treated as a paid period and a subscriber
+        // was charged for trial days, then charged again for the full period on conversion. Units
+        // added inside the trial's ceiling are free now and billed from conversion, which prices
+        // whatever the subscription holds by then.
+        //
+        // A decrease applies now for the same reason. It waits for the period end only because
+        // what was paid for is kept until then; a trial paid for nothing, so there is nothing to
+        // keep, and waiting would only bill the conversion for units the subscriber gave up.
+        if (subscription.Status == SubscriptionStatus.Trialing)
+        {
+            return await TrialChangeAsync(
+                subscription, target, requestedByName, preview, now, correlationId,
+                cancellationToken);
+        }
+
         // Only an increase is refused inside an opening stub, and only for a real change.
         //
         // This guard used to fire before the direction was known, which refused decreases too — and
@@ -392,18 +426,6 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 loaded.Value!.UserName,
                 loaded.Value!.UserEmail,
                 cancellationToken);
-        }
-
-        if (direction < 0 &&
-            await OccupiedBeyondAsync(subscription, target, cancellationToken) is { } stranded)
-        {
-            return SubscriptionOperationResult<QuantityChangeResponse>.Failure(
-                PaymentFailureKind.Conflict,
-                "subscription_member_seats_occupied",
-                stranded == 1
-                    ? "1 person has to come off before this change can take a seat away. Take them off first."
-                    : $"{stranded} people have to come off before this change can take their seats away. Take them off first.",
-                correlationId);
         }
 
         return direction < 0
@@ -691,6 +713,56 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 pending: null,
                 cancellationToken),
             correlationId);
+    }
+
+    /// <summary>
+    /// A change during a trial, applied now and free: an increase up to the trial's ceiling, or a
+    /// decrease.
+    /// </summary>
+    /// <remarks>
+    /// Refused in preview too, like a quantity outside the plan's bounds: there is no price to
+    /// quote for units the trial will not hand over. Only growth is judged against the ceiling, so
+    /// a decrease always passes it.
+    /// </remarks>
+    private async Task<SubscriptionOperationResult<QuantityChangeResponse>> TrialChangeAsync(
+        SubscriptionDetail subscription,
+        List<SubscriptionQuantityItem> target,
+        string? requestedByName,
+        bool preview,
+        DateTime now,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (SubscriptionQuantityBuilder.ExceedsTrialMaximum(
+                subscription.Plan.QuantityItems, target, subscription.QuantityItems))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_trial_quantity_exceeded",
+                "The trial does not cover this many units. Add them once the trial has ended.",
+                correlationId);
+        }
+
+        if (preview)
+        {
+            return SubscriptionOperationResult<QuantityChangeResponse>.Success(
+                await DescribeAsync(
+                    subscription, target, subscription.Version, preview: true, immediate: true,
+                    effectiveAtUtc: now, proratedChargeMinor: 0,
+                    paymentDetailId: null, pending: null, cancellationToken),
+                correlationId);
+        }
+
+        return await ApplyFreeIncreaseAsync(
+            subscription,
+            target,
+            // Untouched: nothing was charged, so no credit was spent bringing it down.
+            subscription.CreditBalanceMinor,
+            now,
+            requestedByName,
+            settlement: null,
+            correlationId,
+            cancellationToken);
     }
 
     /// <summary>An increase with no money attached, applied as an ordinary compare-and-set.</summary>

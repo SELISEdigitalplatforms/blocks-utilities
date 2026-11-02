@@ -1311,6 +1311,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 MinQuantity = item.MinQuantity,
                 MaxQuantity = item.MaxQuantity,
                 DefaultQuantity = item.DefaultQuantity,
+                TrialMaxQuantity = item.TrialMaxQuantity,
                 QuantityDiscountTiers = item.QuantityDiscountTiers
                     .OrderBy(tier => tier.MinimumQuantity)
                     .Select(tier => new QuantityDiscountTier

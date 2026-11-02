@@ -93,6 +93,7 @@ internal static class SubscriptionSnapshotBuilder
                     MinQuantity = item.MinQuantity,
                     MaxQuantity = item.MaxQuantity,
                     DefaultQuantity = item.DefaultQuantity,
+                    TrialMaxQuantity = item.TrialMaxQuantity,
                     // Copied, not referenced: a catalogue edit to the bands must never reprice a
                     // subscriber already holding them.
                     QuantityDiscountTiers = item.QuantityDiscountTiers

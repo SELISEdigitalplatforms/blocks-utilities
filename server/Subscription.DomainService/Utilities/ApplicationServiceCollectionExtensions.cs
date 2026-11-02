@@ -121,7 +121,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionFinancialDocumentRepository,
             SubscriptionFinancialDocumentRepository>();
-        // Reads every collection above and writes to none of them. A separate repository rather
+        // Reads every collection above and writes to none of them; its only write is to its own
+        // recurring revenue snapshot collection, which nothing that bills reads. A separate repository rather
         // than report methods added to each one, so that the query shapes reporting needs - wide,
         // tenant-spanning, aggregating - cannot be reached from the code paths that bill people.
         services.AddSingleton<

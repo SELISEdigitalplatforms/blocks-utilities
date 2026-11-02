@@ -640,6 +640,41 @@ public sealed class SubscriptionCreationServiceTests
                 "each unit costs the seller real money, so an uncapped trial is a direct loss");
     }
 
+    [Theory]
+    // The request asks for 12 seats.
+    [InlineData(5L, false)]
+    [InlineData(12L, true)]
+    [InlineData(null, true)]
+    public async Task A_trial_signup_is_held_to_the_trial_maximum(long? trialMaximum, bool accepted)
+    {
+        _plan.TrialDays = 14;
+        _plan.QuantityItems[0].TrialMaxQuantity = trialMaximum;
+
+        var result = await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().Be(
+            accepted,
+            "a ceiling checked only on a mid-trial change is dodged by buying the seats at signup");
+
+        if (!accepted)
+        {
+            result.ErrorCode.Should().Be("subscription_trial_quantity_exceeded");
+        }
+    }
+
+    [Fact]
+    public async Task A_paid_signup_is_not_held_to_the_trial_maximum()
+    {
+        _plan.TrialDays = null;
+        _plan.QuantityItems[0].TrialMaxQuantity = 5;
+
+        var result = await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("the ceiling bounds free use, and a paid signup has none");
+    }
+
     [Fact]
     public async Task An_end_of_calendar_month_trial_ends_at_local_midnight_on_the_first()
     {
@@ -1990,6 +2025,55 @@ public sealed class SubscriptionCreationServiceTests
         _created.PurchasedBy!.UserId.Should().Be("user-1");
         _created.PurchasedBy.Name.Should().Be("Ada Byron");
         _created.PurchasedBy.Email.Should().Be("ada@northwind.example");
+    }
+
+    [Fact]
+    public async Task The_organization_name_is_recorded_at_signup_while_the_buyers_token_is_in_hand()
+    {
+        var directory = new Mock<IMemberDirectory>();
+        directory
+            .Setup(lookup => lookup.FindOrganizationNameAsync(OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Northwind");
+
+        await new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            directory: directory.Object)
+            .CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.OrganizationName.Should().Be("Northwind",
+            because: "the worker that issues the invoices has no token to ask IAM with later");
+    }
+
+    [Fact]
+    public async Task A_signup_IAM_cannot_name_still_creates_the_subscription()
+    {
+        var directory = new Mock<IMemberDirectory>();
+        directory
+            .Setup(lookup => lookup.FindOrganizationNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+
+        var result = await new SubscriptionCreationService(
+            _catalogue.Object,
+            _subscriptions.Object,
+            _discounts.Object,
+            _accounts.Object,
+            new CreateSubscriptionRequestValidator(),
+            NullLogger<SubscriptionCreationService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            directory: directory.Object)
+            .CreateAsync(NewRequest(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            because: "a name for the invoice is not worth refusing a customer who is trying to pay");
+        _created!.OrganizationName.Should().BeNull();
     }
 
     [Fact]

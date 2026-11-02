@@ -71,4 +71,47 @@ internal static class SubscriptionQuantityBuilder
 
         return items;
     }
+
+    /// <summary>
+    /// Whether a trialing subscription would hold more of any item than its trial covers.
+    /// </summary>
+    /// <remarks>
+    /// Shared by signup and by changing quantity mid-trial, because a ceiling checked on only one
+    /// of them is no ceiling: refused on the change, the five hundred seats are simply bought at
+    /// signup instead.
+    /// <para>
+    /// <paramref name="held"/> is null at signup. An item with no
+    /// <see cref="PlanQuantityItem.TrialMaxQuantity"/> is then unlimited, and afterwards capped at
+    /// what is already held — see that property for why. Only growth is judged, so a subscription
+    /// already above a ceiling is never refused for keeping what it has.
+    /// </para>
+    /// </remarks>
+    public static bool ExceedsTrialMaximum(
+        IReadOnlyList<PlanQuantityItem> planItems,
+        IReadOnlyList<SubscriptionQuantityItem> target,
+        IReadOnlyList<SubscriptionQuantityItem>? held)
+    {
+        ArgumentNullException.ThrowIfNull(planItems);
+        ArgumentNullException.ThrowIfNull(target);
+
+        foreach (var item in target)
+        {
+            var heldQuantity = held?
+                .FirstOrDefault(candidate =>
+                    string.Equals(candidate.ItemKey, item.ItemKey, StringComparison.Ordinal))
+                ?.Quantity;
+
+            var ceiling = planItems
+                .FirstOrDefault(candidate =>
+                    string.Equals(candidate.ItemKey, item.ItemKey, StringComparison.Ordinal))
+                ?.TrialMaxQuantity ?? heldQuantity;
+
+            if (item.Quantity > ceiling && item.Quantity > (heldQuantity ?? 0))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

@@ -88,6 +88,14 @@ public sealed class PlanDefinitionRequestValidator : AbstractValidator<PlanDefin
                         quantity.MaxQuantity >= quantity.MinQuantity)
                     .WithName(nameof(PlanQuantityItemRequest.MaxQuantity))
                     .WithMessage("A maximum quantity cannot be below the minimum.");
+                item.RuleFor(quantity => quantity)
+                    .Must(quantity =>
+                        quantity.TrialMaxQuantity is not { } trialMaximum ||
+                        (trialMaximum >= quantity.MinQuantity &&
+                            (quantity.MaxQuantity is null || trialMaximum <= quantity.MaxQuantity)))
+                    .WithName(nameof(PlanQuantityItemRequest.TrialMaxQuantity))
+                    .WithMessage(
+                        "A trial maximum quantity must lie between the item's minimum and maximum.");
                 item.RuleForEach(quantity => quantity.QuantityDiscountTiers)
                     .ChildRules(tier =>
                     {

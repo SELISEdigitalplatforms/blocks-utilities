@@ -8,6 +8,7 @@ import {
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import {
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -158,6 +159,24 @@ export const StepPricingModel = ({
                   )}
                 />
               </div>
+              <FormField
+                control={control}
+                name={`quantityItems.${index}.trialMaxQuantity`}
+                render={({ field: inputField }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Trial max (optional)</FormLabel>
+                    <FormControl>
+                      <Input {...inputField} value={inputField.value ?? ""} type="number" min={1} />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Most a trialing subscriber may hold. Units added during the trial up to this
+                      are free. Blank: the trial covers only what was bought at signup.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               {needsCountingMark ? (
                 <FormField
                   control={control}

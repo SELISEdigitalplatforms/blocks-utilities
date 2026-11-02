@@ -46,6 +46,9 @@ internal static class SubscriptionCollections
     public const string MerchantProfiles = "SubscriptionMerchantProfiles";
     public const string FinancialDocuments = "SubscriptionFinancialDocuments";
 
+    /// <summary>One recurring revenue capture per UTC day, written by the repair sweep.</summary>
+    public const string RecurringRevenueSnapshots = "SubscriptionRecurringRevenueSnapshots";
+
     /// <summary>
     /// One counter document per prefix and year. Its own collection rather than a field on anything,
     /// because it is the only thing here that two workers increment at the same instant.

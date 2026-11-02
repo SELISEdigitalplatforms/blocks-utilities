@@ -20,7 +20,8 @@ namespace Api.Controllers;
 /// <para>
 /// All of it is read-only and computed at request time from the live collections, so a figure is
 /// never stale and there is no rollup to rebuild. The cost is that a wide window is a wide scan,
-/// which is why the service refuses one longer than a year.
+/// which is why the service refuses one longer than a year. The one exception is the recurring
+/// revenue trend, which reads daily captures because a past run-rate cannot be recomputed.
 /// </para>
 /// <para>
 /// Money is reported grouped by currency and never summed across currencies. This module holds no
@@ -106,7 +107,42 @@ public sealed class SubscriptionReportsController : ControllerBase
     }
 
     /// <summary>
-    /// Billed revenue over a window, split between the subscription fee and metered overage.
+    /// The recurring run-rate over time, by day, week or month.
+    /// </summary>
+    /// <remarks>
+    /// Read from a capture the Worker takes once per UTC day with the same calculation as
+    /// <c>GET /recurring-revenue</c>, so the latest point and the live figure agree. Each bucket
+    /// reports the rate at its latest capture, because run-rate is a level and not a flow.
+    /// <para>
+    /// History begins on the day captures began. Before that nothing was kept that a past run-rate
+    /// could be rebuilt from, and a bucket with no capture is absent rather than zero.
+    /// </para>
+    /// </remarks>
+    [HttpGet("recurring-revenue/trend")]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueTrendResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueTrendResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueTrendResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
+    public async Task<IActionResult> GetRecurringRevenueTrend(
+        [FromQuery] GetBucketedReportRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _reports.GetRecurringRevenueTrendAsync(
+            request, correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Billed revenue over a window, split between the subscription fee and metered overage, and
+    /// folded into day, week or month periods.
     /// </summary>
     /// <remarks>
     /// The split is exact rather than inferred: recurring charges produce financial documents and
@@ -128,7 +164,7 @@ public sealed class SubscriptionReportsController : ControllerBase
         StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     public async Task<IActionResult> GetRevenue(
-        [FromQuery] GetRevenueReportRequest request,
+        [FromQuery] GetBucketedReportRequest request,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;

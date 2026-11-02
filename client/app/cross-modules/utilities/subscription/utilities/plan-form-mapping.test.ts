@@ -270,6 +270,25 @@ describe("credit expiry", () => {
   });
 });
 
+describe("trial maximum quantity", () => {
+  const withTrialMaximum = (trialMaxQuantity?: number | null) =>
+    storedPlan({
+      quantityItems: [{ ...storedPlan().quantityItems[0], trialMaxQuantity }],
+    });
+
+  it("survives an edit round trip", () => {
+    // An edit rewrites the whole plan: dropped here, every trial on it closes to added seats.
+    const request = toUpdatePlanRequest(planToFormValues(withTrialMaximum(5)), "org-1");
+
+    expect(request.quantityItems[0].trialMaxQuantity).toBe(5);
+  });
+
+  it("reopens a plan stored before the field existed as blank", () => {
+    expect(planToFormValues(withTrialMaximum(undefined)).quantityItems[0].trialMaxQuantity)
+      .toBeUndefined();
+  });
+});
+
 describe("quantity discount bands", () => {
   const stored = (
     tiers?: { minimumQuantity: number; maximumQuantity: number | null; discountBasisPoints: number }[],
