@@ -10,7 +10,7 @@ import {
 } from "@blocks-idp/authentication/hooks/use-sso";
 import { IGetOIDCCredentialResponse } from "@blocks-idp/authentication/models/sso.model";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
 import { createCommonOAuthFields } from "../sso-provider-config-field-factory.util";
 import { ssoProviderConfigBaseSchema } from "../sso-provider-config.schema";
@@ -107,7 +107,7 @@ export const SSOProviderConfigBlocksForm: React.FC<SsoConfigForms> = () => {
 
   const form = useForm<FormValue>({
     values: mapResponseToFormValue(existingConfiguration),
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schema) as unknown as Resolver<FormValue>,
   });
 
   const onFormSubmit = async (data: FormValue) => {

@@ -14,7 +14,7 @@ const passwordSchema = z
   .string()
   .superRefine((value, ctx) => {
     if (value && hasWhitespace.test(value)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: noWhitespaceMessage });
+      ctx.addIssue({ code: "custom", message: noWhitespaceMessage });
     }
   })
   .transform((value) => value.trim());
