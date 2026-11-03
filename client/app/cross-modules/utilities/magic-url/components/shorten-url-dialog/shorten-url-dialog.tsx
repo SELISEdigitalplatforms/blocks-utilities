@@ -79,6 +79,7 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
             <Input
               id="url"
               type="url"
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="https://example.com"
               value={url}
               onChange={(e) => setUrl(e.target.value)}

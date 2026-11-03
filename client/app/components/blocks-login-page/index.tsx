@@ -289,6 +289,7 @@ export function BlocksLoginPage({
               target="_blank"
               rel="noreferrer"
               className="nav-link"
+            // eslint-disable-next-line no-restricted-syntax -- product name
             >
               Blocks
             </a>
@@ -297,6 +298,7 @@ export function BlocksLoginPage({
               target="_blank"
               rel="noreferrer"
               className="nav-link"
+            // eslint-disable-next-line no-restricted-syntax -- product name
             >
               GitHub
             </a>

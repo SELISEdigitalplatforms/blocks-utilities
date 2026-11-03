@@ -98,6 +98,7 @@
   "PROFILE_MFA_VERIFY_GUIDELINE_EMAIL.RESEND_IN": "Resend in ({{time}})",
   "PROFILE_MFA_VERIFY_GUIDELINE_EMAIL.WE_VE_SENT_A_VERIFICATION": "We've sent a verification key to your registered email address ({{email}}).",
   "PROFILE_MFA_VERIFY_GUIDELINE_TOTP.OR_ENTER_THIS_CODE_MANUALLY": "Or enter this code manually in your app:",
+  "PROFILE_MFA_VERIFY_GUIDELINE_TOTP.QR_CODE_ALT": "qr_code",
   "PROFILE_MFA_VERIFY_GUIDELINE_TOTP.SCAN_THE_QR_CODE_BELOW": "Scan the QR code below or enter the setup key to connect your account with an authenticator app.",
   "PROFILE_MFA_VERIFY_GUIDELINE_TOTP.VERIFY_THE_PAIRING_WAS_SUCCESSFUL": "Verify the pairing was successful by entering the key displayed on the app",
   "SECURITY_PRESETS_POPOVER.ENABLE_ALL_CAPTCHA": "Enable all Captcha",

@@ -68,11 +68,13 @@ export const getGoogleStepupDocs = (t: TFunction) => [
           <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.SELECT_WEB_APPLICATION_AS")}</li>
           <li>
             {t("SSO_SETUP_GUIDELINE_GOOGLE.ADD_YOUR_DOMAIN_IN", { b: t("SSO_SETUP_GUIDELINE_GOOGLE.AUTHORIZED_JAVASCRIPT_ORIGINS") })}<br />
+            {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
             <code>https://yourdomain.com</code>
           </li>
           <li>
             {t("SSO_SETUP_GUIDELINE_GOOGLE.ADD_REDIRECT_URI")}
             <br />
+            {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
             <code>https://yourdomain.com/login/callback</code>
           </li>
           <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.CLICK_CREATE_AND_NOTE_THE")}</li>
@@ -96,6 +98,7 @@ export const getGoogleStepupDocs = (t: TFunction) => [
             <b>{t("SSO_SETUP_GUIDELINE_GOOGLE.CLIENT_SECRET")}</b>
           </li>
           <li>
+            {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
             <b>{t("SSO_SETUP_GUIDELINE_GOOGLE.REDIRECT_URI")}</b>: <code>https://yourdomain.com/login/callback</code>
           </li>
         </ul>

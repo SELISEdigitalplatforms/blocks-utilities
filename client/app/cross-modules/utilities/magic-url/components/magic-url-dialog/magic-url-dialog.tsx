@@ -203,6 +203,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
                 <Label htmlFor="url">{t("MAGIC_URL_DIALOG.URI")}</Label>
                 <Input
                   id="url"
+                  // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                   placeholder="https://example.com"
                   {...register("uri")}
                   value={url}
@@ -278,6 +279,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
                   <Label htmlFor="headers">{t("MAGIC_URL_DIALOG.REQUEST_HEADERS")}</Label>
                   <Textarea
                     id="headers"
+                    // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                     placeholder='{"Authorization": "Bearer..."}'
                     value={requestHeaders}
                     onChange={(e) => setRequestHeaders(e.target.value)}

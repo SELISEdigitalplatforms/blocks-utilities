@@ -120,6 +120,7 @@ export const StepPricingModel = ({
                   <FormItem>
                     <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.ITEM_KEY")}</FormLabel>
                     <FormControl>
+                      {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                       <Input {...inputField} placeholder="seat" />
                     </FormControl>
                     <FormMessage />
@@ -133,6 +134,7 @@ export const StepPricingModel = ({
                   <FormItem>
                     <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.UNIT_LABEL")}</FormLabel>
                     <FormControl>
+                      {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                       <Input {...inputField} placeholder="seat" />
                     </FormControl>
                     <FormMessage />
@@ -295,6 +297,7 @@ export const StepPricingModel = ({
                     <FormItem>
                       <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.METER_KEY")}</FormLabel>
                       <FormControl>
+                        {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                         <Input {...inputField} placeholder="api-calls" />
                       </FormControl>
                       <FormMessage />
@@ -308,6 +311,7 @@ export const StepPricingModel = ({
                     <FormItem>
                       <FormLabel className="text-xs">{t("STEP_PRICING_MODEL.UNIT_LABEL")}</FormLabel>
                       <FormControl>
+                        {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                         <Input {...inputField} placeholder="call" />
                       </FormControl>
                       <FormMessage />
