@@ -185,12 +185,12 @@ export const StepTrial = () => {
                 <FormControl>
                   <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                 </FormControl>
-                <FormLabel className="!m-0">One trial per plan</FormLabel>
+                <FormLabel className="!m-0">{t("STEP_TRIAL.ONE_TRIAL_PER_PLAN")}</FormLabel>
               </div>
               <p className="text-xs text-muted-foreground">
                 {oneTrialPerPlan
-                  ? "Each organization gets the trial once, whoever buys it. Subscribing again after cancelling goes to paid checkout."
-                  : "Every signup gets the trial, including an organization that cancelled and comes back."}
+                  ? t("STEP_TRIAL.ONE_TRIAL_PER_PLAN_ON_HINT")
+                  : t("STEP_TRIAL.ONE_TRIAL_PER_PLAN_OFF_HINT")}
               </p>
             </FormItem>
           )}
