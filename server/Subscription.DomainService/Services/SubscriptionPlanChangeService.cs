@@ -1356,6 +1356,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // A trial carried onto another plan has trialed that plan too, so the subscriber cannot
         // come back later for a fresh trial of the plan they already ran it on.
         if (subscription.Status == SubscriptionStatus.Trialing &&
+            newPlan.OneTrialPerPlan &&
             _trialUsages is not null &&
             TrialUsage.For(subscription, newPlan.SubscriberScope, newPlan.Code, _time.GetUtcNow().UtcDateTime)
                 is { } usage)

@@ -1524,7 +1524,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         // code under every campaign — and because reconciling against the frozen amount is what
         // settles which reading was the real one, not this guess.
         var stubHoldsCode = annual is null ||
-            subscription.Discount?.Campaign.Kind == CampaignKind.FirstAnnualPeriod;
+            SubscriptionDiscountPeriodAccounting.StubTakesCode(subscription.Discount);
 
         if ((Reconciled(stubHoldsCode) ?? (annual is null ? null : Reconciled(!stubHoldsCode)))
             is not { } charge)

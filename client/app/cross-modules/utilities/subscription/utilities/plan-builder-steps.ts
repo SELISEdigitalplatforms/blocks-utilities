@@ -48,6 +48,7 @@ export const PLAN_BUILDER_STEP_OF_FIELD: Record<
   trialDurationKind: 5,
   trialDurationCount: 5,
   trialRequiresPaymentMethod: 5,
+  oneTrialPerPlan: 5,
   trialGrants: 5,
 };
 

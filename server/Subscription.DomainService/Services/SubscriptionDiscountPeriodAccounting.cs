@@ -24,7 +24,7 @@ internal static class SubscriptionDiscountPeriodAccounting
             return false;
         }
 
-        if (subscription.Discount?.Campaign.Kind == CampaignKind.FirstAnnualPeriod)
+        if (StubTakesCode(subscription.Discount))
         {
             return subscription.PendingAnnualPeriod is null ||
                    subscription.PendingAnnualPeriod.CollectedWithCheckout;
@@ -32,4 +32,26 @@ internal static class SubscriptionDiscountPeriodAccounting
 
         return true;
     }
+
+    /// <summary>
+    /// Whether a calendar-aligned yearly signup's opening stub is priced with the subscriber's code,
+    /// rather than leaving it to the year that follows.
+    /// </summary>
+    /// <remarks>
+    /// An ordinary code belongs to the year. Two kinds reach back to the stub: a FirstAnnualPeriod
+    /// campaign, whose offer covers both by definition, and a code set to replace the price's own
+    /// discount. Priced without it, that code's stub still took the automatic discount, so a
+    /// subscriber who bought "50% instead of 8%" was invoiced the 8% on the stub and the 50% on the
+    /// year — two discounts where the code promised one.
+    /// <para>
+    /// Both are accounted like a FirstAnnualPeriod campaign in <see cref="OpeningChargeSpentPeriod"/>:
+    /// a stub and the year it opens spend one promotional period between them, not one each.
+    /// </para>
+    /// </remarks>
+    internal static bool StubTakesCode(DiscountTerms? discount) =>
+        discount?.Campaign is { } campaign &&
+        (campaign.Kind == CampaignKind.FirstAnnualPeriod ||
+         (campaign.Kind == CampaignKind.Standard &&
+          campaign.PrecedenceConfigured &&
+          campaign.Precedence == CampaignPrecedence.ReplaceBuiltIn));
 }

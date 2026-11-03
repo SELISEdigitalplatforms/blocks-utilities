@@ -1,4 +1,5 @@
 using FluentAssertions;
+using MongoDB.Bson.Serialization;
 using Moq;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -10,8 +11,9 @@ namespace XUnitTest.Subscription;
 /// Whose trial a subscription spends.
 /// </summary>
 /// <remarks>
-/// Guards against a subscriber cancelling and signing up again for a second trial, and against the
-/// opposite mistake: one person's trial of a user-wise plan blocking a colleague's.
+/// Guards against an organization getting a second trial by cancelling and signing up again, or by
+/// having a colleague buy it instead, and against the opposite mistake: a person's trial in one
+/// organization refusing them the trial for another.
 /// </remarks>
 public sealed class TrialUsageTests
 {
@@ -28,19 +30,58 @@ public sealed class TrialUsageTests
     }
 
     [Fact]
-    public void A_user_wise_plans_trial_belongs_to_the_buyer()
+    public void A_user_wise_plans_trial_belongs_to_the_organization_not_the_buyer()
     {
         var usage = TrialUsage.For(Subscription("user-1"), SubscriberScope.User, "pro", Now);
 
-        usage!.SubjectId.Should().Be("user-1",
-            "a user-wise plan is one person's allowance, so its trial is too");
+        usage!.SubjectId.Should().Be("org-1",
+            "keyed on the buyer, an organization could trial the plan again just by switching who buys it");
+        usage.Scope.Should().Be(SubscriberScope.User);
     }
 
     [Fact]
-    public void A_user_wise_signup_without_a_buyer_claims_nothing()
+    public void A_user_wise_signup_without_a_buyer_claims_for_its_organization()
     {
-        TrialUsage.For(Subscription(null), SubscriberScope.User, "pro", Now).Should().BeNull(
-            "every user-less signup would otherwise share one slot and only the first would get a trial");
+        TrialUsage.For(Subscription(null), SubscriberScope.User, "pro", Now)!.SubjectId.Should().Be("org-1",
+            "an API key signing up must not be a way round the organization's one trial");
+    }
+
+    [Fact]
+    public void A_subscription_with_no_organization_claims_nothing()
+    {
+        var subscription = Subscription("user-1");
+        subscription.OrganizationId = string.Empty;
+
+        TrialUsage.For(subscription, SubscriberScope.Organization, "pro", Now).Should().BeNull(
+            "every such signup would otherwise share one empty-id slot and only the first would get a trial");
+    }
+
+    [Fact]
+    public async Task Starting_the_trial_of_a_plan_sold_with_repeat_trials_records_nothing()
+    {
+        var trials = new Mock<ITrialUsageRepository>();
+        var subscription = Subscription("user-1");
+        subscription.Plan.OneTrialPerPlan = false;
+
+        await trials.Object.MarkTrialStartedAsync(subscription, Now, CancellationToken.None);
+
+        trials.Verify(
+            repository => repository.MarkUsedAsync(
+                It.IsAny<TrialUsage>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a claim left behind would refuse the trial again once the plan is switched back on");
+    }
+
+    [Fact]
+    public void A_plan_authored_before_the_setting_existed_keeps_one_trial_per_plan()
+    {
+        var plan = BsonSerializer.Deserialize<Plan>("{ Code: 'pro' }");
+        var snapshot = BsonSerializer.Deserialize<PlanSnapshot>("{ Code: 'pro' }");
+
+        plan.OneTrialPerPlan.Should().BeTrue(
+            "read as false, every existing plan would lose its trial limit the day this shipped");
+        snapshot.OneTrialPerPlan.Should().BeTrue(
+            "a subscription sold before the setting existed must still spend its trial when it starts");
     }
 
     [Fact]

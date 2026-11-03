@@ -1,4 +1,5 @@
 using FluentAssertions;
+using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
@@ -119,6 +120,69 @@ public sealed class TrialUsageRepositoryIntegrationTests
         (await repository.TryReserveAsync(otherOrganization, CancellationToken.None))
             .Should().BeTrue("one organization's trial is not another's");
     }
+
+    [Fact]
+    public async Task Buyer_keyed_claims_move_to_their_organization_one_per_plan()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var collection = Ledger(tenantId);
+        var earlier = BuyerKeyed(tenantId, "user-rina", "sub-rina", Now.AddDays(-10));
+        var later = BuyerKeyed(tenantId, "user-tom", "sub-tom", Now.AddDays(-2));
+        await collection.InsertManyAsync([later, earlier]);
+
+        var active = await Repository().FindActiveAsync(
+            tenantId, SubscriberScope.User, "org-1", "pro", CancellationToken.None);
+
+        active!.SubscriptionId.Should().Be("sub-rina",
+            "two colleagues each had the trial, and the organization's one trial is the earliest of them");
+        (await collection.Find(item => item.ItemId == later.ItemId).SingleAsync()).SubjectId
+            .Should().Be("user-tom", "the colleague's claim cannot share the key, and is kept rather than deleted");
+        (await Repository().TryReserveAsync(OrganizationKeyed(tenantId, "sub-new"), CancellationToken.None))
+            .Should().BeFalse("a third colleague must be asked to pay");
+    }
+
+    [Fact]
+    public async Task A_buyer_keyed_claim_never_blocks_the_buyers_other_organization()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        await Ledger(tenantId).InsertOneAsync(BuyerKeyed(tenantId, "user-rina", "sub-rina", Now));
+
+        var elsewhere = OrganizationKeyed(tenantId, "sub-b");
+        elsewhere.SubjectId = elsewhere.OrganizationId = "org-2";
+
+        (await Repository().TryReserveAsync(elsewhere, CancellationToken.None))
+            .Should().BeTrue("the trial this person used belonged to org-1, and org-2 never had it");
+    }
+
+    private IMongoCollection<TrialUsage> Ledger(string tenantId) =>
+        _fixture.DbContextProvider
+            .GetDatabase(tenantId)
+            .GetCollection<TrialUsage>("SubscriptionTrialUsages");
+
+    private static TrialUsage BuyerKeyed(
+        string tenantId, string userId, string subscriptionId, DateTime usedAtUtc) => new()
+    {
+        TenantId = tenantId,
+        Scope = SubscriberScope.User,
+        SubjectId = userId,
+        PlanCode = "pro",
+        OrganizationId = "org-1",
+        SubscriptionId = subscriptionId,
+        State = TrialUsageState.Used,
+        ClaimedAtUtc = usedAtUtc,
+        UsedAtUtc = usedAtUtc
+    };
+
+    private static TrialUsage OrganizationKeyed(string tenantId, string subscriptionId) => new()
+    {
+        TenantId = tenantId,
+        Scope = SubscriberScope.User,
+        SubjectId = "org-1",
+        PlanCode = "pro",
+        OrganizationId = "org-1",
+        SubscriptionId = subscriptionId,
+        ClaimedAtUtc = Now
+    };
 
     private static TrialUsage Usage(string tenantId, string subscriptionId) => new()
     {

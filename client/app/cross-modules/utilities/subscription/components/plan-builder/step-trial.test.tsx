@@ -76,3 +76,24 @@ describe("the trial's card requirement", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("one trial per plan", () => {
+  const oneTrialQuestion = () => screen.getByLabelText(/One trial per plan/i);
+
+  it("is on by default, and says a returning organization pays", () => {
+    render(<Harness />);
+
+    expect(oneTrialQuestion()).toBeChecked();
+    expect(screen.getByText(/gets the trial once, whoever buys it/i)).toBeInTheDocument();
+  });
+
+  it("says every signup gets the trial when switched off", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(oneTrialQuestion());
+
+    expect(oneTrialQuestion()).not.toBeChecked();
+    expect(screen.getByText(/every signup gets the trial/i)).toBeInTheDocument();
+  });
+});

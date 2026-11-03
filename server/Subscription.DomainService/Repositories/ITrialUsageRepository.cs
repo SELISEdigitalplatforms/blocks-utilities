@@ -38,7 +38,7 @@ public static class TrialUsageRepositoryExtensions
     /// Records that <paramref name="subscription"/> is now trialing its current plan. Called after
     /// the transition commits, never before: a trial is used up because it started, not because
     /// something tried to start it. Tolerates a null repository so callers built without one are
-    /// unchanged.
+    /// unchanged. Records nothing for a plan sold with <see cref="Plan.OneTrialPerPlan"/> off.
     /// </summary>
     public static async Task MarkTrialStartedAsync(
         this ITrialUsageRepository? repository,
@@ -49,6 +49,7 @@ public static class TrialUsageRepositoryExtensions
         ArgumentNullException.ThrowIfNull(subscription);
 
         if (repository is not null &&
+            subscription.Plan.OneTrialPerPlan &&
             TrialUsage.For(subscription, subscription.Plan.SubscriberScope, subscription.Plan.Code, nowUtc)
                 is { } usage)
         {
