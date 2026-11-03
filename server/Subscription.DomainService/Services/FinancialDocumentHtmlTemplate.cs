@@ -299,7 +299,8 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("<th class=\"num\">Qty</th><th class=\"num\">Discount</th>");
         html.Append("<th class=\"num\">Price</th><th class=\"num\">Value</th></tr></thead><tbody>");
 
-        // One period for the whole document rather than one per line, so every line states it.
+        // The document's period on every line, unless a line covers a period of its own — the year
+        // bought alongside a calendar-aligned stub.
         var period = PeriodCell(document.Period);
 
         for (var index = 0; index < document.Lines.Count; index++)
@@ -319,7 +320,9 @@ public static class FinancialDocumentHtmlTemplate
                 html.Append("<span class=\"sub\">").Append(Escape(itemKey)).Append("</span>");
             }
 
-            html.Append("</td><td>").Append(period).Append("</td>");
+            html.Append("</td><td>")
+                .Append(line.Period is { } own ? PeriodCell(own) : period)
+                .Append("</td>");
             html.Append("<td class=\"num\">")
                 .Append(line.Quantity is { } quantity
                     ? Escape(MeterQuantity.Describe(quantity))

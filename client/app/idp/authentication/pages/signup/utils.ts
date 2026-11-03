@@ -6,5 +6,5 @@ export const signupFormDefaultValue = {
 };
 
 export const createSignupFormSchema = () => z.object({
-  email: z.string().trim().email({ message: tStatic("utilities.idp.authentication", "UTILS.INVALID_EMAIL") }),
+  email: z.string().trim().check(z.email(tStatic("utilities.idp.authentication", "UTILS.INVALID_EMAIL"))),
 });

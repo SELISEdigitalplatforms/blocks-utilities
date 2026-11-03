@@ -918,6 +918,25 @@ already on it.
 Requiring a card and charging for the first period used to be the same act. Card setup separated
 them: the card is stored by a setup session that charges nothing.
 
+### One trial per plan
+
+| Setting | Behaviour |
+| --- | --- |
+| **On** (default) | Each **organization** gets the trial once, whatever the plan's scope and whoever buys it. A colleague subscribing after it, or the same organization after cancelling, goes to paid checkout (`subscription_trial_already_used` / `trialAlreadyUsed` on the quote). A person who had the trial in one organization still gets it for another that never did. |
+| **Off** | Every signup gets the trial, including an organization that cancelled and came back. Nothing is recorded. |
+
+Turning it back on counts from then: signups made while it was off left nothing behind to count.
+Quantity changes are unaffected by the setting. They are free during a trial (up to
+`trialMaxQuantity`) and prorated once it has ended.
+
+> ### Test case 17.4 — a colleague after the trial
+> Setting **on**. User A subscribes Org 1 with the trial and cancels. User B subscribes Org 1 to the
+> same plan. → No trial; the quote shows `trialAlreadyUsed: true` and checkout takes the opening
+> charge. User A then subscribes **Org 2** → gets the trial.
+
+> ### Test case 17.5 — repeat trials
+> Setting **off**. Subscribe with the trial, cancel, subscribe again. → A fresh trial each time.
+
 ### What happens at trial end
 
 | | Result |

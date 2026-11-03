@@ -14,38 +14,40 @@ export const authConfigFormDefaultValues = {
   rememberMeRefreshTokenValidForNumberMinutes: 0,
 };
 
+// Number.isInteger, not .int(): zod 4's .int() also rejects unsafe integers and skips the checks
+// after it; zod 3's did neither.
 export const createAuthConfigFormSchema = () => z.object({
   refreshTokenValidForNumberMinutes: z.coerce
-    .number()
-    .int({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER) })
+    .number<number>()
+    .refine(Number.isInteger, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER))
     .positive({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_POSITIVE_NUMBER) })
     .max(2147483647, {
       message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_VALUE_EXCEEDS_THE_ALLOWED_LIMIT),
     }),
   getNumberOfWrongAttemptsToLockTheAccount: z.coerce
-    .number()
-    .int({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER) })
+    .number<number>()
+    .refine(Number.isInteger, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER))
     .positive({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_POSITIVE_NUMBER) })
     .max(2147483647, {
       message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_VALUE_EXCEEDS_THE_ALLOWED_LIMIT),
     }),
   accountLockDurationInMinutes: z.coerce
-    .number()
-    .int({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER) })
+    .number<number>()
+    .refine(Number.isInteger, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER))
     .positive({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_POSITIVE_NUMBER) })
     .max(2147483647, {
       message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_VALUE_EXCEEDS_THE_ALLOWED_LIMIT),
     }),
   accessTokenValidForNumberMinutes: z.coerce
-    .number()
-    .int({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER) })
+    .number<number>()
+    .refine(Number.isInteger, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER))
     .positive({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_POSITIVE_NUMBER) })
     .max(2147483647, {
       message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_VALUE_EXCEEDS_THE_ALLOWED_LIMIT),
     }),
   rememberMeRefreshTokenValidForNumberMinutes: z.coerce
-    .number()
-    .int({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER) })
+    .number<number>()
+    .refine(Number.isInteger, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_WHOLE_NUMBER))
     .positive({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_MUST_BE_A_POSITIVE_NUMBER) })
     .max(2147483647, {
       message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, UTILS_VALUE_EXCEEDS_THE_ALLOWED_LIMIT),

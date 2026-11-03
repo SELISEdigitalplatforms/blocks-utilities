@@ -17,6 +17,7 @@ import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { DialogTrigger } from "@/components/ui-kits/dialog/dialog";
 import { isErrorWithErrors } from "@/lib/error";
 import { useT } from "@seliseblocks/genesis-os";
+import { zod3Messages } from "@/lib/zod3-messages";
 const CustomInputOTPSlot = ({ index }: { index: number }) => {
   return (
     <InputOTPSlot
@@ -26,7 +27,8 @@ const CustomInputOTPSlot = ({ index }: { index: number }) => {
   );
 };
 const FormSchema = z.object({
-  code: z.string().min(5),
+  // zod 3's default message, kept so the form reads the same after the zod 4 upgrade.
+  code: z.string().min(5, zod3Messages.stringMin(5)),
 });
 export const ProfileMfaVerifyForm = ({ mfaId }: { mfaId: string }) => {
   const { t } = useT("utilities.idp");

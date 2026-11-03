@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { zod3Messages } from "@/lib/zod3-messages";
 import {
   SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH,
   SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH,
@@ -20,13 +21,34 @@ import { MAX_PACE_LIMITS, spanHours } from "../utilities/pace-limits";
 import { tSubscription } from "../utilities/subscription-i18n";
 import { TAX_MODES } from "../utilities/subscription-tax";
 import { FIXED_CREDIT_EXPIRY } from "../models/subscription-plan.model";
-import { isRepresentableInMinorUnits, minorUnitExponent } from "../utilities/subscription-format";
+import {
+  isRepresentableInMinorUnits,
+  minorUnitExponent,
+} from "../utilities/subscription-format";
+
+// The checks without a message of their own carry zod 3's default one, so the builder reads the
+// same after the zod 4 upgrade.
+
+/**
+ * A whole number, checked with Number.isInteger rather than .int(): zod 4's .int() also rejects
+ * unsafe integers and skips the checks after it and the superRefines below; zod 3's did neither.
+ */
+const wholeNumber = (message: string = zod3Messages.integer) =>
+  z.coerce.number<number>().refine(Number.isInteger, message);
+
+/** A whole number from `min` to `max`, both included. */
+const wholeNumberBetween = (min: number, max: number) =>
+  wholeNumber().min(min, zod3Messages.numberMin(min)).max(max, zod3Messages.numberMax(max));
 
 const METER_MAX_SCALE_KEY = "SUBSCRIPTION_PLAN_SCHEMA.METER_MAX_SCALE";
 
 /** @param requiredMessage The "Enter a …" text, already translated for the field being checked. */
 const key = (requiredMessage: string) =>
-  z.string().trim().min(1, requiredMessage).max(SUBSCRIPTION_KEY_MAX_LENGTH);
+  z
+    .string()
+    .trim()
+    .min(1, requiredMessage)
+    .max(SUBSCRIPTION_KEY_MAX_LENGTH, zod3Messages.stringMax(SUBSCRIPTION_KEY_MAX_LENGTH));
 
 const isJsonObject = (value: string): boolean => {
   try {
@@ -38,85 +60,77 @@ const isJsonObject = (value: string): boolean => {
 
 const meterTierSchema = () =>
   z.object({
-    upToQuantity: z.coerce.number().positive().optional(),
-    /**
-     * What one unit past the allowance costs, in the currency's own units.
-     *
-     * Minor units before this: the field asked for 5 and meant five centimes, so an author pricing
-     * overage at five francs typed 5 and undercharged by a hundredfold. The API still carries
-     * `unitAmountMinor`; the conversion happens on submit, where the currency is known.
-     *
-     * Zero is allowed and means exactly what it says — overage recorded, permitted, billed nothing.
-     * Whether it was intended is the rate table's business, not this field's.
-     */
-    unitAmount: z.coerce
-      .number()
-      .min(0, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_PRICE_NEGATIVE")),
-  });
+  upToQuantity: z.coerce.number<number>().positive(zod3Messages.numberPositive).optional(),
+  /**
+   * What one unit past the allowance costs, in the currency's own units.
+   *
+   * Minor units before this: the field asked for 5 and meant five centimes, so an author pricing
+   * overage at five francs typed 5 and undercharged by a hundredfold. The API still carries
+   * `unitAmountMinor`; the conversion happens on submit, where the currency is known.
+   *
+   * Zero is allowed and means exactly what it says — overage recorded, permitted, billed nothing.
+   * Whether it was intended is the rate table's business, not this field's.
+   */
+  unitAmount: z.coerce.number<number>().min(0, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_PRICE_NEGATIVE")),
+});
 
 const meterRateTableSchema = () =>
   z
-    .object({
-      currencyCode: z
-        .string()
-        .trim()
-        .length(3, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CURRENCY_CODE_LENGTH"))
-        .toUpperCase(),
-      tiers: z.array(meterTierSchema()).min(1, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ADD_TIER")),
-    })
-    .superRefine((table, context) => {
-      // Mirrors the server's rule. Bands must ascend and only the last may be open-ended,
-      // otherwise a quantity falls into two of them and the bill depends on which is read first.
-      const bounded = table.tiers.slice(0, -1);
+  .object({
+    currencyCode: z.string().trim().length(3, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CURRENCY_CODE_LENGTH")).toUpperCase(),
+    tiers: z.array(meterTierSchema()).min(1, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ADD_TIER")),
+  })
+  .superRefine((table, context) => {
+    // Mirrors the server's rule. Bands must ascend and only the last may be open-ended,
+    // otherwise a quantity falls into two of them and the bill depends on which is read first.
+    const bounded = table.tiers.slice(0, -1);
 
-      if (bounded.some((tier) => tier.upToQuantity === undefined)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["tiers"],
-          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ONLY_LAST_BAND_UNBOUNDED"),
-        });
+    if (bounded.some((tier) => tier.upToQuantity === undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: ["tiers"],
+        message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ONLY_LAST_BAND_UNBOUNDED"),
+      });
+    }
+
+    const bounds = table.tiers
+      .map((tier) => tier.upToQuantity)
+      .filter((bound): bound is number => bound !== undefined);
+
+    if (bounds.some((bound, index) => index > 0 && bound <= bounds[index - 1])) {
+      context.addIssue({
+        code: "custom",
+        path: ["tiers"],
+        message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.BANDS_ASCEND"),
+      });
+    }
+
+    // Checked here rather than on the field, because how many decimals are allowed depends on the
+    // currency chosen above it. Without this the amount is rounded on the way to minor units and
+    // the author is never told: 0.005 CHF is charged as 0.01, and 100.5 JPY as 101.
+    const exponent = minorUnitExponent(table.currencyCode);
+
+    table.tiers.forEach((tier, index) => {
+      if (isRepresentableInMinorUnits(tier.unitAmount, table.currencyCode)) {
+        return;
       }
 
-      const bounds = table.tiers
-        .map((tier) => tier.upToQuantity)
-        .filter((bound): bound is number => bound !== undefined);
-
-      if (bounds.some((bound, index) => index > 0 && bound <= bounds[index - 1])) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["tiers"],
-          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.BANDS_ASCEND"),
-        });
-      }
-
-      // Checked here rather than on the field, because how many decimals are allowed depends on the
-      // currency chosen above it. Without this the amount is rounded on the way to minor units and
-      // the author is never told: 0.005 CHF is charged as 0.01, and 100.5 JPY as 101.
-      const exponent = minorUnitExponent(table.currencyCode);
-
-      table.tiers.forEach((tier, index) => {
-        if (isRepresentableInMinorUnits(tier.unitAmount, table.currencyCode)) {
-          return;
-        }
-
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["tiers", index, "unitAmount"],
-          message:
-            exponent === 0
-              ? tSubscription("SUBSCRIPTION_PLAN_SCHEMA.NO_DECIMALS", {
-                  currency: table.currencyCode,
-                })
-              : tSubscription("SUBSCRIPTION_PLAN_SCHEMA.MAX_DECIMALS", {
-                  currency: table.currencyCode,
-                  count: exponent,
-                }),
-        });
+      context.addIssue({
+        code: "custom",
+        path: ["tiers", index, "unitAmount"],
+        message:
+          exponent === 0
+            ? tSubscription("SUBSCRIPTION_PLAN_SCHEMA.NO_DECIMALS", { currency: table.currencyCode })
+            : tSubscription("SUBSCRIPTION_PLAN_SCHEMA.MAX_DECIMALS", {
+                currency: table.currencyCode,
+                count: exponent,
+              }),
       });
     });
+  });
 
 /** A cleared number input reports "", which coerces to 0 — a value nobody typed. */
-const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+const blankAsUndefined = <T extends z.ZodType>(schema: T) =>
   z.preprocess((value) => (value === "" || value === null ? undefined : value), schema);
 
 /**
@@ -127,53 +141,62 @@ const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
  */
 const subLimitSchema = () =>
   z.object({
-    window: z.coerce.number().int().min(0).max(2),
-    count: z.coerce
-      .number()
-      .int()
-      .positive(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.LIMIT_SPANS_WINDOW"))
-      .default(1),
-    rolling: z.boolean().default(false),
-    quantity: blankAsUndefined(
-      z.coerce.number().positive(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.LIMIT_ZERO")).optional(),
-    ),
-    behaviour: z.coerce.number().int().min(0).max(1).default(0),
-  });
+  window: wholeNumberBetween(0, 2),
+  count: wholeNumber().positive(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.LIMIT_SPANS_WINDOW")).default(1),
+  rolling: z.boolean().default(false),
+  quantity: blankAsUndefined(
+    z.coerce
+      .number<number>()
+      .positive(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.LIMIT_ZERO"))
+      .optional(),
+  ),
+  behaviour: wholeNumberBetween(0, 1).default(0),
+});
 
 const meterSchema = () =>
   z.object({
-    meterKey: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_METER_KEY")),
-    displayName: z
-      .string()
-      .trim()
-      .min(1, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.DISPLAY_NAME_REQUIRED"))
-      .max(200),
-    unitLabel: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_UNIT_LABEL")),
-    aggregation: z.coerce.number().int().min(0).max(2),
-    resetPolicy: z.coerce.number().int().min(0).max(2).default(0),
-    /**
-     * Decimal places this meter accepts. Zero is whole units only, and is the default so that a
-     * meter nobody opts in stays exactly as strict as it was before fractions existed.
-     */
-    quantityScale: z.coerce.number().int().min(0).max(METER_QUANTITY_MAX_SCALE).default(0),
-    includedQuantity: z.coerce.number().min(0),
-    carryForwardCap: z.coerce.number().positive().optional(),
-    overageAllowed: z.boolean(),
-    thresholdPercents: z.array(z.number().int().min(1).max(100)),
-    rateTables: z.array(meterRateTableSchema()),
-    /**
-     * Every cap on how fast the allowance may be spent. Empty on every meter nobody opted in, which
-     * keeps it capped by its period alone. The rules that span rows are checked at plan level,
-     * beside the meter's scale.
-     */
-    subLimits: z
-      .array(subLimitSchema())
-      .max(
-        MAX_PACE_LIMITS,
-        tSubscription("SUBSCRIPTION_PLAN_SCHEMA.METER_MAX_LIMITS", { max: MAX_PACE_LIMITS }),
-      )
-      .default([]),
-  });
+  meterKey: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_METER_KEY")),
+  displayName: z
+    .string()
+    .trim()
+    .min(1, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.DISPLAY_NAME_REQUIRED"))
+    .max(200, zod3Messages.stringMax(200)),
+  unitLabel: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_UNIT_LABEL")),
+  aggregation: wholeNumberBetween(0, 2),
+  resetPolicy: wholeNumberBetween(0, 2).default(0),
+  /**
+   * Decimal places this meter accepts. Zero is whole units only, and is the default so that a
+   * meter nobody opts in stays exactly as strict as it was before fractions existed.
+   */
+  quantityScale: wholeNumberBetween(0, METER_QUANTITY_MAX_SCALE).default(0),
+  includedQuantity: z.coerce.number<number>().min(0, zod3Messages.numberMin(0)),
+  carryForwardCap: z.coerce.number<number>().positive(zod3Messages.numberPositive).optional(),
+  overageAllowed: z.boolean(),
+  thresholdPercents: z.array(
+    z
+      .number()
+      .refine(Number.isInteger, zod3Messages.integer)
+      .min(1, zod3Messages.numberMin(1))
+      .max(100, zod3Messages.numberMax(100)),
+  ),
+  rateTables: z.array(meterRateTableSchema()),
+  /**
+   * Every cap on how fast the allowance may be spent. Empty on every meter nobody opted in, which
+   * keeps it capped by its period alone. The rules that span rows are checked at plan level,
+   * beside the meter's scale.
+   *
+   * A refine, not .max(): zod 4's .max() stops at an oversized list without checking its rows or
+   * running the plan's superRefine, so the builder would hide every other error; zod 3's did
+   * neither.
+   */
+  subLimits: z
+    .array(subLimitSchema())
+    .refine(
+      (limits) => limits.length <= MAX_PACE_LIMITS,
+      tSubscription("SUBSCRIPTION_PLAN_SCHEMA.METER_MAX_LIMITS", { max: MAX_PACE_LIMITS }),
+    )
+    .default([]),
+});
 
 /**
  * Credits for one meter, as the builder edits them.
@@ -188,116 +211,114 @@ const meterSchema = () =>
 // half-written row as it is, as the server does.
 const meterCreditPriceSchema = z.object({
   currencyCode: z.string().trim().toUpperCase(),
-  unitAmount: z.coerce.number(),
+  unitAmount: z.coerce.number<number>(),
 });
 
 const meterCreditSchema = () =>
   z
-    .object({
-      meterKey: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_METER")),
-      enabled: z.boolean(),
-      prices: z.array(meterCreditPriceSchema),
-      minQuantity: z.coerce
-        .number()
-        .int(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDITS_WHOLE_NUMBERS"))
-        .min(1)
-        .default(1),
-      maxQuantity: blankAsUndefined(
-        z.coerce
-          .number()
-          .int(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDITS_WHOLE_NUMBERS"))
-          .positive()
-          .optional(),
-      ),
-      /**
-       * METER_RESET_POLICY, read for a grant: 0 ends with the window, 2 carries forward, 1 never
-       * ends — or FIXED_CREDIT_EXPIRY (3), a form-only choice that sends Never plus a lifetime.
-       */
-      expiryPolicy: z.coerce.number().int().min(0).max(FIXED_CREDIT_EXPIRY).default(0),
-      /** How long bought credits last, with FIXED_CREDIT_EXPIRY. Whole units, at least one. */
-      expiresAfterCount: blankAsUndefined(z.coerce.number().int().positive().optional()),
-      /** CREDIT_EXPIRY_UNIT. Days unless the author picks otherwise. */
-      expiresAfterUnit: z.coerce.number().int().min(0).max(4).default(1),
-      taxPercent: blankAsUndefined(
-        z.coerce
-          .number()
-          .min(0, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TAX_NEGATIVE"))
-          .max(100, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TAX_EXCEEDS"))
-          .optional(),
-      ),
-      taxMode: z.enum(TAX_MODES).default("Exclusive"),
-    })
-    .superRefine((credit, context) => {
-      // Paused credits are saved as they are: an author switching sales off must not be stopped by
-      // a half-written price. The server applies the same rule.
-      if (!credit.enabled) {
-        return;
-      }
+  .object({
+    meterKey: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_METER")),
+    enabled: z.boolean(),
+    prices: z.array(meterCreditPriceSchema),
+    minQuantity: wholeNumber(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDITS_WHOLE_NUMBERS"))
+      .min(1, zod3Messages.numberMin(1))
+      .default(1),
+    maxQuantity: blankAsUndefined(
+      wholeNumber(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDITS_WHOLE_NUMBERS"))
+        .positive(zod3Messages.numberPositive)
+        .optional(),
+    ),
+    /**
+     * METER_RESET_POLICY, read for a grant: 0 ends with the window, 2 carries forward, 1 never
+     * ends — or FIXED_CREDIT_EXPIRY (3), a form-only choice that sends Never plus a lifetime.
+     */
+    expiryPolicy: wholeNumberBetween(0, FIXED_CREDIT_EXPIRY).default(0),
+    /** How long bought credits last, with FIXED_CREDIT_EXPIRY. Whole units, at least one. */
+    expiresAfterCount: blankAsUndefined(
+      wholeNumber().positive(zod3Messages.numberPositive).optional(),
+    ),
+    /** CREDIT_EXPIRY_UNIT. Days unless the author picks otherwise. */
+    expiresAfterUnit: wholeNumberBetween(0, 4).default(1),
+    taxPercent: blankAsUndefined(
+      z.coerce
+        .number<number>()
+        .min(0, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TAX_NEGATIVE"))
+        .max(100, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TAX_EXCEEDS"))
+        .optional(),
+    ),
+    taxMode: z.enum(TAX_MODES).default("Exclusive"),
+  })
+  .superRefine((credit, context) => {
+    // Paused credits are saved as they are: an author switching sales off must not be stopped by
+    // a half-written price. The server applies the same rule.
+    if (!credit.enabled) {
+      return;
+    }
 
-      if (credit.prices.length === 0) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["prices"],
-          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_ADD_PRICE"),
-        });
-      }
-
-      const currencies = credit.prices.map((price) => price.currencyCode);
-
-      currencies.forEach((currency, index) => {
-        if (currencies.indexOf(currency) !== index) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["prices", index, "currencyCode"],
-            message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_ONE_PER_CURRENCY"),
-          });
-        }
+    if (credit.prices.length === 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["prices"],
+        message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_ADD_PRICE"),
       });
+    }
 
-      credit.prices.forEach((price, index) => {
-        if (price.currencyCode.length !== 3) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["prices", index, "currencyCode"],
-            message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CURRENCY_CODE_LENGTH"),
-          });
-        }
+    const currencies = credit.prices.map((price) => price.currencyCode);
 
-        if (price.unitAmount <= 0) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["prices", index, "unitAmount"],
-            message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_MUST_COST"),
-          });
-        } else if (!isRepresentableInMinorUnits(price.unitAmount, price.currencyCode)) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["prices", index, "unitAmount"],
-            message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_MAX_DECIMALS", {
-              currency: price.currencyCode,
-              count: minorUnitExponent(price.currencyCode),
-            }),
-          });
-        }
-      });
-
-      if (credit.expiryPolicy === FIXED_CREDIT_EXPIRY && !credit.expiresAfterCount) {
+    currencies.forEach((currency, index) => {
+      if (currencies.indexOf(currency) !== index) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["expiresAfterCount"],
-          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_EXPIRY_COUNT"),
-        });
-      }
-
-      // Required: it is what bounds one charge to a stored card.
-      if (credit.maxQuantity === undefined || credit.maxQuantity < credit.minQuantity) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["maxQuantity"],
-          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_MAX_PURCHASE"),
+          code: "custom",
+          path: ["prices", index, "currencyCode"],
+          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_ONE_PER_CURRENCY"),
         });
       }
     });
+
+    credit.prices.forEach((price, index) => {
+      if (price.currencyCode.length !== 3) {
+        context.addIssue({
+          code: "custom",
+          path: ["prices", index, "currencyCode"],
+          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CURRENCY_CODE_LENGTH"),
+        });
+      }
+
+      if (!(price.unitAmount > 0)) {
+        context.addIssue({
+          code: "custom",
+          path: ["prices", index, "unitAmount"],
+          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_MUST_COST"),
+        });
+      } else if (!isRepresentableInMinorUnits(price.unitAmount, price.currencyCode)) {
+        context.addIssue({
+          code: "custom",
+          path: ["prices", index, "unitAmount"],
+          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_MAX_DECIMALS", {
+            currency: price.currencyCode,
+            count: minorUnitExponent(price.currencyCode),
+          }),
+        });
+      }
+    });
+
+    if (credit.expiryPolicy === FIXED_CREDIT_EXPIRY && !credit.expiresAfterCount) {
+      context.addIssue({
+        code: "custom",
+        path: ["expiresAfterCount"],
+        message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_EXPIRY_COUNT"),
+      });
+    }
+
+    // Required: it is what bounds one charge to a stored card.
+    if (credit.maxQuantity === undefined || credit.maxQuantity < credit.minQuantity) {
+      context.addIssue({
+        code: "custom",
+        path: ["maxQuantity"],
+        message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_MAX_PURCHASE"),
+      });
+    }
+  });
 
 /**
  * One volume band, as the builder edits it.
@@ -308,52 +329,54 @@ const meterCreditSchema = () =>
  */
 const quantityDiscountTierSchema = () =>
   z.object({
-    minimumQuantity: z.coerce.number().int().positive(),
-    maximumQuantity: z.coerce.number().int().positive().optional(),
-    discountPercent: z.coerce
-      .number()
-      .min(0, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.DISCOUNT_NEGATIVE"))
-      .max(100, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.DISCOUNT_EXCEEDS")),
-  });
+  minimumQuantity: wholeNumber().positive(zod3Messages.numberPositive),
+  maximumQuantity: wholeNumber().positive(zod3Messages.numberPositive).optional(),
+  discountPercent: z.coerce
+    .number<number>()
+    .min(0, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.DISCOUNT_NEGATIVE"))
+    .max(100, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.DISCOUNT_EXCEEDS")),
+});
 
 const quantityItemSchema = () =>
   z
-    .object({
-      itemKey: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_ITEM_KEY")),
-      unitLabel: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_UNIT_LABEL")),
-      minQuantity: z.coerce.number().int().min(0),
-      maxQuantity: z.coerce.number().int().positive().optional(),
-      defaultQuantity: z.coerce.number().int().min(0),
-      /** The most a trialing subscription may hold. Blank: the trial covers the signup quantity. */
-      trialMaxQuantity: blankAsUndefined(z.coerce.number().int().positive().optional()),
-      quantityDiscountTiers: z.array(quantityDiscountTierSchema()).default([]),
-      /** Which quantity is how many people a user-wise plan seats. Ignored on any other plan. */
-      countsMembers: z.boolean().default(false),
-    })
-    .superRefine((item, context) => {
-      if (item.maxQuantity !== undefined && item.maxQuantity < item.minQuantity) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["maxQuantity"],
-          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.MAXIMUM_BELOW_MINIMUM"),
-        });
-      }
+  .object({
+    itemKey: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_ITEM_KEY")),
+    unitLabel: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_UNIT_LABEL")),
+    minQuantity: wholeNumber().min(0, zod3Messages.numberMin(0)),
+    maxQuantity: wholeNumber().positive(zod3Messages.numberPositive).optional(),
+    defaultQuantity: wholeNumber().min(0, zod3Messages.numberMin(0)),
+    /** The most a trialing subscription may hold. Blank: the trial covers the signup quantity. */
+    trialMaxQuantity: blankAsUndefined(
+      wholeNumber().positive(zod3Messages.numberPositive).optional(),
+    ),
+    quantityDiscountTiers: z.array(quantityDiscountTierSchema()).default([]),
+    /** Which quantity is how many people a user-wise plan seats. Ignored on any other plan. */
+    countsMembers: z.boolean().default(false),
+  })
+  .superRefine((item, context) => {
+    if (item.maxQuantity !== undefined && item.maxQuantity < item.minQuantity) {
+      context.addIssue({
+        code: "custom",
+        path: ["maxQuantity"],
+        message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.MAXIMUM_BELOW_MINIMUM"),
+      });
+    }
 
-      // The server's rule, said at the field rather than as one error for the whole plan.
-      if (
-        item.trialMaxQuantity !== undefined &&
-        (item.trialMaxQuantity < item.minQuantity ||
-          (item.maxQuantity !== undefined && item.trialMaxQuantity > item.maxQuantity))
-      ) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["trialMaxQuantity"],
-          message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TRIAL_MAX_BETWEEN"),
-        });
-      }
+    // The server's rule, said at the field rather than as one error for the whole plan.
+    if (
+      item.trialMaxQuantity !== undefined &&
+      (item.trialMaxQuantity < item.minQuantity ||
+        (item.maxQuantity !== undefined && item.trialMaxQuantity > item.maxQuantity))
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["trialMaxQuantity"],
+        message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TRIAL_MAX_BETWEEN"),
+      });
+    }
 
-      checkQuantityDiscountTiers(item, context);
-    });
+    checkQuantityDiscountTiers(item, context);
+  });
 
 /**
  * The band rules, checked here rather than left to the server.
@@ -378,7 +401,7 @@ const checkQuantityDiscountTiers = (
 
   const at = (index: number, field: string, message: string) =>
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["quantityDiscountTiers", index, field],
       message,
     });
@@ -389,11 +412,7 @@ const checkQuantityDiscountTiers = (
   }
 
   if (tiers[0].minimumQuantity !== item.minQuantity) {
-    at(
-      0,
-      "minimumQuantity",
-      tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_FIRST_START", { start: item.minQuantity }),
-    );
+    at(0, "minimumQuantity", tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_FIRST_START", { start: item.minQuantity }));
   }
 
   tiers.forEach((tier, index) => {
@@ -419,11 +438,7 @@ const checkQuantityDiscountTiers = (
       const expected = tier.maximumQuantity + 1;
 
       if (next.minimumQuantity !== expected) {
-        at(
-          index + 1,
-          "minimumQuantity",
-          tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_NEXT_BEGIN", { start: expected }),
-        );
+        at(index + 1, "minimumQuantity", tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_NEXT_BEGIN", { start: expected }));
       }
     }
 
@@ -432,50 +447,58 @@ const checkQuantityDiscountTiers = (
     }
 
     if (item.maxQuantity === undefined && tier.maximumQuantity !== undefined) {
-      at(index, "maximumQuantity", tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_FINAL_OPEN"));
+      at(
+        index,
+        "maximumQuantity",
+        tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_FINAL_OPEN"),
+      );
 
       return;
     }
 
     if (item.maxQuantity !== undefined && tier.maximumQuantity !== item.maxQuantity) {
-      at(
-        index,
-        "maximumQuantity",
-        tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_FINAL_COVER", { max: item.maxQuantity }),
-      );
+      at(index, "maximumQuantity", tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TIER_FINAL_COVER", { max: item.maxQuantity }));
     }
   });
 };
 
 const entitlementSchema = () =>
   z
-    .object({
-      key: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_KEY")),
-      limitKind: z.coerce.number().int().min(0).max(2),
-      // Not integer-only: a counted entitlement's limit is the allowance of the meter it draws
-      // down, so it has to be able to hold whatever that meter can. Granularity is checked at plan
-      // level, against that meter's own scale.
-      limit: z.coerce.number().min(0).optional(),
-      meterKey: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional(),
-      unitLabel: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional(),
-    })
-    .refine(
-      (entitlement) =>
-        entitlement.limitKind !== 1 ||
-        (entitlement.limit !== undefined && Boolean(entitlement.meterKey)),
-      {
-        message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTITLEMENT_NEEDS_LIMIT_AND_METER"),
-        path: ["limit"],
-      },
-    );
+  .object({
+    key: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_KEY")),
+    limitKind: wholeNumberBetween(0, 2),
+    // Not integer-only: a counted entitlement's limit is the allowance of the meter it draws
+    // down, so it has to be able to hold whatever that meter can. Granularity is checked at plan
+    // level, against that meter's own scale.
+    limit: z.coerce.number<number>().min(0, zod3Messages.numberMin(0)).optional(),
+    meterKey: z
+      .string()
+      .trim()
+      .max(SUBSCRIPTION_KEY_MAX_LENGTH, zod3Messages.stringMax(SUBSCRIPTION_KEY_MAX_LENGTH))
+      .optional(),
+    unitLabel: z
+      .string()
+      .trim()
+      .max(SUBSCRIPTION_KEY_MAX_LENGTH, zod3Messages.stringMax(SUBSCRIPTION_KEY_MAX_LENGTH))
+      .optional(),
+  })
+  .refine(
+    (entitlement) =>
+      entitlement.limitKind !== 1 ||
+      (entitlement.limit !== undefined && Boolean(entitlement.meterKey)),
+    {
+      message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTITLEMENT_NEEDS_LIMIT_AND_METER"),
+      path: ["limit"],
+    },
+  );
 
 const trialGrantSchema = () =>
   z.object({
-    meterKey: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_METER")),
-    // Granularity is checked against the meter this grant replaces, at plan level, because that is
-    // the only place the meter's own scale is in scope.
-    includedQuantity: z.coerce.number().min(0),
-  });
+  meterKey: key(tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ENTER_METER")),
+  // Granularity is checked against the meter this grant replaces, at plan level, because that is
+  // the only place the meter's own scale is in scope.
+  includedQuantity: z.coerce.number<number>().min(0, zod3Messages.numberMin(0)),
+});
 
 /** What identifies a price to the server, so two rows that would collide can be caught here. */
 const priceTerms = (price: z.infer<ReturnType<typeof subscriptionPriceFieldsSchema>>) =>
@@ -494,23 +517,35 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         .string()
         .trim()
         .min(1, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.PLAN_CODE_REQUIRED"))
-        .max(SUBSCRIPTION_PLAN_CODE_MAX_LENGTH)
+        .max(
+          SUBSCRIPTION_PLAN_CODE_MAX_LENGTH,
+          zod3Messages.stringMax(SUBSCRIPTION_PLAN_CODE_MAX_LENGTH),
+        )
         .regex(/^[a-z0-9_-]+$/, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.PLAN_CODE_PATTERN")),
       displayName: z
         .string()
         .trim()
         .min(1, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.DISPLAY_NAME_REQUIRED"))
-        .max(SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH),
-      description: z.string().trim().max(2000).optional().or(z.literal("")),
+        .max(
+          SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH,
+          zod3Messages.stringMax(SUBSCRIPTION_DISPLAY_NAME_MAX_LENGTH),
+        ),
+      description: z
+        .string()
+        .trim()
+        .max(2000, zod3Messages.stringMax(2000))
+        .optional()
+        .or(z.literal("")),
       featuresJson: z
         .string()
         .trim()
-        .max(SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH)
+        .max(
+          SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH,
+          zod3Messages.stringMax(SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH),
+        )
         .optional()
         .or(z.literal("")),
-      organizationId: z
-        .string()
-        .min(1, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ORGANIZATION_REQUIRED")),
+      organizationId: z.string().min(1, tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ORGANIZATION_REQUIRED")),
       // Who holds the subscription. Organization is what every plan before this meant.
       subscriberScope: z.enum(["Organization", "User"]).default("Organization"),
       // The console always authors through these two rather than the legacy trialDays — see the
@@ -518,20 +553,26 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       trialDurationKind: z.enum(["Days", "EndOfCalendarMonth", "AnniversaryMonths"]).optional(),
       trialDurationCount: z.preprocess(
         (value) => (value === "" ? undefined : value),
-        z.coerce.number().int().optional(),
+        wholeNumber().optional(),
       ),
       trialRequiresPaymentMethod: z.boolean(),
+      oneTrialPerPlan: z.boolean(),
       requirePaymentMethodUpfront: z.boolean(),
       // Always in the form, whether or not any item has bands: a plan edited while the field
       // was absent came back from the server reset to BestDiscount, which changes what every
       // subscriber on it is charged.
-      quantityDiscountCombinationPolicy: z.coerce.number().int().min(0).max(2).default(0),
-      usageInterval: z.coerce.number().int().min(0).max(3),
-      usageIntervalCount: z.coerce.number().int().min(1).max(100),
-      familyCode: z.string().trim().max(SUBSCRIPTION_KEY_MAX_LENGTH).optional().or(z.literal("")),
+      quantityDiscountCombinationPolicy: wholeNumberBetween(0, 2).default(0),
+      usageInterval: wholeNumberBetween(0, 3),
+      usageIntervalCount: wholeNumberBetween(1, 100),
+      familyCode: z
+        .string()
+        .trim()
+        .max(SUBSCRIPTION_KEY_MAX_LENGTH, zod3Messages.stringMax(SUBSCRIPTION_KEY_MAX_LENGTH))
+        .optional()
+        .or(z.literal("")),
       familyRank: z.preprocess(
         (value) => (value === "" ? undefined : value),
-        z.coerce.number().int().min(0).optional(),
+        wholeNumber().min(0, zod3Messages.numberMin(0)).optional(),
       ),
       quantityItems: z.array(quantityItemSchema()),
       meters: z.array(meterSchema()),
@@ -543,7 +584,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
     .superRefine((plan, context) => {
       if (plan.featuresJson && !isJsonObject(plan.featuresJson)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["featuresJson"],
           message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.FEATURES_JSON"),
         });
@@ -553,7 +594,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       // the two must agree, or an edit that passes here could still be rejected on save.
       if (plan.trialDurationKind === "Days" && plan.trialDurationCount === undefined) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TRIAL_DAYS_REQUIRED"),
         });
@@ -562,7 +603,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         (plan.trialDurationCount! < 1 || plan.trialDurationCount! > 365)
       ) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TRIAL_DAYS_RANGE"),
         });
@@ -570,7 +611,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
       if (plan.trialDurationKind === "AnniversaryMonths" && plan.trialDurationCount === undefined) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TRIAL_MONTHS_REQUIRED"),
         });
@@ -579,18 +620,15 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         (plan.trialDurationCount! < 1 || plan.trialDurationCount! > 12)
       ) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TRIAL_MONTHS_RANGE"),
         });
       }
 
-      if (
-        plan.trialDurationKind === "EndOfCalendarMonth" &&
-        plan.trialDurationCount !== undefined
-      ) {
+      if (plan.trialDurationKind === "EndOfCalendarMonth" && plan.trialDurationCount !== undefined) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["trialDurationCount"],
           message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.TRIAL_END_OF_MONTH_NO_COUNT"),
         });
@@ -598,7 +636,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
       if (Boolean(plan.familyCode) !== (plan.familyRank !== undefined)) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: [plan.familyCode ? "familyRank" : "familyCode"],
           message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.FAMILY_TOGETHER"),
         });
@@ -611,7 +649,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       plan.meterCredits.forEach((credit, index) => {
         if (!meterKeys.has(credit.meterKey)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meterCredits", index, "meterKey"],
             message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_CHOOSE_METER"),
           });
@@ -619,7 +657,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           plan.meterCredits.findIndex((other) => other.meterKey === credit.meterKey) !== index
         ) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meterCredits", index, "meterKey"],
             message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CREDIT_METER_DUPLICATE"),
           });
@@ -631,7 +669,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         // required rather than optional — and meaningless on a policy that does not roll.
         if (meter.resetPolicy === 2 && !meter.carryForwardCap) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "carryForwardCap"],
             message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CARRY_FORWARD_REQUIRED"),
           });
@@ -639,7 +677,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (meter.resetPolicy !== 2 && meter.carryForwardCap !== undefined) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "carryForwardCap"],
             message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.CARRY_FORWARD_ONLY"),
           });
@@ -651,16 +689,13 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         const holds = (value: number): boolean =>
           isWithinScale(value, meter.quantityScale) && isWithinMagnitude(value);
 
-        const tooFine =
-          meter.quantityScale === 0
-            ? tSubscription("SUBSCRIPTION_PLAN_SCHEMA.WHOLE_NUMBERS_ONLY_SET_PLACES")
-            : tSubscription(METER_MAX_SCALE_KEY, {
-                count: meter.quantityScale,
-              });
+        const tooFine = meter.quantityScale === 0
+          ? tSubscription("SUBSCRIPTION_PLAN_SCHEMA.WHOLE_NUMBERS_ONLY_SET_PLACES")
+          : tSubscription(METER_MAX_SCALE_KEY, { count: meter.quantityScale });
 
         if (!holds(meter.includedQuantity)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "includedQuantity"],
             message: tooFine,
           });
@@ -668,7 +703,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (meter.carryForwardCap !== undefined && !holds(meter.carryForwardCap)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "carryForwardCap"],
             message: tooFine,
           });
@@ -678,16 +713,8 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
           table.tiers.forEach((tier, tierIndex) => {
             if (tier.upToQuantity !== undefined && !holds(tier.upToQuantity)) {
               context.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: [
-                  "meters",
-                  index,
-                  "rateTables",
-                  tableIndex,
-                  "tiers",
-                  tierIndex,
-                  "upToQuantity",
-                ],
+                code: "custom",
+                path: ["meters", index, "rateTables", tableIndex, "tiers", tierIndex, "upToQuantity"],
                 message: tooFine,
               });
             }
@@ -696,7 +723,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         checkPaceLimits(meter.subLimits, holds, tooFine, (path, message) =>
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "subLimits", ...path],
             message,
           }),
@@ -704,9 +731,10 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (meter.resetPolicy === 1 && (meter.overageAllowed || meter.rateTables.length > 0)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["meters", index, "resetPolicy"],
-            message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.LIFETIME_NO_OVERAGE"),
+            message:
+              tSubscription("SUBSCRIPTION_PLAN_SCHEMA.LIFETIME_NO_OVERAGE"),
           });
         }
       });
@@ -714,7 +742,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       plan.entitlements.forEach((entitlement, index) => {
         if (entitlement.meterKey && !meterKeys.has(entitlement.meterKey)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["entitlements", index, "meterKey"],
             message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.METER_NOT_DEFINED"),
           });
@@ -732,7 +760,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (!isWithinScale(entitlement.limit, scale) || !isWithinMagnitude(entitlement.limit)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["entitlements", index, "limit"],
             message:
               scale === 0
@@ -745,7 +773,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       plan.trialGrants.forEach((grant, index) => {
         if (!meterKeys.has(grant.meterKey)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["trialGrants", index, "meterKey"],
             message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.METER_NOT_DEFINED"),
           });
@@ -759,14 +787,12 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
               !isWithinMagnitude(grant.includedQuantity))
           ) {
             context.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: "custom",
               path: ["trialGrants", index, "includedQuantity"],
               message:
                 meter.quantityScale === 0
                   ? tSubscription("SUBSCRIPTION_PLAN_SCHEMA.WHOLE_NUMBERS_ONLY")
-                  : tSubscription(METER_MAX_SCALE_KEY, {
-                      count: meter.quantityScale,
-                    }),
+                  : tSubscription(METER_MAX_SCALE_KEY, { count: meter.quantityScale }),
             });
           }
         }
@@ -778,7 +804,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
       if (requirePrice && plan.prices.length === 0) {
         context.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["prices"],
           message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ADD_PRICE"),
         });
@@ -790,7 +816,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       plan.prices.forEach((price, index) => {
         if (price.quantityItemKey !== FLAT_FEE && !itemKeys.has(price.quantityItemKey)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["prices", index, "quantityItemKey"],
             message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.ITEM_NOT_DEFINED"),
           });
@@ -803,7 +829,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
 
         if (seenTerms.has(terms)) {
           context.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["prices", index, "currencyCode"],
             message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.PRICE_DUPLICATE_TERMS"),
           });
@@ -829,7 +855,7 @@ const checkMemberQuantity = (
 
   if (items.length > 1 && items.filter((item) => item.countsMembers).length !== 1) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["quantityItems"],
       message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.MARK_COUNTING_ITEM"),
     });
@@ -849,7 +875,7 @@ const checkMemberQuantity = (
   // maximum can be — and without one there is no number at all.
   if (plan.prices.some((price) => price.quantityItemKey !== counting.itemKey)) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["quantityItems", countingIndex, "maxQuantity"],
       message: tSubscription("SUBSCRIPTION_PLAN_SCHEMA.FLAT_NEEDS_MAXIMUM"),
     });
@@ -878,7 +904,10 @@ const checkPaceLimits = (
     // five-hour window would leave one short block a day with nowhere consistent to start it.
     // Rolling has no such requirement — it has no start on the clock to tile from.
     if (!limit.rolling && limit.window === 0 && ![1, 2, 3, 4, 6, 8, 12, 24].includes(limit.count)) {
-      report([index, "count"], tSubscription("SUBSCRIPTION_PLAN_SCHEMA.LIMIT_HOURLY_DIVIDES_DAY"));
+      report(
+        [index, "count"],
+        tSubscription("SUBSCRIPTION_PLAN_SCHEMA.LIMIT_HOURLY_DIVIDES_DAY"),
+      );
     }
   });
 
@@ -928,6 +957,7 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   trialDurationKind: undefined,
   trialDurationCount: undefined,
   trialRequiresPaymentMethod: true,
+  oneTrialPerPlan: true,
   // False, which is what every plan authored before this existed meant: nothing due today, so
   // nothing to collect.
   requirePaymentMethodUpfront: false,

@@ -91,6 +91,9 @@ public sealed class PlanResponse
 
     public bool TrialRequiresPaymentMethod { get; init; }
 
+    /// <summary>Whether an organization gets this plan's trial only once.</summary>
+    public bool OneTrialPerPlan { get; init; }
+
     /// <summary>Whether a card is collected before activation even when nothing is due today.</summary>
     public bool RequirePaymentMethodUpfront { get; init; }
 

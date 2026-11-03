@@ -3,12 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/c
 import { Form } from "@/components/ui-kits/form/form";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { useProjectStore, useT, tStatic } from "@seliseblocks/genesis-os";
+import { isParsableUrl } from "@/lib/url-format";
 
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { useSaveSsoCredential } from "@blocks-idp/authentication/hooks/use-sso";
 import { ISsoProviderConfiguration } from "@blocks-idp/authentication/models/sso.model";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
 import { createCommonOAuthFields } from "../sso-provider-config-field-factory.util";
 import { createSsoProviderConfigBaseSchema } from "../sso-provider-config.schema";
@@ -40,7 +41,7 @@ type FormValue = {
 const createSchema = () => createSsoProviderConfigBaseSchema().extend({
   clientId: z.string().trim().nonempty(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.CLIENT_ID_IS_REQUIRED")),
   clientSecret: z.string().trim().nonempty(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.CLIENT_SECRET_IS_REQUIRED")),
-  wellKnownUrl: z.string().url({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.WELL_KNOWN_URL_MUST_BE") }).trim(),
+  wellKnownUrl: z.string().refine(isParsableUrl, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.WELL_KNOWN_URL_MUST_BE")).trim(),
 });
 
 export const SSOProviderConfigOwnSSOForm: React.FC<SsoConfigForms> = ({ configuration }) => {
@@ -48,16 +49,17 @@ export const SSOProviderConfigOwnSSOForm: React.FC<SsoConfigForms> = ({ configur
   const projectKey = useProjectStore()?.selectedProject?.tenantId || "";
   const { mutateAsync } = useSaveSsoCredential();
 
+  const values = configuration || {
+    provider: SSO_PROVIDERS.ownsso,
+    audience: "",
+    clientId: "",
+    clientSecret: "",
+    redirectUrl: "",
+    wellKnownUrl: "",
+  };
   const form = useForm({
-    values: configuration || {
-      provider: SSO_PROVIDERS.ownsso,
-      audience: "",
-      clientId: "",
-      clientSecret: "",
-      redirectUrl: "",
-      wellKnownUrl: "",
-    },
-    resolver: zodResolver(createSchema()),
+    values,
+    resolver: zodResolver(createSchema()) as unknown as Resolver<typeof values>,
   });
 
   const onFormSubmit = async (data: ISsoProviderConfiguration | FormValue) => {

@@ -39,6 +39,13 @@ public sealed class PlanSnapshot
     /// </remarks>
     public SubscriberScope SubscriberScope { get; set; } = SubscriberScope.Organization;
 
+    /// <summary>
+    /// <see cref="Plan.OneTrialPerPlan"/> as it stood when this was sold. Read when the trial
+    /// starts, so a signup made while the plan was off records no claim later. True when absent,
+    /// as on the plan.
+    /// </summary>
+    public bool OneTrialPerPlan { get; set; } = true;
+
     public string DisplayName { get; set; } = string.Empty;
 
     public string? FeaturesJson { get; set; }

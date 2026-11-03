@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import React from "react";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 
 import { Button } from "@/components/ui-kits/button/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
@@ -36,20 +36,21 @@ export const SSOProviderConfigMicrosoftForm: React.FC<SsoConfigForms> = ({
   configuration,
 }) => {
   const { t } = useT("utilities.idp.authentication");
+  const values = configuration || {
+    provider: SSO_PROVIDERS.microsoft,
+    audience: "",
+    clientId: "",
+    clientSecret: "",
+    redirectUrl: "",
+    initialRoles: [],
+    initialPermissions: [],
+    // Hardcoded default role for now; will use API response later
+    userRoles: [{ name: "user", slug: "user", description: t("SSO_PROVIDER_CONFIG_MICROSOFT_FORM.DEFAULT_ROLE"), itemId: "1234" }],
+    userPermissions: [],
+  };
   const form = useForm({
-    values: configuration || {
-      provider: SSO_PROVIDERS.microsoft,
-      audience: "",
-      clientId: "",
-      clientSecret: "",
-      redirectUrl: "",
-      initialRoles: [],
-      initialPermissions: [],
-      // Hardcoded default role for now; will use API response later
-      userRoles: [{ name: "user", slug: "user", description: t("SSO_PROVIDER_CONFIG_MICROSOFT_FORM.DEFAULT_ROLE"), itemId: "1234" }],
-      userPermissions: [],
-    },
-    resolver: zodResolver(createSsoOAuthProviderSchema()),
+    values,
+    resolver: zodResolver(createSsoOAuthProviderSchema()) as unknown as Resolver<typeof values>,
   });
   return (
     <Form {...form}>

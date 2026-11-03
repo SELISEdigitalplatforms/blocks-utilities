@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { tStatic } from "@seliseblocks/genesis-os";
+import { isParsableUrl } from "@/lib/url-format";
 
 const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
 
 export const makeOidcSchema = () => z.object({
-redirectUrlOidc: z.string().url(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.MUST_BE_A_VALID_URL")).refine((val) => {
+redirectUrlOidc: z.string().refine(isParsableUrl, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.MUST_BE_A_VALID_URL")).refine((val) => {
   try {
     const url = new URL(val);
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
@@ -15,7 +16,7 @@ redirectUrlOidc: z.string().url(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UT
     return false;
   }
 }, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.ONLY_HTTP_IS_ALLOWED_FOR")),  
-audienceUrlOidc: z.string().url(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.MUST_BE_A_VALID_URL")).refine((val) => {
+audienceUrlOidc: z.string().refine(isParsableUrl, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "UTILS.MUST_BE_A_VALID_URL")).refine((val) => {
   try {
     const url = new URL(val);
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {

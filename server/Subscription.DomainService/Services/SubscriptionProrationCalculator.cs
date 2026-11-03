@@ -289,9 +289,23 @@ public static class SubscriptionProrationCalculator
         ArgumentNullException.ThrowIfNull(targetQuantityItems);
         ArgumentNullException.ThrowIfNull(currentAnnual);
 
+        // The index that priced the year being replaced; see the annual side below for why.
+        var annualDiscountPeriodsApplied = currentAnnual.DiscountApplied
+            ? Math.Max(0, subscription.DiscountPeriodsApplied - 1)
+            : subscription.DiscountPeriodsApplied;
+
+        // The stub carries the code only where signup priced it with one, so both sides are valued
+        // the way the stub was actually charged.
+        var stubDiscount = SubscriptionDiscountPeriodAccounting.StubTakesCode(subscription.Discount)
+            ? subscription.Discount
+            : null;
+
         var outgoingStub = StubSide(
-            subscription.Plan, subscription.Price, subscription.QuantityItems, nowUtc, stubFraction);
-        var targetStub = StubSide(targetPlan, targetPrice, targetQuantityItems, nowUtc, stubFraction);
+            subscription.Plan, subscription.Price, subscription.QuantityItems, stubDiscount,
+            annualDiscountPeriodsApplied, nowUtc, stubFraction);
+        var targetStub = StubSide(
+            targetPlan, targetPrice, targetQuantityItems, stubDiscount,
+            annualDiscountPeriodsApplied, nowUtc, stubFraction);
 
         // The frozen figures verbatim — this is what was actually charged, or promised, for the
         // year. ProratedValueMinor is the whole amount: the year has not started, so none of it is
@@ -319,11 +333,8 @@ public static class SubscriptionProrationCalculator
         // Conditioned on the frozen year's own DiscountApplied rather than stepped back
         // unconditionally: when no promotion reduced this year, nothing was counted for it, and
         // stepping the index back anyway would revive a period the promotion never actually spent
-        // on this year — handing out a discount that was never bought.
-        var annualDiscountPeriodsApplied = currentAnnual.DiscountApplied
-            ? Math.Max(0, subscription.DiscountPeriodsApplied - 1)
-            : subscription.DiscountPeriodsApplied;
-
+        // on this year — handing out a discount that was never bought. Computed above, with the
+        // stub sides that share it.
         var targetAnnualCharge = SubscriptionAmountCalculator.DiscountedAmountMinor(
             targetPlan,
             subscription.Discount,
@@ -367,13 +378,15 @@ public static class SubscriptionProrationCalculator
 
     /// <summary>
     /// One side of the stub component of an opening-stub upgrade: a plan and price's monthly
-    /// stub-basis rate, discounted with no promotional code, for the fraction of a month the stub
-    /// still covers.
+    /// stub-basis rate, discounted with the code only where the stub was priced with one, for the
+    /// fraction of a month the stub still covers.
     /// </summary>
     private static ProrationSide StubSide(
         PlanSnapshot plan,
         PriceSnapshot price,
         IReadOnlyList<SubscriptionQuantityItem> quantityItems,
+        DiscountTerms? discount,
+        int discountPeriodsApplied,
         DateTime nowUtc,
         BillingDayFraction stubFraction)
     {
@@ -382,10 +395,10 @@ public static class SubscriptionProrationCalculator
             ? (stubPrice, stubQuantityItems)
             : (price, quantityItems);
 
-        // No discount here — see this method's caller. Built-in and volume reductions still apply,
-        // since those belong to the price rather than to the subscriber's code.
+        // Usually no code here — see this method's caller. Built-in and volume reductions still
+        // apply, since those belong to the price rather than to the subscriber's code.
         var discounted = SubscriptionAmountCalculator.DiscountedAmountMinor(
-            plan, null, basisPrice, basisQuantityItems, 0, nowUtc, stubFraction);
+            plan, discount, basisPrice, basisQuantityItems, discountPeriodsApplied, nowUtc, stubFraction);
         var tax = SubscriptionAmountCalculator.TaxBreakdownFor(
             discounted.AmountMinor, basisPrice.TaxRateBasisPoints, basisPrice.TaxMode);
 

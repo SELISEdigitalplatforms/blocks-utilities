@@ -26,6 +26,7 @@ internal static class SubscriptionSnapshotBuilder
             UsageInterval = plan.UsageInterval,
             UsageIntervalCount = plan.UsageIntervalCount,
             RequirePaymentMethodUpfront = plan.RequirePaymentMethodUpfront,
+            OneTrialPerPlan = plan.OneTrialPerPlan,
             PlanVersion = plan.Version,
             Entitlements = plan.Entitlements
                 .Select(entitlement => new PlanEntitlement

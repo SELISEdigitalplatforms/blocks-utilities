@@ -9,6 +9,6 @@ export const signinFormDefaultValue = {
 };
 
 export const createSigninFormSchema = () => z.object({
-  username: z.string().min(1, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SCHEMA.EMAIL_IS_REQUIRED")).email(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SCHEMA.INVALID_EMAIL_FORMAT")),
+  username: z.string().min(1, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SCHEMA.EMAIL_IS_REQUIRED")).check(z.email(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SCHEMA.INVALID_EMAIL_FORMAT"))),
   password: z.string().min(1, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SCHEMA.PASSWORD_IS_REQUIRED")),
 });

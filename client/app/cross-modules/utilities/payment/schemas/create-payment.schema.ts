@@ -1,5 +1,6 @@
 import { tStatic } from "@seliseblocks/genesis-os";
 import { z } from "zod";
+import { zod3Messages } from "@/lib/zod3-messages";
 import { PAYMENT_PROVIDER_NAMES } from "../models/payment-provider.model";
 
 const UTILITIES_PAYMENT_MODULE = "utilities.payment";
@@ -9,8 +10,10 @@ export const createPaymentSchema = () =>
   providerName: z.enum(PAYMENT_PROVIDER_NAMES),
   amount: z
     .number({
-      required_error: tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_SCHEMA.AMOUNT_REQUIRED"),
-      invalid_type_error: tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_SCHEMA.VALID_AMOUNT"),
+      error: (issue) =>
+        issue.input === undefined
+          ? tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_SCHEMA.AMOUNT_REQUIRED")
+          : tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_SCHEMA.VALID_AMOUNT"),
     })
     .positive(tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_SCHEMA.AMOUNT_POSITIVE"))
     .max(999_999_999, tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_SCHEMA.AMOUNT_TOO_LARGE")),
@@ -29,5 +32,11 @@ export const createPaymentSchema = () =>
   isRecurring: z.literal(false),
   // Blank means "use whichever organization my context carries", which is what every
   // payment did before this field existed.
-  organizationId: z.string().trim().max(200).optional().or(z.literal("")),
+  // zod 3's default message, kept so the form reads the same after the zod 4 upgrade.
+  organizationId: z
+    .string()
+    .trim()
+    .max(200, zod3Messages.stringMax(200))
+    .optional()
+    .or(z.literal("")),
 });

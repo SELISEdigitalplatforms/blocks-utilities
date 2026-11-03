@@ -325,6 +325,8 @@ export interface SubscriptionPlan {
   /** The count {@link trialDurationKind} is measured in. Null for `"EndOfCalendarMonth"`. */
   trialDurationCount?: number | null;
   trialRequiresPaymentMethod: boolean;
+  /** Whether an organization gets this plan's trial only once, whoever buys it. */
+  oneTrialPerPlan: boolean;
   /**
    * Whether a card is collected before the subscription starts, even when the opening amount is
    * zero. Absent on plans stored before the setting existed, which is the same as false.
@@ -457,6 +459,8 @@ export interface CreateSubscriptionPlanRequest {
   /** Legacy day-count trial. The console never sends this; kept only for the response type's sake. */
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write: omitted, the server would turn it back on. */
+  oneTrialPerPlan: boolean;
   /** Sent on every write, for the same reason the combination policy is. */
   requirePaymentMethodUpfront: boolean;
   /** Sent on every write: omitted, the server would reset it to BestDiscount. */
@@ -494,6 +498,8 @@ export interface UpdateSubscriptionPlanRequest {
   /** Legacy day-count trial. The console never sends this; kept only for the response type's sake. */
   trialDays?: number;
   trialRequiresPaymentMethod: boolean;
+  /** Sent on every write: omitted, the server would turn it back on. */
+  oneTrialPerPlan: boolean;
   /** Sent on every write, for the same reason the combination policy is. */
   requirePaymentMethodUpfront: boolean;
   /** Sent on every write: omitted, the server would reset it to BestDiscount. */

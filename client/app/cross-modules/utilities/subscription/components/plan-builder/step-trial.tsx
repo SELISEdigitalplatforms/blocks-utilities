@@ -60,6 +60,7 @@ export const StepTrial = () => {
     control,
     name: "trialRequiresPaymentMethod",
   });
+  const oneTrialPerPlan = useWatch({ control, name: "oneTrialPerPlan" });
   const meters = useWatch({ control, name: "meters" });
   const grantValues = useWatch({ control, name: "trialGrants" });
 
@@ -170,6 +171,26 @@ export const StepTrial = () => {
                 {trialRequiresPaymentMethod
                   ? t("STEP_TRIAL.CARD_HINT")
                   : t("STEP_TRIAL.NO_CARD_HINT")}
+              </p>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={control}
+          name="oneTrialPerPlan"
+          render={({ field }) => (
+            <FormItem className="flex flex-col justify-end">
+              <div className="flex items-center gap-2">
+                <FormControl>
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                </FormControl>
+                <FormLabel className="!m-0">One trial per plan</FormLabel>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {oneTrialPerPlan
+                  ? "Each organization gets the trial once, whoever buys it. Subscribing again after cancelling goes to paid checkout."
+                  : "Every signup gets the trial, including an organization that cancelled and comes back."}
               </p>
             </FormItem>
           )}

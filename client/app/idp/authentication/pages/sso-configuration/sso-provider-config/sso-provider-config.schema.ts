@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { tStatic } from "@seliseblocks/genesis-os";
+import { isParsableUrl } from "@/lib/url-format";
 
 const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
 
@@ -18,8 +19,8 @@ export const ssoPermissionSchema = z.object({
 
 export const createSsoProviderConfigBaseSchema = () => z.object({
   provider: z.string().trim(),
-  audience: z.string().url({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_SCHEMA.AUDIENCE_URL_MUST_BE_A") }).trim(),
-  redirectUrl: z.string().url({ message: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_SCHEMA.REDIRECT_URL_MUST_BE_A") }).trim(),
+  audience: z.string().refine(isParsableUrl, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_SCHEMA.AUDIENCE_URL_MUST_BE_A")).trim(),
+  redirectUrl: z.string().refine(isParsableUrl, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_SCHEMA.REDIRECT_URL_MUST_BE_A")).trim(),
 });
 
 export const createSsoOAuthProviderSchema = () => createSsoProviderConfigBaseSchema().extend({
