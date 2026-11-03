@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui-kits/badge/badge";
@@ -16,6 +17,7 @@ export const ThresholdChipInput = ({
   onChange: (next: number[]) => void;
 }) => {
   const [custom, setCustom] = useState("");
+  const { t } = useT("utilities.subscription.plan-builder");
 
   const add = (percent: number) => {
     if (percent >= 1 && percent <= 100 && !value.includes(percent)) {
@@ -38,7 +40,7 @@ export const ThresholdChipInput = ({
             <button
               type="button"
               onClick={() => remove(percent)}
-              aria-label={`Remove ${percent}%`}
+              aria-label={t("THRESHOLD_CHIP_INPUT.REMOVE", { percent })}
               className="rounded-full hover:text-destructive"
             >
               <X className="h-3 w-3" />
@@ -69,13 +71,15 @@ export const ThresholdChipInput = ({
               setCustom("");
             }
           }}
-          placeholder="Custom %"
+          placeholder={t("THRESHOLD_CHIP_INPUT.CUSTOM_PLACEHOLDER")}
           type="number"
           min={1}
           max={100}
           className="h-8 w-24 text-xs"
         />
-        <span className="text-xs text-muted-foreground">Press Enter to add</span>
+        <span className="text-xs text-muted-foreground">
+          {t("THRESHOLD_CHIP_INPUT.PRESS_ENTER")}
+        </span>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui-kits/button/button";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { CAPTCHA_PROVIDERS, ICaptchaConfig } from "../../models/captcha";
+import { getCaptchaProviders, ICaptchaConfig } from "../../models/captcha";
 import { ConfigureCaptchaModal } from "../../modals/configure-captcha-modal/";
 import { DialogTrigger } from "@/components/ui-kits/dialog/dialog";
 import { Pencil } from "lucide-react";
@@ -12,6 +12,7 @@ import { MaskedText } from "@/components/masked-text";
 import { ReactNode } from "react";
 import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button";
 import { ToggleCaptchaStatusModal } from "@blocks-idp/captcha/modals/toggle-captcha-status-modal";
+import { useT } from "@seliseblocks/genesis-os";
 
 const LoadingSkelton = () => {
   return (
@@ -23,9 +24,10 @@ const LoadingSkelton = () => {
   );
 };
 const EmptyCaptchaConfig = () => {
+  const { t } = useT("utilities.idp");
   return (
     <div className="text-muted- flex h-32 flex-wrap items-center justify-center rounded-sm border bg-background p-4 text-center text-muted-foreground">
-      No configurations found. Please create a new configuration.
+      {t("CONFIGURE_CAPTCHA_LIST.NO_CONFIGURATIONS_FOUND_PLEASE")}
     </div>
   );
 };
@@ -44,6 +46,7 @@ type ConfigureCaptchaListProps = {
 };
 
 export const ConfigureCaptchaList = ({ isLoading, configurations }: ConfigureCaptchaListProps) => {
+  const { t } = useT("utilities.idp");
   if (isLoading) return <LoadingSkelton />;
   if (!configurations.length) return <EmptyCaptchaConfig />;
 
@@ -52,19 +55,19 @@ export const ConfigureCaptchaList = ({ isLoading, configurations }: ConfigureCap
       <div className="grid gap-4">
         {configurations.map((configuration) => (
           <>
-            {CAPTCHA_PROVIDERS[configuration.provider] && (
+            {getCaptchaProviders()[configuration.provider] && (
               <Card key={configuration.itemId}>
                 <CardHeader className="flex-row justify-between">
                   <div className="flex items-center gap-4">
-                    <CardTitle> {CAPTCHA_PROVIDERS[configuration.provider].label} </CardTitle>
-                    {configuration.isEnable && <Badge variant="success">Enable</Badge>}
+                    <CardTitle> {getCaptchaProviders()[configuration.provider].label} </CardTitle>
+                    {configuration.isEnable && <Badge variant="success">{t("CONFIGURE_CAPTCHA_LIST.ENABLE")}</Badge>}
                   </div>
                   <div className="hidden gap-4 sm:flex">
                     <ConfigureCaptchaModal configuration={configuration}>
                       <DialogTrigger asChild>
                         <Button size="sm" variant="outline">
                           <Pencil className="h-4 w-4" />
-                          <span className="ml-2.5">Edit</span>
+                          <span className="ml-2.5">{t("common:EDIT")}</span>
                         </Button>
                       </DialogTrigger>
                     </ConfigureCaptchaModal>
@@ -79,7 +82,7 @@ export const ConfigureCaptchaList = ({ isLoading, configurations }: ConfigureCap
                         <DialogTrigger asChild>
                           <Button size="sm" variant="outline">
                             <Pencil className="h-4 w-4" />
-                            <span className="ml-2.5">Edit</span>
+                            <span className="ml-2.5">{t("common:EDIT")}</span>
                           </Button>
                         </DialogTrigger>
                       </ConfigureCaptchaModal>
@@ -87,12 +90,12 @@ export const ConfigureCaptchaList = ({ isLoading, configurations }: ConfigureCap
                     </div>
 
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <Item label="Site Key">
+                      <Item label={t("CONFIGURE_CAPTCHA_LIST.SITE_KEY")}>
                         <CopyToClipboardButton textToCopy={configuration.captchaKey}>
                           <MaskedText text={configuration.captchaSecret} length={30} />
                         </CopyToClipboardButton>
                       </Item>
-                      <Item label="Secret Key">
+                      <Item label={t("CONFIGURE_CAPTCHA_LIST.SECRET_KEY")}>
                         <CopyToClipboardButton textToCopy={configuration.captchaSecret}>
                           <MaskedText text={configuration.captchaSecret} length={30} />
                         </CopyToClipboardButton>

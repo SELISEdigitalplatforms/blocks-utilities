@@ -1,3 +1,5 @@
+import { tSubscription } from "./subscription-i18n";
+
 /**
  * The arithmetic behind a meter's pace limits, shared by the schema (which refuses) and the builder
  * (which warns), so the two can never disagree about how long a limit is.
@@ -16,18 +18,64 @@ const MOST_HOURS_PER_PERIOD = [24, 24 * 7, 24 * 31, 24 * 366] as const;
  */
 const LEAST_HOURS_PER_PERIOD = [24, 24 * 7, 24 * 28, 24 * 365] as const;
 
-const UNIT_NAMES = ["hour", "day", "week"] as const;
-const ONE_OF = ["an hour", "a day", "a week"] as const;
 
 /** "a week", "5 hours" — the stretch a limit covers, for naming it in a sentence. */
-const stretch = (limit: Pick<PaceLimit, "window" | "count">): string =>
-  limit.count <= 1
-    ? (ONE_OF[limit.window] ?? "a window")
-    : `${limit.count} ${UNIT_NAMES[limit.window] ?? "window"}s`;
+const stretch = (limit: Pick<PaceLimit, "window" | "count">): string => {
+  const values = { count: limit.count };
+
+  if (limit.count <= 1) {
+    switch (limit.window) {
+      case 0:
+        return tSubscription("PACE_LIMITS.STRETCH_ONE_HOUR");
+      case 1:
+        return tSubscription("PACE_LIMITS.STRETCH_ONE_DAY");
+      case 2:
+        return tSubscription("PACE_LIMITS.STRETCH_ONE_WEEK");
+      default:
+        return tSubscription("PACE_LIMITS.STRETCH_ONE_WINDOW");
+    }
+  }
+
+  switch (limit.window) {
+    case 0:
+      return tSubscription("PACE_LIMITS.STRETCH_MANY_HOURS", values);
+    case 1:
+      return tSubscription("PACE_LIMITS.STRETCH_MANY_DAYS", values);
+    case 2:
+      return tSubscription("PACE_LIMITS.STRETCH_MANY_WEEKS", values);
+    default:
+      return tSubscription("PACE_LIMITS.STRETCH_MANY_WINDOWS", values);
+  }
+};
 
 /** "10,000 per 5 hours" — a limit as its author wrote it. */
-const named = (limit: PaceLimit): string =>
-  `${(limit.quantity ?? 0).toLocaleString()} per ${limit.count <= 1 ? "" : `${limit.count} `}${UNIT_NAMES[limit.window] ?? "window"}${limit.count <= 1 ? "" : "s"}`;
+const named = (limit: PaceLimit): string => {
+  const values = { quantity: (limit.quantity ?? 0).toLocaleString(), count: limit.count };
+
+  if (limit.count <= 1) {
+    switch (limit.window) {
+      case 0:
+        return tSubscription("PACE_LIMITS.NAMED_PER_HOUR", values);
+      case 1:
+        return tSubscription("PACE_LIMITS.NAMED_PER_DAY", values);
+      case 2:
+        return tSubscription("PACE_LIMITS.NAMED_PER_WEEK", values);
+      default:
+        return tSubscription("PACE_LIMITS.NAMED_PER_WINDOW", values);
+    }
+  }
+
+  switch (limit.window) {
+    case 0:
+      return tSubscription("PACE_LIMITS.NAMED_PER_MANY_HOURS", values);
+    case 1:
+      return tSubscription("PACE_LIMITS.NAMED_PER_MANY_DAYS", values);
+    case 2:
+      return tSubscription("PACE_LIMITS.NAMED_PER_MANY_WEEKS", values);
+    default:
+      return tSubscription("PACE_LIMITS.NAMED_PER_MANY_WINDOWS", values);
+  }
+};
 
 export const MAX_PACE_LIMITS = 3;
 
@@ -96,7 +144,11 @@ export const paceWarnings = (
     if (binding && (longer.limit.quantity ?? 0) >= binding.most) {
       warnings.push({
         index: longer.index,
-        message: `The limit of ${named(binding.limit)} already caps ${stretch(longer.limit)} at about ${binding.most.toLocaleString()}, so this one never applies.`,
+        message: tSubscription("PACE_LIMITS.WARNING_ALREADY_CAPPED", {
+          limit: named(binding.limit),
+          stretch: stretch(longer.limit),
+          most: binding.most.toLocaleString(),
+        }),
       });
     }
   }
@@ -119,7 +171,10 @@ export const paceWarnings = (
   if (tightest !== undefined && tightest < meter.includedQuantity) {
     warnings.push({
       index: -1,
-      message: `These limits let through at most about ${tightest.toLocaleString()} per allowance period, so the ${meter.includedQuantity.toLocaleString()} included can never all be used.`,
+      message: tSubscription("PACE_LIMITS.WARNING_ALLOWANCE_UNUSED", {
+        most: tightest.toLocaleString(),
+        included: meter.includedQuantity.toLocaleString(),
+      }),
     });
   }
 
@@ -130,8 +185,7 @@ export const paceWarnings = (
     if (!limit.rolling && isDayOrWeekPeriod && spanHours(limit) === periodHours) {
       warnings.push({
         index,
-        message:
-          "This covers the same stretch as the allowance period, so the smaller of the two is the real cap. Make it rolling, or shorter, if you meant to limit how fast it is spent.",
+        message: tSubscription("PACE_LIMITS.WARNING_SAME_STRETCH"),
       });
     }
   });
@@ -165,7 +219,9 @@ const budgetWarnings = (
       .filter(({ limit }) => (limit.quantity ?? 0) >= meter.includedQuantity)
       .map(({ index }) => ({
         index,
-        message: `The meter stops at ${meter.includedQuantity.toLocaleString()} for its whole lifetime, so this limit can never be reached.`,
+        message: tSubscription("PACE_LIMITS.WARNING_LIFETIME_STOP", {
+          included: meter.includedQuantity.toLocaleString(),
+        }),
       }));
   }
 
@@ -184,6 +240,9 @@ const budgetWarnings = (
     .filter(({ limit, most }) => (limit.quantity ?? 0) >= most)
     .map(({ index, most }) => ({
       index,
-      message: `With overage off the meter stops at ${budget.toLocaleString()} per allowance period, so no stretch this long can hold more than ${most.toLocaleString()} and this limit can never be reached.`,
+      message: tSubscription("PACE_LIMITS.WARNING_OVERAGE_OFF", {
+        budget: budget.toLocaleString(),
+        most: most.toLocaleString(),
+      }),
     }));
 };

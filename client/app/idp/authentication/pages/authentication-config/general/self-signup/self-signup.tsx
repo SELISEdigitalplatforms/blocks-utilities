@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui-kits/button/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { selfSignUpFormDefaultValues, selfSignUpFormSchema, SelfSignUpFormType } from "./utils";
 import { useForm } from "react-hook-form";
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { useGetAuthConfig, useSaveAuthConfig } from "@blocks-idp/authentication/hooks/use-auth-config";
 
 export const SelfSignup = () => {
+  const { t } = useT("utilities.idp.authentication");
   const { tenantId } = useProjectStore().selectedProject || { tenantId: "", itemId: "" };
   const { data, isLoading } = useGetAuthConfig({ projectKey: tenantId });
 
@@ -26,7 +27,7 @@ export const SelfSignup = () => {
 
   const submitHandler = async (values: SelfSignUpFormType) => {
     try {
-      if (!tenantId || !data) return showErrorToast({ errors: "Something went wrong" });
+      if (!tenantId || !data) return showErrorToast({ errors: t("SELF_SIGNUP.SOMETHING_WENT_WRONG") });
 
       const res = await mutateAsync({
         ...data,
@@ -35,10 +36,10 @@ export const SelfSignup = () => {
       });
 
       if (!res.isSuccess) return showErrorToast({ errors: res.errors });
-      showSuccessToast({ description: "Self sign-up settings updated successfully" });
+      showSuccessToast({ description: t("SELF_SIGNUP.SELF_SIGN_UP_SETTINGS_UPDATED") });
     } catch (error) {
       if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: "Something went wrong" });
+      showErrorToast({ errors: t("SELF_SIGNUP.SOMETHING_WENT_WRONG") });
     }
   };
 
@@ -47,7 +48,7 @@ export const SelfSignup = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Self Sign-Up</CardTitle>
+        <CardTitle>{t("SELF_SIGNUP.SELF_SIGN_UP")}</CardTitle>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -72,7 +73,7 @@ export const SelfSignup = () => {
                           value={undefined}
                         />
                       </FormControl>
-                      <FormLabel className={`!mt-0`}>Allow Self Sign-Up</FormLabel>
+                      <FormLabel className={`!mt-0`}>{t("SELF_SIGNUP.ALLOW_SELF_SIGN_UP")}</FormLabel>
                     </FormItem>
                   )}
                 </>
@@ -80,7 +81,7 @@ export const SelfSignup = () => {
             />
             {!isLoading && (
               <div>
-                <Button disabled={isPending || !isValid || !isDirty}>Save</Button>
+                <Button disabled={isPending || !isValid || !isDirty}>{t("common:SAVE")}</Button>
               </div>
             )}
           </form>

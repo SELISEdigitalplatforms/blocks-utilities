@@ -2,7 +2,7 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import { Form } from "@/components/ui-kits/form/form";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT, tStatic } from "@seliseblocks/genesis-os";
 import { isParsableUrl } from "@/lib/url-format";
 
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
@@ -12,16 +12,18 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
 import { createCommonOAuthFields } from "../sso-provider-config-field-factory.util";
-import { ssoProviderConfigBaseSchema } from "../sso-provider-config.schema";
+import { createSsoProviderConfigBaseSchema } from "../sso-provider-config.schema";
 import { SSOProviderConfigFormFieldType } from "../sso-provider-config.type";
 import { SSOProviderConfigFormField } from "./sso-provider-config-form-fields";
 import { SsoConfigForms } from "./sso-provider-config-forms";
 
-const SSOOwnSSOFormFields: SSOProviderConfigFormFieldType[] = [
+const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
+
+const getSsoOwnSsoFormFields = (): SSOProviderConfigFormFieldType[] => [
   ...createCommonOAuthFields({ clientId: { description: "" } }),
   {
     id: "6",
-    label: "Well Known URL",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.WELL_KNOWN_URL"),
     type: "input",
     name: "wellKnownUrl",
   },
@@ -36,13 +38,14 @@ type FormValue = {
   wellKnownUrl: string;
 };
 
-const schema = ssoProviderConfigBaseSchema.extend({
-  clientId: z.string().trim().nonempty("Client id is required"),
-  clientSecret: z.string().trim().nonempty("Client secret is required"),
-  wellKnownUrl: z.string().refine(isParsableUrl, "Well known URL must be a valid URL.").trim(),
+const createSchema = () => createSsoProviderConfigBaseSchema().extend({
+  clientId: z.string().trim().nonempty(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.CLIENT_ID_IS_REQUIRED")),
+  clientSecret: z.string().trim().nonempty(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.CLIENT_SECRET_IS_REQUIRED")),
+  wellKnownUrl: z.string().refine(isParsableUrl, tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.WELL_KNOWN_URL_MUST_BE")).trim(),
 });
 
 export const SSOProviderConfigOwnSSOForm: React.FC<SsoConfigForms> = ({ configuration }) => {
+  const { t } = useT(UTILITIES_IDP_AUTHENTICATION_MODULE);
   const projectKey = useProjectStore()?.selectedProject?.tenantId || "";
   const { mutateAsync } = useSaveSsoCredential();
 
@@ -56,7 +59,7 @@ export const SSOProviderConfigOwnSSOForm: React.FC<SsoConfigForms> = ({ configur
   };
   const form = useForm({
     values,
-    resolver: zodResolver(schema) as unknown as Resolver<typeof values>,
+    resolver: zodResolver(createSchema()) as unknown as Resolver<typeof values>,
   });
 
   const onFormSubmit = async (data: ISsoProviderConfiguration | FormValue) => {
@@ -76,7 +79,7 @@ export const SSOProviderConfigOwnSSOForm: React.FC<SsoConfigForms> = ({ configur
     const res = await mutateAsync(payload);
 
     if (!res.isSuccess) return showErrorToast({ errors: res.errors });
-    showSuccessToast({ description: `Bring your own SSO is configured successfully` });
+    showSuccessToast({ description: t("SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.BRING_YOUR_OWN_SSO_IS") });
   };
 
   return (
@@ -87,15 +90,15 @@ export const SSOProviderConfigOwnSSOForm: React.FC<SsoConfigForms> = ({ configur
       >
         <Card>
           <CardHeader>
-            <CardTitle>General</CardTitle>
+            <CardTitle>{t("SSO_PROVIDER_CONFIG_BLOCKS_OWN_SSO_FORM.GENERAL")}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <SSOProviderConfigFormField fields={SSOOwnSSOFormFields} form={form} />
+            <SSOProviderConfigFormField fields={getSsoOwnSsoFormFields()} form={form} />
           </CardContent>
         </Card>
 
         <div className="flex items-center justify-end gap-2">
-          <Button type="submit">Save</Button>
+          <Button type="submit">{t("common:SAVE")}</Button>
         </div>
       </form>
     </Form>

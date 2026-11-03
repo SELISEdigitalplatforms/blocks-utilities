@@ -1,3 +1,10 @@
+import { getLanguageCode, tStatic } from "@seliseblocks/genesis-os";
+
+const MODULE = "utilities.subscription";
+
+/** Read when the option is shown, never at import time, so a language change is picked up. */
+const text = (key: string): string => tStatic(MODULE, key);
+
 export const SUBSCRIPTION_PLANS_ENDPOINT = "/api/subscription-plans";
 export const SUBSCRIPTION_PLAN_PRICES_ENDPOINT = "/api/subscription-plans/prices";
 export const SUBSCRIPTION_BILLING_PROFILE_ENDPOINT = "/api/subscription-billing-profile";
@@ -9,17 +16,57 @@ export const SUBSCRIPTION_INVOICES_ENDPOINT = "/api/subscriptions/invoices";
  * because Radix refuses an empty SelectItem value and the server refuses a blank filter.
  */
 export const FINANCIAL_DOCUMENT_TYPE_OPTIONS = [
-  { value: "all", label: "All documents" },
-  { value: "Invoice", label: "Invoices" },
-  { value: "TrialInvoice", label: "Trial invoices" },
-  { value: "CreditNote", label: "Credit notes" },
+  {
+    value: "all",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_TYPE_ALL");
+    },
+  },
+  {
+    value: "Invoice",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_TYPE_INVOICE");
+    },
+  },
+  {
+    value: "TrialInvoice",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_TYPE_TRIAL_INVOICE");
+    },
+  },
+  {
+    value: "CreditNote",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_TYPE_CREDIT_NOTE");
+    },
+  },
 ] as const;
 
 export const FINANCIAL_DOCUMENT_STATUS_OPTIONS = [
-  { value: "all", label: "Any status" },
-  { value: "Issued", label: "Issued" },
-  { value: "PartiallyRefunded", label: "Partially refunded" },
-  { value: "Refunded", label: "Refunded" },
+  {
+    value: "all",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_STATUS_ANY");
+    },
+  },
+  {
+    value: "Issued",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_STATUS_ISSUED");
+    },
+  },
+  {
+    value: "PartiallyRefunded",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_STATUS_PARTIALLY_REFUNDED");
+    },
+  },
+  {
+    value: "Refunded",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_STATUS_REFUNDED");
+    },
+  },
 ] as const;
 
 /** The sentinel a "no filter" select carries. Never leaves the page layer. */
@@ -33,10 +80,30 @@ export const SUBSCRIPTION_KEY_MAX_LENGTH = 64;
 export const SUBSCRIPTION_FEATURES_JSON_MAX_LENGTH = 16_384;
 
 export const BILLING_INTERVAL_OPTIONS = [
-  { value: 0, label: "Day" },
-  { value: 1, label: "Week" },
-  { value: 2, label: "Month" },
-  { value: 3, label: "Year" },
+  {
+    value: 0,
+    get label() {
+      return text("CONSTANTS.INTERVAL_DAY");
+    },
+  },
+  {
+    value: 1,
+    get label() {
+      return text("CONSTANTS.INTERVAL_WEEK");
+    },
+  },
+  {
+    value: 2,
+    get label() {
+      return text("CONSTANTS.INTERVAL_MONTH");
+    },
+  },
+  {
+    value: 3,
+    get label() {
+      return text("CONSTANTS.INTERVAL_YEAR");
+    },
+  },
 ] as const;
 
 /**
@@ -46,13 +113,21 @@ export const BILLING_INTERVAL_OPTIONS = [
 export const BILLING_ALIGNMENT_OPTIONS = [
   {
     value: "Anniversary",
-    label: "Subscription anniversary",
-    hint: "Renews on the day of the month they subscribed.",
+    get label() {
+      return text("CONSTANTS.ALIGNMENT_ANNIVERSARY");
+    },
+    get hint() {
+      return text("CONSTANTS.ALIGNMENT_ANNIVERSARY_MONTHLY_HINT");
+    },
   },
   {
     value: "CalendarMonth",
-    label: "Calendar month — renew on the 1st",
-    hint: "The first period is prorated to the days remaining in the month.",
+    get label() {
+      return text("CONSTANTS.ALIGNMENT_CALENDAR_MONTH");
+    },
+    get hint() {
+      return text("CONSTANTS.ALIGNMENT_CALENDAR_MONTH_HINT");
+    },
   },
 ] as const;
 
@@ -64,13 +139,21 @@ export const BILLING_ALIGNMENT_OPTIONS = [
 export const YEARLY_BILLING_ALIGNMENT_OPTIONS = [
   {
     value: "Anniversary",
-    label: "Subscription anniversary",
-    hint: "Renews on the day of the year they subscribed.",
+    get label() {
+      return text("CONSTANTS.ALIGNMENT_ANNIVERSARY");
+    },
+    get hint() {
+      return text("CONSTANTS.ALIGNMENT_ANNIVERSARY_YEARLY_HINT");
+    },
   },
   {
     value: "CalendarMonth",
-    label: "Calendar year — start on the 1st",
-    hint: "A prorated month first, then a full year from the 1st of next month.",
+    get label() {
+      return text("CONSTANTS.ALIGNMENT_CALENDAR_YEAR");
+    },
+    get hint() {
+      return text("CONSTANTS.ALIGNMENT_CALENDAR_YEAR_HINT");
+    },
   },
 ] as const;
 
@@ -84,49 +167,151 @@ export const YEARLY_BILLING_ALIGNMENT_OPTIONS = [
 export const CALENDAR_ANNUAL_CHARGE_TIMING_OPTIONS = [
   {
     value: "AtBoundary",
-    label: "When the year starts",
-    hint: "Collect the opening period now, and the year on the 1st. Cancelling before then ends access with the opening period.",
+    get label() {
+      return text("CONSTANTS.CHARGE_TIMING_AT_BOUNDARY");
+    },
+    get hint() {
+      return text("CONSTANTS.CHARGE_TIMING_AT_BOUNDARY_HINT");
+    },
   },
   {
     value: "AtCheckout",
-    label: "Up front, with the first payment",
-    hint: "Collect both together now. The year is prepaid, so cancelling before it starts refunds nothing and access runs to its end.",
+    get label() {
+      return text("CONSTANTS.CHARGE_TIMING_AT_CHECKOUT");
+    },
+    get hint() {
+      return text("CONSTANTS.CHARGE_TIMING_AT_CHECKOUT_HINT");
+    },
   },
 ] as const;
 
 export const METER_AGGREGATION_OPTIONS = [
-  { value: 0, label: "Sum — add up every recorded amount" },
-  { value: 1, label: "Max — the highest single recording" },
-  { value: 2, label: "Last value — only the most recent recording" },
+  {
+    value: 0,
+    get label() {
+      return text("CONSTANTS.AGGREGATION_SUM");
+    },
+  },
+  {
+    value: 1,
+    get label() {
+      return text("CONSTANTS.AGGREGATION_MAX");
+    },
+  },
+  {
+    value: 2,
+    get label() {
+      return text("CONSTANTS.AGGREGATION_LAST");
+    },
+  },
 ] as const;
 
 export const METER_RESET_POLICY_OPTIONS = [
-  { value: 0, label: "Expires at the end of each period — tokens, requests, generations" },
-  { value: 1, label: "Does not apply — one lifetime balance, such as storage" },
-  { value: 2, label: "Rolls into the next period, up to a cap" },
+  {
+    value: 0,
+    get label() {
+      return text("CONSTANTS.RESET_EXPIRES");
+    },
+  },
+  {
+    value: 1,
+    get label() {
+      return text("CONSTANTS.RESET_NONE");
+    },
+  },
+  {
+    value: 2,
+    get label() {
+      return text("CONSTANTS.RESET_ROLLOVER");
+    },
+  },
 ] as const;
 
 export const ENTITLEMENT_LIMIT_KIND_OPTIONS = [
-  { value: 0, label: "Boolean — granted or not, no number attached" },
-  { value: 1, label: "Count — a numeric limit, drawn from a meter" },
-  { value: 2, label: "Unlimited — always granted, never counted" },
+  {
+    value: 0,
+    get label() {
+      return text("CONSTANTS.LIMIT_KIND_BOOLEAN");
+    },
+  },
+  {
+    value: 1,
+    get label() {
+      return text("CONSTANTS.LIMIT_KIND_COUNT");
+    },
+  },
+  {
+    value: 2,
+    get label() {
+      return text("CONSTANTS.LIMIT_KIND_UNLIMITED");
+    },
+  },
 ] as const;
 
 export const THRESHOLD_PERCENT_PRESETS = [50, 80, 100] as const;
+
+/** Currency name in the UI language; the English name is the fallback when the runtime has no data. */
+const currencyName = (code: string, fallback: string): string => {
+  try {
+    return new Intl.DisplayNames([getLanguageCode()], { type: "currency" }).of(code) ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 /**
  * Same currency list Payment offers when authoring a price, kept as its own copy rather than a
  * cross-module import — the two modules are meant to stay independently deployable.
  */
 export const SUBSCRIPTION_CURRENCY_OPTIONS = [
-  { code: "BDT", name: "Bangladeshi Taka" },
-  { code: "USD", name: "US Dollar" },
-  { code: "EUR", name: "Euro" },
-  { code: "GBP", name: "British Pound" },
-  { code: "CHF", name: "Swiss Franc" },
-  { code: "JPY", name: "Japanese Yen" },
-  { code: "BHD", name: "Bahraini Dinar" },
-  { code: "KWD", name: "Kuwaiti Dinar" },
+  {
+    code: "BDT",
+    get name() {
+      return currencyName("BDT", "Bangladeshi Taka");
+    },
+  },
+  {
+    code: "USD",
+    get name() {
+      return currencyName("USD", "US Dollar");
+    },
+  },
+  {
+    code: "EUR",
+    get name() {
+      return currencyName("EUR", "Euro");
+    },
+  },
+  {
+    code: "GBP",
+    get name() {
+      return currencyName("GBP", "British Pound");
+    },
+  },
+  {
+    code: "CHF",
+    get name() {
+      return currencyName("CHF", "Swiss Franc");
+    },
+  },
+  {
+    code: "JPY",
+    get name() {
+      return currencyName("JPY", "Japanese Yen");
+    },
+  },
+  {
+    code: "BHD",
+    get name() {
+      return currencyName("BHD", "Bahraini Dinar");
+    },
+  },
+  {
+    code: "KWD",
+    get name() {
+      return currencyName("KWD", "Kuwaiti Dinar");
+    },
+  },
 ] as const;
 
 /**

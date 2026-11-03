@@ -1,8 +1,10 @@
 import { Link } from "react-router";
 import { motion } from "framer-motion";
 import { Layers, BookOpenText } from "lucide-react";
+import { useT } from "@seliseblocks/genesis-os";
 
 export default function ConsoleCreateProject() {
+  const { t } = useT("utilities.shared");
   return (
     <motion.div
       initial={{ opacity: 0, y: 14 }}
@@ -22,18 +24,17 @@ export default function ConsoleCreateProject() {
           <Layers className="h-6 w-6 text-primary-foreground" />
         </div>
         <h3 className="text-3xl font-bold tracking-tight text-primary-foreground sm:text-4xl">
-          Welcome to SELISE Blocks
+          {t("CONSOLE_CREATE.WELCOME_TO_SELISE_BLOCKS")}
         </h3>
         <p className="max-w-md text-sm leading-relaxed text-primary-foreground/70">
-          Explore and manage all your projects in one place. With SELISE Blocks, building and
-          scaling applications has never been easier. Start by creating a project.
+          {t("CONSOLE_CREATE.EXPLORE_AND_MANAGE_ALL_YOUR")}
         </p>
         <div className="flex flex-wrap justify-center gap-3 pt-1">
           <Link
             to="/create-project"
             className="inline-flex items-center rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm hover:bg-white/90"
           >
-            Create a project
+            {t("CONSOLE_CREATE.CREATE_A_PROJECT")}
           </Link>
           <a
             href="https://docs.seliseblocks.com/"
@@ -42,7 +43,7 @@ export default function ConsoleCreateProject() {
             className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2.5 text-sm font-semibold text-white backdrop-blur-sm hover:bg-white/25"
           >
             <BookOpenText className="h-4 w-4" />
-            View documentation
+            {t("CONSOLE_CREATE.VIEW_DOCUMENTATION")}
           </a>
         </div>
       </div>

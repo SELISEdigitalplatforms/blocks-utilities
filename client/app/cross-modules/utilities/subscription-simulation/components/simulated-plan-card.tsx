@@ -7,6 +7,7 @@ import {
   type SubscriptionPlan,
 } from "../../subscription/models/subscription-plan.model";
 import { formatPrice } from "../../subscription/utilities/subscription-format";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const SimulatedPlanCard = ({
   plan,
@@ -19,6 +20,7 @@ export const SimulatedPlanCard = ({
   hasActiveSubscription: boolean;
   onSubscribe: () => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const cheapestPrice = plan.prices.reduce<SubscriptionPlan["prices"][number] | null>(
     (cheapest, price) =>
       cheapest === null || price.unitAmountMinor < cheapest.unitAmountMinor
@@ -45,31 +47,29 @@ export const SimulatedPlanCard = ({
               it adds places people are given, beside whatever the organization already holds. */}
           {plan.subscriberScope === SUBSCRIBER_SCOPE.User ? (
             <Badge variant="info" className="font-normal">
-              Per person
+              {t("SIMULATED_PLAN_CARD.PER_PERSON")}
             </Badge>
           ) : null}
           {plan.trialDays ? (
             <Badge variant="info" className="font-normal">
-              {plan.trialDays}-day trial
-            </Badge>
+              {t("SIMULATED_PLAN_CARD.DAY_TRIAL", { trialDays: plan.trialDays })}</Badge>
           ) : null}
           {plan.quantityItems.length > 0 && (
             <Badge variant="secondary" className="gap-1 font-normal">
               <Layers className="h-3 w-3" />
-              {plan.quantityItems.length} quantity item
-              {plan.quantityItems.length === 1 ? "" : "s"}
+              {t("SIMULATED_PLAN_CARD.QUANTITY_ITEMS", { count: plan.quantityItems.length })}
             </Badge>
           )}
           {plan.meters.length > 0 && (
             <Badge variant="secondary" className="gap-1 font-normal">
               <Gauge className="h-3 w-3" />
-              {plan.meters.length} meter{plan.meters.length === 1 ? "" : "s"}
+              {t("SIMULATED_PLAN_CARD.METERS", { count: plan.meters.length })}
             </Badge>
           )}
         </div>
 
         <p className="mt-3 text-sm text-muted-foreground">
-          {cheapestPrice ? `From ${formatPrice(cheapestPrice)}` : "No price configured yet"}
+          {cheapestPrice ? t("SIMULATED_PLAN_CARD.FROM", { cheapestPrice: formatPrice(cheapestPrice) }) : t("SIMULATED_PLAN_CARD.NO_PRICE_CONFIGURED_YET")}
         </p>
       </div>
 
@@ -79,10 +79,10 @@ export const SimulatedPlanCard = ({
         onClick={onSubscribe}
       >
         {hasActiveSubscription
-          ? "Already subscribed"
+          ? t("SIMULATED_PLAN_CARD.ALREADY_SUBSCRIBED")
           : cheapestPrice
-            ? "Subscribe"
-            : "No price to subscribe on"}
+            ? t("SIMULATED_PLAN_CARD.SUBSCRIBE")
+            : t("SIMULATED_PLAN_CARD.NO_PRICE_TO_SUBSCRIBE_ON")}
       </Button>
     </Card>
   );

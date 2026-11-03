@@ -6,6 +6,10 @@ import {
 } from "../constants/endpoint.constant";
 import { ACCOUNT_ENDPOINTS } from "@blocks-idp/iam/constants/endpoint.constant";
 import { deriveIdpBaseUrl, deriveLogicBaseUrl } from "@/lib/blocks-url.util";
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
+const OIDC_AUTH_FLOW_SERVICE_HTTP = "OIDC_AUTH_FLOW_SERVICE.HTTP";
 export { redirectToLogin, buildNavigationUrl } from "../utils/oidc-navigation.util";
 
 interface IGetOidcPayload {
@@ -85,7 +89,7 @@ export const refreshAccessToken = async (projectKey: string): Promise<string | n
     });
 
     if (!response.ok) {
-      throw new Error(`Refresh failed: HTTP ${response.status}`);
+      throw new Error(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "OIDC_AUTH_FLOW_SERVICE.REFRESH_FAILED_HTTP", { status: response.status }));
     }
 
     const newTokens = await response.json();
@@ -104,7 +108,7 @@ export const refreshAccessToken = async (projectKey: string): Promise<string | n
     return newTokens.access_token || null;
   } catch (error) {
     console.error("[Refresh Token] Error:", error);
-    showErrorToast({ errors: "Failed to refresh token. Please try again from the start." });
+    showErrorToast({ errors: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "OIDC_AUTH_FLOW_SERVICE.FAILED_TO_REFRESH_TOKEN_PLEASE") });
     setTimeout(() => {
       window.history.go(-2);
     }, 2000);
@@ -163,8 +167,8 @@ export const getOidcCredential = async (
     }
 
     if (!response.ok) {
-      showErrorToast({ errors: "Failed to fetch OIDC credential. Please try again." });
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      showErrorToast({ errors: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "OIDC_AUTH_FLOW_SERVICE.FAILED_TO_FETCH_OIDC_CREDENTIAL") });
+      throw new Error(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, OIDC_AUTH_FLOW_SERVICE_HTTP, { status: response.status, statusText: response.statusText }));
     }
 
     return await response.json();
@@ -204,13 +208,13 @@ export const userAcknowledgement = async (
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, OIDC_AUTH_FLOW_SERVICE_HTTP, { status: response.status, statusText: response.statusText }));
     }
 
     return await response.json();
   } catch (error) {
     console.error("[User Acknowledgement] Error:", error);
-    showErrorToast({ errors: "Failed to process permission. Please try again." });
+    showErrorToast({ errors: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "OIDC_AUTH_FLOW_SERVICE.FAILED_TO_PROCESS_PERMISSION") });
     throw error;
   }
 };
@@ -235,7 +239,7 @@ export const accountRecover = async (
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, OIDC_AUTH_FLOW_SERVICE_HTTP, { status: response.status, statusText: response.statusText }));
     }
 
     return await response.json();

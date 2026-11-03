@@ -2,21 +2,23 @@ import { profileMfaContext } from "../profile-mfa";
 import { ReactNode, useContext, useMemo, useState } from "react";
 import { useGetMFAConfig } from "@/idp/mfa/hooks/use-mfa-config";
 import { useGetMe } from "@/idp/iam/hooks/use-user";
-import { MFA_Provider_Data } from "@/idp/mfa/utils/mfa-config";
+import { getMFA_Provider_Data } from "@/idp/mfa/utils/mfa-config";
 import { Button } from "@/components/ui-kits/button/button";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { cn } from "@/lib/utils";
 import { CircleOff } from "lucide-react";
 import { ProfileMFAVerify } from "./profile-mfa-veriffy/profile-mfa-verify";
 import { UserMFAConfirmationDisable } from "./profile-mfa-confirmation-disable";
+import { useT } from "@seliseblocks/genesis-os";
 type MethodsOptionProps = {
-  method: Omit<(typeof MFA_Provider_Data)[0], "description"> & { description: ReactNode };
+  method: Omit<(ReturnType<typeof getMFA_Provider_Data>)[0], "description"> & { description: ReactNode };
   selected: string;
   onSaveClick: () => void;
   activeType: string;
   isVerified: boolean;
 };
 const MethodsOption = ({ method, onSaveClick, activeType, isVerified }: MethodsOptionProps) => {
+  const { t } = useT("utilities.idp");
   const isActive = method.type.toString() === activeType;
   return (
     <div className="flex gap-2 border-b p-4 py-6">
@@ -31,7 +33,7 @@ const MethodsOption = ({ method, onSaveClick, activeType, isVerified }: MethodsO
                   variant="outline"
                   className={cn("inline rounded-full border-success py-0 text-xs text-success")}
                 >
-                  Active
+                  {t("PROFILE_MFA_METHODS_SELECT_LIST.ACTIVE")}
                 </Badge>
               )}
             </div>
@@ -40,7 +42,7 @@ const MethodsOption = ({ method, onSaveClick, activeType, isVerified }: MethodsO
           <div>
             {!isActive && (
               <Button size="xs" onClick={onSaveClick} variant="outline">
-                {method.type === 0 ? "Disable" : "Enable"}
+                {method.type === 0 ? t("PROFILE_MFA_METHODS_SELECT_LIST.DISABLE") : t("PROFILE_MFA_METHODS_SELECT_LIST.ENABLE")}
               </Button>
             )}
           </div>
@@ -50,6 +52,7 @@ const MethodsOption = ({ method, onSaveClick, activeType, isVerified }: MethodsO
   );
 };
 export const ProfileMfaMethodSelectList = () => {
+  const { t } = useT("utilities.idp");
   const { userId, projectKey, showVerifyModal, setIsDisableModalOpen } =
     useContext(profileMfaContext);
   const { data } = useGetMFAConfig({ projectKey });
@@ -57,8 +60,8 @@ export const ProfileMfaMethodSelectList = () => {
   const [type, setType] = useState<string>("");
   const availableMFaMethod = useMemo(() => {
     if (!data?.userMfaType.length) return [];
-    return MFA_Provider_Data.filter((item) => data?.userMfaType.includes(item.type));
-  }, [data?.userMfaType]);
+    return getMFA_Provider_Data().filter((item) => data?.userMfaType.includes(item.type));
+  }, [data?.userMfaType, t]);
   const [prevUserData, setPrevUserData] = useState<
     NonNullable<typeof userData>["data"] | undefined
   >(undefined);
@@ -75,8 +78,8 @@ export const ProfileMfaMethodSelectList = () => {
         <MethodsOption
           method={{
             type: 0,
-            label: "None",
-            description: "No two-factor authentication.",
+            label: t("PROFILE_MFA_METHODS_SELECT_LIST.NONE"),
+            description: t("PROFILE_MFA_METHODS_SELECT_LIST.NO_TWO_FACTOR_AUTHENTICATION"),
             provider: "none",
             status: false,
             Icon: CircleOff,

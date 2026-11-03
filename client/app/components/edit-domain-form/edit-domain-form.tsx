@@ -2,7 +2,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useUpdateRepositories } from "@blocks-identifier/hooks/use-project";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import {
   Form,
@@ -35,6 +35,7 @@ export const EditDomainForm = ({
   repositories,
   onAfterSubmit,
 }: EditDomainFormProps) => {
+  const { t } = useT("utilities.shared");
   const { mutateAsync, isPending } = useUpdateRepositories();
   const tenantId = useProjectStore().selectedProject?.tenantId || "";
   const environment = useProjectStore().selectedProject?.environment || "dev";
@@ -50,14 +51,14 @@ export const EditDomainForm = ({
             })),
           }
         : undefined,
-    resolver: zodResolver(editDomainFormSchema),
+    resolver: zodResolver(editDomainFormSchema()),
   });
 
   if (repositories.length === 0) {
     return <> </>;
   }
   const MAIN_DOMAIN = getDomain(customDomain || "");
-  const onSubmitHandler = async (values: z.infer<typeof editDomainFormSchema>) => {
+  const onSubmitHandler = async (values: z.infer<ReturnType<typeof editDomainFormSchema>>) => {
     try {
       const repoWithDomains = values.domains.map((domain) => ({
         repoId: domain.itemId,
@@ -70,7 +71,7 @@ export const EditDomainForm = ({
         repoWithDomains: repoWithDomains,
       });
       if (res.isSuccess) {
-        showSuccessToast({ description: "Project is updated successfully" });
+        showSuccessToast({ description: t("EDIT_DOMAIN_FORM.PROJECT_IS_UPDATED_SUCCESSFULLY") });
         form.reset();
         onAfterSubmit();
       } else {
@@ -102,7 +103,7 @@ export const EditDomainForm = ({
                     <div className="flex items-center rounded-md border border-input bg-background px-3 py-2">
                       <Input
                         {...field}
-                        placeholder="Custom sub domain"
+                        placeholder={t("EDIT_DOMAIN_FORM.CUSTOM_SUB_DOMAIN")}
                         className="h-auto border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                       />
                       <span className="ml-1 text-muted-foreground">.{MAIN_DOMAIN}</span>
@@ -117,11 +118,11 @@ export const EditDomainForm = ({
         <DialogFooter className="flex flex-row justify-end gap-2">
           <DialogClose asChild>
             <Button variant="outline" className="w-20">
-              Cancel
+              {t("common:CANCEL")}
             </Button>
           </DialogClose>
           <Button disabled={isPending} className="w-20" type="submit">
-            Save
+            {t("common:SAVE")}
           </Button>
         </DialogFooter>
       </form>

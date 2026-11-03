@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { useState } from "react";
 import {
@@ -31,8 +32,8 @@ import {
   FLAT_FEE,
 } from "../../schemas/subscription-price.schema";
 import {
-  CALENDAR_ALIGNMENT_EXAMPLE,
-  CALENDAR_YEARLY_ALIGNMENT_EXAMPLE,
+  calendarAlignmentExample,
+  calendarYearlyAlignmentExample,
   isCalendarEligible,
   isCompatibleStubBasis,
   needsStubBasePrice,
@@ -47,6 +48,8 @@ import {
 import { describeTax, TAX_MODE_OPTIONS } from "../../utilities/subscription-tax";
 import { CardListItem, CardListShell } from "./card-list-shell";
 
+const UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE = "utilities.subscription.plan-builder";
+
 const ExistingPriceTaxEditor = ({
   price,
   onSave,
@@ -54,6 +57,7 @@ const ExistingPriceTaxEditor = ({
   price: PlanPrice;
   onSave: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const [taxPercent, setTaxPercent] = useState<string>(
     price.taxRateBasisPoints ? String(price.taxRateBasisPoints / 100) : "",
   );
@@ -67,17 +71,17 @@ const ExistingPriceTaxEditor = ({
   return (
     <div className="mt-2 grid gap-2 rounded-md border border-dashed p-2 sm:grid-cols-[8rem_13rem_auto]">
       <Input
-        aria-label={`Tax rate for ${formatPrice(price)}`}
+        aria-label={t("PLAN_PRICE_FIELDS.TAX_RATE_FOR", { price: formatPrice(price) })}
         type="number"
         min={0}
         max={100}
         step="0.01"
         value={taxPercent}
-        placeholder="No tax"
+        placeholder={t("PLAN_PRICE_FIELDS.NO_TAX")}
         onChange={(event) => setTaxPercent(event.target.value)}
       />
       <Select value={taxMode} onValueChange={(value) => setTaxMode(value as typeof taxMode)}>
-        <SelectTrigger aria-label={`Tax mode for ${formatPrice(price)}`} disabled={!numericRate}>
+        <SelectTrigger aria-label={t("PLAN_PRICE_FIELDS.TAX_MODE_FOR", { price: formatPrice(price) })} disabled={!numericRate}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -96,13 +100,13 @@ const ExistingPriceTaxEditor = ({
           try {
             await onSave(price.priceId, numericRate, numericRate ? taxMode : undefined);
           } catch (reason) {
-            setError(reason instanceof Error ? reason.message : "Tax could not be saved.");
+            setError(reason instanceof Error ? reason.message : t("PLAN_PRICE_FIELDS.TAX_SAVE_FAILED"));
           } finally {
             setSaving(false);
           }
         }}
       >
-        {saving ? "Saving…" : "Save tax"}
+        {saving ? t("PLAN_PRICE_FIELDS.SAVING") : t("PLAN_PRICE_FIELDS.SAVE_TAX")}
       </Button>
       {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
     </div>
@@ -127,6 +131,7 @@ const ExistingPriceDiscountEditor = ({
     combination?: AutomaticDiscountCombination,
   ) => Promise<void>;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const [discountPercent, setDiscountPercent] = useState<string>(
     price.automaticDiscountBasisPoints ? String(price.automaticDiscountBasisPoints / 100) : "",
   );
@@ -140,13 +145,13 @@ const ExistingPriceDiscountEditor = ({
   return (
     <div className="mt-2 grid gap-2 rounded-md border border-dashed p-2 sm:grid-cols-[8rem_13rem_auto]">
       <Input
-        aria-label={`Automatic discount for ${formatPrice(price)}`}
+        aria-label={t("PLAN_PRICE_FIELDS.DISCOUNT_FOR", { price: formatPrice(price) })}
         type="number"
         min={0}
         max={100}
         step="0.01"
         value={discountPercent}
-        placeholder="No discount"
+        placeholder={t("PLAN_PRICE_FIELDS.NO_DISCOUNT")}
         onChange={(event) => setDiscountPercent(event.target.value)}
       />
       <Select
@@ -154,7 +159,7 @@ const ExistingPriceDiscountEditor = ({
         onValueChange={(value) => setCombination(value as AutomaticDiscountCombination)}
       >
         <SelectTrigger
-          aria-label={`Discount combination for ${formatPrice(price)}`}
+          aria-label={t("PLAN_PRICE_FIELDS.COMBINATION_FOR", { price: formatPrice(price) })}
           disabled={!numericDiscount}
         >
           <SelectValue />
@@ -179,13 +184,13 @@ const ExistingPriceDiscountEditor = ({
           try {
             await onSave(price.priceId, numericDiscount, numericDiscount ? combination : undefined);
           } catch (reason) {
-            setError(reason instanceof Error ? reason.message : "The discount could not be saved.");
+            setError(reason instanceof Error ? reason.message : t("PLAN_PRICE_FIELDS.DISCOUNT_SAVE_FAILED"));
           } finally {
             setSaving(false);
           }
         }}
       >
-        {saving ? "Saving\u2026" : "Save discount"}
+        {saving ? t("PLAN_PRICE_FIELDS.SAVING") : t("PLAN_PRICE_FIELDS.SAVE_DISCOUNT")}
       </Button>
       {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
     </div>
@@ -203,6 +208,7 @@ const ExistingPriceDiscountEditor = ({
  * would re-render every price card whenever any one of them changed.
  */
 const PriceTaxFields = ({ index }: { index: number }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
 
@@ -224,7 +230,7 @@ const PriceTaxFields = ({ index }: { index: number }) => {
 
   return (
     <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
-      <p className="text-xs font-medium">VAT / tax</p>
+      <p className="text-xs font-medium">{t("PLAN_PRICE_FIELDS.TAX_HEADING")}</p>
 
       <div className="grid grid-cols-2 gap-2">
         <FormField
@@ -232,7 +238,7 @@ const PriceTaxFields = ({ index }: { index: number }) => {
           name={`prices.${index}.taxPercent`}
           render={({ field: inputField }) => (
             <FormItem>
-              <FormLabel className="text-xs">Rate (optional)</FormLabel>
+              <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.RATE_OPTIONAL")}</FormLabel>
               <FormControl>
                 <Input
                   {...inputField}
@@ -245,11 +251,11 @@ const PriceTaxFields = ({ index }: { index: number }) => {
                   max={100}
                   step="0.01"
                   placeholder="7.7"
-                  aria-label={`Tax rate for price ${index + 1}`}
+                  aria-label={t("PLAN_PRICE_FIELDS.TAX_RATE_FOR_PRICE", { number: index + 1 })}
                 />
               </FormControl>
               <FormDescription className="text-xs">
-                A percentage. Leave empty for no tax.
+                {t("PLAN_PRICE_FIELDS.RATE_HINT")}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -262,10 +268,10 @@ const PriceTaxFields = ({ index }: { index: number }) => {
             name={`prices.${index}.taxMode`}
             render={({ field: inputField }) => (
               <FormItem>
-                <FormLabel className="text-xs">The amount above is</FormLabel>
+                <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.AMOUNT_ABOVE_IS")}</FormLabel>
                 <Select value={inputField.value} onValueChange={inputField.onChange}>
                   <FormControl>
-                    <SelectTrigger aria-label={`Tax mode for price ${index + 1}`}>
+                    <SelectTrigger aria-label={t("PLAN_PRICE_FIELDS.TAX_MODE_FOR_PRICE", { number: index + 1 })}>
                       <SelectValue />
                     </SelectTrigger>
                   </FormControl>
@@ -309,6 +315,7 @@ const PriceTaxFields = ({ index }: { index: number }) => {
  * keystroke in any of them.
  */
 const PriceDiscountFields = ({ index }: { index: number }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
   const quantityItems = useWatch({ control, name: "quantityItems" });
@@ -353,7 +360,7 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
 
   return (
     <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
-      <p className="text-xs font-medium">Automatic discount</p>
+      <p className="text-xs font-medium">{t("PLAN_PRICE_FIELDS.DISCOUNT_HEADING")}</p>
 
       <div className="grid grid-cols-2 gap-2">
         <FormField
@@ -361,7 +368,7 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
           name={`prices.${index}.automaticDiscountPercent`}
           render={({ field: inputField }) => (
             <FormItem>
-              <FormLabel className="text-xs">Automatic discount (%)</FormLabel>
+              <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.DISCOUNT_PERCENT")}</FormLabel>
               <FormControl>
                 <Input
                   {...inputField}
@@ -373,11 +380,11 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
                   max={100}
                   step="0.01"
                   placeholder="8"
-                  aria-label={`Automatic discount for price ${index + 1}`}
+                  aria-label={t("PLAN_PRICE_FIELDS.DISCOUNT_FOR_PRICE", { number: index + 1 })}
                 />
               </FormControl>
               <FormDescription className="text-xs">
-                Applied without a code, for as long as the subscription stays on this price.
+                {t("PLAN_PRICE_FIELDS.DISCOUNT_HINT")}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -390,10 +397,10 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
             name={`prices.${index}.quantityDiscountCombination`}
             render={({ field: inputField }) => (
               <FormItem>
-                <FormLabel className="text-xs">Combine with quantity discount</FormLabel>
+                <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.COMBINE")}</FormLabel>
                 <Select value={inputField.value} onValueChange={inputField.onChange}>
                   <FormControl>
-                    <SelectTrigger aria-label={`Discount combination for price ${index + 1}`}>
+                    <SelectTrigger aria-label={t("PLAN_PRICE_FIELDS.COMBINATION_FOR_PRICE", { number: index + 1 })}>
                       <SelectValue />
                     </SelectTrigger>
                   </FormControl>
@@ -437,6 +444,7 @@ const PriceDiscountFields = ({ index }: { index: number }) => {
  * changes, to say which of the two figures this one is.
  */
 const PriceAmountField = ({ index }: { index: number }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
 
@@ -452,7 +460,7 @@ const PriceAmountField = ({ index }: { index: number }) => {
       name={`prices.${index}.amount`}
       render={({ field: inputField }) => (
         <FormItem>
-          <FormLabel className="text-xs">Amount</FormLabel>
+          <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.AMOUNT")}</FormLabel>
           <FormControl>
             <Input
               {...inputField}
@@ -460,13 +468,13 @@ const PriceAmountField = ({ index }: { index: number }) => {
               min={0}
               step="0.01"
               placeholder="89.00"
-              aria-label={`Amount for price ${index + 1}`}
+              aria-label={t("PLAN_PRICE_FIELDS.AMOUNT_FOR_PRICE", { number: index + 1 })}
             />
           </FormControl>
           <FormDescription className="text-xs">
             {yearlyCalendar
-              ? "What a year costs, in major units. The monthly price below prices only the opening period."
-              : "In major units — 89.00, not 8900."}
+              ? t("PLAN_PRICE_FIELDS.AMOUNT_HINT_YEARLY")
+              : t("PLAN_PRICE_FIELDS.AMOUNT_HINT")}
           </FormDescription>
           <FormMessage />
         </FormItem>
@@ -496,6 +504,7 @@ const PriceBillingAlignmentField = ({
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
 
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const cadence = {
     interval: Number(price?.interval),
     intervalCount: Number(price?.intervalCount),
@@ -517,10 +526,10 @@ const PriceBillingAlignmentField = ({
         name={`prices.${index}.billingAlignment`}
         render={({ field: inputField }) => (
           <FormItem>
-            <FormLabel className="text-xs">Billing cycle</FormLabel>
+            <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.BILLING_CYCLE")}</FormLabel>
             <Select value={inputField.value} onValueChange={inputField.onChange}>
               <FormControl>
-                <SelectTrigger aria-label={`Billing cycle for price ${index + 1}`}>
+                <SelectTrigger aria-label={t("PLAN_PRICE_FIELDS.BILLING_CYCLE_FOR_PRICE", { number: index + 1 })}>
                   <SelectValue />
                 </SelectTrigger>
               </FormControl>
@@ -540,7 +549,7 @@ const PriceBillingAlignmentField = ({
                 className="text-xs text-muted-foreground"
                 data-testid={`billing-alignment-example-${index}`}
               >
-                {yearly ? CALENDAR_YEARLY_ALIGNMENT_EXAMPLE : CALENDAR_ALIGNMENT_EXAMPLE}
+                {yearly ? calendarYearlyAlignmentExample() : calendarAlignmentExample()}
               </p>
             )}
             <FormMessage />
@@ -577,6 +586,7 @@ const PriceStubBasisField = ({
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const price = useWatch({ control, name: `prices.${index}` });
   // Every rule the server applies, so the picker cannot offer a choice the API refuses.
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const eligible = monthlyPrices.filter((candidate) =>
     isCompatibleStubBasis(candidate, {
       currencyCode: price?.currencyCode ?? "",
@@ -595,13 +605,11 @@ const PriceStubBasisField = ({
 
   return (
     <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
-      <p className="text-xs font-medium">Charged from</p>
+      <p className="text-xs font-medium">{t("PLAN_PRICE_FIELDS.CHARGED_FROM")}</p>
 
       {eligible.length === 0 ? (
         <p className="text-xs text-muted-foreground" data-testid={`stub-basis-empty-${index}`}>
-          This plan has no compatible monthly {price?.currencyCode} price yet. The opening period
-          is charged from one, so it has to match this price&apos;s currency, quantity item and tax
-          before it can be chosen. Add and save one first.
+          {t("PLAN_PRICE_FIELDS.NO_COMPATIBLE_MONTHLY", { currency: price?.currencyCode ?? "" })}
         </p>
       ) : (
         <>
@@ -610,11 +618,11 @@ const PriceStubBasisField = ({
             name={`prices.${index}.calendarStubBasePriceId`}
             render={({ field: inputField }) => (
               <FormItem>
-                <FormLabel className="text-xs">Monthly price</FormLabel>
+                <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.MONTHLY_PRICE")}</FormLabel>
                 <Select value={inputField.value ?? ""} onValueChange={inputField.onChange}>
                   <FormControl>
-                    <SelectTrigger aria-label={`Monthly price for price ${index + 1}`}>
-                      <SelectValue placeholder="Choose the monthly price" />
+                    <SelectTrigger aria-label={t("PLAN_PRICE_FIELDS.MONTHLY_PRICE_FOR_PRICE", { number: index + 1 })}>
+                      <SelectValue placeholder={t("PLAN_PRICE_FIELDS.CHOOSE_MONTHLY_PRICE")} />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
@@ -626,7 +634,7 @@ const PriceStubBasisField = ({
                   </SelectContent>
                 </Select>
                 <FormDescription className="text-xs">
-                  The opening period is a fraction of this price, counted in calendar days.
+                  {t("PLAN_PRICE_FIELDS.OPENING_PERIOD_HINT")}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -638,10 +646,7 @@ const PriceStubBasisField = ({
               className="text-xs text-muted-foreground"
               data-testid={`stub-basis-preview-${index}`}
             >
-              A signup on 25 August pays 7/31 of{" "}
-              {formatMoney(basis.unitAmountMinor, basis.currencyCode)} for the rest of the month.
-              Any automatic discount below applies to that opening period as well as to the year;
-              a promotional code applies to the year alone.
+              {t("PLAN_PRICE_FIELDS.STUB_PREVIEW", { amount: formatMoney(basis.unitAmountMinor, basis.currencyCode) })}
             </p>
           )}
 
@@ -650,11 +655,11 @@ const PriceStubBasisField = ({
             name={`prices.${index}.calendarAnnualChargeTiming`}
             render={({ field: inputField }) => (
               <FormItem>
-                <FormLabel className="text-xs">Collect the year</FormLabel>
+                <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.COLLECT_YEAR")}</FormLabel>
                 <Select value={inputField.value} onValueChange={inputField.onChange}>
                   <FormControl>
                     <SelectTrigger
-                      aria-label={`Annual charge timing for price ${index + 1}`}
+                      aria-label={t("PLAN_PRICE_FIELDS.ANNUAL_TIMING_FOR_PRICE", { number: index + 1 })}
                     >
                       <SelectValue />
                     </SelectTrigger>
@@ -718,6 +723,7 @@ export const PlanPriceFields = ({
   ) => Promise<void>;
   retiringPriceId?: string | null;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const { control, formState } = useFormContext<CreateSubscriptionPlanFormValues>();
   const prices = useFieldArray({ control, name: "prices" });
   const quantityItems = useWatch({ control, name: "quantityItems" });
@@ -736,19 +742,19 @@ export const PlanPriceFields = ({
     <div className="space-y-3">
       <div>
         <h3 className="text-sm font-semibold">
-          {isEditing ? "Add a price" : "How much does it cost?"}
+          {isEditing ? t("PLAN_PRICE_FIELDS.HEADING_EDIT") : t("PLAN_PRICE_FIELDS.HEADING")}
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
           {isEditing
-            ? "Prices are separate from the plan's terms, so the ones it already has are left alone. Anything added here is created alongside your edit."
-            : "The recurring charge itself, separate from any overage above. Add one per billing cadence you sell — monthly and annually are two prices."}
+            ? t("PLAN_PRICE_FIELDS.HINT_EDIT")
+            : t("PLAN_PRICE_FIELDS.HINT")}
         </p>
       </div>
 
       {existingPrices.length > 0 && (
         <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
           <p className="text-xs font-medium text-muted-foreground">
-            Already on this plan
+            {t("PLAN_PRICE_FIELDS.ALREADY_ON_PLAN")}
           </p>
           <ul className="mt-2 space-y-1">
             {existingPrices.map((price) => (
@@ -764,7 +770,9 @@ export const PlanPriceFields = ({
                   {onRetirePrice && (
                     <Button type="button" variant="ghost" size="sm" disabled={retiringPriceId !== null}
                       onClick={() => onRetirePrice(price.priceId)} className="h-7 shrink-0 text-xs text-muted-foreground hover:text-destructive">
-                      {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
+                      {retiringPriceId === price.priceId
+                        ? t("PLAN_PRICE_FIELDS.RETIRING")
+                        : t("PLAN_PRICE_FIELDS.RETIRE")}
                     </Button>
                   )}
                 </div>
@@ -776,18 +784,13 @@ export const PlanPriceFields = ({
             ))}
           </ul>
           <p className="mt-2 text-xs text-muted-foreground">
-            Retiring stops a price being sold. Anyone already on it keeps their terms and their
-            renewals — a subscription bills from what it was sold on, not from this list. Prices
-            keep immutable amount, cadence and billing-cycle terms; only tax and
-            automatic-discount metadata can be edited, and only for future subscriptions and future
-            moves onto the price. To move a plan onto a different billing cycle, add a new price and
-            retire this one.
+            {t("PLAN_PRICE_FIELDS.RETIRE_HINT")}
           </p>
         </div>
       )}
 
       <CardListShell
-        addLabel="Add another price"
+        addLabel={t("PLAN_PRICE_FIELDS.ADD_PRICE")}
         onAdd={() => prices.append({ ...defaultSubscriptionPriceFormValues })}
       >
         {prices.fields.map((field, index) => (
@@ -798,7 +801,7 @@ export const PlanPriceFields = ({
                 name={`prices.${index}.currencyCode`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Currency</FormLabel>
+                    <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.CURRENCY")}</FormLabel>
                     <Select value={inputField.value} onValueChange={inputField.onChange}>
                       <FormControl>
                         <SelectTrigger>
@@ -826,7 +829,7 @@ export const PlanPriceFields = ({
                 name={`prices.${index}.interval`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Billed every</FormLabel>
+                    <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.BILLED_EVERY")}</FormLabel>
                     <Select
                       value={String(inputField.value)}
                       onValueChange={(value) => inputField.onChange(Number(value))}
@@ -853,12 +856,12 @@ export const PlanPriceFields = ({
                 name={`prices.${index}.intervalCount`}
                 render={({ field: inputField }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">How many</FormLabel>
+                    <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.HOW_MANY")}</FormLabel>
                     <FormControl>
                       <Input {...inputField} type="number" min={1} max={36} />
                     </FormControl>
                     <FormDescription className="text-xs">
-                      3 with &ldquo;month&rdquo; is quarterly.
+                      {t("PLAN_PRICE_FIELDS.QUARTERLY_HINT")}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -873,9 +876,9 @@ export const PlanPriceFields = ({
               name={`prices.${index}.displayPriceNote`}
               render={({ field: inputField }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">Display price note (optional)</FormLabel>
+                  <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.DISPLAY_NOTE")}</FormLabel>
                   <FormControl>
-                    <Input {...inputField} placeholder="$17/month, billed annually" />
+                    <Input {...inputField} placeholder={t("PLAN_PRICE_FIELDS.DISPLAY_NOTE_PLACEHOLDER")} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -891,7 +894,7 @@ export const PlanPriceFields = ({
               name={`prices.${index}.quantityItemKey`}
               render={({ field: inputField }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">What this multiplies</FormLabel>
+                  <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.MULTIPLIES")}</FormLabel>
                   <Select value={inputField.value} onValueChange={inputField.onChange}>
                     <FormControl>
                       <SelectTrigger>
@@ -899,19 +902,18 @@ export const PlanPriceFields = ({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value={FLAT_FEE}>Flat fee</SelectItem>
+                      <SelectItem value={FLAT_FEE}>{t("PLAN_PRICE_FIELDS.FLAT_FEE")}</SelectItem>
                       {(quantityItems ?? [])
                         .filter((item) => item.itemKey)
                         .map((item) => (
                           <SelectItem key={item.itemKey} value={item.itemKey}>
-                            Per {item.unitLabel || item.itemKey}
+                            {t("PLAN_PRICE_FIELDS.PER_ITEM", { item: item.unitLabel || item.itemKey })}
                           </SelectItem>
                         ))}
                     </SelectContent>
                   </Select>
                   <FormDescription className="text-xs">
-                    Flat fee charges the same whatever the quantity. Per unit multiplies the
-                    amount above by the units held.
+                    {t("PLAN_PRICE_FIELDS.MULTIPLIES_HINT")}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

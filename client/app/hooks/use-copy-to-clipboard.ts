@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 export const useCopyToClipboard = () => {
   const [isCopying, setIsCopying] = useState(false);
@@ -11,7 +12,7 @@ export const useCopyToClipboard = () => {
     if (isCopying) return;
 
     if (!navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not supported"));
+      onError?.(new Error(tStatic("utilities.shared", "USE_COPY_TO_CLIPBOARD.CLIPBOARD_API_NOT_SUPPORTED")));
       return;
     }
 
@@ -20,7 +21,7 @@ export const useCopyToClipboard = () => {
       await navigator.clipboard.writeText(text);
       onSuccess?.();
     } catch (err) {
-      const error = err instanceof Error ? err : new Error("Unknown clipboard error");
+      const error = err instanceof Error ? err : new Error(tStatic("utilities.shared", "USE_COPY_TO_CLIPBOARD.UNKNOWN_CLIPBOARD_ERROR"));
       onError?.(error);
     } finally {
       setTimeout(() => setIsCopying(false), 500);

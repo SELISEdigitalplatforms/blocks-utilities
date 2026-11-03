@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SmsProviderType, SmsUrlPolicy } from "../constants/sms.constants";
-import { createSmsProviderSchema, sendSmsSchema, smsTemplateSchema, type SmsProviderFormValues } from "./sms.schema";
+import { createSmsProviderSchema, createSendSmsSchema, createSmsTemplateSchema, type SmsProviderFormValues } from "./sms.schema";
 
 const twilio = (overrides: Partial<SmsProviderFormValues> = {}): SmsProviderFormValues => ({
   name: "Default",
@@ -78,15 +78,15 @@ describe("createSmsProviderSchema", () => {
   });
 });
 
-describe("smsTemplateSchema", () => {
+describe("createSmsTemplateSchema", () => {
   it("mirrors the server's name and language rules", () => {
-    expect(smsTemplateSchema.safeParse({ name: "otp-login", language: "en-US", body: "{{code}}" }).success).toBe(true);
-    expect(smsTemplateSchema.safeParse({ name: "otp login", language: "en-US", body: "x" }).success).toBe(false);
-    expect(smsTemplateSchema.safeParse({ name: "otp", language: "english", body: "x" }).success).toBe(false);
+    expect(createSmsTemplateSchema().safeParse({ name: "otp-login", language: "en-US", body: "{{code}}" }).success).toBe(true);
+    expect(createSmsTemplateSchema().safeParse({ name: "otp login", language: "en-US", body: "x" }).success).toBe(false);
+    expect(createSmsTemplateSchema().safeParse({ name: "otp", language: "english", body: "x" }).success).toBe(false);
   });
 });
 
-describe("sendSmsSchema", () => {
+describe("createSendSmsSchema", () => {
   const base = {
     mode: "text" as const,
     destinationNumbers: ["+41790000000"],
@@ -98,13 +98,13 @@ describe("sendSmsSchema", () => {
   };
 
   it("needs text in text mode and a template in template mode", () => {
-    expect(sendSmsSchema.safeParse(base).success).toBe(true);
-    expect(sendSmsSchema.safeParse({ ...base, messageText: " " }).success).toBe(false);
-    expect(sendSmsSchema.safeParse({ ...base, mode: "template" }).success).toBe(false);
+    expect(createSendSmsSchema().safeParse(base).success).toBe(true);
+    expect(createSendSmsSchema().safeParse({ ...base, messageText: " " }).success).toBe(false);
+    expect(createSendSmsSchema().safeParse({ ...base, mode: "template" }).success).toBe(false);
   });
 
   it("needs at least one well-formed recipient", () => {
-    expect(sendSmsSchema.safeParse({ ...base, destinationNumbers: [] }).success).toBe(false);
-    expect(sendSmsSchema.safeParse({ ...base, destinationNumbers: ["abc"] }).success).toBe(false);
+    expect(createSendSmsSchema().safeParse({ ...base, destinationNumbers: [] }).success).toBe(false);
+    expect(createSendSmsSchema().safeParse({ ...base, destinationNumbers: ["abc"] }).success).toBe(false);
   });
 });

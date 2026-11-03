@@ -1,9 +1,8 @@
+import { joinList, tSubscription } from "./subscription-i18n";
 import type { PlanSummaryData } from "../components/plan-summary-card";
 
 type SummaryMeter = PlanSummaryData["meters"][number];
 type SummaryItem = PlanSummaryData["quantityItems"][number];
-
-const PER_WINDOW: Record<string, string> = { Hour: "an hour", Day: "a day", Week: "a week" };
 
 /**
  * The span a pace is counted over, in words: "an hour", "every 5 hours", "in any 5 hours".
@@ -13,17 +12,47 @@ const PER_WINDOW: Record<string, string> = { Hour: "an hour", Day: "a day", Week
  * "1,000 every 5 hours" actually sold.
  */
 export const describePaceWindow = (window: string, count = 1, rolling = false): string => {
-  const unit = window.toLowerCase();
-  const span = count === 1 ? unit : `${count} ${unit}s`;
+  const span = describeSpan(window, count);
 
   if (rolling) {
-    return `in any ${span}`;
+    return tSubscription("MEMBER_PLAN_FORMAT.IN_ANY_SPAN", { span });
   }
 
-  return count === 1 ? PER_WINDOW[window] : `every ${span}`;
+  if (count === 1) {
+    switch (window) {
+      case "Hour":
+        return tSubscription("MEMBER_PLAN_FORMAT.PER_HOUR");
+      case "Day":
+        return tSubscription("MEMBER_PLAN_FORMAT.PER_DAY");
+      case "Week":
+        return tSubscription("MEMBER_PLAN_FORMAT.PER_WEEK");
+      default:
+        return window.toLowerCase();
+    }
+  }
+
+  return tSubscription("MEMBER_PLAN_FORMAT.EVERY_SPAN", { span });
 };
 
-const THEN = { Refuse: "then refused", Throttle: "then reported as over pace" } as const;
+const describeSpan = (window: string, count: number): string => {
+  const values = { count };
+
+  switch (window) {
+    case "Hour":
+      return tSubscription("MEMBER_PLAN_FORMAT.SPAN_HOUR", values);
+    case "Day":
+      return tSubscription("MEMBER_PLAN_FORMAT.SPAN_DAY", values);
+    case "Week":
+      return tSubscription("MEMBER_PLAN_FORMAT.SPAN_WEEK", values);
+    default:
+      return count === 1 ? window.toLowerCase() : `${count} ${window.toLowerCase()}`;
+  }
+};
+
+const describeThen = (behaviour: "Refuse" | "Throttle"): string =>
+  behaviour === "Refuse"
+    ? tSubscription("MEMBER_PLAN_FORMAT.THEN_REFUSED")
+    : tSubscription("MEMBER_PLAN_FORMAT.THEN_OVER_PACE");
 
 /**
  * A meter's pace limits in words, or null when it has none — "at most 1,000 every 5 hours and
@@ -41,17 +70,30 @@ export const describePace = (meter: SummaryMeter): string | null => {
   }
 
   const amount = (limit: (typeof limits)[number]) =>
-    `${limit.quantity.toLocaleString()} ${describePaceWindow(limit.window, limit.windowCount, limit.rolling)}`;
-  const joined = (parts: string[]) =>
-    parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+    tSubscription("MEMBER_PLAN_FORMAT.PACE_AMOUNT", {
+      quantity: limit.quantity.toLocaleString(),
+      window: describePaceWindow(limit.window, limit.windowCount, limit.rolling),
+    });
 
   const behaviours = new Set(limits.map((limit) => limit.behaviour));
 
   if (behaviours.size === 1) {
-    return `at most ${joined(limits.map(amount))}, ${THEN[limits[0].behaviour]}`;
+    return tSubscription("MEMBER_PLAN_FORMAT.AT_MOST_THEN", {
+      limits: joinList(limits.map(amount)),
+      then: describeThen(limits[0].behaviour),
+    });
   }
 
-  return `at most ${joined(limits.map((limit) => `${amount(limit)} (${THEN[limit.behaviour]})`))}`;
+  return tSubscription("MEMBER_PLAN_FORMAT.AT_MOST", {
+    limits: joinList(
+      limits.map((limit) =>
+        tSubscription("MEMBER_PLAN_FORMAT.LIMIT_WITH_BEHAVIOUR", {
+          amount: amount(limit),
+          then: describeThen(limit.behaviour),
+        }),
+      ),
+    ),
+  });
 };
 
 /**
@@ -74,10 +116,14 @@ export const countingItemOf = (plan: PlanSummaryData): SummaryItem | undefined =
  */
 export const describePlaces = (plan: PlanSummaryData): string => {
   const allowances = plan.meters.map((meter) => {
-    const each = `${meter.includedQuantity.toLocaleString()} ${plural(meter.unitLabel, meter.includedQuantity)} each`;
+    const each = tSubscription("MEMBER_PLAN_FORMAT.ALLOWANCE_EACH", {
+      count: meter.includedQuantity,
+      quantity: meter.includedQuantity.toLocaleString(),
+      unit: meter.unitLabel,
+    });
     const pace = describePace(meter);
 
-    return pace ? `${each}, ${pace}` : each;
+    return pace ? tSubscription("MEMBER_PLAN_FORMAT.ALLOWANCE_WITH_PACE", { each, pace }) : each;
   });
 
   // Semicolons between the parts, because each part already uses commas: with two meters, one
@@ -90,31 +136,43 @@ export const describePlaces = (plan: PlanSummaryData): string => {
 
   if (!counting) {
     return plan.quantityItems.length === 0
-      ? sentence("One place")
-      : "Mark which quantity counts people — until then nobody can be given a place.";
+      ? sentence(tSubscription("MEMBER_PLAN_FORMAT.ONE_PLACE"))
+      : tSubscription("MEMBER_PLAN_FORMAT.MARK_COUNTING_ITEM");
   }
 
   // The same item means "how many were bought" under a per-unit price and "how many may be
   // bought" under a flat one, so each price shape answers separately. A plan can carry both.
   const perPlace = plan.prices.some((price) => price.quantityItemKey === counting.itemKey);
   const flat = plan.prices.some((price) => price.quantityItemKey !== counting.itemKey);
-  const counts: string[] = [];
+  const perPlaceText =
+    perPlace || plan.prices.length === 0
+      ? tSubscription("MEMBER_PLAN_FORMAT.PLACES_PER_ITEM", {
+          unit: counting.unitLabel,
+          default: counting.defaultQuantity.toLocaleString(),
+        })
+      : null;
+  const flatText = flat ? describeFlatPlaces(counting, perPlaceText !== null) : null;
 
-  if (perPlace || plan.prices.length === 0) {
-    counts.push(`one place per ${counting.unitLabel} bought (${counting.defaultQuantity.toLocaleString()} by default)`);
-  }
-
-  if (flat) {
-    counts.push(
-      counting.maxQuantity === null
-        ? "no maximum set, so a flat price has no places to give"
-        : `${counting.maxQuantity.toLocaleString()} ${plural("place", counting.maxQuantity)} at the flat price`,
+  if (perPlaceText && flatText) {
+    return sentence(
+      tSubscription("MEMBER_PLAN_FORMAT.PLACES_BOTH", { perPlace: perPlaceText, flat: flatText }),
     );
   }
 
-  const places = counts.join(", or ");
-
-  return sentence(places.charAt(0).toUpperCase() + places.slice(1));
+  return sentence(perPlaceText ?? flatText ?? "");
 };
 
-const plural = (label: string, quantity: number) => (quantity === 1 ? label : `${label}s`);
+const describeFlatPlaces = (counting: SummaryItem, afterPerPlace: boolean): string => {
+  if (counting.maxQuantity === null) {
+    return tSubscription(
+      afterPerPlace
+        ? "MEMBER_PLAN_FORMAT.PLACES_FLAT_NO_MAX_ALSO"
+        : "MEMBER_PLAN_FORMAT.PLACES_FLAT_NO_MAX",
+    );
+  }
+
+  return tSubscription("MEMBER_PLAN_FORMAT.PLACES_FLAT", {
+    count: counting.maxQuantity,
+    max: counting.maxQuantity.toLocaleString(),
+  });
+};

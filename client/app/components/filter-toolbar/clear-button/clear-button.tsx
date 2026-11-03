@@ -1,11 +1,13 @@
 import { Button } from "@/components/ui-kits/button/button";
 import { MouseEventHandler } from "react";
+import { useT } from "@seliseblocks/genesis-os";
 
 type ClearButtonProps = {
   onClear: MouseEventHandler<HTMLButtonElement>;
 };
 
 export const ClearButton = ({ onClear }: ClearButtonProps) => {
+  const { t } = useT("utilities.shared");
   return (
     <div className="p-1">
       <Button
@@ -13,7 +15,7 @@ export const ClearButton = ({ onClear }: ClearButtonProps) => {
         className="h-auto w-full rounded-sm px-2 py-1.5 font-medium text-accent-foreground hover:bg-accent"
         onClick={onClear}
       >
-        Clear
+        {t("common:CLEAR")}
       </Button>
     </div>
   );

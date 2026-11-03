@@ -3,8 +3,9 @@ import { Badge } from "@/components/ui-kits/badge/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { checkValidDate, cn, formatFullDate } from "@/lib/utils";
-import { UserCreationType } from "@/idp/authentication/constants/authentication.constant";
+import { getUserCreationType } from "@/idp/authentication/constants/authentication.constant";
 import { useGetMe, useGetUserById } from "@/idp/iam/hooks/use-user";
+import { useT } from "@seliseblocks/genesis-os";
 interface ItemProps {
   label: string;
   children?: React.ReactNode;
@@ -27,6 +28,7 @@ export const UserBasicInformation = ({
   detailsGridClassName?: string;
   own?: boolean;
 }) => {
+  const { t } = useT("utilities.idp");
   const meQuery = useGetMe({ enabled: own });
   const byIdQuery = useGetUserById({ id, projectKey, enabled: !own });
   const { isLoading, data } = own ? meQuery : byIdQuery;
@@ -35,35 +37,35 @@ export const UserBasicInformation = ({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Basic Information</CardTitle>
+        <CardTitle>{t("USER_BASIC_INFORMATION.BASIC_INFORMATION")}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className={cn("grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-y-[22px]", detailsGridClassName)}>
-          <Item label="Name" isLoading={isLoading}>
+          <Item label={t("common:NAME")} isLoading={isLoading}>
             {user?.firstName} {user?.lastName}
           </Item>
-          <Item label="Email" isLoading={isLoading}>
+          <Item label={t("common:EMAIL")} isLoading={isLoading}>
             <div className="flex items-center gap-2">
               {user?.email && <CopyToClipboardButton textToCopy={user?.email}>{user?.email}</CopyToClipboardButton>}
             </div>
           </Item>
-          <Item label="No. of logins" isLoading={isLoading}>
+          <Item label={t("USER_BASIC_INFORMATION.NO_OF_LOGINS")} isLoading={isLoading}>
             {user?.logInCount ?? "-"}
           </Item>
-          <Item label="Status" isLoading={isLoading}>
+          <Item label={t("common:STATUS")} isLoading={isLoading}>
             <Badge variant={user?.active ? "success" : "error"} className="w-fit rounded-sm py-1.5">
-              {user?.active ? "Active" : " Inactive"}
+              {user?.active ? t("USER_BASIC_INFORMATION.ACTIVE") : t("USER_BASIC_INFORMATION.INACTIVE")}
             </Badge>
           </Item>
-          <Item label="Latest login" isLoading={isLoading}>
+          <Item label={t("USER_BASIC_INFORMATION.LATEST_LOGIN")} isLoading={isLoading}>
             {user?.lastLoggedInTime && checkValidDate(user?.lastLoggedInTime)
               ? formatFullDate(new Date(user?.lastLoggedInTime))
               : "-"}
           </Item>
-          <Item label="Signed up" isLoading={isLoading}>
-            {user?.userCreationType && UserCreationType[user?.userCreationType] ? (
+          <Item label={t("USER_BASIC_INFORMATION.SIGNED_UP")} isLoading={isLoading}>
+            {user?.userCreationType && getUserCreationType()[user?.userCreationType] ? (
               <Badge variant="info" className="w-fit">
-                {UserCreationType[user?.userCreationType]}
+                {getUserCreationType()[user?.userCreationType]}
               </Badge>
             ) : (
               ""

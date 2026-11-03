@@ -1,21 +1,24 @@
 import { Mail, Smartphone } from "lucide-react";
+import { tStatic } from "@seliseblocks/genesis-os";
 
-export const MFA_Provider_Data = [
+const UTILITIES_IDP_MODULE = "utilities.idp";
+
+export const getMFA_Provider_Data = () => [
   {
     provider: "email",
-    label: "Email",
+    label: tStatic(UTILITIES_IDP_MODULE, "common:EMAIL"),
     Icon: Mail,
     status: false,
     type: 2,
-    description: "Receive a verification code in your registered email to complete sign-in.",
+    description: tStatic(UTILITIES_IDP_MODULE, "MFA_CONFIG.RECEIVE_A_VERIFICATION_CODE_IN"),
   },
   {
     provider: "authenticator_app",
-    label: "Authenticator app",
+    label: tStatic(UTILITIES_IDP_MODULE, "MFA_CONFIG.AUTHENTICATOR_APP"),
     Icon: Smartphone,
     status: false,
     type: 1,
     description:
-      "Use an authentication app or browser extension to get two-factor authentication codes when prompted.",
+      tStatic(UTILITIES_IDP_MODULE, "MFA_CONFIG.USE_AN_AUTHENTICATION_APP_OR"),
   },
 ];

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Building2, CheckCircle2, Upload, X } from "lucide-react";
 import { useParams } from "react-router";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT, tStatic } from "@seliseblocks/genesis-os";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
@@ -17,6 +17,7 @@ import {
 } from "@blocks-storage/hooks/use-storage-file";
 import { storageService } from "@blocks-storage/services/storage.service";
 import { toast } from "@/hooks/use-toast";
+import { RichText } from "../components/rich-text";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useSubscriptionLink } from "../hooks/use-subscription-link";
 import {
@@ -28,6 +29,8 @@ import type {
   SubscriptionMerchantProfilePaymentProvider,
   SubscriptionPaymentProviderName,
 } from "../models/subscription-billing.model";
+
+const UTILITIES_SUBSCRIPTION_PAGES_MODULE = "utilities.subscription.pages";
 
 const PAYMENT_PROVIDERS: {
   name: SubscriptionPaymentProviderName;
@@ -43,19 +46,19 @@ const readinessLabel = (
 ): string => {
   switch (status) {
     case "Ready":
-      return "Ready";
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_READY");
     case "NotConfigured":
-      return "Not configured";
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_NOT_CONFIGURED");
     case "Disabled":
-      return "Disabled";
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "common:DISABLED");
     case "Misconfigured":
-      return "Misconfigured";
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_MISCONFIGURED");
     case "CredentialsUnavailable":
-      return "Credentials unavailable";
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_CREDENTIALS_UNAVAILABLE");
     case "Unsupported":
-      return "Unsupported";
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_UNSUPPORTED");
     default:
-      return "Unknown";
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "MERCHANT_PROFILE_PAGE.READINESS_UNKNOWN");
   }
 };
 
@@ -144,6 +147,7 @@ const toForm = (profile: SubscriptionMerchantProfile): MerchantForm => ({
  * it from the console alone.
  */
 export const SubscriptionMerchantProfilePage = () => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PAGES_MODULE);
   // The seller is the tenant, so nothing on this page is scoped to an organization. The link out of
   // it still carries whichever organization the catalogue was being read as, so a detour through
   // here does not silently reset it.
@@ -211,8 +215,8 @@ export const SubscriptionMerchantProfilePage = () => {
     if (!ALLOWED_LOGO_TYPES.includes(file.type)) {
       toast({
         variant: "destructive",
-        title: "That file type isn't supported",
-        description: "Upload a PNG, JPEG or SVG.",
+        title: t("MERCHANT_PROFILE_PAGE.LOGO_TYPE_TITLE"),
+        description: t("MERCHANT_PROFILE_PAGE.LOGO_TYPE_DESCRIPTION"),
       });
 
       return;
@@ -221,8 +225,10 @@ export const SubscriptionMerchantProfilePage = () => {
     if (file.size > MAX_LOGO_BYTES) {
       toast({
         variant: "destructive",
-        title: "That logo is too large",
-        description: `Keep it under ${Math.round(MAX_LOGO_BYTES / 1024)} KB.`,
+        title: t("MERCHANT_PROFILE_PAGE.LOGO_SIZE_TITLE"),
+        description: t("MERCHANT_PROFILE_PAGE.LOGO_SIZE_DESCRIPTION", {
+          size: Math.round(MAX_LOGO_BYTES / 1024),
+        }),
       });
 
       return;
@@ -243,7 +249,7 @@ export const SubscriptionMerchantProfilePage = () => {
       });
 
       if (!preSigned.isSuccess) {
-        throw new Error("Could not get an upload URL.");
+        throw new Error(t("MERCHANT_PROFILE_PAGE.UPLOAD_URL_FAILED"));
       }
 
       await uploadFile({ url: preSigned.uploadUrl, file });
@@ -254,7 +260,7 @@ export const SubscriptionMerchantProfilePage = () => {
           fileVersionId: preSigned.fileVersionId ?? "",
         });
         if (completion.verificationStatus !== "Verified") {
-          throw new Error(completion.rejectionReason ?? "Logo failed verification");
+          throw new Error(completion.rejectionReason ?? t("MERCHANT_PROFILE_PAGE.LOGO_VERIFICATION_FAILED"));
         }
       }
 
@@ -269,8 +275,11 @@ export const SubscriptionMerchantProfilePage = () => {
     } catch (uploadError) {
       toast({
         variant: "destructive",
-        title: "The logo could not be uploaded",
-        description: uploadError instanceof Error ? uploadError.message : "Something went wrong.",
+        title: t("MERCHANT_PROFILE_PAGE.LOGO_UPLOAD_FAILED"),
+        description:
+          uploadError instanceof Error
+            ? uploadError.message
+            : t("MERCHANT_PROFILE_PAGE.SOMETHING_WENT_WRONG"),
       });
     } finally {
       setUploadingLogo(false);
@@ -315,11 +324,16 @@ export const SubscriptionMerchantProfilePage = () => {
     profile && form.paymentProviderName !== (profile.paymentProviderName ?? "STRIPE"),
   );
 
+  const idleLogoLabel = form.logoFileId
+    ? t("MERCHANT_PROFILE_PAGE.REPLACE_LOGO")
+    : t("MERCHANT_PROFILE_PAGE.UPLOAD_LOGO");
+  const logoButtonLabel = uploadingLogo ? t("MERCHANT_PROFILE_PAGE.UPLOADING") : idleLogoLabel;
+
   return (
     <div className="flex flex-col gap-6">
       <SubscriptionPlanPageHeader
-        title="Merchant profile"
-        description="The legal identity this tenant issues its invoices and credit notes under."
+        title={t("MERCHANT_PROFILE_PAGE.TITLE")}
+        description={t("MERCHANT_PROFILE_PAGE.DESCRIPTION")}
         backTo={subscriptionLink("plans")}
         icon={<Building2 className="h-6 w-6" />}
       />
@@ -333,13 +347,13 @@ export const SubscriptionMerchantProfilePage = () => {
           <div className="text-sm">
             <p className="font-medium">
               {profile.isComplete
-                ? "Issuing under the deployment's configured identity."
-                : "No seller is named yet."}
+                ? t("MERCHANT_PROFILE_PAGE.INHERITED_TITLE")
+                : t("MERCHANT_PROFILE_PAGE.NO_SELLER_TITLE")}
             </p>
             <p className="text-muted-foreground">
               {profile.isComplete
-                ? "Every tenant on this deployment shares that identity. Set one here so this tenant's documents name the company that is actually selling."
-                : "A paid subscription cannot start until a seller is named, because an invoice has to state who issued it."}
+                ? t("MERCHANT_PROFILE_PAGE.INHERITED_HINT")
+                : t("MERCHANT_PROFILE_PAGE.NO_SELLER_HINT")}
             </p>
           </div>
         </Card>
@@ -352,10 +366,9 @@ export const SubscriptionMerchantProfilePage = () => {
         >
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
           <div className="text-sm">
-            <p className="font-medium">This tenant issues under its own identity.</p>
+            <p className="font-medium">{t("MERCHANT_PROFILE_PAGE.OWN_TITLE")}</p>
             <p className="text-muted-foreground">
-              Changes appear on documents issued from now on. Invoices already sent keep the seller
-              they were issued with.
+              {t("MERCHANT_PROFILE_PAGE.OWN_HINT")}
             </p>
           </div>
         </Card>
@@ -370,7 +383,7 @@ export const SubscriptionMerchantProfilePage = () => {
       <Card className="flex flex-col gap-5 p-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantLegalName">Legal name</Label>
+            <Label htmlFor="merchantLegalName">{t("MERCHANT_PROFILE_PAGE.LEGAL_NAME")}</Label>
             <Input
               id="merchantLegalName"
               value={form.legalName}
@@ -378,12 +391,12 @@ export const SubscriptionMerchantProfilePage = () => {
               placeholder="Northwind Software GmbH"
             />
             <p className="text-xs text-muted-foreground">
-              The registered name of the selling entity, as it must appear on an invoice.
+              {t("MERCHANT_PROFILE_PAGE.LEGAL_NAME_HINT")}
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantDisplayName">Trading name</Label>
+            <Label htmlFor="merchantDisplayName">{t("MERCHANT_PROFILE_PAGE.TRADING_NAME")}</Label>
             <Input
               id="merchantDisplayName"
               value={form.displayName}
@@ -391,12 +404,12 @@ export const SubscriptionMerchantProfilePage = () => {
               placeholder="Northwind"
             />
             <p className="text-xs text-muted-foreground">
-              Optional. Falls back to the legal name.
+              {t("MERCHANT_PROFILE_PAGE.TRADING_NAME_HINT")}
             </p>
           </div>
 
           <div className="flex flex-col gap-2 sm:col-span-2">
-            <Label htmlFor="merchantLine1">Address</Label>
+            <Label htmlFor="merchantLine1">{t("MERCHANT_PROFILE_PAGE.ADDRESS")}</Label>
             <Input
               id="merchantLine1"
               value={form.line1}
@@ -407,12 +420,12 @@ export const SubscriptionMerchantProfilePage = () => {
               id="merchantLine2"
               value={form.line2}
               onChange={(event) => set("line2")(event.target.value)}
-              placeholder="Second line, if there is one"
+              placeholder={t("MERCHANT_PROFILE_PAGE.ADDRESS_LINE2_PLACEHOLDER")}
             />
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantPostalCode">Postal code</Label>
+            <Label htmlFor="merchantPostalCode">{t("MERCHANT_PROFILE_PAGE.POSTAL_CODE")}</Label>
             <Input
               id="merchantPostalCode"
               value={form.postalCode}
@@ -421,7 +434,7 @@ export const SubscriptionMerchantProfilePage = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantCity">City</Label>
+            <Label htmlFor="merchantCity">{t("MERCHANT_PROFILE_PAGE.CITY")}</Label>
             <Input
               id="merchantCity"
               value={form.city}
@@ -430,7 +443,7 @@ export const SubscriptionMerchantProfilePage = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantRegion">State or region</Label>
+            <Label htmlFor="merchantRegion">{t("MERCHANT_PROFILE_PAGE.REGION")}</Label>
             <Input
               id="merchantRegion"
               value={form.region}
@@ -439,7 +452,7 @@ export const SubscriptionMerchantProfilePage = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantCountryCode">Country code</Label>
+            <Label htmlFor="merchantCountryCode">{t("MERCHANT_PROFILE_PAGE.COUNTRY_CODE")}</Label>
             <Input
               id="merchantCountryCode"
               value={form.countryCode}
@@ -447,11 +460,11 @@ export const SubscriptionMerchantProfilePage = () => {
               maxLength={2}
               placeholder="CH"
             />
-            <p className="text-xs text-muted-foreground">Two letters, ISO 3166-1.</p>
+            <p className="text-xs text-muted-foreground">{t("MERCHANT_PROFILE_PAGE.COUNTRY_CODE_HINT")}</p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantTaxRegistrationId">Tax or VAT registration</Label>
+            <Label htmlFor="merchantTaxRegistrationId">{t("MERCHANT_PROFILE_PAGE.TAX_REGISTRATION")}</Label>
             <Input
               id="merchantTaxRegistrationId"
               value={form.taxRegistrationId}
@@ -459,13 +472,12 @@ export const SubscriptionMerchantProfilePage = () => {
               placeholder="CHE-123.456.789"
             />
             <p className="text-xs text-muted-foreground">
-              The seller&apos;s own registration. Required in some jurisdictions and meaningless in
-              others, so nothing here insists on it.
+              {t("MERCHANT_PROFILE_PAGE.TAX_REGISTRATION_HINT")}
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantSupportEmail">Support email</Label>
+            <Label htmlFor="merchantSupportEmail">{t("MERCHANT_PROFILE_PAGE.SUPPORT_EMAIL")}</Label>
             <Input
               id="merchantSupportEmail"
               type="email"
@@ -474,21 +486,21 @@ export const SubscriptionMerchantProfilePage = () => {
               placeholder="billing@northwind.example"
             />
             <p className="text-xs text-muted-foreground">
-              Where a subscriber replies about a charge.
+              {t("MERCHANT_PROFILE_PAGE.SUPPORT_EMAIL_HINT")}
             </p>
           </div>
 
           <div className="flex flex-col gap-2 sm:col-span-2">
-            <Label htmlFor="merchantPaymentInstructions">Payment instructions</Label>
+            <Label htmlFor="merchantPaymentInstructions">{t("MERCHANT_PROFILE_PAGE.PAYMENT_INSTRUCTIONS")}</Label>
             <Textarea
               id="merchantPaymentInstructions"
               value={form.paymentInstructions}
               onChange={(event) => set("paymentInstructions")(event.target.value)}
               rows={3}
-              placeholder="Bank details, terms, a remittance reference."
+              placeholder={t("MERCHANT_PROFILE_PAGE.PAYMENT_INSTRUCTIONS_PLACEHOLDER")}
             />
             <p className="text-xs text-muted-foreground">
-              Printed verbatim under the totals on every document.
+              {t("MERCHANT_PROFILE_PAGE.PAYMENT_INSTRUCTIONS_HINT")}
             </p>
           </div>
         </div>
@@ -496,10 +508,9 @@ export const SubscriptionMerchantProfilePage = () => {
 
       <Card className="flex flex-col gap-5 p-5" data-testid="merchant-payment-provider">
         <div>
-          <h2 className="text-sm font-medium">Subscription payment provider</h2>
+          <h2 className="text-sm font-medium">{t("MERCHANT_PROFILE_PAGE.PROVIDER_HEADING")}</h2>
           <p className="text-xs text-muted-foreground">
-            Which provider a new subscription is routed through at creation. Existing subscriptions
-            keep whichever provider they were created with — changing this never moves them.
+            {t("MERCHANT_PROFILE_PAGE.PROVIDER_HINT")}
           </p>
         </div>
 
@@ -532,11 +543,11 @@ export const SubscriptionMerchantProfilePage = () => {
                 </div>
                 {!ready && (
                   <p className="text-xs text-muted-foreground">
-                    Set this up on the{" "}
-                    <a href={paymentProvidersLink} className="underline">
-                      Payment Providers page
-                    </a>{" "}
-                    before selecting it here.
+                    <RichText
+                      text={t("MERCHANT_PROFILE_PAGE.PROVIDER_SET_UP")}
+                      href={paymentProvidersLink}
+                      linkClassName="underline"
+                    />
                   </p>
                 )}
               </button>
@@ -546,19 +557,16 @@ export const SubscriptionMerchantProfilePage = () => {
 
         {providerChanged && (
           <p className="text-xs text-muted-foreground" data-testid="merchant-payment-provider-changed">
-            This provider will be used for new subscriptions. Existing subscriptions will continue
-            using their current provider.
+            {t("MERCHANT_PROFILE_PAGE.PROVIDER_CHANGED")}
           </p>
         )}
       </Card>
 
       <Card className="flex flex-col gap-5 p-5">
         <div>
-          <h2 className="text-sm font-medium">Invoice branding</h2>
+          <h2 className="text-sm font-medium">{t("MERCHANT_PROFILE_PAGE.BRANDING_HEADING")}</h2>
           <p className="text-xs text-muted-foreground">
-            The layout is fixed for every tenant. Only the logo and these two colors change — and
-            only for documents issued after they are saved; a document already sent keeps the
-            branding it was issued with.
+            {t("MERCHANT_PROFILE_PAGE.BRANDING_HINT")}
           </p>
         </div>
 
@@ -567,11 +575,11 @@ export const SubscriptionMerchantProfilePage = () => {
             {logoPreviewUrl ? (
               <img
                 src={logoPreviewUrl}
-                alt="Invoice logo"
+                alt={t("MERCHANT_PROFILE_PAGE.LOGO_ALT")}
                 className="h-full w-full rounded-md object-contain"
               />
             ) : (
-              <span className="text-xs text-muted-foreground">No logo</span>
+              <span className="text-xs text-muted-foreground">{t("MERCHANT_PROFILE_PAGE.NO_LOGO")}</span>
             )}
           </div>
 
@@ -599,7 +607,7 @@ export const SubscriptionMerchantProfilePage = () => {
                 onClick={() => logoInputRef.current?.click()}
               >
                 <Upload className="mr-2 h-4 w-4" />
-                {uploadingLogo ? "Uploading…" : form.logoFileId ? "Replace logo" : "Upload logo"}
+                {logoButtonLabel}
               </Button>
               {form.logoFileId && (
                 <Button
@@ -613,20 +621,19 @@ export const SubscriptionMerchantProfilePage = () => {
                   }}
                 >
                   <X className="mr-2 h-4 w-4" />
-                  Remove
+                  {t("common:REMOVE")}
                 </Button>
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              PNG, JPEG or SVG, under {Math.round(MAX_LOGO_BYTES / 1024)} KB. Without one, documents
-              show this name as text instead — a missing or unreadable logo never blocks a document.
+              {t("MERCHANT_PROFILE_PAGE.LOGO_HINT", { size: Math.round(MAX_LOGO_BYTES / 1024) })}
             </p>
           </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantPrimaryColor">Primary color</Label>
+            <Label htmlFor="merchantPrimaryColor">{t("MERCHANT_PROFILE_PAGE.PRIMARY_COLOR")}</Label>
             <div className="flex items-center gap-2">
               <input
                 id="merchantPrimaryColor"
@@ -641,11 +648,11 @@ export const SubscriptionMerchantProfilePage = () => {
                 maxLength={7}
               />
             </div>
-            <p className="text-xs text-muted-foreground">Headings and the total due.</p>
+            <p className="text-xs text-muted-foreground">{t("MERCHANT_PROFILE_PAGE.PRIMARY_COLOR_HINT")}</p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="merchantAccentColor">Accent color</Label>
+            <Label htmlFor="merchantAccentColor">{t("MERCHANT_PROFILE_PAGE.ACCENT_COLOR")}</Label>
             <div className="flex items-center gap-2">
               <input
                 id="merchantAccentColor"
@@ -660,7 +667,7 @@ export const SubscriptionMerchantProfilePage = () => {
                 maxLength={7}
               />
             </div>
-            <p className="text-xs text-muted-foreground">Trial and note backgrounds.</p>
+            <p className="text-xs text-muted-foreground">{t("MERCHANT_PROFILE_PAGE.ACCENT_COLOR_HINT")}</p>
           </div>
         </div>
 
@@ -672,7 +679,7 @@ export const SubscriptionMerchantProfilePage = () => {
 
         {saved && (
           <p className="text-sm text-emerald-700" data-testid="merchant-saved">
-            Saved. Documents issued from now on name this seller.
+            {t("MERCHANT_PROFILE_PAGE.SAVED")}
           </p>
         )}
 
@@ -681,12 +688,12 @@ export const SubscriptionMerchantProfilePage = () => {
             onClick={submit}
             disabled={isLoading || update.isPending || selectedProviderNotReady}
           >
-            {update.isPending ? "Saving…" : "Save merchant profile"}
+            {update.isPending ? t("MERCHANT_PROFILE_PAGE.SAVING") : t("MERCHANT_PROFILE_PAGE.SAVE")}
           </Button>
           <span className="text-xs text-muted-foreground">
             {selectedProviderNotReady
-              ? "The selected payment provider isn't ready yet — fix its configuration first."
-              : "Accepted from the platform console only — an invoice names a seller in law."}
+              ? t("MERCHANT_PROFILE_PAGE.PROVIDER_NOT_READY")
+              : t("MERCHANT_PROFILE_PAGE.CONSOLE_ONLY")}
           </span>
         </div>
       </Card>

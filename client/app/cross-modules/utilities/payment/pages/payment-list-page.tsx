@@ -30,6 +30,7 @@ import { PaymentFiltersPanel } from "../components/payment-filters";
 import { PaymentListSkeleton } from "../components/payment-list-skeleton";
 import { PaymentRefundDialog } from "../components/payment-refund-dialog";
 import { PaymentTable } from "../components/payment-table";
+import { useT } from "@seliseblocks/genesis-os";
 
 const copyEmptyFilters = (): PaymentFilters => ({
   ...EMPTY_PAYMENT_FILTERS,
@@ -48,6 +49,7 @@ const defaultSortDirection = (
   field === "paymentDate" || field === "amount" ? "desc" : "asc";
 
 export const PaymentListPage = () => {
+  const { t } = useT("utilities.payment");
   const [draftFilters, setDraftFilters] =
     useState<PaymentFilters>(copyEmptyFilters);
   const [filters, setFilters] =
@@ -159,20 +161,19 @@ export const PaymentListPage = () => {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                  Payment list
+                  {t("PAYMENT_LIST_PAGE.PAYMENT_LIST")}
                 </h1>
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-blocks-secondary-200 bg-blocks-secondary-50 px-2.5 py-1 text-xs font-medium text-blocks-secondary-800">
                   <span className="h-1.5 w-1.5 rounded-full bg-blocks-secondary-500" />
-                  Live
+                  {t("PAYMENT_LIST_PAGE.LIVE")}
                 </span>
               </div>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground sm:text-base">
-                Monitor payment activity, outcomes, providers, and amounts for
-                the current tenant.
+                {t("PAYMENT_LIST_PAGE.MONITOR_PAYMENT_ACTIVITY_OUTCOMES")}
               </p>
               {lastUpdated && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Last refreshed at {lastUpdated}
+                  {t("PAYMENT_LIST_PAGE.LAST_REFRESHED_AT", { time: lastUpdated })}
                 </p>
               )}
             </div>
@@ -187,7 +188,7 @@ export const PaymentListPage = () => {
               <RefreshCw
                 className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
               />
-              Refresh
+              {t("common:REFRESH")}
             </Button>
           </div>
         </div>
@@ -204,11 +205,11 @@ export const PaymentListPage = () => {
       <Card className="rounded-xl p-0">
         <div className="flex flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div>
-            <h2 className="font-semibold">Payment activity</h2>
+            <h2 className="font-semibold">{t("PAYMENT_LIST_PAGE.PAYMENT_ACTIVITY")}</h2>
             <p className="text-xs text-muted-foreground">
               {items.length > 0
-                ? `${items.length} payment${items.length === 1 ? "" : "s"} on this page`
-                : "Current payment records"}
+                ? t("PAYMENT_LIST_PAGE.PAYMENTS_ON_THIS_PAGE", { count: items.length })
+                : t("PAYMENT_LIST_PAGE.CURRENT_PAYMENT_RECORDS")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -216,7 +217,7 @@ export const PaymentListPage = () => {
               htmlFor="payment-page-size"
               className="text-xs text-muted-foreground"
             >
-              Rows per page
+              {t("PAYMENT_LIST_PAGE.ROWS_PER_PAGE")}
             </label>
             <Select
               value={pageSize.toString()}
@@ -248,15 +249,15 @@ export const PaymentListPage = () => {
                 <AlertCircle className="h-7 w-7" />
               </span>
               <h3 className="mt-4 text-lg font-semibold">
-                Payments could not be loaded
+                {t("PAYMENT_LIST_PAGE.PAYMENTS_COULD_NOT_BE_LOADED")}
               </h3>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
                 {error instanceof Error
                   ? error.message
-                  : "Check your connection and try again."}
+                  : t("PAYMENT_LIST_PAGE.CHECK_YOUR_CONNECTION_AND_TRY")}
               </p>
               <Button className="mt-5" onClick={() => refetch()}>
-                Try again
+                {t("PAYMENT_LIST_PAGE.TRY_AGAIN")}
               </Button>
             </div>
           ) : items.length === 0 ? (
@@ -266,13 +267,13 @@ export const PaymentListPage = () => {
               </span>
               <h3 className="mt-4 text-lg font-semibold">
                 {activeFilterCount > 0
-                  ? "No matching payments"
-                  : "No payments yet"}
+                  ? t("PAYMENT_LIST_PAGE.NO_MATCHING_PAYMENTS")
+                  : t("PAYMENT_LIST_PAGE.NO_PAYMENTS_YET")}
               </h3>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
                 {activeFilterCount > 0
-                  ? "Try adjusting or clearing the current filters."
-                  : "Payments will appear here as soon as they are created."}
+                  ? t("PAYMENT_LIST_PAGE.TRY_ADJUSTING_OR_CLEARING_THE")
+                  : t("PAYMENT_LIST_PAGE.PAYMENTS_WILL_APPEAR_HERE_AS")}
               </p>
               {activeFilterCount > 0 && (
                 <Button
@@ -280,7 +281,7 @@ export const PaymentListPage = () => {
                   className="mt-5"
                   onClick={resetFilters}
                 >
-                  Clear filters
+                  {t("PAYMENT_LIST_PAGE.CLEAR_FILTERS")}
                 </Button>
               )}
             </div>
@@ -300,10 +301,7 @@ export const PaymentListPage = () => {
         {data && items.length > 0 && (
           <div className="flex flex-col gap-3 border-t px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <p className="text-sm text-muted-foreground">
-              Page{" "}
-              <span className="font-medium text-foreground">
-                {pagePosition}
-              </span>
+              {t("PAYMENT_LIST_PAGE.PAGE_POSITION", { position: pagePosition })}
             </p>
             <div className="flex gap-2">
               <Button
@@ -313,7 +311,7 @@ export const PaymentListPage = () => {
                 disabled={!data.pageInfo.hasPreviousPage || isFetching}
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
-                Previous
+                {t("common:PREVIOUS")}
               </Button>
               <Button
                 variant="outline"
@@ -321,7 +319,7 @@ export const PaymentListPage = () => {
                 onClick={goToNextPage}
                 disabled={!data.pageInfo.hasNextPage || isFetching}
               >
-                Next
+                {t("common:NEXT")}
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             </div>

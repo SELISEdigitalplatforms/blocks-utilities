@@ -3,7 +3,7 @@ import { AlertCircle, FlaskConical, Layers, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import {
@@ -56,12 +56,15 @@ import type {
   SubscriptionSimulationJobRunResponse,
 } from "../models/subscription-simulation-harness.model";
 
+const SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN = "SUBSCRIPTION_SIMULATION_PAGE.RELOAD_AND_TRY_AGAIN";
+
 // Reserves the organization's one open signup or live subscription slot — includes Incomplete.
 const GRANTING_STATUSES = new Set(["Incomplete", "Trialing", "Active", "PastDue"]);
 // Actually grants entitlements per the lifecycle: Incomplete has not paid yet and grants nothing.
 const ENTITLED_STATUSES = new Set(["Trialing", "Active", "PastDue"]);
 
 export const SubscriptionSimulationPage = () => {
+  const { t } = useT("utilities.subscription-simulation");
   const [searchParams, setSearchParams] = useSearchParams();
   const organizationScope = searchParams.get(ORGANIZATION_QUERY_PARAM) ?? undefined;
   const [subscribingTo, setSubscribingTo] = useState<SubscriptionPlan | null>(null);
@@ -94,14 +97,14 @@ export const SubscriptionSimulationPage = () => {
       // subscription created here is stored under it. Calling it tenant-wide left an operator
       // believing they had a subscription belonging to no organization in particular, which
       // nothing in the model can produce.
-      return "Console organization";
+      return t("SUBSCRIPTION_SIMULATION_PAGE.CONSOLE_ORGANIZATION");
     }
     return (
       organizationsData?.organizations?.find(
         (organization) => organization.itemId === organizationScope,
       )?.name ?? organizationScope
     );
-  }, [organizationsData, organizationScope]);
+  }, [organizationsData, organizationScope, t]);
 
   const {
     data: plans,
@@ -174,17 +177,16 @@ export const SubscriptionSimulationPage = () => {
       });
 
       toast({
-        title: "Card setup ready",
+        title: t("SUBSCRIPTION_SIMULATION_PAGE.CARD_SETUP_READY"),
         description:
-          "Open the checkout link from the current subscription card above. No charge has " +
-          "been made.",
+          t("SUBSCRIPTION_SIMULATION_PAGE.OPEN_THE_CHECKOUT_LINK_FROM_2"),
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "The card could not be added",
+        title: t("SUBSCRIPTION_SIMULATION_PAGE.THE_CARD_COULD_NOT_BE"),
         description:
-          error instanceof Error ? error.message : "Reload and try again.",
+          error instanceof Error ? error.message : t(SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN),
       });
     }
   };
@@ -206,15 +208,15 @@ export const SubscriptionSimulationPage = () => {
 
       toast({
         variant: "success",
-        title: "Scheduled reduction withdrawn",
-        description: "The current quantity stays in force.",
+        title: t("SUBSCRIPTION_SIMULATION_PAGE.SCHEDULED_REDUCTION_WITHDRAWN"),
+        description: t("SUBSCRIPTION_SIMULATION_PAGE.THE_CURRENT_QUANTITY_STAYS_IN"),
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "The reduction could not be withdrawn",
+        title: t("SUBSCRIPTION_SIMULATION_PAGE.THE_REDUCTION_COULD_NOT_BE"),
         description:
-          error instanceof Error ? error.message : "Reload and try again.",
+          error instanceof Error ? error.message : t(SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN),
       });
     }
   };
@@ -236,15 +238,15 @@ export const SubscriptionSimulationPage = () => {
 
       toast({
         variant: "success",
-        title: "Scheduled plan change withdrawn",
-        description: "The current plan stays in force.",
+        title: t("SUBSCRIPTION_SIMULATION_PAGE.SCHEDULED_PLAN_CHANGE_WITHDRAWN"),
+        description: t("SUBSCRIPTION_SIMULATION_PAGE.THE_CURRENT_PLAN_STAYS_IN"),
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "The scheduled plan change could not be withdrawn",
+        title: t("SUBSCRIPTION_SIMULATION_PAGE.THE_SCHEDULED_PLAN_CHANGE_COULD"),
         description:
-          error instanceof Error ? error.message : "Reload and try again.",
+          error instanceof Error ? error.message : t(SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN),
       });
     }
   };
@@ -267,15 +269,15 @@ export const SubscriptionSimulationPage = () => {
 
       toast({
         variant: "success",
-        title: "Cancellation undone",
-        description: "This subscription keeps renewing as before.",
+        title: t("SUBSCRIPTION_SIMULATION_PAGE.CANCELLATION_UNDONE"),
+        description: t("SUBSCRIPTION_SIMULATION_PAGE.THIS_SUBSCRIPTION_KEEPS_RENEWING"),
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "The cancellation could not be undone",
+        title: t("SUBSCRIPTION_SIMULATION_PAGE.THE_CANCELLATION_COULD_NOT_BE"),
         description:
-          error instanceof Error ? error.message : "Reload and try again.",
+          error instanceof Error ? error.message : t(SUBSCRIPTION_SIMULATION_PAGE_RELOAD_AND_TRY_AGAIN),
       });
     }
   };
@@ -283,8 +285,8 @@ export const SubscriptionSimulationPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SubscriptionPlanPageHeader
-        title="Subscription simulation"
-        description="Exercise the Subscription module's client-facing API as an integrating application would — pick an organization, subscribe it to a plan, and watch the result."
+        title={t("SUBSCRIPTION_SIMULATION_PAGE.SUBSCRIPTION_SIMULATION")}
+        description={t("SUBSCRIPTION_SIMULATION_PAGE.EXERCISE_THE_SUBSCRIPTION_MODULE_S")}
         icon={<FlaskConical className="h-6 w-6" />}
         actions={
           <Button
@@ -294,7 +296,7 @@ export const SubscriptionSimulationPage = () => {
             disabled={isFetchingPlans}
           >
             <RefreshCw className={`mr-2 h-4 w-4 ${isFetchingPlans ? "animate-spin" : ""}`} />
-            Refresh
+            {t("common:REFRESH")}
           </Button>
         }
       />
@@ -302,12 +304,9 @@ export const SubscriptionSimulationPage = () => {
       <Card className="rounded-xl p-0">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div>
-            <h2 className="font-semibold">Acting as</h2>
+            <h2 className="font-semibold">{t("SUBSCRIPTION_SIMULATION_PAGE.ACTING_AS")}</h2>
             <p className="text-xs text-muted-foreground">
-              Every action below is scoped to this organization, exactly as it would be for a
-              real integration.
-              {!organizationScope &&
-                " Naming no organization acts as the console's own — a real organization, not a tenant-wide one, and what a subscription created here belongs to."}
+              {(organizationScope ? t("SUBSCRIPTION_SIMULATION_PAGE.EVERY_ACTION_SCOPED") : t("SUBSCRIPTION_SIMULATION_PAGE.EVERY_ACTION_SCOPED_NO_ORGANIZATION"))}
             </p>
           </div>
 
@@ -319,12 +318,12 @@ export const SubscriptionSimulationPage = () => {
               )
             }
           >
-            <SelectTrigger className="sm:w-64" aria-label="Organization">
+            <SelectTrigger className="sm:w-64" aria-label={t("SUBSCRIPTION_SIMULATION_PAGE.ORGANIZATION")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={TENANT_WIDE_ORGANIZATION}>
-                Console organization
+                {t("SUBSCRIPTION_SIMULATION_PAGE.CONSOLE_ORGANIZATION")}
               </SelectItem>
               {organizations.map((organization) => (
                 <SelectItem key={organization.itemId} value={organization.itemId}>
@@ -336,7 +335,7 @@ export const SubscriptionSimulationPage = () => {
         </div>
 
         <div className="space-y-2 p-4 sm:p-5">
-          <h3 className="text-sm font-medium text-muted-foreground">Current subscription</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">{t("SUBSCRIPTION_SIMULATION_PAGE.CURRENT_SUBSCRIPTION")}</h3>
           <CurrentSubscriptionCard
             subscription={currentSubscription}
             isLoading={isLoadingCurrent}
@@ -362,19 +361,15 @@ export const SubscriptionSimulationPage = () => {
 
       <Card className="rounded-xl p-0">
         <div className="border-b p-4 sm:p-5">
-          <h2 className="font-semibold">Plan catalogue</h2>
+          <h2 className="font-semibold">{t("SUBSCRIPTION_SIMULATION_PAGE.PLAN_CATALOGUE")}</h2>
           <p className="text-xs text-muted-foreground">
-            Every plan visible to <strong>{scopeLabel}</strong> — the same list a
-            <code className="mx-1 rounded bg-muted px-1">
-              GET /api/subscription-plans
-            </code>
-            call returns.
+            {t("SUBSCRIPTION_SIMULATION_PAGE.EVERY_PLAN_VISIBLE_TO", { scope: scopeLabel, endpoint: "GET /api/subscription-plans" })}
           </p>
         </div>
 
         <div className="p-4 sm:p-5">
           {isLoadingPlans ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading plans">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label={t("SUBSCRIPTION_SIMULATION_PAGE.LOADING_PLANS")}>
               {Array.from({ length: 3 }, (_, index) => (
                 <Skeleton key={index} className="h-44 w-full rounded-xl" />
               ))}
@@ -384,12 +379,12 @@ export const SubscriptionSimulationPage = () => {
               <span className="rounded-full bg-destructive/10 p-4 text-destructive">
                 <AlertCircle className="h-7 w-7" />
               </span>
-              <h3 className="mt-4 text-lg font-semibold">Plans could not be loaded</h3>
+              <h3 className="mt-4 text-lg font-semibold">{t("SUBSCRIPTION_SIMULATION_PAGE.PLANS_COULD_NOT_BE_LOADED")}</h3>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                {plansError instanceof Error ? plansError.message : "Try loading the plan list again."}
+                {plansError instanceof Error ? plansError.message : t("SUBSCRIPTION_SIMULATION_PAGE.TRY_LOADING_THE_PLAN_LIST")}
               </p>
               <Button className="mt-5" variant="outline" onClick={() => refetchPlans()}>
-                Try again
+                {t("SUBSCRIPTION_SIMULATION_PAGE.TRY_AGAIN")}
               </Button>
             </div>
           ) : !plans?.length ? (
@@ -397,10 +392,9 @@ export const SubscriptionSimulationPage = () => {
               <span className="rounded-full bg-muted p-4 text-muted-foreground">
                 <Layers className="h-7 w-7" />
               </span>
-              <h3 className="mt-4 text-lg font-semibold">No plan on sale for this scope</h3>
+              <h3 className="mt-4 text-lg font-semibold">{t("SUBSCRIPTION_SIMULATION_PAGE.NO_PLAN_ON_SALE_FOR")}</h3>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                Author one from the subscription plans screen, or choose a different
-                organization.
+                {t("SUBSCRIPTION_SIMULATION_PAGE.AUTHOR_ONE_FROM_THE_SUBSCRIPTION")}
               </p>
             </div>
           ) : (
@@ -410,7 +404,7 @@ export const SubscriptionSimulationPage = () => {
                   key={plan.planId}
                   plan={plan}
                   organizationLabel={
-                    plan.organizationId ? scopeLabel : "Tenant-wide"
+                    plan.organizationId ? scopeLabel : t("SUBSCRIPTION_SIMULATION_PAGE.TENANT_WIDE")
                   }
                   // The organization's one-subscription rule is for its own plans only. A plan
                   // sold to each person sits beside it, as many of them as the organization wants.
@@ -473,17 +467,17 @@ export const SubscriptionSimulationPage = () => {
               const perPerson = subscribingTo.subscriberScope === SUBSCRIBER_SCOPE.User;
 
               toast({
-                title: "Checkout ready",
+                title: t("SUBSCRIPTION_SIMULATION_PAGE.CHECKOUT_READY"),
                 description: perPerson
-                  ? "Pay to activate it. The link also stays on its card under Members."
-                  : "Open the checkout link from the current subscription card above.",
+                  ? t("SUBSCRIPTION_SIMULATION_PAGE.PAY_TO_ACTIVATE_IT_THE")
+                  : t("SUBSCRIPTION_SIMULATION_PAGE.OPEN_THE_CHECKOUT_LINK_FROM"),
                 // A per-person subscription is listed at the foot of the page, under the whole
                 // catalogue, so the link is put in front of the subscriber instead. The
                 // organization's own sits in the card at the top, where they already are.
                 action: perPerson ? (
-                  <ToastAction altText="Open checkout" asChild>
+                  <ToastAction altText={t("SUBSCRIPTION_SIMULATION_PAGE.OPEN_CHECKOUT")} asChild>
                     <a href={checkoutUrl} target="_blank" rel="noreferrer">
-                      Open checkout
+                      {t("SUBSCRIPTION_SIMULATION_PAGE.OPEN_CHECKOUT")}
                     </a>
                   </ToastAction>
                 ) : undefined,

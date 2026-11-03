@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui-kits/button/button";
@@ -18,6 +19,8 @@ import {
   toMajorUnits,
   toMinorUnits,
 } from "../../utilities/subscription-format";
+
+import { tPlanBuilder } from "./plan-builder-i18n";
 
 interface DraftTier {
   /** Blank on the final, unbounded band — never edited, only ever cleared or derived. */
@@ -46,7 +49,7 @@ const draftTablesFrom = (rateTables: MeterRateTable[] | undefined): DraftTable[]
 const validateDraftTables = (tables: DraftTable[]): string | null => {
   for (const table of tables) {
     if (table.tiers.length === 0) {
-      return `${table.currencyCode} has no bands. Add at least one, or remove the currency.`;
+      return tPlanBuilder("EXISTING_METER_RATES_FIELDS.NO_BANDS", { currency: table.currencyCode });
     }
 
     let previousBound = 0;
@@ -56,11 +59,14 @@ const validateDraftTables = (tables: DraftTable[]): string | null => {
       const amount = Number(tier.unitAmount);
 
       if (!Number.isFinite(amount) || amount < 0) {
-        return `Every band in ${table.currencyCode} needs a per-unit amount of zero or more.`;
+        return tPlanBuilder("EXISTING_METER_RATES_FIELDS.AMOUNT_MIN", { currency: table.currencyCode });
       }
 
       if (!isRepresentableInMinorUnits(amount, table.currencyCode)) {
-        return `${tier.unitAmount} ${table.currencyCode} has more decimal places than the currency allows.`;
+        return tPlanBuilder("EXISTING_METER_RATES_FIELDS.TOO_MANY_DECIMALS", {
+          amount: tier.unitAmount,
+          currency: table.currencyCode,
+        });
       }
 
       if (isLast) {
@@ -70,7 +76,7 @@ const validateDraftTables = (tables: DraftTable[]): string | null => {
       const bound = Number(tier.upToQuantity);
 
       if (!Number.isFinite(bound) || bound <= previousBound) {
-        return `${table.currencyCode}'s bands must ascend — each "up to" must be greater than the one before it.`;
+        return tPlanBuilder("EXISTING_METER_RATES_FIELDS.BANDS_ASCEND", { currency: table.currencyCode });
       }
 
       previousBound = bound;
@@ -105,6 +111,7 @@ const ExistingMeterRatesEditor = ({
   meter: PlanMeter;
   onSave: (meterKey: string, rateTables: MeterRateTable[]) => Promise<void>;
 }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const [tables, setTables] = useState<DraftTable[]>(() => draftTablesFrom(meter.rateTables));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +131,7 @@ const ExistingMeterRatesEditor = ({
               }
             >
               <SelectTrigger
-                aria-label={`Overage currency for ${meter.displayName}`}
+                aria-label={t("EXISTING_METER_RATES_FIELDS.OVERAGE_CURRENCY", { meter: meter.displayName })}
                 className="w-28"
               >
                 <SelectValue />
@@ -141,7 +148,7 @@ const ExistingMeterRatesEditor = ({
               type="button"
               variant="ghost"
               size="icon"
-              aria-label="Remove currency"
+              aria-label={t("EXISTING_METER_RATES_FIELDS.REMOVE_CURRENCY")}
               className="text-muted-foreground hover:text-destructive"
               onClick={() =>
                 setTables((current) => current.filter((_, index) => index !== tableIndex))
@@ -157,12 +164,12 @@ const ExistingMeterRatesEditor = ({
             return (
               <div key={tierIndex} className="flex items-end gap-2">
                 <Input
-                  aria-label={`Up to, band ${tierIndex + 1}`}
+                  aria-label={t("EXISTING_METER_RATES_FIELDS.UP_TO_BAND", { band: tierIndex + 1 })}
                   type="number"
                   min={1}
                   disabled={isLast}
                   value={isLast ? "" : tier.upToQuantity}
-                  placeholder={isLast ? "no limit" : "1000"}
+                  placeholder={isLast ? t("EXISTING_METER_RATES_FIELDS.NO_LIMIT") : "1000"}
                   onChange={(event) =>
                     updateTable(tableIndex, {
                       ...table,
@@ -175,7 +182,10 @@ const ExistingMeterRatesEditor = ({
                   }
                 />
                 <Input
-                  aria-label={`Per unit (${table.currencyCode}), band ${tierIndex + 1}`}
+                  aria-label={t("EXISTING_METER_RATES_FIELDS.PER_UNIT_BAND", {
+                    currency: table.currencyCode,
+                    band: tierIndex + 1,
+                  })}
                   type="number"
                   min={0}
                   step={minorUnitStep(table.currencyCode)}
@@ -197,7 +207,7 @@ const ExistingMeterRatesEditor = ({
                   variant="ghost"
                   size="icon"
                   disabled={table.tiers.length === 1}
-                  aria-label="Remove band"
+                  aria-label={t("EXISTING_METER_RATES_FIELDS.REMOVE_BAND")}
                   className="text-muted-foreground hover:text-destructive"
                   onClick={() =>
                     updateTable(tableIndex, {
@@ -232,7 +242,7 @@ const ExistingMeterRatesEditor = ({
             }}
           >
             <Plus className="mr-2 h-4 w-4" />
-            Add another band
+            {t("EXISTING_METER_RATES_FIELDS.ADD_BAND")}
           </Button>
         </div>
       ))}
@@ -250,7 +260,9 @@ const ExistingMeterRatesEditor = ({
         }
       >
         <Plus className="mr-2 h-4 w-4" />
-        {tables.length === 0 ? "Price the overage" : "Add another currency"}
+        {tables.length === 0
+          ? t("EXISTING_METER_RATES_FIELDS.PRICE_OVERAGE")
+          : t("EXISTING_METER_RATES_FIELDS.ADD_CURRENCY")}
       </Button>
 
       {tables.length > 0 && (
@@ -272,13 +284,15 @@ const ExistingMeterRatesEditor = ({
             try {
               await onSave(meter.meterKey, toRateTableRequests(tables));
             } catch (reason) {
-              setError(reason instanceof Error ? reason.message : "The rates could not be saved.");
+              setError(reason instanceof Error
+                  ? reason.message
+                  : t("EXISTING_METER_RATES_FIELDS.SAVE_FAILED"));
             } finally {
               setSaving(false);
             }
           }}
         >
-          {saving ? "Saving…" : "Save overage rates"}
+          {saving ? t("EXISTING_METER_RATES_FIELDS.SAVING") : t("EXISTING_METER_RATES_FIELDS.SAVE")}
         </Button>
       )}
 
@@ -302,6 +316,7 @@ export const ExistingMeterRatesFields = ({
   meters: PlanMeter[];
   onSave: (meterKey: string, rateTables: MeterRateTable[]) => Promise<void>;
 }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const overageMeters = meters.filter((meter) => meter.overageAllowed);
 
   if (overageMeters.length === 0) {
@@ -311,11 +326,9 @@ export const ExistingMeterRatesFields = ({
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-sm font-semibold">Overage rates</h3>
+        <h3 className="text-sm font-semibold">{t("EXISTING_METER_RATES_FIELDS.HEADING")}</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          What usage past each meter&apos;s allowance costs. Nobody already subscribed is
-          repriced: overage is rated from what was on the plan when they signed up, so this
-          reaches only future subscriptions and future renewals.
+          {t("EXISTING_METER_RATES_FIELDS.HINT")}
         </p>
       </div>
 
@@ -324,7 +337,9 @@ export const ExistingMeterRatesFields = ({
           {overageMeters.map((meter) => (
             <li key={meter.meterKey} className="text-sm">
               <span className="font-medium">{meter.displayName}</span>
-              <span className="ml-2 text-xs text-muted-foreground">per {meter.unitLabel}</span>
+              <span className="ml-2 text-xs text-muted-foreground">
+                {t("EXISTING_METER_RATES_FIELDS.PER_UNIT", { unit: meter.unitLabel })}
+              </span>
               <ExistingMeterRatesEditor meter={meter} onSave={onSave} />
             </li>
           ))}

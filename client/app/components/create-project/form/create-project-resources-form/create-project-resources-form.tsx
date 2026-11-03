@@ -25,8 +25,10 @@ import {
 } from "@/cross-modules/devops/hooks/github-info";
 import { IRepository, iconMap } from "@/cross-modules/devops/models/github-info";
 import { RepositorySelectionModal } from "@/components/repository-selection-modal/repository-selection-modal";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const CreateProjectResourcesForm = () => {
+  const { t } = useT("utilities.shared");
   const { nextStep } = useStepper();
   const { formData, setFormData } = useCreateProjectFormState();
   const [repositoryModalOpen, setRepositoryModalOpen] = useState(false);
@@ -34,7 +36,7 @@ export const CreateProjectResourcesForm = () => {
 
   const form = useForm<{ assets: Asset[] }>({
     values: formData[1],
-    resolver: zodResolver(CreateProjectResourcesFormSchema) as Resolver<{ assets: Asset[] }>,
+    resolver: zodResolver(CreateProjectResourcesFormSchema()) as Resolver<{ assets: Asset[] }>,
   });
 
   const [selectedRepositories, setSelectedRepositories] = useState<IRepository[]>(
@@ -96,29 +98,28 @@ export const CreateProjectResourcesForm = () => {
       <form onSubmit={form.handleSubmit(onSubmitHandler)} className="w-full">
         <div className="mt-4 flex flex-col gap-6 text-left">
           <div className="space-y-1">
-            <h3 className="text-2xl font-semibold tracking-tight">Add resource</h3>
+            <h3 className="text-2xl font-semibold tracking-tight">{t("CREATE_PROJECT_RESOURCES_FORM.ADD_RESOURCE")}</h3>
             <p className="text-base font-normal text-gray-500">
-              Add repositories to link with your project—you can view, modify, or remove them
-              anytime after setup.
+              {t("CREATE_PROJECT_RESOURCES_FORM.ADD_REPOSITORIES_TO_LINK_WITH")}
             </p>
           </div>
 
           <div className="rounded-md border border-gray-200 bg-card p-6 shadow-sm">
-            <h4 className="mb-2 text-lg font-medium">Connect and select repositories</h4>
+            <h4 className="mb-2 text-lg font-medium">{t("CREATE_PROJECT_RESOURCES_FORM.CONNECT_AND_SELECT_REPOSITORIES")}</h4>
             <p className="mb-6 text-sm text-gray-500">
-              We&apos;ll automatically detect and import resources from the repositories you select.
+              {t("CREATE_PROJECT_RESOURCES_FORM.WE_LL_AUTOMATICALLY_DETECT_AND")}
             </p>
 
             <div className="flex flex-col gap-6 md:flex-row">
               {authAccountData && (
                 <div className="min-w-[220px] flex-1">
-                  <div className="mb-2 text-sm font-medium text-gray-600">GitHub Auth account</div>
+                  <div className="mb-2 text-sm font-medium text-gray-600">{t("CREATE_PROJECT_RESOURCES_FORM.GITHUB_AUTH_ACCOUNT")}</div>
                   <div className="flex items-center gap-2 rounded-md py-2">
                     <div className="relative flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-gray-200">
                       {authAccountData.avatar_url && authAccountData.avatar_url !== "" ? (
                         <img
                           src={authAccountData.avatar_url}
-                          alt={authAccountData.name || "User avatar"}
+                          alt={authAccountData.name || t("CREATE_PROJECT_RESOURCES_FORM.USER_AVATAR")}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -136,8 +137,7 @@ export const CreateProjectResourcesForm = () => {
               {(selectedRepositories ?? []).length > 0 && (
                 <div className="min-w-[220px] flex-1">
                   <div className="mb-2 text-sm font-medium text-gray-600">
-                    Git repos ({(selectedRepositories ?? []).length})
-                  </div>
+                    {t("CREATE_PROJECT_RESOURCES_FORM.GIT_REPOS", { count: (selectedRepositories ?? []).length })}</div>
                   <ul className="flex flex-col gap-2">
                     {(selectedRepositories ?? []).map((repo: IRepository) => (
                       <li
@@ -161,23 +161,23 @@ export const CreateProjectResourcesForm = () => {
                 className="flex w-full items-center justify-center gap-2"
                 onClick={handleAddRepositoryClick}
               >
-                <Plus size={16} /> Add repository
+                <Plus size={16} /> {t("CREATE_PROJECT_RESOURCES_FORM.ADD_REPOSITORY")}
               </Button>
             </div>
           </div>
         </div>
         <div className="mt-10">
           <Button size="lg" disabled={!isValid}>
-            Continue
+            {t("common:CONTINUE")}
           </Button>
         </div>
 
         <Dialog open={repositoryModalOpen} onOpenChange={setRepositoryModalOpen}>
           <DialogContent className="w-[425px] p-6">
             <DialogHeader>
-              <DialogTitle>Connect repository</DialogTitle>
+              <DialogTitle>{t("CREATE_PROJECT_RESOURCES_FORM.CONNECT_REPOSITORY")}</DialogTitle>
               <DialogDescription>
-                Select a Git provider to import an existing project from a Git Repository.
+                {t("CREATE_PROJECT_RESOURCES_FORM.SELECT_A_GIT_PROVIDER_TO")}
               </DialogDescription>
             </DialogHeader>
             <ProviderButtons
@@ -193,8 +193,8 @@ export const CreateProjectResourcesForm = () => {
           onOpenChange={setSelectRepositoryModalOpen}
           onSelectRepository={handleSelectRepository}
           selectedRepositories={selectedRepositories}
-          title="Select repository"
-          description="Select the repositories you want to link to this project"
+          title={t("CREATE_PROJECT_RESOURCES_FORM.SELECT_REPOSITORY")}
+          description={t("CREATE_PROJECT_RESOURCES_FORM.SELECT_THE_REPOSITORIES_YOU_WANT")}
         />
       </form>
     </Form>

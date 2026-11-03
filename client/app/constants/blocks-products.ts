@@ -1,3 +1,7 @@
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SHARED_MODULE = "utilities.shared";
+
 export interface BlocksProduct {
   /** Unique slug identifier, e.g. "blocks-iam", "blocks-os" */
   name: string;
@@ -23,7 +27,7 @@ export interface BlocksProduct {
   cta: string;
 }
 
-export const BLOCKS_PRODUCTS: BlocksProduct[] = [
+export const getBlocksProducts = (): BlocksProduct[] => [
   {
     name: "blocks-os",
     appName: "blocks OS",
@@ -34,7 +38,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "A secure plane for your application environment, secrets, and sensitive configuration.",
     description:
-      "Blocks OS is a secure, isolated, and fully auditable tenant-level core operating layer. It handles multi-tenant isolation, secrets management, audit trails, and sensitive log and trace handling while automatically logging every authentication decision, data access event, and configuration change.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_OS_IS_A_SECURE"),
     featureChips: [
       "Multi-tenant isolation",
       "Scoped secrets",
@@ -61,7 +65,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Manage multilingual interfaces with AI translation, bulk key operations, and a real-time browser extension behind secure RBAC.",
     description:
-      "Blocks Localization is a key-based and context-aware translation service. Manage multilingual interfaces, edit translations in-browser in real time through the extension, and run bulk operations across thousands of keys.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_LOCALIZATION_IS_A_KEY"),
     featureChips: [
       "Browser extension",
       "Bulk key operations",
@@ -81,7 +85,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Unified identity and access management with SSO, MFA, role-based controls, and external IdP integration.",
     description:
-      "Blocks IAM is the unified identity layer for your entire application ecosystem. Configure enterprise SSO, connect external identity providers like Keycloak, Okta, or Azure AD, and enforce MFA from a single secure dashboard.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_IAM_IS_THE_UNIFIED"),
     featureChips: [
       "SSO & IdP integration",
       "Multi-factor auth",
@@ -108,7 +112,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Instant GraphQL APIs over managed or BYO databases with visual schema design, access control, and multi-provider object storage.",
     description:
-      "Blocks Data gives you instant GraphQL endpoints over managed or bring-your-own databases. Define schemas visually, enforce column-level validation and access control, and perform CRUD operations through the Data Playground.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_DATA_GIVES_YOU_INSTANT"),
     featureChips: [
       "GraphQL APIs",
       "Column-level access",
@@ -129,7 +133,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Orchestrate multi-step automations visually with drag-and-drop triggers, AI nodes, and external API integrations without coding.",
     description:
-      "Blocks Logic is a visual workflow engine for orchestrating complex operations without code. Drag triggers, conditions, and actions onto a canvas, fire workflows through webhooks or email, execute AI reasoning nodes, and push data through HTTP requests.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_LOGIC_IS_A_VISUAL"),
     featureChips: [
       "Drag-and-drop builder",
       "Webhook & email triggers",
@@ -156,7 +160,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Generate working applications from natural language prompts within the Blocks context.",
     description:
-      "Blocks Studio is an AI engine that transforms natural language prompts into working applications and reports within the Blocks ecosystem. It uses the same agent infrastructure to convert prompts into functional interfaces.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_STUDIO_IS_AN_AI"),
     featureChips: [
       "Natural language prompts",
       "AI app generation",
@@ -183,7 +187,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Create and deploy AI agents with RAG knowledge bases, custom LLM support, and embeddable script tags.",
     description:
-      "Blocks Agents lets you create, configure, and deploy intelligent assistants without complex technical setup. Equip agents with RAG-powered knowledge bases, connect custom LLMs through MCP, define tools and guardrails, and embed agents into any frontend with a single script tag.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_AGENTS_LETS_YOU_CREATE"),
     featureChips: [
       "RAG knowledge bases",
       "Custom LLM & MCP",
@@ -203,7 +207,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Manage end-to-end deployment with git-based CI/CD, branch-environment mapping, and automated security scanning for ISO compliance.",
     description:
-      "Blocks Release provides end-to-end deployment infrastructure with security and compliance built in. Connect your repositories and the platform handles builds, runtime, scaling, and observability automatically.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_RELEASE_PROVIDES_END_TO"),
     featureChips: [
       "Git-based deployment",
       "Branch-environment mapping",
@@ -224,7 +228,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Get built-in observability with real-time logs, distributed tracing, usage metrics, and AI-assisted analysis. Zero setup required.",
     description:
-      "Blocks Monitor delivers built-in observability without requiring external tooling or complex setup. Access real-time logs, distributed tracing, uptime monitoring, health checks, usage metrics, and AI-assisted diagnostics.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_MONITOR_DELIVERS_BUILT_IN"),
     featureChips: [
       "Real-time logs with AI",
       "Distributed tracing",
@@ -245,7 +249,7 @@ export const BLOCKS_PRODUCTS: BlocksProduct[] = [
     shortDescription:
       "Create secure time-limited magic links to power redirect and action-based automated workflows.",
     description:
-      "Blocks Utilities provides secure time-limited magic links for your applications. Create redirect and action-based links to power automated workflows.",
+      tStatic(UTILITIES_SHARED_MODULE, "BLOCKS_PRODUCTS.BLOCKS_UTILITIES_PROVIDES_SECURE"),
     featureChips: [
       "Redirect magic links",
       "Action magic links",

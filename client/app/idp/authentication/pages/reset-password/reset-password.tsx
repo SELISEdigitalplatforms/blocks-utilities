@@ -9,12 +9,14 @@ import {
 } from "@/components/ui-kits/card/card";
 import { Button } from "@/components/ui-kits/button/button";
 import { ResetPasswordForm } from "./reset-password-form";
+import { useT } from "@seliseblocks/genesis-os";
 
 type ResetPasswordProps = {
   code?: string;
   lang?: string;
 };
 export const ResetPassword = ({ code }: ResetPasswordProps) => {
+  const { t } = useT("utilities.idp.authentication");
   if (!code) {
     return (
       <div className="flex min-h-screen flex-col items-center bg-background">
@@ -23,14 +25,14 @@ export const ResetPassword = ({ code }: ResetPasswordProps) => {
         </div>
         <Card className="mx-auto w-full rounded border-solid border-background shadow-none sm:max-w-md sm:border-[#95ADC4]">
           <CardHeader className="text-center">
-            <CardTitle className="text-3xl leading-9">Invalid reset link</CardTitle>
+            <CardTitle className="text-3xl leading-9">{t("RESET_PASSWORD.INVALID_RESET_LINK")}</CardTitle>
             <CardDescription className="text-xl text-foreground">
-              The reset code is missing or invalid. Please request a new reset link.
+              {t("RESET_PASSWORD.THE_RESET_CODE_IS_MISSING")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild className="w-full">
-              <a href="/forgot-password">Request a new reset link</a>
+              <a href="/forgot-password">{t("RESET_PASSWORD.REQUEST_A_NEW_RESET_LINK")}</a>
             </Button>
           </CardContent>
         </Card>
@@ -45,9 +47,9 @@ export const ResetPassword = ({ code }: ResetPasswordProps) => {
       </div>
       <Card className="mx-auto w-full rounded border-solid border-background shadow-none sm:max-w-md sm:border-[#95ADC4]">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl leading-9">Set a new password</CardTitle>
+          <CardTitle className="text-3xl leading-9">{t("RESET_PASSWORD.SET_A_NEW_PASSWORD")}</CardTitle>
           <CardDescription className="text-xl text-foreground">
-            Choose password to secure account
+            {t("RESET_PASSWORD.CHOOSE_PASSWORD_TO_SECURE_ACCOUNT")}
           </CardDescription>
         </CardHeader>
         <CardContent>

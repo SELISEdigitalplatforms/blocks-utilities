@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useFieldArray, useFormContext, useWatch, type Control } from "react-hook-form";
 import { Button } from "@/components/ui-kits/button/button";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
@@ -28,43 +29,43 @@ import { CardListItem, CardListShell } from "./card-list-shell";
 import { StepHeading } from "./step-heading";
 
 /** When bought credits stop being usable, worded for the person selling them. */
-export const CREDIT_EXPIRY_OPTIONS: { value: number; label: string; description: string }[] = [
+type Translate = ReturnType<typeof useT>["t"];
+
+export const creditExpiryOptions = (
+  t: Translate,
+): { value: number; label: string; description: string }[] => [
   {
     value: METER_RESET_POLICY.Periodic,
-    label: "With the usage window",
-    description: "Credits not used by the end of the window they were bought in are lost.",
+    label: t("STEP_CREDITS.EXPIRY_PERIODIC"),
+    description: t("STEP_CREDITS.EXPIRY_PERIODIC_DESCRIPTION"),
   },
   {
     value: METER_RESET_POLICY.CarryForward,
-    label: "Carry forward",
-    description: "Unused credits roll into each renewal, and are lost when the plan changes.",
+    label: t("STEP_CREDITS.EXPIRY_CARRY_FORWARD"),
+    description: t("STEP_CREDITS.EXPIRY_CARRY_FORWARD_DESCRIPTION"),
   },
   {
     value: METER_RESET_POLICY.Never,
-    label: "Never expire",
-    description: "Credits last as long as the subscription and this meter do.",
+    label: t("STEP_CREDITS.EXPIRY_NEVER"),
+    description: t("STEP_CREDITS.EXPIRY_NEVER_DESCRIPTION"),
   },
   {
     value: FIXED_CREDIT_EXPIRY,
-    label: "After a fixed time",
-    description: "Credits last a set time from the moment they are bought, whatever the billing calendar does.",
+    label: t("STEP_CREDITS.EXPIRY_FIXED"),
+    description: t("STEP_CREDITS.EXPIRY_FIXED_DESCRIPTION"),
   },
 ];
 
-/** The units a fixed lifetime can be counted in, in the order a person would list them. */
-export const CREDIT_EXPIRY_UNIT_OPTIONS: { value: number; label: string }[] = [
-  { value: CREDIT_EXPIRY_UNIT.Hour, label: "Hours" },
-  { value: CREDIT_EXPIRY_UNIT.Day, label: "Days" },
-  { value: CREDIT_EXPIRY_UNIT.Week, label: "Weeks" },
-  { value: CREDIT_EXPIRY_UNIT.Month, label: "Months" },
-  { value: CREDIT_EXPIRY_UNIT.Year, label: "Years" },
+export const creditExpiryUnitOptions = (t: Translate): { value: number; label: string }[] => [
+  { value: CREDIT_EXPIRY_UNIT.Hour, label: t("STEP_CREDITS.UNIT_HOURS") },
+  { value: CREDIT_EXPIRY_UNIT.Day, label: t("STEP_CREDITS.UNIT_DAYS") },
+  { value: CREDIT_EXPIRY_UNIT.Week, label: t("STEP_CREDITS.UNIT_WEEKS") },
+  { value: CREDIT_EXPIRY_UNIT.Month, label: t("STEP_CREDITS.UNIT_MONTHS") },
+  { value: CREDIT_EXPIRY_UNIT.Year, label: t("STEP_CREDITS.UNIT_YEARS") },
 ];
 
-/**
- * Selling extra credits for a meter: what one costs, how many may be bought at once, and when
- * they expire. Bought credits are spent after the plan's own allowance and before any overage.
- */
 export const StepCredits = () => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const credits = useFieldArray({ control, name: "meterCredits" });
   const meters = useWatch({ control, name: "meters" }) ?? [];
@@ -78,18 +79,18 @@ export const StepCredits = () => {
   return (
     <div className="space-y-6">
       <StepHeading
-        eyebrow="Credits"
-        title="Sell extra credits"
-        description="Optional. Let subscribers buy more of a meter up front, at a price per credit. Bought credits are used after the plan's own allowance runs out, and before any overage."
+        eyebrow={t("STEP_CREDITS.EYEBROW")}
+        title={t("STEP_CREDITS.TITLE")}
+        description={t("STEP_CREDITS.DESCRIPTION")}
       />
 
       {namedMeters.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Add a meter in the pricing step first. Credits are sold for a meter the plan counts.
+          {t("STEP_CREDITS.NO_METERS")}
         </p>
       ) : (
         <CardListShell
-          addLabel="Sell credits for a meter"
+          addLabel={t("STEP_CREDITS.ADD_CREDITS")}
           columns={1}
           onAdd={() =>
             credits.append({
@@ -128,6 +129,9 @@ const CreditFields = ({
   index: number;
   meters: { meterKey: string; displayName?: string }[];
 }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
+  const expiryOptions = creditExpiryOptions(t);
+  const unitOptions = creditExpiryUnitOptions(t);
   const prices = useFieldArray({ control, name: `meterCredits.${index}.prices` });
   const enabled = useWatch({ control, name: `meterCredits.${index}.enabled` });
   const expiry = useWatch({ control, name: `meterCredits.${index}.expiryPolicy` });
@@ -141,11 +145,11 @@ const CreditFields = ({
           name={`meterCredits.${index}.meterKey`}
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs">Meter</FormLabel>
+              <FormLabel className="text-xs">{t("STEP_CREDITS.METER")}</FormLabel>
               <Select value={field.value} onValueChange={field.onChange}>
                 <FormControl>
-                  <SelectTrigger aria-label="Meter">
-                    <SelectValue placeholder="Choose a meter" />
+                  <SelectTrigger aria-label={t("STEP_CREDITS.METER")}>
+                    <SelectValue placeholder={t("STEP_CREDITS.CHOOSE_METER")} />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
@@ -170,12 +174,12 @@ const CreditFields = ({
                 <FormControl>
                   <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                 </FormControl>
-                <FormLabel className="!m-0">On sale</FormLabel>
+                <FormLabel className="!m-0">{t("STEP_CREDITS.ON_SALE")}</FormLabel>
               </div>
               <p className="text-xs text-muted-foreground">
                 {enabled
-                  ? "Subscribers can buy these credits."
-                  : "Paused. The terms are kept, and nobody can buy until you switch this back on."}
+                  ? t("STEP_CREDITS.ON_SALE_HINT")
+                  : t("STEP_CREDITS.PAUSED_HINT")}
               </p>
             </FormItem>
           )}
@@ -183,7 +187,7 @@ const CreditFields = ({
       </div>
 
       <div className="space-y-2">
-        <h4 className="text-xs font-semibold">Price per credit</h4>
+        <h4 className="text-xs font-semibold">{t("STEP_CREDITS.PRICE_PER_CREDIT")}</h4>
         {prices.fields.map((priceField, priceIndex) => (
           <div key={priceField.id} className="grid grid-cols-[6rem_minmax(0,1fr)_auto] items-start gap-2">
             <FormField
@@ -193,8 +197,8 @@ const CreditFields = ({
                 <FormItem>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger aria-label="Currency">
-                        <SelectValue placeholder="Currency" />
+                      <SelectTrigger aria-label={t("STEP_CREDITS.CURRENCY")}>
+                        <SelectValue placeholder={t("STEP_CREDITS.CURRENCY")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -215,7 +219,7 @@ const CreditFields = ({
               render={({ field }) => (
                 <FormItem>
                   <FormControl>
-                    <Input {...field} aria-label="Price per credit" type="number" min={0} step="any" />
+                    <Input {...field} aria-label={t("STEP_CREDITS.PRICE_PER_CREDIT")} type="number" min={0} step="any" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -226,9 +230,9 @@ const CreditFields = ({
               variant="ghost"
               size="sm"
               onClick={() => prices.remove(priceIndex)}
-              aria-label="Remove price"
+              aria-label={t("STEP_CREDITS.REMOVE_PRICE")}
             >
-              Remove
+              {t("common:REMOVE")}
             </Button>
           </div>
         ))}
@@ -238,7 +242,7 @@ const CreditFields = ({
           size="sm"
           onClick={() => prices.append({ currencyCode: "", unitAmount: 0 })}
         >
-          Add a currency
+          {t("STEP_CREDITS.ADD_CURRENCY")}
         </Button>
         <FormField
           control={control}
@@ -250,8 +254,7 @@ const CreditFields = ({
           )}
         />
         <p className="text-xs text-muted-foreground">
-          A subscriber is offered credits only in their subscription&apos;s currency. At 0.10, 100
-          credits cost 10.00.
+          {t("STEP_CREDITS.CURRENCY_HINT")}
         </p>
       </div>
 
@@ -261,7 +264,7 @@ const CreditFields = ({
           name={`meterCredits.${index}.minQuantity`}
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs">Smallest purchase</FormLabel>
+              <FormLabel className="text-xs">{t("STEP_CREDITS.SMALLEST_PURCHASE")}</FormLabel>
               <FormControl>
                 <Input {...field} type="number" min={1} step={1} />
               </FormControl>
@@ -274,11 +277,11 @@ const CreditFields = ({
           name={`meterCredits.${index}.maxQuantity`}
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs">Largest purchase</FormLabel>
+              <FormLabel className="text-xs">{t("STEP_CREDITS.LARGEST_PURCHASE")}</FormLabel>
               <FormControl>
                 <Input {...field} value={field.value ?? ""} type="number" min={1} step={1} />
               </FormControl>
-              <p className="text-xs text-muted-foreground">Bounds what one purchase can charge.</p>
+              <p className="text-xs text-muted-foreground">{t("STEP_CREDITS.LARGEST_PURCHASE_HINT")}</p>
               <FormMessage />
             </FormItem>
           )}
@@ -288,18 +291,18 @@ const CreditFields = ({
           name={`meterCredits.${index}.expiryPolicy`}
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs">Credits expire</FormLabel>
+              <FormLabel className="text-xs">{t("STEP_CREDITS.CREDITS_EXPIRE")}</FormLabel>
               <Select
                 value={String(field.value)}
                 onValueChange={(value) => field.onChange(Number(value))}
               >
                 <FormControl>
-                  <SelectTrigger aria-label="Credits expire">
+                  <SelectTrigger aria-label={t("STEP_CREDITS.CREDITS_EXPIRE")}>
                     <SelectValue />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {CREDIT_EXPIRY_OPTIONS.map((option) => (
+                  {expiryOptions.map((option) => (
                     <SelectItem key={option.value} value={String(option.value)}>
                       {option.label}
                     </SelectItem>
@@ -307,7 +310,7 @@ const CreditFields = ({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {CREDIT_EXPIRY_OPTIONS.find((option) => option.value === expiry)?.description}
+                {expiryOptions.find((option) => option.value === expiry)?.description}
               </p>
               <FormMessage />
             </FormItem>
@@ -322,9 +325,9 @@ const CreditFields = ({
             name={`meterCredits.${index}.expiresAfterCount`}
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-xs">Credits last</FormLabel>
+                <FormLabel className="text-xs">{t("STEP_CREDITS.CREDITS_LAST")}</FormLabel>
                 <FormControl>
-                  <Input {...field} value={field.value ?? ""} aria-label="Credits last" type="number" min={1} step={1} />
+                  <Input {...field} value={field.value ?? ""} aria-label={t("STEP_CREDITS.CREDITS_LAST")} type="number" min={1} step={1} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -338,12 +341,12 @@ const CreditFields = ({
                 <FormLabel className="text-xs">&nbsp;</FormLabel>
                 <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
                   <FormControl>
-                    <SelectTrigger aria-label="Lifetime unit">
+                    <SelectTrigger aria-label={t("STEP_CREDITS.LIFETIME_UNIT")}>
                       <SelectValue />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {CREDIT_EXPIRY_UNIT_OPTIONS.map((option) => (
+                    {unitOptions.map((option) => (
                       <SelectItem key={option.value} value={String(option.value)}>
                         {option.label}
                       </SelectItem>
@@ -363,11 +366,11 @@ const CreditFields = ({
           name={`meterCredits.${index}.taxPercent`}
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs">Tax rate (%)</FormLabel>
+              <FormLabel className="text-xs">{t("STEP_CREDITS.TAX_RATE")}</FormLabel>
               <FormControl>
                 <Input {...field} value={field.value ?? ""} type="number" min={0} max={100} step="any" />
               </FormControl>
-              <p className="text-xs text-muted-foreground">Leave empty for untaxed credits.</p>
+              <p className="text-xs text-muted-foreground">{t("STEP_CREDITS.TAX_RATE_HINT")}</p>
               <FormMessage />
             </FormItem>
           )}
@@ -378,10 +381,10 @@ const CreditFields = ({
             name={`meterCredits.${index}.taxMode`}
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-xs">Tax is</FormLabel>
+                <FormLabel className="text-xs">{t("STEP_CREDITS.TAX_IS")}</FormLabel>
                 <Select value={field.value} onValueChange={field.onChange}>
                   <FormControl>
-                    <SelectTrigger aria-label="Tax is">
+                    <SelectTrigger aria-label={t("STEP_CREDITS.TAX_IS")}>
                       <SelectValue />
                     </SelectTrigger>
                   </FormControl>

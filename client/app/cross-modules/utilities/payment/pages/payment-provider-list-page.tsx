@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
@@ -40,6 +40,7 @@ type StatusFilter = "all" | "enabled" | "disabled";
 const ORGANIZATION_PAGE_SIZE = 200;
 
 export const PaymentProviderListPage = () => {
+  const { t } = useT("utilities.payment");
   const { itemId } = useParams();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -72,8 +73,8 @@ export const PaymentProviderListPage = () => {
     return (organizationId: string | null) =>
       organizationId
         ? (names.get(organizationId) ?? organizationId)
-        : "Tenant-level";
-  }, [organizationsData]);
+        : t("PAYMENT_PROVIDER_LIST_PAGE.TENANT_LEVEL");
+  }, [organizationsData, t]);
 
   const basePath = `/app/${itemId ?? ""}/payment/providers`;
   const filteredProviders = useMemo(() => {
@@ -97,8 +98,8 @@ export const PaymentProviderListPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <PaymentProviderPageHeader
-        title="Payment providers"
-        description="Register and manage tenant-scoped provider configuration and credentials."
+        title={t("PAYMENT_PROVIDER_LIST_PAGE.PAYMENT_PROVIDERS")}
+        description={t("PAYMENT_PROVIDER_LIST_PAGE.REGISTER_AND_MANAGE_TENANT_SCOPED")}
         actions={
           <>
             <Button
@@ -110,12 +111,12 @@ export const PaymentProviderListPage = () => {
               <RefreshCw
                 className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
               />
-              Refresh
+              {t("common:REFRESH")}
             </Button>
             <Button asChild>
               <Link to={`${basePath}/create`}>
                 <Plus className="mr-2 h-4 w-4" />
-                Create provider
+                {t("PAYMENT_PROVIDER_LIST_PAGE.CREATE_PROVIDER")}
               </Link>
             </Button>
           </>
@@ -125,9 +126,9 @@ export const PaymentProviderListPage = () => {
       <Card className="rounded-xl p-0">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div>
-            <h2 className="font-semibold">Registered providers</h2>
+            <h2 className="font-semibold">{t("PAYMENT_PROVIDER_LIST_PAGE.REGISTERED_PROVIDERS")}</h2>
             <p className="text-xs text-muted-foreground">
-              Credentials are never returned by this endpoint.
+              {t("PAYMENT_PROVIDER_LIST_PAGE.CREDENTIALS_ARE_NEVER_RETURNED_BY")}
             </p>
           </div>
 
@@ -137,9 +138,9 @@ export const PaymentProviderListPage = () => {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search provider or merchant"
+                placeholder={t("PAYMENT_PROVIDER_LIST_PAGE.SEARCH_PROVIDER_OR_MERCHANT")}
                 className="pl-9"
-                aria-label="Search payment providers"
+                aria-label={t("PAYMENT_PROVIDER_LIST_PAGE.SEARCH_PAYMENT_PROVIDERS")}
               />
             </div>
             <Select
@@ -152,16 +153,16 @@ export const PaymentProviderListPage = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="enabled">Enabled</SelectItem>
-                <SelectItem value="disabled">Disabled</SelectItem>
+                <SelectItem value="all">{t("PAYMENT_PROVIDER_LIST_PAGE.ALL_STATUSES")}</SelectItem>
+                <SelectItem value="enabled">{t("common:ENABLED")}</SelectItem>
+                <SelectItem value="disabled">{t("common:DISABLED")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
         {isLoading ? (
-          <div className="space-y-3 p-5" aria-label="Loading providers">
+          <div className="space-y-3 p-5" aria-label={t("PAYMENT_PROVIDER_LIST_PAGE.LOADING_PROVIDERS")}>
             {Array.from({ length: 4 }, (_, index) => (
               <Skeleton key={index} className="h-14 w-full" />
             ))}
@@ -172,19 +173,19 @@ export const PaymentProviderListPage = () => {
               <AlertCircle className="h-7 w-7" />
             </span>
             <h3 className="mt-4 text-lg font-semibold">
-              Providers could not be loaded
+              {t("PAYMENT_PROVIDER_LIST_PAGE.PROVIDERS_COULD_NOT_BE_LOADED")}
             </h3>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
               {error instanceof Error
                 ? error.message
-                : "Try loading the provider list again."}
+                : t("PAYMENT_PROVIDER_LIST_PAGE.TRY_LOADING_THE_PROVIDER_LIST")}
             </p>
             <Button
               className="mt-5"
               variant="outline"
               onClick={() => refetch()}
             >
-              Try again
+              {t("PAYMENT_PROVIDER_LIST_PAGE.TRY_AGAIN")}
             </Button>
           </div>
         ) : filteredProviders.length === 0 ? (
@@ -194,19 +195,19 @@ export const PaymentProviderListPage = () => {
             </span>
             <h3 className="mt-4 text-lg font-semibold">
               {providers?.length
-                ? "No providers match these filters"
-                : "No payment provider registered"}
+                ? t("PAYMENT_PROVIDER_LIST_PAGE.NO_PROVIDERS_MATCH_THESE_FILTERS")
+                : t("PAYMENT_PROVIDER_LIST_PAGE.NO_PAYMENT_PROVIDER_REGISTERED")}
             </h3>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
               {providers?.length
-                ? "Change the search or status filter."
-                : "Register a provider before creating payment sessions."}
+                ? t("PAYMENT_PROVIDER_LIST_PAGE.CHANGE_THE_SEARCH_OR_STATUS")
+                : t("PAYMENT_PROVIDER_LIST_PAGE.REGISTER_A_PROVIDER_BEFORE")}
             </p>
             {!providers?.length && (
               <Button asChild className="mt-5">
                 <Link to={`${basePath}/create`}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Create provider
+                  {t("PAYMENT_PROVIDER_LIST_PAGE.CREATE_PROVIDER")}
                 </Link>
               </Button>
             )}
@@ -215,14 +216,14 @@ export const PaymentProviderListPage = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Provider</TableHead>
-                <TableHead>Merchant</TableHead>
-                <TableHead>Organization</TableHead>
-                <TableHead>Country</TableHead>
-                <TableHead>Capture</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Version</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t("PAYMENT_PROVIDER_LIST_PAGE.PROVIDER")}</TableHead>
+                <TableHead>{t("PAYMENT_PROVIDER_LIST_PAGE.MERCHANT")}</TableHead>
+                <TableHead>{t("PAYMENT_PROVIDER_LIST_PAGE.ORGANIZATION")}</TableHead>
+                <TableHead>{t("PAYMENT_PROVIDER_LIST_PAGE.COUNTRY")}</TableHead>
+                <TableHead>{t("PAYMENT_PROVIDER_LIST_PAGE.CAPTURE")}</TableHead>
+                <TableHead>{t("common:STATUS")}</TableHead>
+                <TableHead>{t("PAYMENT_PROVIDER_LIST_PAGE.VERSION")}</TableHead>
+                <TableHead className="text-right">{t("common:ACTIONS")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -249,21 +250,21 @@ export const PaymentProviderListPage = () => {
                         organizations, so without this the rows are indistinguishable. */}
                     <span
                       className="block max-w-56 truncate"
-                      title={provider.organizationId ?? "Tenant-level"}
+                      title={provider.organizationId ?? t("PAYMENT_PROVIDER_LIST_PAGE.TENANT_LEVEL")}
                     >
                       {organizationName(provider.organizationId)}
                     </span>
                   </TableCell>
                   <TableCell>{provider.countryCode || "—"}</TableCell>
                   <TableCell>
-                    {provider.manualCapture ? "Manual" : "Automatic"}
+                    {provider.manualCapture ? t("PAYMENT_PROVIDER_LIST_PAGE.MANUAL") : t("PAYMENT_PROVIDER_LIST_PAGE.AUTOMATIC")}
                   </TableCell>
                   <TableCell>
                     <Badge
                       variant={provider.isEnabled ? "success" : "outline"}
                       className="w-fit"
                     >
-                      {provider.isEnabled ? "Enabled" : "Disabled"}
+                      {provider.isEnabled ? t("common:ENABLED") : t("common:DISABLED")}
                     </Badge>
                   </TableCell>
                   <TableCell className="tabular-nums">
@@ -276,7 +277,7 @@ export const PaymentProviderListPage = () => {
                           to={`${basePath}/${encodeURIComponent(provider.paymentProviderId)}/edit`}
                         >
                           <Pencil className="mr-2 h-4 w-4" />
-                          Edit
+                          {t("common:EDIT")}
                         </Link>
                       </Button>
                       <Button asChild variant="outline" size="sm">
@@ -284,7 +285,7 @@ export const PaymentProviderListPage = () => {
                           to={`${basePath}/${encodeURIComponent(provider.paymentProviderId)}/rotate`}
                         >
                           <KeyRound className="mr-2 h-4 w-4" />
-                          Rotate
+                          {t("PAYMENT_PROVIDER_LIST_PAGE.ROTATE")}
                         </Link>
                       </Button>
                     </div>

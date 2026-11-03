@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useRef, MouseEvent, useState, useEffect } from "react";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
@@ -13,10 +14,11 @@ interface SearchInputProps {
 
 export const SearchInput: React.FC<SearchInputProps> = ({
   onChange,
-  placeholder = "Search...",
+  placeholder,
   value,
   className = "",
 }) => {
+  const { t } = useT("utilities.shared");
   const [state, setState] = useState(value);
   const [prevValue, setPrevValue] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,7 +58,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
       <Search className="mr-2 h-4 w-4 text-muted-foreground" />
       <Input
         ref={inputRef}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("SEARCH_INPUT.SEARCH")}
         value={state}
         onChange={handleChange}
         className={cn(

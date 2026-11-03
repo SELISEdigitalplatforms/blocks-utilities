@@ -6,14 +6,14 @@ import {
 import { ResourceType } from "@/idp/iam/models/role";
 import { modules, translation } from "@/cross-modules/localization/models/language";
 import {
-  CAPTCHA_PROVIDERS,
-  CAPTCHA_GENERATOR_TYPE,
+  getCaptchaProviders,
+  getCaptchaGeneratorType,
 } from "@/idp/captcha/models/captcha";
 import {
   organizationConfigFormSchema,
   organizationConfigFormDefaultValues,
 } from "@/idp/iam/models/organization-config.model";
-import { status } from "@/idp/iam/models/user";
+import { getUserStatusOptions } from "@/idp/iam/models/user";
 import { providers } from "@/cross-modules/devops/models/git-dummy";
 
 describe("storage model", () => {
@@ -48,8 +48,8 @@ describe("language model", () => {
 
 describe("captcha model", () => {
   it("defines providers and generator types", () => {
-    expect(CAPTCHA_PROVIDERS.recaptcha.label).toBe("Google reCAPTCHA");
-    expect(CAPTCHA_GENERATOR_TYPE.HardCaptchaGenerator.value).toBe(
+    expect(getCaptchaProviders().recaptcha.label).toBe("Google reCAPTCHA");
+    expect(getCaptchaGeneratorType().HardCaptchaGenerator.value).toBe(
       "HardCaptchaGenerator",
     );
   });
@@ -76,7 +76,7 @@ describe("organization config model", () => {
 
 describe("user model", () => {
   it("lists user status options", () => {
-    expect(status.map((s) => s.value)).toEqual([
+    expect(getUserStatusOptions().map((s) => s.value)).toEqual([
       "Active",
       "Inactive",
       "Verified",

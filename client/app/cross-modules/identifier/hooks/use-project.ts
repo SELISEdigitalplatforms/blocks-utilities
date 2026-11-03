@@ -7,7 +7,7 @@ import {
   shortGuidGenerator,
 } from "@/components/create-project/utils";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, tStatic } from "@seliseblocks/genesis-os";
 
 export const useGetProjects = (tenantGroupId = "") => {
   const { setProjects, selectedProject, setSelectedProject } = useProjectStore();
@@ -185,7 +185,7 @@ export const useProjectForm = () => {
         applicationContexts,
       });
       if (response?.isSuccess) {
-        showSuccessToast({ description: "Your project has been created." });
+        showSuccessToast({ description: tStatic("utilities.console", "USE_PROJECT.YOUR_PROJECT_HAS_BEEN_CREATED") });
         setTenantGroup(response.tenantGroupId);
 
         try {

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui-kits/select/select";
 import { ControllerRenderProps, FieldValues } from "react-hook-form";
 import { SSOProviderConfigFormFieldType } from "../../sso-provider-config.type";
+import { useT } from "@seliseblocks/genesis-os";
 
 type SelectFieldProps = {
   item: Extract<SSOProviderConfigFormFieldType, { type: "select" }>;
@@ -16,6 +17,7 @@ type SelectFieldProps = {
 };
 
 export const SelectField: React.FC<SelectFieldProps> = ({ item, field }) => {
+  const { t } = useT("utilities.idp.authentication");
   const selectValue = typeof field.value === "string" ? field.value : undefined;
 
   return (
@@ -24,7 +26,7 @@ export const SelectField: React.FC<SelectFieldProps> = ({ item, field }) => {
       <Select disabled={item.isDisabled} onValueChange={field.onChange} value={selectValue}>
         <FormControl>
           <SelectTrigger disabled={item.isDisabled}>
-            <SelectValue placeholder={item.placeholder ?? `Select ${item.label}`} />
+            <SelectValue placeholder={item.placeholder ?? t("SELECT_FIELD.SELECT", { label: item.label })} />
           </SelectTrigger>
         </FormControl>
         <SelectContent>

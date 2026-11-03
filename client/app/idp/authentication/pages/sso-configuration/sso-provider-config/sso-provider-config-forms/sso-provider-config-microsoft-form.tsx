@@ -10,9 +10,10 @@ import { SSOInitialRoles } from "@blocks-idp/authentication/components/sso-initi
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createCommonOAuthFields } from "../sso-provider-config-field-factory.util";
-import { ssoOAuthProviderSchema } from "../sso-provider-config.schema";
+import { createSsoOAuthProviderSchema } from "../sso-provider-config.schema";
 import { SSOProviderConfigFormField } from "./sso-provider-config-form-fields";
 import { SsoConfigForms } from "./sso-provider-config-forms";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 
 const SSOMicrosoftFormFields = createCommonOAuthFields({
   clientId: {
@@ -23,7 +24,7 @@ const SSOMicrosoftFormFields = createCommonOAuthFields({
         target="_blank"
       >
         <Button variant="link" className="h-fit !p-0" type="button">
-          How to obtain a Client ID?
+          {tStatic("utilities.idp.authentication", "SSO_PROVIDER_CONFIG_MICROSOFT_FORM.HOW_TO_OBTAIN_A_CLIENT_ID")}
         </Button>
       </Link>
     ),
@@ -34,6 +35,7 @@ export const SSOProviderConfigMicrosoftForm: React.FC<SsoConfigForms> = ({
   save,
   configuration,
 }) => {
+  const { t } = useT("utilities.idp.authentication");
   const values = configuration || {
     provider: SSO_PROVIDERS.microsoft,
     audience: "",
@@ -43,12 +45,12 @@ export const SSOProviderConfigMicrosoftForm: React.FC<SsoConfigForms> = ({
     initialRoles: [],
     initialPermissions: [],
     // Hardcoded default role for now; will use API response later
-    userRoles: [{ name: "user", slug: "user", description: "default role", itemId: "1234" }],
+    userRoles: [{ name: "user", slug: "user", description: t("SSO_PROVIDER_CONFIG_MICROSOFT_FORM.DEFAULT_ROLE"), itemId: "1234" }],
     userPermissions: [],
   };
   const form = useForm({
     values,
-    resolver: zodResolver(ssoOAuthProviderSchema) as unknown as Resolver<typeof values>,
+    resolver: zodResolver(createSsoOAuthProviderSchema()) as unknown as Resolver<typeof values>,
   });
   return (
     <Form {...form}>
@@ -58,7 +60,7 @@ export const SSOProviderConfigMicrosoftForm: React.FC<SsoConfigForms> = ({
       >
         <Card>
           <CardHeader>
-            <CardTitle>General</CardTitle>
+            <CardTitle>{t("SSO_PROVIDER_CONFIG_MICROSOFT_FORM.GENERAL")}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <SSOProviderConfigFormField fields={SSOMicrosoftFormFields} form={form} />
@@ -85,7 +87,7 @@ export const SSOProviderConfigMicrosoftForm: React.FC<SsoConfigForms> = ({
         </div>
 
         <div className="flex items-center justify-end gap-2">
-          <Button type="submit">Save</Button>
+          <Button type="submit">{t("common:SAVE")}</Button>
         </div>
       </form>
     </Form>

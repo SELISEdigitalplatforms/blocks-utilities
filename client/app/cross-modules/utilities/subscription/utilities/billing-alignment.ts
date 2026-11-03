@@ -1,3 +1,4 @@
+import { tSubscription } from "./subscription-i18n";
 import { BILLING_INTERVAL } from "../models/subscription-plan.model";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
 
@@ -110,8 +111,8 @@ export const isCompatibleStubBasis = (
  * that matters here is that the days are calendar dates counted inclusively. Showing the fraction
  * against a real date is the shortest way to say that.
  */
-export const CALENDAR_ALIGNMENT_EXAMPLE =
-  "A signup on August 25 pays 7/31 of this monthly price, then renews on September 1.";
+export const calendarAlignmentExample = (): string =>
+  tSubscription("BILLING_ALIGNMENT.CALENDAR_EXAMPLE");
 
-export const CALENDAR_YEARLY_ALIGNMENT_EXAMPLE =
-  "A signup on August 25 pays 7/31 of the monthly price above, then a full year from September 1.";
+export const calendarYearlyAlignmentExample = (): string =>
+  tSubscription("BILLING_ALIGNMENT.CALENDAR_YEARLY_EXAMPLE");

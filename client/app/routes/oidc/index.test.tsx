@@ -27,7 +27,8 @@ vi.mock("@blocks-idp/authentication/pages/oidc/oidc-signin", () => ({
 }));
 const setAuthenticated = vi.fn();
 const setTokens = vi.fn();
-vi.mock("@seliseblocks/genesis-os", () => ({
+vi.mock("@seliseblocks/genesis-os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@seliseblocks/genesis-os")>()),
   useAuthStore: () => ({ setAuthenticated, setTokens }),
 }));
 vi.mock("@/lib/runtime-env", () => ({

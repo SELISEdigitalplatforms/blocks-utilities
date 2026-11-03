@@ -16,6 +16,7 @@ import { useVerifyMfaOTP } from "@/idp/mfa/hooks/use-mfa-config";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { DialogTrigger } from "@/components/ui-kits/dialog/dialog";
 import { isErrorWithErrors } from "@/lib/error";
+import { useT } from "@seliseblocks/genesis-os";
 import { zod3Messages } from "@/lib/zod3-messages";
 const CustomInputOTPSlot = ({ index }: { index: number }) => {
   return (
@@ -30,6 +31,7 @@ const FormSchema = z.object({
   code: z.string().min(5, zod3Messages.stringMin(5)),
 });
 export const ProfileMfaVerifyForm = ({ mfaId }: { mfaId: string }) => {
+  const { t } = useT("utilities.idp");
   const { projectKey, setIsVerifyModalOpen, mfaMethodType, userId } = useContext(profileMfaContext);
   const { mutateAsync, isPending } = useVerifyMfaOTP({ id: userId, projectKey, own: true });
   const form = useForm<z.infer<typeof FormSchema>>({
@@ -48,12 +50,12 @@ export const ProfileMfaVerifyForm = ({ mfaId }: { mfaId: string }) => {
       });
       if (!verifyOtpResponse.isSuccess) return showErrorToast({ errors: verifyOtpResponse.errors });
       if (!verifyOtpResponse.isValid)
-        return showErrorToast({ errors: verifyOtpResponse.errors || "Code is not valid" });
+        return showErrorToast({ errors: verifyOtpResponse.errors || t("PROFILE_MFA_VERIFY_FORM.CODE_IS_NOT_VALID") });
       setIsVerifyModalOpen(false);
-      showSuccessToast({ description: "MFA is verified successfully" });
+      showSuccessToast({ description: t("PROFILE_MFA_VERIFY_FORM.MFA_IS_VERIFIED_SUCCESSFULLY") });
     } catch (error) {
       if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: "Something went wrong" });
+      showErrorToast({ errors: t("PROFILE_MFA_VERIFY_FORM.SOMETHING_WENT_WRONG") });
     }
   };
   return (
@@ -83,10 +85,10 @@ export const ProfileMfaVerifyForm = ({ mfaId }: { mfaId: string }) => {
         <div className="mt-6 flex items-center justify-end gap-4">
           <DialogTrigger asChild>
             <Button variant="outline" type="button" onClick={() => setIsVerifyModalOpen(false)}>
-              Cancel
+              {t("common:CANCEL")}
             </Button>
           </DialogTrigger>
-          <Button disabled={isPending}>Verify</Button>
+          <Button disabled={isPending}>{t("PROFILE_MFA_VERIFY_FORM.VERIFY")}</Button>
         </div>
       </form>
     </Form>

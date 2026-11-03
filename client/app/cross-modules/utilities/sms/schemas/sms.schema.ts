@@ -12,6 +12,9 @@ import {
   TEMPLATE_NAME_PATTERN,
   TWILIO_ACCOUNT_SID_PATTERN,
 } from "../constants/sms.constants";
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SMS_MODULE = "utilities.sms";
 
 // The checks without a message of their own carry zod 3's default one, so the forms read the same
 // after the zod 4 upgrade.
@@ -20,10 +23,10 @@ import {
 // after it and the superRefine below; zod 3's did neither.
 const whole = (min: number, max: number, label: string) =>
   z.coerce
-    .number<number>({ error: `${label} must be a number.` })
-    .refine(Number.isInteger, `${label} must be a whole number.`)
-    .min(min, `${label} must be at least ${min}.`)
-    .max(max, `${label} must be at most ${max}.`);
+    .number<number>({ error: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.LABEL_MUST_BE_NUMBER", { label }) })
+    .refine(Number.isInteger, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.LABEL_MUST_BE_WHOLE", { label }))
+    .min(min, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.LABEL_MUST_BE_AT_LEAST", { label, min }))
+    .max(max, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.LABEL_MUST_BE_AT_MOST", { label, max }));
 
 const isGuid = (value: string) =>
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value);
@@ -43,26 +46,26 @@ const isBase64Of32Bytes = (value: string) => {
 export const createSmsProviderSchema = (isCreate: boolean) =>
   z
     .object({
-      name: z.string().trim().min(1, "Name is required.").max(100, zod3Messages.stringMax(100)),
+      name: z.string().trim().min(1, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.NAME_IS_REQUIRED")).max(100, zod3Messages.stringMax(100)),
       providerType: z.union([z.literal(SmsProviderType.Twilio), z.literal(SmsProviderType.Telnyx)]),
       isEnabled: z.boolean(),
       isDefault: z.boolean(),
       senderNumber: z
         .string()
         .trim()
-        .refine((value) => !value || E164_PATTERN.test(value), "Use E.164 format, e.g. +41791234567."),
+        .refine((value) => !value || E164_PATTERN.test(value), tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.USE_E_164_FORMAT_E")),
       senderName: z
         .string()
         .trim()
         .refine(
           (value) => !value || SENDER_NAME_PATTERN.test(value),
-          "1 to 11 letters, digits or spaces, with at least one letter.",
+          tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.SENDER_NAME_FORMAT"),
         ),
       // A refine, not .max(): zod 4's .max() stops at an oversized list without checking its items or
       // running the superRefine below, so the form would hide every other error; zod 3's did neither.
       senderNameExcludedPrefixes: z
-        .array(z.string().regex(COUNTRY_CODE_PATTERN, "Country codes look like +1 or +86."))
-        .refine((prefixes) => prefixes.length <= 50, "At most 50 country codes."),
+        .array(z.string().regex(COUNTRY_CODE_PATTERN, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.COUNTRY_CODES_LOOK_LIKE_1")))
+        .refine((prefixes) => prefixes.length <= 50, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.AT_MOST_50_COUNTRY_CODES")),
       accountId: z.string().trim(),
       apiKey: z.string().max(512, zod3Messages.stringMax(512)),
       messagingProfileId: z.string().trim(),
@@ -77,19 +80,19 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
           } catch {
             return false;
           }
-        }, "Must be an absolute https URL."),
-      maxRetryAttempts: whole(1, 10, "Retry attempts"),
-      deliveryCheckDelayMinutes: whole(1, 1440, "Delivery check delay"),
+        }, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.MUST_BE_AN_ABSOLUTE_HTTPS")),
+      maxRetryAttempts: whole(1, 10, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.RETRY_ATTEMPTS")),
+      deliveryCheckDelayMinutes: whole(1, 1440, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.DELIVERY_CHECK_DELAY")),
       rateLimit: z.object({
-        tenantMaxPerWindow: whole(1, 100_000, "Tenant limit"),
-        tenantWindowSeconds: whole(1, 86_400, "Tenant window"),
-        recipientMaxPerWindow: whole(1, 1_000, "Recipient limit"),
-        recipientWindowSeconds: whole(1, 86_400, "Recipient window"),
+        tenantMaxPerWindow: whole(1, 100_000, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.TENANT_LIMIT")),
+        tenantWindowSeconds: whole(1, 86_400, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.TENANT_WINDOW")),
+        recipientMaxPerWindow: whole(1, 1_000, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.RECIPIENT_LIMIT")),
+        recipientWindowSeconds: whole(1, 86_400, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.RECIPIENT_WINDOW")),
       }),
       spamFilter: z.object({
         enabled: z.boolean(),
-        maxRecipients: whole(1, 1_000, "Maximum recipients"),
-        maxMessageLength: whole(1, MAX_MESSAGE_LENGTH, "Maximum length"),
+        maxRecipients: whole(1, 1_000, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.MAXIMUM_RECIPIENTS")),
+        maxMessageLength: whole(1, MAX_MESSAGE_LENGTH, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.MAXIMUM_LENGTH")),
         urlPolicy: z.union([
           z.literal(SmsUrlPolicy.Allow),
           z.literal(SmsUrlPolicy.Flag),
@@ -98,7 +101,7 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
         // A refine, not .max(), for the reason given at senderNameExcludedPrefixes.
         blockedTerms: z
           .array(z.string().trim().min(1, zod3Messages.stringMin(1)).max(50, zod3Messages.stringMax(50)))
-          .refine((terms) => terms.length <= 100, "At most 100 terms."),
+          .refine((terms) => terms.length <= 100, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.AT_MOST_100_TERMS")),
       }),
     })
     .superRefine((values, context) => {
@@ -107,7 +110,7 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
           context.addIssue({
             code: "custom",
             path: [path],
-            message: "Set a sender number or a sender name (or both).",
+            message: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.SET_A_SENDER_NUMBER_OR"),
           });
         }
       }
@@ -116,7 +119,7 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
         context.addIssue({
           code: "custom",
           path: ["apiKey"],
-          message: "The provider key is required for a new configuration.",
+          message: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.THE_PROVIDER_KEY_IS_REQUIRED"),
         });
       }
 
@@ -124,7 +127,7 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
         context.addIssue({
           code: "custom",
           path: ["accountId"],
-          message: "Twilio account SID is 'AC' followed by 32 hex characters.",
+          message: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.TWILIO_ACCOUNT_SID_IS_AC"),
         });
       }
 
@@ -133,7 +136,7 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
           context.addIssue({
             code: "custom",
             path: ["messagingProfileId"],
-            message: "Telnyx messaging profile id is a GUID.",
+            message: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.TELNYX_MESSAGING_PROFILE_ID_IS"),
           });
         }
 
@@ -141,14 +144,14 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
           context.addIssue({
             code: "custom",
             path: ["webhookPublicKey"],
-            message: "Required to verify Telnyx delivery callbacks.",
+            message: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.REQUIRED_TO_VERIFY_TELNYX_DELIVERY"),
           });
         } else if (!isBase64Of32Bytes(values.webhookPublicKey)) {
           // Shape only; the Api also refuses the weak (small-order) keys that would verify forgeries.
           context.addIssue({
             code: "custom",
             path: ["webhookPublicKey"],
-            message: "Paste the base64 public key from the Telnyx portal (32 bytes).",
+            message: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.PASTE_THE_BASE64_PUBLIC_KEY"),
           });
         }
       }
@@ -156,28 +159,30 @@ export const createSmsProviderSchema = (isCreate: boolean) =>
 
 export type SmsProviderFormValues = z.infer<ReturnType<typeof createSmsProviderSchema>>;
 
-export const smsTemplateSchema = z.object({
+export const createSmsTemplateSchema = () =>
+  z.object({
   name: z
     .string()
     .trim()
-    .min(1, "Name is required.")
+    .min(1, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.NAME_IS_REQUIRED"))
     .max(100, zod3Messages.stringMax(100))
-    .regex(TEMPLATE_NAME_PATTERN, "Letters, digits, '_', '.' and '-' only."),
-  language: z.string().trim().regex(LANGUAGE_PATTERN, "Use a code like 'en' or 'en-US'."),
+    .regex(TEMPLATE_NAME_PATTERN, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.LETTERS_DIGITS_ONLY")),
+  language: z.string().trim().regex(LANGUAGE_PATTERN, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.USE_A_CODE_LIKE_EN")),
   body: z
     .string()
-    .min(1, "Message text is required.")
+    .min(1, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.MESSAGE_TEXT_IS_REQUIRED"))
     .max(MAX_MESSAGE_LENGTH, zod3Messages.stringMax(MAX_MESSAGE_LENGTH)),
 });
 
-export type SmsTemplateFormValues = z.infer<typeof smsTemplateSchema>;
+export type SmsTemplateFormValues = z.infer<ReturnType<typeof createSmsTemplateSchema>>;
 
-export const sendSmsSchema = z
+export const createSendSmsSchema = () =>
+  z
   .object({
     mode: z.enum(["text", "template"]),
     destinationNumbers: z
-      .array(z.string().regex(DESTINATION_PATTERN, "7 to 15 digits, optionally starting with '+'."))
-      .min(1, "Add at least one recipient."),
+      .array(z.string().regex(DESTINATION_PATTERN, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.DESTINATION_DIGITS")))
+      .min(1, tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.ADD_AT_LEAST_ONE_RECIPIENT")),
     messageText: z.string().max(MAX_MESSAGE_LENGTH, zod3Messages.stringMax(MAX_MESSAGE_LENGTH)),
     templateName: z.string().trim(),
     language: z.string().trim(),
@@ -186,16 +191,16 @@ export const sendSmsSchema = z
       .string()
       .trim()
       .max(100, zod3Messages.stringMax(100))
-      .refine((value) => !value || /^[A-Za-z0-9_.-]+$/.test(value), "Letters, digits, '_', '.' and '-' only."),
+      .refine((value) => !value || /^[A-Za-z0-9_.-]+$/.test(value), tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.LETTERS_DIGITS_ONLY")),
   })
   .superRefine((values, context) => {
     if (values.mode === "text" && !values.messageText.trim()) {
-      context.addIssue({ code: "custom", path: ["messageText"], message: "Message text is required." });
+      context.addIssue({ code: "custom", path: ["messageText"], message: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.MESSAGE_TEXT_IS_REQUIRED") });
     }
 
     if (values.mode === "template" && !values.templateName) {
-      context.addIssue({ code: "custom", path: ["templateName"], message: "Choose a template." });
+      context.addIssue({ code: "custom", path: ["templateName"], message: tStatic(UTILITIES_SMS_MODULE, "SMS_SCHEMA.CHOOSE_A_TEMPLATE") });
     }
   });
 
-export type SendSmsFormValues = z.infer<typeof sendSmsSchema>;
+export type SendSmsFormValues = z.infer<ReturnType<typeof createSendSmsSchema>>;

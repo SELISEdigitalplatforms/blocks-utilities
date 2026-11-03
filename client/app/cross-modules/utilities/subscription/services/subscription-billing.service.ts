@@ -13,6 +13,7 @@ import type {
   UpdateBillingProfileRequest,
   UpdateMerchantProfileRequest,
 } from "../models/subscription-billing.model";
+import { tSubscription } from "../utilities/subscription-i18n";
 
 interface SubscriptionApiError {
   code: string;
@@ -63,7 +64,7 @@ class SubscriptionBillingService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The billing profile could not be loaded.",
+        response.error?.message || tSubscription("SUBSCRIPTION_BILLING_SERVICE.BILLING_PROFILE_COULD_NOT_BE_LOADED"),
       );
     }
 
@@ -79,7 +80,7 @@ class SubscriptionBillingService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The billing profile could not be saved.",
+        response.error?.message || tSubscription("SUBSCRIPTION_BILLING_SERVICE.BILLING_PROFILE_COULD_NOT_BE_SAVED"),
       );
     }
 
@@ -100,7 +101,7 @@ class SubscriptionBillingService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The merchant profile could not be loaded.",
+        response.error?.message || tSubscription("SUBSCRIPTION_BILLING_SERVICE.MERCHANT_PROFILE_COULD_NOT_BE_LOADED"),
       );
     }
 
@@ -116,7 +117,7 @@ class SubscriptionBillingService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The merchant profile could not be saved.",
+        response.error?.message || tSubscription("SUBSCRIPTION_BILLING_SERVICE.MERCHANT_PROFILE_COULD_NOT_BE_SAVED"),
       );
     }
 
@@ -132,7 +133,7 @@ class SubscriptionBillingService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The invoices could not be loaded.",
+        response.error?.message || tSubscription("SUBSCRIPTION_BILLING_SERVICE.INVOICES_COULD_NOT_BE_LOADED"),
       );
     }
 
@@ -165,7 +166,7 @@ class SubscriptionBillingService {
     >(`${SUBSCRIPTION_INVOICES_ENDPOINT}/${encodeURIComponent(documentId)}/resend`, {});
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The document could not be resent.");
+      throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_BILLING_SERVICE.DOCUMENT_COULD_NOT_BE_RESENT"));
     }
 
     return response.data;

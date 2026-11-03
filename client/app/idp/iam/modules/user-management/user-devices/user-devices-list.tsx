@@ -12,6 +12,7 @@ import { IDeviceSession } from "@/idp/iam/models/user";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useMemo } from "react";
+import { useT } from "@seliseblocks/genesis-os";
 
 type DeviceListProps = {
   isLoading: boolean;
@@ -27,13 +28,14 @@ const LoadingSkelton = () => (
 );
 
 export const UserDevicesList = ({ isLoading, data }: DeviceListProps) => {
+  const { t } = useT("utilities.idp");
   const columns: ColumnDef<IDeviceSession>[] = useMemo(
     () => [
       {
         accessorKey: "accessFrom",
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Accessed from</span>
+            <span className="font-bold text-medium-emphasis">{t("USER_DEVICES_LIST.ACCESSED_FROM")}</span>
           </div>
         ),
         cell: ({ row }) => {
@@ -41,7 +43,7 @@ export const UserDevicesList = ({ isLoading, data }: DeviceListProps) => {
           return (
             <div className="flex w-[200px] flex-col">
               <div className="mb-2 flex items-center">
-                <span>IP:</span>
+                <span>{t("USER_DEVICES_LIST.IP")}</span>
                 <div className="ml-2 rounded-[4px] bg-blocks-primary-shades-300 px-2 py-1">
                   <span>{row.original.IpAddresses}</span>
                 </div>
@@ -50,14 +52,14 @@ export const UserDevicesList = ({ isLoading, data }: DeviceListProps) => {
                 <span>
                   {deviceInfo.Device
                     ? `${deviceInfo.Device.charAt(0).toUpperCase() + deviceInfo.Device.slice(1)}`
-                    : "Unknown Device"}{" "}
+                    : t("USER_DEVICES_LIST.UNKNOWN_DEVICE")}{" "}
                   {deviceInfo.Model
                     ? `${deviceInfo.Model.charAt(0).toUpperCase() + deviceInfo.Model.slice(1)}`
                     : ""}
                 </span>
                 <span>
-                  {deviceInfo.Browser ? `${deviceInfo.Browser}` : "Unknown Browser"}{" "}
-                  {deviceInfo.OS ? `on ${deviceInfo.OS}` : " "}
+                  {deviceInfo.Browser ? `${deviceInfo.Browser}` : t("USER_DEVICES_LIST.UNKNOWN_BROWSER")}{" "}
+                  {deviceInfo.OS ? t("USER_DEVICES_LIST.ON_OS", { os: deviceInfo.OS }) : " "}
                 </span>
               </div>
             </div>
@@ -68,7 +70,7 @@ export const UserDevicesList = ({ isLoading, data }: DeviceListProps) => {
         accessorKey: "IssuedUtc",
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Last Accessed</span>
+            <span className="font-bold text-medium-emphasis">{t("USER_DEVICES_LIST.LAST_ACCESSED")}</span>
           </div>
         ),
         cell: ({ row }) => (
@@ -81,21 +83,21 @@ export const UserDevicesList = ({ isLoading, data }: DeviceListProps) => {
         accessorKey: "status",
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Status</span>
+            <span className="font-bold text-medium-emphasis">{t("common:STATUS")}</span>
           </div>
         ),
         cell: ({ row }) => (
           <div className="flex w-[180px] items-center">
             {new Date(row.original.ExpiresUtc).getTime() - new Date().getTime() > 0 ? (
-              <Badge variant="success">active</Badge>
+              <Badge variant="success">{t("USER_DEVICES_LIST.ACTIVE")}</Badge>
             ) : (
-              <Badge variant="error">expired</Badge>
+              <Badge variant="error">{t("USER_DEVICES_LIST.EXPIRED")}</Badge>
             )}
           </div>
         ),
       },
     ],
-    [],
+    [t],
   );
 
   const table = useReactTable({
@@ -143,7 +145,7 @@ export const UserDevicesList = ({ isLoading, data }: DeviceListProps) => {
                 colSpan={columns.length}
                 className="h-24 text-center text-muted-foreground"
               >
-                No results.
+                {t("USER_DEVICES_LIST.NO_RESULTS")}
               </TableCell>
             </TableRow>
           )}

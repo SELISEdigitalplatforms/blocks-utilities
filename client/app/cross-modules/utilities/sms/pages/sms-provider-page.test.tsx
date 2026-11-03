@@ -6,7 +6,8 @@ import type { SmsProviderConfiguration } from "../models/sms.model";
 const mutateAsync = vi.fn();
 let configurationState: { data?: SmsProviderConfiguration | null; isLoading: boolean; isError: boolean; error?: unknown };
 
-vi.mock("@seliseblocks/genesis-os", () => ({
+vi.mock("@seliseblocks/genesis-os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@seliseblocks/genesis-os")>()),
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-a" } }),
 }));
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));

@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { tStatic } from "@seliseblocks/genesis-os";
 
 export const signupFormDefaultValue = {
   email: "",
 };
 
-export const signupFormSchema = z.object({
-  email: z.string().trim().check(z.email("Invalid email")),
+export const createSignupFormSchema = () => z.object({
+  email: z.string().trim().check(z.email(tStatic("utilities.idp.authentication", "UTILS.INVALID_EMAIL"))),
 });

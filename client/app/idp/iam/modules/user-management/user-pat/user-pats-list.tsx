@@ -18,6 +18,7 @@ import { CopyToClipboardButton } from "@/components/copy-to-clipboard-button/cop
 import useIsMobile from "@/hooks/use-is-mobile";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import { useT } from "@seliseblocks/genesis-os";
 
 type PATListProps = {
   isLoading: boolean;
@@ -34,6 +35,7 @@ const LoadingSkelton = () => (
 );
 
 export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
+  const { t } = useT("utilities.idp");
   const isMobile = useIsMobile();
 
   const columns: ColumnDef<IPATResponse>[] = useMemo(
@@ -42,7 +44,7 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
         accessorKey: "note",
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">PAT Name</span>
+            <span className="font-bold text-medium-emphasis">{t("USER_PATS_LIST.PAT_NAME")}</span>
           </div>
         ),
         cell: ({ row }) => (
@@ -57,7 +59,7 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
         accessorKey: "code",
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Token</span>
+            <span className="font-bold text-medium-emphasis">{t("USER_PATS_LIST.TOKEN")}</span>
           </div>
         ),
         cell: ({ row }) => {
@@ -82,7 +84,7 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
                 {isMobile && (
                   <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100">
                     <CopyToClipboardButton textToCopy={row.original.code} isHoverable={false}>
-                      Copy
+                      {t("common:COPY")}
                     </CopyToClipboardButton>
                   </div>
                 )}
@@ -95,7 +97,7 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
         accessorKey: "expiryDate",
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Valid till</span>
+            <span className="font-bold text-medium-emphasis">{t("USER_PATS_LIST.VALID_TILL")}</span>
           </div>
         ),
         cell: ({ row }) => (
@@ -108,15 +110,15 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
         accessorKey: "status",
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Status</span>
+            <span className="font-bold text-medium-emphasis">{t("common:STATUS")}</span>
           </div>
         ),
         cell: ({ row }) => (
           <div className="flex w-[180px] items-center">
             {new Date(row.original.expiryDate).getTime() - new Date().getTime() > 0 ? (
-              <Badge variant="success">active</Badge>
+              <Badge variant="success">{t("USER_PATS_LIST.ACTIVE")}</Badge>
             ) : (
-              <Badge variant="error">expired</Badge>
+              <Badge variant="error">{t("USER_PATS_LIST.EXPIRED")}</Badge>
             )}
           </div>
         ),
@@ -135,7 +137,7 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
         ),
       },
     ],
-    [isMobile],
+    [isMobile, t],
   );
 
   const table = useReactTable({
@@ -150,9 +152,9 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
   return (
     <>
       <div className="mb-5 flex items-center justify-between text-lg font-bold text-high-emphasis">
-        <h1>PATs (Personal Access Tokens)</h1>
+        <h1>{t("USER_PATS_LIST.PATS_PERSONAL_ACCESS_TOKENS")}</h1>
         <Button onClick={() => setIsModalOpen(true)} size="sm">
-          Generate PAT
+          {t("USER_PATS_LIST.GENERATE_PAT")}
         </Button>
       </div>
 
@@ -191,7 +193,7 @@ export const UserPATList = ({ isLoading, data, id }: PATListProps) => {
                 colSpan={columns.length}
                 className="h-24 text-center text-muted-foreground"
               >
-                No results.
+                {t("USER_PATS_LIST.NO_RESULTS")}
               </TableCell>
             </TableRow>
           )}

@@ -12,6 +12,9 @@ import type {
   SmsTemplateList,
   SmsTemplateQuery,
 } from "../models/sms.model";
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SMS_MODULE = "utilities.sms";
 
 /**
  * The SMS Api answers a refused request with 400 and `{ errors: { Field: message } }`, which the
@@ -74,14 +77,14 @@ export const smsService = {
         return null;
       }
 
-      throw toSmsRequestError(error, "The SMS provider configuration could not be loaded.");
+      throw toSmsRequestError(error, tStatic(UTILITIES_SMS_MODULE, "SMS_SERVICE.THE_SMS_PROVIDER_CONFIGURATION"));
     }
   },
 
   saveProviderConfiguration(request: SaveSmsProviderConfigurationRequest) {
     return call(
       () => client().post<SmsMutationResult>(`${SMS_ENDPOINT}/SaveProviderConfiguration`, request),
-      "The SMS provider configuration could not be saved.",
+      tStatic(UTILITIES_SMS_MODULE, "SMS_SERVICE.THE_SMS_PROVIDER_CONFIGURATION_2"),
     );
   },
 
@@ -95,14 +98,14 @@ export const smsService = {
 
     return call(
       () => client().get<SmsTemplateList>(`${SMS_ENDPOINT}/GetTemplates?${parameters}`),
-      "SMS templates could not be loaded.",
+      tStatic(UTILITIES_SMS_MODULE, "SMS_SERVICE.SMS_TEMPLATES_COULD_NOT_BE"),
     );
   },
 
   async saveTemplate(request: SaveSmsTemplateRequest): Promise<SmsTemplate> {
     const response = await call(
       () => client().post<{ template?: SmsTemplate }>(`${SMS_ENDPOINT}/SaveTemplate`, request),
-      "The SMS template could not be saved.",
+      tStatic(UTILITIES_SMS_MODULE, "SMS_SERVICE.THE_SMS_TEMPLATE_COULD_NOT"),
     );
 
     if (!response.template) {
@@ -118,21 +121,21 @@ export const smsService = {
         client().delete<SmsMutationResult>(
           `${SMS_ENDPOINT}/DeleteTemplate?templateId=${encodeURIComponent(templateId)}`,
         ),
-      "The SMS template could not be deleted.",
+      tStatic(UTILITIES_SMS_MODULE, "SMS_SERVICE.THE_SMS_TEMPLATE_COULD_NOT_2"),
     );
   },
 
   send(request: SendSmsRequest) {
     return call(
       () => client().post<SmsMutationResult>(`${SMS_ENDPOINT}/Send`, request),
-      "The SMS could not be sent.",
+      tStatic(UTILITIES_SMS_MODULE, "SMS_SERVICE.THE_SMS_COULD_NOT_BE"),
     );
   },
 
   sendByTemplate(request: SendSmsByTemplateRequest) {
     return call(
       () => client().post<SmsMutationResult>(`${SMS_ENDPOINT}/SendByTemplate`, request),
-      "The SMS could not be sent.",
+      tStatic(UTILITIES_SMS_MODULE, "SMS_SERVICE.THE_SMS_COULD_NOT_BE"),
     );
   },
 };

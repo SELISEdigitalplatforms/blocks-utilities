@@ -12,6 +12,7 @@ import { Label } from "@/components/ui-kits/label/label";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui-kits/input/input";
 import { ClearButton } from "../clear-button/clear-button";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface MultiSelectProps {
   label?: string;
@@ -24,6 +25,7 @@ interface MultiSelectProps {
 }
 
 export function Radio({ label, options, onChange, value }: MultiSelectProps) {
+  const { t } = useT("utilities.shared");
   const [search, setSearch] = useState("");
   const [buttonRef, popoverWidth] = usePopoverWidth();
   const isMobile = useIsMobile();
@@ -102,7 +104,7 @@ export function Radio({ label, options, onChange, value }: MultiSelectProps) {
             </RadioGroup>
           ) : (
             <div className="py-6 text-center text-sm !text-popover-foreground">
-              No results found.
+              {t("RADIO.NO_RESULTS_FOUND")}
             </div>
           )}
         </>

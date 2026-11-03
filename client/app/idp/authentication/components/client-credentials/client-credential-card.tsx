@@ -8,7 +8,7 @@ import { format } from "date-fns";
 import { IClientCredentialsConfig } from "@blocks-idp/authentication/models/auth.oidc.model";
 import { Button } from "@/components/ui-kits/button/button";
 import { useDeleteAuthClient } from "@blocks-idp/authentication/hooks/use-auth-clients";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
@@ -29,6 +29,7 @@ type ClientInfoCardProps = {
 };
 
 export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const [open, setOpen] = useState<boolean>(false);
   const tenantId = useProjectStore().selectedProject?.tenantId || "";
   const { mutateAsync, isPending } = useDeleteAuthClient({
@@ -43,11 +44,11 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
       };
       const res = await mutateAsync(payload);
       if (!res.isSuccess) return showErrorToast({ errors: res.error });
-      showSuccessToast({ description: "Client credential deleted successfully" });
+      showSuccessToast({ description: t("CLIENT_CREDENTIAL_CARD.CLIENT_CREDENTIAL_DELETED") });
       setOpen(false);
     } catch (error) {
       if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
-      return showErrorToast({ errors: "Something went wrong" });
+      return showErrorToast({ errors: t("CLIENT_CREDENTIAL_CARD.SOMETHING_WENT_WRONG") });
     }
   };
 
@@ -58,7 +59,7 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
           <div className="flex items-center justify-between gap-4">
             <div className="flex gap-3">
               <CardTitle> {clientCredential.name} </CardTitle>
-              {clientCredential.isActive && <Badge variant="success">Active</Badge>}
+              {clientCredential.isActive && <Badge variant="success">{t("CLIENT_CREDENTIAL_CARD.ACTIVE")}</Badge>}
             </div>
             <div>
               <Button
@@ -68,7 +69,7 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
                 variant="outline"
                 className="text-[#D92127]"
               >
-                Delete
+                {t("common:DELETE")}
               </Button>
             </div>
           </div>
@@ -77,7 +78,7 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
         <CardContent>
           <div className="flex flex-col gap-8">
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-              <Item label="Client Id">
+              <Item label={t("CLIENT_CREDENTIAL_CARD.CLIENT_ID")}>
                 <CopyToClipboardButton textToCopy={clientCredential.itemId}>
                   <MaskedText
                     text={clientCredential.itemId}
@@ -88,7 +89,7 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
                 </CopyToClipboardButton>
               </Item>
 
-              <Item label="Client Secret">
+              <Item label={t("CLIENT_CREDENTIAL_CARD.CLIENT_SECRET")}>
                 <CopyToClipboardButton textToCopy={clientCredential.clientSecret}>
                   <MaskedText
                     text={clientCredential.clientSecret}
@@ -99,7 +100,7 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
                 </CopyToClipboardButton>
               </Item>
 
-              <Item label="Audience">
+              <Item label={t("CLIENT_CREDENTIAL_CARD.AUDIENCE")}>
                 <div className="flex items-center gap-2">
                   {clientCredential.roles &&
                   clientCredential.audiences &&
@@ -115,7 +116,7 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
                 </div>
               </Item>
 
-              <Item label="Role(s)">
+              <Item label={t("CLIENT_CREDENTIAL_CARD.ROLE_S")}>
                 <div className="flex items-center gap-2">
                   {clientCredential.roles && clientCredential.roles.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
@@ -131,7 +132,7 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
                 </div>
               </Item>
 
-              <Item label="Created on">
+              <Item label={t("CLIENT_CREDENTIAL_CARD.CREATED_ON")}>
                 <span className="whitespace-nowrap">
                   {format(clientCredential.createdDate, "dd/MM/yyyy HH:mm")}
                 </span>
@@ -146,8 +147,8 @@ export const ClientCredentialsCard = ({ clientCredential }: ClientInfoCardProps)
           onCancel={() => setOpen(false)}
           onConfirm={() => handleConfirmDelete(clientCredential.itemId)}
           data={{
-            dialogTitle: "Delete",
-            dialogSubtitle: `Are you sure you want to delete client-credential`,
+            dialogTitle: t("common:DELETE"),
+            dialogSubtitle: t("CLIENT_CREDENTIAL_CARD.ARE_YOU_SURE_YOU_WANT"),
           }}
           buttonState={{
             confirm: { disable: isPending },

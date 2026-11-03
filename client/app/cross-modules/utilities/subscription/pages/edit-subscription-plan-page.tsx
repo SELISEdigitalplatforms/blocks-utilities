@@ -1,4 +1,5 @@
 import { AlertCircle } from "lucide-react";
+import { useT } from "@seliseblocks/genesis-os";
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Card } from "@/components/ui-kits/card/card";
@@ -19,6 +20,7 @@ import { planToFormValues, toUpdatePlanRequest } from "../utilities/plan-form-ma
 import { submitPlanWithPrices } from "../utilities/submit-plan-with-prices";
 
 export const EditSubscriptionPlanPage = () => {
+  const { t } = useT("utilities.subscription.pages");
   const { itemId, planId } = useParams();
   const navigate = useNavigate();
   const organizationScope = useOrganizationScope();
@@ -57,19 +59,19 @@ export const EditSubscriptionPlanPage = () => {
     return (
       <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
         <SubscriptionPlanPageHeader
-          title="Edit plan"
-          description="This plan could not be loaded."
+          title={t("EDIT_PAGE.TITLE_NOT_LOADED")}
+          description={t("EDIT_PAGE.NOT_LOADED")}
           backTo={withOrganizationScope(basePath, organizationScope)}
         />
         <Card className="flex min-h-56 flex-col items-center justify-center text-center">
           <span className="rounded-full bg-destructive/10 p-4 text-destructive">
             <AlertCircle className="h-7 w-7" />
           </span>
-          <h3 className="mt-4 text-lg font-semibold">Plan not found</h3>
+          <h3 className="mt-4 text-lg font-semibold">{t("EDIT_PAGE.NOT_FOUND")}</h3>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
             {error instanceof Error
               ? error.message
-              : "It may belong to another organization, or no longer exists."}
+              : t("EDIT_PAGE.NOT_FOUND_HINT")}
           </p>
         </Card>
       </main>
@@ -83,15 +85,14 @@ export const EditSubscriptionPlanPage = () => {
     try {
       await archivePrice({ priceId, organizationId: plan.organizationId ?? undefined });
       toast({
-        title: "Price retired",
-        description:
-          "It is no longer offered. Anyone already on it keeps their terms and renewals.",
+        title: t("EDIT_PAGE.PRICE_RETIRED"),
+        description: t("EDIT_PAGE.PRICE_RETIRED_DESCRIPTION"),
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "The price could not be retired",
-        description: error instanceof Error ? error.message : "Try again in a moment.",
+        title: t("EDIT_PAGE.RETIRE_FAILED"),
+        description: error instanceof Error ? error.message : t("EDIT_PAGE.TRY_AGAIN"),
       });
     } finally {
       setRetiringPriceId(null);
@@ -113,9 +114,8 @@ export const EditSubscriptionPlanPage = () => {
     });
     toast({
       variant: "success",
-      title: "Price tax saved",
-      description:
-        "New subscriptions will use this tax configuration; existing subscriptions keep their snapshot.",
+      title: t("EDIT_PAGE.TAX_SAVED"),
+      description: t("EDIT_PAGE.TAX_SAVED_DESCRIPTION"),
     });
   };
 
@@ -136,9 +136,8 @@ export const EditSubscriptionPlanPage = () => {
     });
     toast({
       variant: "success",
-      title: discountPercent ? "Automatic discount saved" : "Automatic discount cleared",
-      description:
-        "New subscriptions and future moves onto this price use it; everyone already on it keeps their snapshot.",
+      title: discountPercent ? t("EDIT_PAGE.DISCOUNT_SAVED") : t("EDIT_PAGE.DISCOUNT_CLEARED"),
+      description: t("EDIT_PAGE.DISCOUNT_SAVED_DESCRIPTION"),
     });
   };
 
@@ -155,15 +154,13 @@ export const EditSubscriptionPlanPage = () => {
       <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
         <SubscriptionPlanPageHeader
           title={plan.displayName}
-          description="This plan is archived."
+          description={t("EDIT_PAGE.ARCHIVED")}
           backTo={detailPath}
         />
         <Card className="space-y-2 rounded-xl border-dashed bg-muted/40">
-          <h2 className="font-semibold">Archived plans cannot be changed</h2>
+          <h2 className="font-semibold">{t("EDIT_PAGE.ARCHIVED_TITLE")}</h2>
           <p className="text-sm text-muted-foreground">
-            Its terms, its prices, their tax and their discounts are all settled. Everyone already
-            subscribed carries on unchanged — they bill from the terms they bought. To sell
-            something like it again, duplicate the plan from its detail page and edit the copy.
+            {t("EDIT_PAGE.ARCHIVED_EXPLANATION")}
           </p>
         </Card>
       </main>
@@ -178,18 +175,18 @@ export const EditSubscriptionPlanPage = () => {
   // No version number: meter-rate changes and archiving also move it on, so "creates v3" could be
   // wrong by the time the save lands.
   const editDescription = plan.hasSubscribers
-    ? "Saving creates a new version for new subscribers. Everyone already subscribed keeps the terms and price they bought."
-    : "Rewrites what this plan sells. Nothing is saved until you confirm at the end.";
+    ? t("EDIT_PAGE.DESCRIPTION_SUBSCRIBED")
+    : t("EDIT_PAGE.DESCRIPTION");
 
   return (
     <PlanBuilder
       mode="edit"
       defaultValues={defaultValues}
-      title={`Edit ${plan.displayName}`}
+      title={t("EDIT_PAGE.TITLE", { name: plan.displayName })}
       description={editDescription}
       backTo={detailPath}
-      submitLabel="Save changes"
-      submittingLabel="Saving…"
+      submitLabel={t("common:SAVE_CHANGES")}
+      submittingLabel={t("EDIT_PAGE.SUBMITTING")}
       isSubmitting={isPending || isPricing}
       existingPrices={plan.prices}
       retiringPriceId={retiringPriceId}
@@ -209,14 +206,14 @@ export const EditSubscriptionPlanPage = () => {
         if (failures.length > 0) {
           toast({
             variant: "destructive",
-            title: `Changes saved, but ${failures.length} price${failures.length === 1 ? "" : "s"} was not added`,
-            description: `${failures.join(" ")} Add them from the plan page.`,
+            title: t("EDIT_PAGE.PARTIAL_TITLE", { count: failures.length }),
+            description: t("EDIT_PAGE.PARTIAL_DESCRIPTION", { failures: failures.join(" ") }),
           });
         } else {
           toast({
             variant: "success",
-            title: "Changes saved",
-            description: `${values.displayName} is up to date.`,
+            title: t("EDIT_PAGE.SAVED"),
+            description: t("EDIT_PAGE.SAVED_DESCRIPTION", { name: values.displayName }),
           });
         }
 

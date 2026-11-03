@@ -24,6 +24,7 @@ import {
   type PaymentSortField,
 } from "../models/payment.model";
 import { PaymentStatusBadge } from "./payment-status-badge";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface PaymentTableProps {
   items: PaymentListItem[];
@@ -114,6 +115,7 @@ const RefundAction = ({
   payment,
   onRefund,
 }: RefundActionProps) => {
+  const { t } = useT("utilities.payment");
   const hasPendingRefund = payment.hasPendingRefund === true;
   const canRefund =
     !hasPendingRefund &&
@@ -127,10 +129,10 @@ const RefundAction = ({
       disabled={!canRefund}
       title={
         hasPendingRefund
-          ? "The refund request is awaiting provider confirmation"
+          ? t("PAYMENT_TABLE.THE_REFUND_REQUEST_IS_AWAITING")
           : canRefund
-            ? "Refund this payment"
-            : "This payment is not refundable in its current status"
+            ? t("PAYMENT_TABLE.REFUND_THIS_PAYMENT")
+            : t("PAYMENT_TABLE.THIS_PAYMENT_IS_NOT_REFUNDABLE")
       }
       onClick={() => onRefund(payment)}
     >
@@ -139,7 +141,7 @@ const RefundAction = ({
       ) : (
         <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
       )}
-      {hasPendingRefund ? "Refund requested" : "Refund"}
+      {hasPendingRefund ? t("PAYMENT_TABLE.REFUND_REQUESTED") : t("PAYMENT_TABLE.REFUND")}
     </Button>
   );
 };
@@ -150,16 +152,18 @@ export const PaymentTable = ({
   sortDirection,
   onSort,
   onRefund,
-}: PaymentTableProps) => (
+}: PaymentTableProps) => {
+  const { t } = useT("utilities.payment");
+  return (
   <>
     <div className="hidden overflow-hidden rounded-xl border md:block">
       <Table>
         <TableHeader className="bg-muted/40">
           <TableRow>
-            <TableHead>Payment ID</TableHead>
+            <TableHead>{t("PAYMENT_TABLE.PAYMENT_ID")}</TableHead>
             <TableHead>
               <SortableHeader
-                label="Provider"
+                label={t("PAYMENT_TABLE.PROVIDER")}
                 field="providerName"
                 activeField={sortBy}
                 direction={sortDirection}
@@ -168,7 +172,7 @@ export const PaymentTable = ({
             </TableHead>
             <TableHead className="text-right">
               <SortableHeader
-                label="Amount"
+                label={t("PAYMENT_TABLE.AMOUNT")}
                 field="amount"
                 activeField={sortBy}
                 direction={sortDirection}
@@ -178,7 +182,7 @@ export const PaymentTable = ({
             </TableHead>
             <TableHead>
               <SortableHeader
-                label="Payment date"
+                label={t("PAYMENT_TABLE.PAYMENT_DATE")}
                 field="paymentDate"
                 activeField={sortBy}
                 direction={sortDirection}
@@ -187,14 +191,14 @@ export const PaymentTable = ({
             </TableHead>
             <TableHead>
               <SortableHeader
-                label="Status"
+                label={t("common:STATUS")}
                 field="paymentStatus"
                 activeField={sortBy}
                 direction={sortDirection}
                 onSort={onSort}
               />
             </TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            <TableHead className="text-right">{t("common:ACTIONS")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -276,3 +280,4 @@ export const PaymentTable = ({
     </div>
   </>
 );
+};

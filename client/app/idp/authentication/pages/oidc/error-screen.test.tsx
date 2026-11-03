@@ -48,6 +48,6 @@ describe("OIDCErrorScreen", () => {
     expect(screen.getByText("Sign In Failed")).toBeInTheDocument();
     expect(screen.getByText("The token has expired")).toBeInTheDocument();
     // error code is formatted to Title Case with spaces.
-    expect(screen.getByText("Invalid Grant")).toBeInTheDocument();
+    expect(screen.getByText(/Invalid Grant/)).toBeInTheDocument();
   });
 });

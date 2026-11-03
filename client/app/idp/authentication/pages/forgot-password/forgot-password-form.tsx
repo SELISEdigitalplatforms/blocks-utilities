@@ -3,7 +3,7 @@ import { getRuntimeEnv } from "@/lib/runtime-env";
 import { Input } from "@/components/ui-kits/input/input";
 import { Link } from "react-router";
 import { useForm } from "react-hook-form";
-import { forgotPasswordFormSchema, forgotPasswordFormDefaultValue } from "./utils";
+import { createForgotPasswordFormSchema, forgotPasswordFormDefaultValue } from "./utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Form,
@@ -21,14 +21,16 @@ import { useEffect } from "react";
 import { useAccountRecover } from "@blocks-idp/iam/hooks/use-account";
 import { isErrorWithErrors } from "@/lib/error";
 import { useCaptcha } from "@blocks-idp/captcha/hooks/use-captcha";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const ForgotPasswordForm = () => {
+  const { t } = useT("utilities.idp.authentication");
   const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
 
   const navigate = useNavigate();
   const form = useForm({
     defaultValues: forgotPasswordFormDefaultValue,
-    resolver: zodResolver(forgotPasswordFormSchema),
+    resolver: zodResolver(createForgotPasswordFormSchema()),
   });
   const { isPending, mutateAsync } = useAccountRecover();
   const googleSiteKey = getRuntimeEnv("BLOCKS_GOOGLE_SITE_KEY") || "";
@@ -42,7 +44,7 @@ export const ForgotPasswordForm = () => {
   });
   const { isValid } = form.formState;
 
-  const onSubmitHandler = async (values: z.infer<typeof forgotPasswordFormSchema>) => {
+  const onSubmitHandler = async (values: z.infer<ReturnType<typeof createForgotPasswordFormSchema>>) => {
     try {
       if (!x_blocks_key) return;
       const res = await mutateAsync({
@@ -52,13 +54,17 @@ export const ForgotPasswordForm = () => {
       });
       if (!res.isSuccess) {
         resetCaptcha();
-        return showErrorToast({ errors: res.errors });
+        showErrorToast({ errors: res.errors });
+        return;
       }
       navigate(`/forgot-email-sent?email=${values.email}`);
     } catch (error) {
       resetCaptcha();
-      if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: "Something went wrong" });
+      if (isErrorWithErrors(error)) {
+        showErrorToast({ errors: error.errors });
+        return;
+      }
+      showErrorToast({ errors: t("FORGOT_PASSWORD_FORM.SOMETHING_WENT_WRONG") });
     }
   };
 
@@ -75,9 +81,9 @@ export const ForgotPasswordForm = () => {
             name="email"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Email</FormLabel>
+                <FormLabel>{t("common:EMAIL")}</FormLabel>
                 <FormControl>
-                  <Input type="email" placeholder="Enter your email" {...field} />
+                  <Input type="email" placeholder={t("FORGOT_PASSWORD_FORM.ENTER_YOUR_EMAIL")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -87,7 +93,7 @@ export const ForgotPasswordForm = () => {
 
           <div className="my-2 flex items-center">
             <hr className="flex-grow border-gray-300" />
-            <span className="mx-2 text-xs text-gray-500">OR</span>
+            <span className="mx-2 text-xs text-gray-500">{t("FORGOT_PASSWORD_FORM.OR")}</span>
             <hr className="flex-grow border-gray-300" />
           </div>
 
@@ -96,13 +102,13 @@ export const ForgotPasswordForm = () => {
             className="w-full rounded"
             disabled={isPending || !isValid || !captchaCode}
           >
-            Continue
+            {t("common:CONTINUE")}
           </Button>
         </div>
         <div className="mt-4 text-center text-base text-foreground">
-          Already a member?{" "}
+          {t("FORGOT_PASSWORD_FORM.ALREADY_A_MEMBER")}{" "}
           <Link to={"/login"} className="text-primary hover:underline">
-            Log in
+            {t("FORGOT_PASSWORD_FORM.LOG_IN")}
           </Link>
         </div>
       </form>

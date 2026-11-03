@@ -10,36 +10,42 @@ import { useCreateProjectFormState } from "@/components/create-project/utils";
 import { CreateProjectNamingForm } from "@/components/create-project/form/create-project-naming-form/create-project-naming-form";
 import { CreateProjectResourcesForm } from "@/components/create-project/form/create-project-resources-form/create-project-resources-form";
 import { CreateProjectEnvironmentsForm } from "@/components/create-project/form/create-project-environments-form/create-project-environments-form";
+import { tStatic, useLanguageCode, useT } from "@seliseblocks/genesis-os";
 
-const stepData: Steps = [
-  { id: 1, title: "Name your project" },
-  { id: 2, title: "Add resources" },
-  { id: 3, title: "Configure environments" },
+const UTILITIES_CONSOLE_MODULE = "utilities.console";
+
+const getStepData = (): Steps => [
+  { id: 1, title: tStatic(UTILITIES_CONSOLE_MODULE, "CREATE_PROJECT.NAME_YOUR_PROJECT") },
+  { id: 2, title: tStatic(UTILITIES_CONSOLE_MODULE, "CREATE_PROJECT.ADD_RESOURCES") },
+  { id: 3, title: tStatic(UTILITIES_CONSOLE_MODULE, "CREATE_PROJECT.CONFIGURE_ENVIRONMENTS") },
 ];
 
 export const CreateProjectWrapper = () => {
+  // Re-render when the language changes, so the step titles follow it.
+  useLanguageCode();
   return (
-    <StepperProvider steps={stepData}>
+    <StepperProvider steps={getStepData()}>
       <CreateProject />
     </StepperProvider>
   );
 };
 
 const CreateProject = () => {
+  const { t } = useT(UTILITIES_CONSOLE_MODULE);
   const { resetFormData } = useCreateProjectFormState();
   const [tab, setTab] = useQueryState("tab", { defaultValue: "1" });
   const { currentStep, goToStep, setCompletedSteps } = useStepper();
 
   useEffect(() => {
     if (tab) {
-      const step = parseInt(tab, 10);
-      if (!isNaN(step) && step > 0 && step <= stepData.length && step === 2) {
+      const step = Number.parseInt(tab, 10);
+      if (!Number.isNaN(step) && step > 0 && step <= getStepData().length && step === 2) {
         setCompletedSteps([1]);
         goToStep(step);
         setTab("0");
       }
     }
-  }, [tab, goToStep, setCompletedSteps, setTab]);
+  }, [tab, goToStep, setCompletedSteps, setTab, t]);
 
   return (
     <>
@@ -51,10 +57,10 @@ const CreateProject = () => {
               <Link to="/console">
                 <X onClick={resetFormData} size={32} strokeWidth={1} />
               </Link>
-              <p className="mt-[2px] text-lg font-semibold">Create a project</p>
+              <p className="mt-[2px] text-lg font-semibold">{t("CREATE_PROJECT.CREATE_A_PROJECT")}</p>
             </div>
             <p className="mb-7 mt-2 text-sm font-normal text-medium-emphasis">
-              Let&apos;s get started by setting up the basics for your new project.
+              {t("CREATE_PROJECT.LET_S_GET_STARTED_BY")}
             </p>
             <StepHorizontalTrackBar />
           </div>
@@ -73,10 +79,10 @@ const CreateProject = () => {
               <Link to="/console">
                 <X onClick={resetFormData} size={32} strokeWidth={1} />
               </Link>
-              <p className="mt-[2px] text-lg font-semibold">Create a project</p>
+              <p className="mt-[2px] text-lg font-semibold">{t("CREATE_PROJECT.CREATE_A_PROJECT")}</p>
             </div>
             <p className="mb-7 mt-2 text-sm font-normal text-medium-emphasis">
-              Let&apos;s get started by setting up the basics for your new project.
+              {t("CREATE_PROJECT.LET_S_GET_STARTED_BY")}
             </p>
           </div>
           <StepVerticalTrackBar />

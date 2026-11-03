@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui-kits/card/card";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { IProject } from "@blocks-identifier/models/project.model";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import {
   useScopedPath,
   useStartImpersonation,
@@ -17,7 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui-kits/tooltip/tooltip";
-import { environmentOptions } from "@/constants/environment-options";
+import { getEnvironmentOptions } from "@/constants/environment-options";
 
 type EnvironmentCardProps = {
   project: IProject;
@@ -30,6 +30,7 @@ export const EnvironmentCard = ({
   isMigrationOngoing,
   className,
 }: EnvironmentCardProps) => {
+  const { t } = useT("utilities.shared");
   const navigate = useNavigate();
   const { setSelectedProject } = useProjectStore();
   const scoped = useScopedPath();
@@ -70,7 +71,7 @@ export const EnvironmentCard = ({
             <div className="flex w-fit flex-row items-center gap-1">
               <div className="text-base text-medium-emphasis">
                 {
-                  environmentOptions.find(
+                  getEnvironmentOptions().find(
                     (option) => option.value === project?.environment,
                   )?.label
                 }
@@ -82,7 +83,7 @@ export const EnvironmentCard = ({
                       <Hourglass className="h-4 w-4 cursor-pointer text-icon-warning" />
                     </TooltipTrigger>
                     <TooltipContent className="border-none bg-neutral-500 text-white shadow-none">
-                      Migration in progress
+                      {t("ENVIRONMENT_CARD.MIGRATION_IN_PROGRESS")}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -97,11 +98,11 @@ export const EnvironmentCard = ({
           onCancel={() => setIsConfirmationOpen(false)}
           onConfirm={handleConfirm}
           data={{
-            dialogTitle: "Environment Migration in Progress",
+            dialogTitle: t("ENVIRONMENT_CARD.ENVIRONMENT_MIGRATION_IN_PROGRESS"),
             dialogSubtitle:
-              "This environment is currently migrating. Any changes now may cause incomplete data or service interruptions. Proceed only if necessary.",
-            confirmButton: "Continue Anyway",
-            cancelButton: "Cancel",
+              t("ENVIRONMENT_CARD.THIS_ENVIRONMENT_IS_CURRENTLY"),
+            confirmButton: t("ENVIRONMENT_CARD.CONTINUE_ANYWAY"),
+            cancelButton: t("common:CANCEL"),
           }}
         />
       )}

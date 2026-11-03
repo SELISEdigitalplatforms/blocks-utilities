@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui-kits/button/button";
 import { Shield, ShieldCheck, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@seliseblocks/genesis-os";
 
 type BulkActionBarProps = {
   selectedCount: number;
@@ -15,6 +16,7 @@ export const BulkActionBar = ({
   onEnableCaptcha,
   onClear,
 }: BulkActionBarProps) => {
+  const { t } = useT("utilities.idp");
   return (
     <div
       className={cn(
@@ -31,7 +33,7 @@ export const BulkActionBar = ({
             {selectedCount}
           </span>
           <span className="hidden text-xs font-medium uppercase tracking-wider text-muted-foreground sm:block">
-            Selected
+            {t("BULK_ACTION_BAR.SELECTED")}
           </span>
         </div>
 
@@ -44,7 +46,7 @@ export const BulkActionBar = ({
           onClick={onEnableMfa}
         >
           <ShieldCheck className="h-4 w-4 shrink-0" />
-          <span className="hidden sm:inline">Enable MFA</span>
+          <span className="hidden sm:inline">{t("BULK_ACTION_BAR.ENABLE_MFA")}</span>
         </Button>
 
         <Button
@@ -54,7 +56,7 @@ export const BulkActionBar = ({
           onClick={onEnableCaptcha}
         >
           <Shield className="h-4 w-4 shrink-0" />
-          <span className="hidden sm:inline">Enable Captcha</span>
+          <span className="hidden sm:inline">{t("BULK_ACTION_BAR.ENABLE_CAPTCHA")}</span>
         </Button>
 
         <div className="mx-1 h-5 w-px bg-border" />
@@ -62,7 +64,7 @@ export const BulkActionBar = ({
         <button
           className="rounded-lg p-1.5 hover:bg-accent"
           onClick={onClear}
-          title="Clear selection"
+          title={t("BULK_ACTION_BAR.CLEAR_SELECTION")}
         >
           <X className="h-4 w-4 text-muted-foreground" />
         </button>

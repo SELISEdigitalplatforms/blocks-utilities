@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui-kits/card/card";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { useGetSavedPublicCertificates } from "@blocks-idp/authentication/hooks/use-identifier";
 import { Waypoints } from "lucide-react";
@@ -62,6 +62,7 @@ const LoadingSkelton = () => {
 };
 
 export const Certificates = () => {
+  const { t } = useT("utilities.idp.authentication");
   const projectKey = useProjectStore().selectedProject?.tenantId ?? "";
   const { isLoading, data: existingCertificate } = useGetSavedPublicCertificates(projectKey);
   const { data: jwtClaimData, isLoading: isJwtClaimLoading } = useGetJwtClaim(
@@ -87,22 +88,20 @@ export const Certificates = () => {
     <>
       {!isLoading && !isJwtClaimLoading && !hasJwtClaimData && (
         <div className="text-blocks-error mb-4 flex flex-col items-center justify-center gap-1 rounded-sm border border-base-error bg-blocks-error-100 px-4 py-4 text-base font-normal text-blocks-error-800 md:flex-row">
-          You didn&apos;t map the jwt claims. To ignore 401(Unauthorized) in api request please{" "}
-          <span className="underline">Map JWT Claims</span>.
-        </div>
+          {t("CERTIFICATES.YOU_DIDN_T_MAP_THE", { span: "Map JWT Claims" })}</div>
       )}
       <Card>
         <CardHeader className="mb-0">
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-2">
-              <CardTitle>External IdP</CardTitle>
-              <CardDescription>Your connected identity provider</CardDescription>
+              <CardTitle>{t("CERTIFICATES.EXTERNAL_IDP")}</CardTitle>
+              <CardDescription>{t("CERTIFICATES.YOUR_CONNECTED_IDENTITY_PROVIDER")}</CardDescription>
             </div>
             <div className="flex gap-2">
               <div className="flex gap-2">
                 <Button onClick={handleJwtClaim} variant="outline" size="sm">
                   <Waypoints className="mr-2 h-4 w-4" />
-                  Map JWT Claim
+                  {t("CERTIFICATES.MAP_JWT_CLAIM")}
                 </Button>
               </div>
               <div className="flex gap-2">
@@ -117,7 +116,7 @@ export const Certificates = () => {
           <div className="flex flex-col gap-4 md:flex-row md:gap-8">
             {/* Provider Section */}
             <div className="md:w-[20%]">
-              <label className="mb-2 block text-sm text-gray-600">Provider</label>
+              <label className="mb-2 block text-sm text-gray-600">{t("CERTIFICATES.PROVIDER")}</label>
               <div className="flex items-center gap-2 text-sm font-medium">
                 {(() => {
                   const provider = providers.find(
@@ -150,7 +149,7 @@ export const Certificates = () => {
 
             {/* URL Section */}
             <div className="flex-1">
-              <label className="mb-2 block text-sm text-gray-600">URL</label>
+              <label className="mb-2 block text-sm text-gray-600">{t("CERTIFICATES.URL")}</label>
               <div className="break-all text-sm font-medium">
                 {existingCertificate.jwksUrl || existingCertificate.publicCertificatePath || "-"}
               </div>
@@ -161,7 +160,7 @@ export const Certificates = () => {
           <div className="flex flex-col gap-4 md:flex-row md:gap-8">
             {/* Issuer Section */}
             <div className="md:w-[20%]">
-              <label className="mb-2 block text-sm text-gray-600">Issuer</label>
+              <label className="mb-2 block text-sm text-gray-600">{t("CERTIFICATES.ISSUER")}</label>
               <div className="break-all text-sm font-medium">
                 {existingCertificate.issuer || "-"}
               </div>
@@ -169,7 +168,7 @@ export const Certificates = () => {
 
             {/* Audience Section */}
             <div className="flex-1">
-              <label className="mb-2 block text-sm text-gray-600">Audience</label>
+              <label className="mb-2 block text-sm text-gray-600">{t("CERTIFICATES.AUDIENCE")}</label>
               <div className="break-all text-sm font-medium">
                 {existingCertificate.audiences?.length
                   ? existingCertificate.audiences.join(", ")

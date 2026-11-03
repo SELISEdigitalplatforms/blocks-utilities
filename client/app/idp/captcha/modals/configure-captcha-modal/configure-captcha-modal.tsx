@@ -7,7 +7,7 @@ import {
   DialogTrigger,
 } from "@/components/ui-kits/dialog/dialog";
 
-import { CAPTCHA_PROVIDERS, CAPTCHA_PROVIDERS_KEY, ICaptchaConfig } from "../../models/captcha";
+import { getCaptchaProviders, CAPTCHA_PROVIDERS_KEY, ICaptchaConfig } from "../../models/captcha";
 
 import { ConfigureGeneralCaptchaFormField } from "./configure-general-captcha-from-field";
 import { ConfigureBlockCaptchaFormField } from "./configure-block-captcha-form-field";
@@ -24,7 +24,7 @@ import {
 } from "@/components/ui-kits/form/form";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ConfigureCaptchaFormDefaultValue, ConfigureCaptchaFormSchema } from "./utils";
+import { ConfigureCaptchaFormDefaultValue, createConfigureCaptchaFormSchema } from "./utils";
 import {
   Select,
   SelectContent,
@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { Button } from "@/components/ui-kits/button/button";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 
@@ -43,6 +43,7 @@ type ConfigureCaptchaModalProps = {
 };
 
 export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCaptchaModalProps) => {
+  const { t } = useT("utilities.idp");
   const [open, setOpen] = useState<boolean>(false);
   const tenantId = useProjectStore().selectedProject?.tenantId || "";
   const { isLoading, isFetching, data } = useGetCaptchaConfigs({ projectKey: tenantId });
@@ -50,7 +51,7 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
   const defaultValues = configuration || ConfigureCaptchaFormDefaultValue;
   const form = useForm({
     defaultValues,
-    resolver: zodResolver(ConfigureCaptchaFormSchema) as unknown as Resolver<typeof defaultValues>,
+    resolver: zodResolver(createConfigureCaptchaFormSchema()) as unknown as Resolver<typeof defaultValues>,
   });
   const {
     formState: { isDirty },
@@ -58,15 +59,15 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
   const { mutateAsync, isPending } = useSaveCaptcha();
 
   const unConfiguredProviders = useMemo(() => {
-    if (configuration) return [CAPTCHA_PROVIDERS[configuration.provider]];
-    if (!data?.configurations) return Object.values(CAPTCHA_PROVIDERS);
+    if (configuration) return [getCaptchaProviders()[configuration.provider]];
+    if (!data?.configurations) return Object.values(getCaptchaProviders());
 
-    return Object.keys(CAPTCHA_PROVIDERS)
+    return Object.keys(getCaptchaProviders())
       .filter(
         (item) =>
           !data.configurations.find((config: { provider: string }) => config?.provider === item),
       )
-      .map((item) => CAPTCHA_PROVIDERS[item as CAPTCHA_PROVIDERS_KEY]);
+      .map((item) => getCaptchaProviders()[item as CAPTCHA_PROVIDERS_KEY]);
   }, [data]);
 
   useEffect(() => {
@@ -88,7 +89,7 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
       const res = await mutateAsync(payload);
       if (!res.isSuccess) return showErrorToast({ errors: res.errors });
       showSuccessToast({
-        description: configuration ? "Captcha updated successfully" : "Captcha added successfully",
+        description: configuration ? t("CONFIGURE_CAPTCHA_MODAL.CAPTCHA_UPDATED_SUCCESSFULLY") : t("CONFIGURE_CAPTCHA_MODAL.CAPTCHA_ADDED_SUCCESSFULLY"),
       });
       form.reset();
       setOpen(false);
@@ -117,8 +118,8 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
         <DialogHeader>
           <DialogTitle>
             {configuration
-              ? `Edit ${CAPTCHA_PROVIDERS[configuration.provider].label}`
-              : "Add Captcha Configuration"}{" "}
+              ? t("CONFIGURE_CAPTCHA_MODAL.EDIT", { label: getCaptchaProviders()[configuration.provider].label })
+              : t("CONFIGURE_CAPTCHA_MODAL.ADD_CAPTCHA_CONFIGURATION")}{" "}
           </DialogTitle>
         </DialogHeader>
         <div className="mt-2">
@@ -129,7 +130,7 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
                 name="provider"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Captcha Provider</FormLabel>
+                    <FormLabel>{t("CONFIGURE_CAPTCHA_MODAL.CAPTCHA_PROVIDER")}</FormLabel>
                     <FormControl>
                       <Select
                         onValueChange={field.onChange}
@@ -137,7 +138,7 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
                         disabled={!!configuration}
                       >
                         <SelectTrigger className="border-default col-span-3 flex h-10 w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm shadow-none placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                          <SelectValue placeholder="Select configuration provider" />
+                          <SelectValue placeholder={t("CONFIGURE_CAPTCHA_MODAL.SELECT_CONFIGURATION_PROVIDER")} />
                         </SelectTrigger>
                         <SelectContent>
                           {unConfiguredProviders.map((item) => (
@@ -157,7 +158,7 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
               <DialogFooter className="mt-4">
                 <DialogTrigger asChild>
                   <Button variant="outline" size="sm">
-                    Cancel
+                    {t("common:CANCEL")}
                   </Button>
                 </DialogTrigger>
 
@@ -166,7 +167,7 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
                   disabled={isPending || isLoading || isFetching || !isDirty}
                   type="submit"
                 >
-                  Save
+                  {t("common:SAVE")}
                 </Button>
               </DialogFooter>
             </form>

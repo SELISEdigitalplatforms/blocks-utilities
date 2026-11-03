@@ -1,5 +1,6 @@
 import type { SubscriptionPreviewTax } from "../models/subscription-simulation.model";
 import { formatMoney } from "../../subscription/utilities/subscription-format";
+import { useT } from "@seliseblocks/genesis-os";
 
 const Row = ({ label, value }: { label: string; value: string }) => (
   <div className="flex items-baseline justify-between gap-4">
@@ -76,7 +77,9 @@ export const MoneyBreakdown = ({
   tax: SubscriptionPreviewTax | null;
   totalLabel: string;
   totalMinor: number;
-}) => (
+}) => {
+  const { t } = useT("utilities.subscription-simulation");
+  return (
   <div className="space-y-1">
     {label ? (
       <div className="flex items-baseline justify-between gap-4">
@@ -93,23 +96,24 @@ export const MoneyBreakdown = ({
         value={formatMoney(part.amountMinor, currencyCode)}
       />
     ))}
-    <Row label="Subtotal" value={formatMoney(subtotalMinor, currencyCode)} />
+    <Row label={t("MONEY_BREAKDOWN.SUBTOTAL")} value={formatMoney(subtotalMinor, currencyCode)} />
     {builtInDiscountMinor > 0 ? (
       <Row
-        label="Built-in discount"
+        label={t("MONEY_BREAKDOWN.BUILT_IN_DISCOUNT")}
         value={`-${formatMoney(builtInDiscountMinor, currencyCode)}`}
       />
     ) : null}
     {promotionalDiscountMinor > 0 ? (
       <Row
-        label="Promotional discount"
+        label={t("MONEY_BREAKDOWN.PROMOTIONAL_DISCOUNT")}
         value={`-${formatMoney(promotionalDiscountMinor, currencyCode)}`}
       />
     ) : null}
-    <Row label="Net subtotal" value={formatMoney(netSubtotalMinor, currencyCode)} />
+    <Row label={t("MONEY_BREAKDOWN.NET_SUBTOTAL")} value={formatMoney(netSubtotalMinor, currencyCode)} />
     {tax ? (
       <Row label={formatTaxLabel(tax)} value={formatMoney(tax.amountMinor, currencyCode)} />
     ) : null}
     <Row label={totalLabel} value={formatMoney(totalMinor, currencyCode)} />
   </div>
 );
+};

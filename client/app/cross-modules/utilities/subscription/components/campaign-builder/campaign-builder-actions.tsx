@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import { cn } from "@/lib/utils";
@@ -33,9 +34,14 @@ export const CampaignBuilderActions = ({
   onSubmit,
 }: CampaignBuilderActionsProps) => {
   const { barRef, isStuck } = useStickyActionBar();
+  const { t } = useT("utilities.subscription.campaign-builder");
 
-  const submitLabel = editing ? "Save changes" : "Create discount";
-  const submittingLabel = editing ? "Saving…" : "Creating…";
+  const submitLabel = editing
+    ? t("common:SAVE_CHANGES")
+    : t("CAMPAIGN_BUILDER_ACTIONS.CREATE");
+  const submittingLabel = editing
+    ? t("CAMPAIGN_BUILDER_ACTIONS.SAVING")
+    : t("CAMPAIGN_BUILDER_ACTIONS.CREATING");
 
   return (
     <div
@@ -69,7 +75,7 @@ export const CampaignBuilderActions = ({
           className="group rounded-xl border-border/70 transition-all duration-200 hover:-translate-x-0.5 hover:border-blocks-primary-300 hover:bg-blocks-primary-shades-200 hover:text-blocks-primary-600 disabled:hover:translate-x-0"
         >
           <ArrowLeft className="mr-2 h-4 w-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
-          {isFirstStep ? "Cancel" : "Back"}
+          {isFirstStep ? t("common:CANCEL") : t("common:BACK")}
         </Button>
 
         {isLastStep ? (
@@ -97,7 +103,7 @@ export const CampaignBuilderActions = ({
             disabled={!canAdvance || isSubmitting}
             className="group rounded-xl bg-gradient-to-br from-blocks-primary-500 to-blocks-primary-700 px-6 text-white shadow-[0_10px_30px_-12px_hsl(var(--blocks-primary-700)/0.9)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_38px_-12px_hsl(var(--blocks-primary-700)/0.95)] disabled:hover:translate-y-0"
           >
-            Next
+            {t("common:NEXT")}
             <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
           </Button>
         )}

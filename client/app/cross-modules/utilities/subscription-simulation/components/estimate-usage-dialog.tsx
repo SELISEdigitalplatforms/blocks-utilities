@@ -19,6 +19,7 @@ import {
 import { formatMoney } from "../../subscription/utilities/subscription-format";
 import { usePreviewUsageOverage } from "../hooks/use-preview-usage-overage";
 import type { MeterTerms, UsageOveragePreviewResult } from "../models/subscription-simulation.model";
+import { useT } from "@seliseblocks/genesis-os";
 
 /**
  * A positive quantity the meter can actually hold -- anything else answers nothing, so the call is
@@ -52,15 +53,17 @@ const ChargeLine = ({
   </div>
 );
 
-const PreviewResult = ({ result }: { result: UsageOveragePreviewResult }) => (
+const PreviewResult = ({ result }: { result: UsageOveragePreviewResult }) => {
+  const { t } = useT("utilities.subscription-simulation");
+  return (
   <div className="space-y-4 rounded-lg border bg-muted/30 p-3 text-sm">
     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
-      <span>Current usage</span>
+      <span>{t("ESTIMATE_USAGE_DIALOG.CURRENT_USAGE")}</span>
       <span className="text-right text-foreground">
         {result.currentUsage.toLocaleString()} {result.unitLabel}
         {result.currentUsage === 1 ? "" : "s"}
       </span>
-      <span>Projected usage</span>
+      <span>{t("ESTIMATE_USAGE_DIALOG.PROJECTED_USAGE")}</span>
       <span className="text-right text-foreground">
         {result.projectedUsage.toLocaleString()} {result.unitLabel}
         {result.projectedUsage === 1 ? "" : "s"}
@@ -69,7 +72,7 @@ const PreviewResult = ({ result }: { result: UsageOveragePreviewResult }) => (
 
     {result.additionalTierBreakdown.length > 0 && (
       <div className="space-y-1 border-t pt-2 text-xs">
-        <p className="font-medium text-muted-foreground">Tier allocation</p>
+        <p className="font-medium text-muted-foreground">{t("ESTIMATE_USAGE_DIALOG.TIER_ALLOCATION")}</p>
         {result.additionalTierBreakdown.map((allocation, index) => (
           <div key={index} className="flex items-center justify-between">
             <span className="text-muted-foreground">
@@ -84,28 +87,28 @@ const PreviewResult = ({ result }: { result: UsageOveragePreviewResult }) => (
     )}
 
     <div className="space-y-1 border-t pt-2">
-      <p className="text-xs font-medium text-muted-foreground">Additional charge</p>
+      <p className="text-xs font-medium text-muted-foreground">{t("ESTIMATE_USAGE_DIALOG.ADDITIONAL_CHARGE")}</p>
       <ChargeLine
-        label="Gross"
+        label={t("ESTIMATE_USAGE_DIALOG.GROSS")}
         amountMinor={result.additionalCharge.grossMinor}
         currencyCode={result.currencyCode}
       />
       {result.additionalCharge.automaticDiscountMinor > 0 && (
         <ChargeLine
-          label={`Discount${result.discount.automaticBasisPoints ? ` (${result.discount.automaticBasisPoints / 100}%)` : ""}`}
+          label={result.discount.automaticBasisPoints ? t("ESTIMATE_USAGE_DIALOG.DISCOUNT_PERCENT", { percent: result.discount.automaticBasisPoints / 100 }) : t("ESTIMATE_USAGE_DIALOG.DISCOUNT")}
           amountMinor={-result.additionalCharge.automaticDiscountMinor}
           currencyCode={result.currencyCode}
         />
       )}
       {result.tax.rateBasisPoints != null && (
         <ChargeLine
-          label={`Tax (${result.tax.rateBasisPoints / 100}%, ${result.tax.mode})`}
+          label={t("ESTIMATE_USAGE_DIALOG.TAX", { percent: result.tax.rateBasisPoints / 100, mode: result.tax.mode })}
           amountMinor={result.additionalCharge.taxMinor}
           currencyCode={result.currencyCode}
         />
       )}
       <ChargeLine
-        label="Additional charge"
+        label={t("ESTIMATE_USAGE_DIALOG.ADDITIONAL_CHARGE")}
         amountMinor={result.additionalCharge.totalMinor}
         currencyCode={result.currencyCode}
         emphasize
@@ -114,7 +117,7 @@ const PreviewResult = ({ result }: { result: UsageOveragePreviewResult }) => (
 
     <div className="border-t pt-2">
       <ChargeLine
-        label="Projected period charge"
+        label={t("ESTIMATE_USAGE_DIALOG.PROJECTED_PERIOD_CHARGE")}
         amountMinor={result.projectedPeriodCharge.totalMinor}
         currencyCode={result.currencyCode}
         emphasize
@@ -125,15 +128,16 @@ const PreviewResult = ({ result }: { result: UsageOveragePreviewResult }) => (
       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <span>
         {!result.writesUsage && !result.chargesPayment
-          ? "Previewing neither records usage nor charges payment. "
+          ? t("ESTIMATE_USAGE_DIALOG.PREVIEWING_NEITHER_RECORDS_USAGE")
           : ""}
         {result.finalChargeDependsOnActualPeriodEndUsage
-          ? "The final invoice depends on actual usage recorded by period end, and may differ from this estimate."
+          ? t("ESTIMATE_USAGE_DIALOG.THE_FINAL_INVOICE_DEPENDS_ON")
           : ""}
       </span>
     </div>
   </div>
 );
+};
 
 export const EstimateUsageDialog = ({
   meter,
@@ -146,6 +150,7 @@ export const EstimateUsageDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const { mutateAsync, isPending, data: result, reset } = usePreviewUsageOverage();
 
   const [quantity, setQuantity] = useState("1");
@@ -159,8 +164,8 @@ export const EstimateUsageDialog = ({
     if (parsedQuantity === null) {
       setFormError(
         scale === 0
-          ? "Enter a whole number of additional units greater than zero."
-          : `Enter a quantity greater than zero with at most ${scale} decimal places.`,
+          ? t("ESTIMATE_USAGE_DIALOG.ENTER_A_WHOLE_NUMBER_OF")
+          : t("ESTIMATE_USAGE_DIALOG.ENTER_A_QUANTITY_GREATER_THAN", { scale }),
       );
       return;
     }
@@ -174,7 +179,7 @@ export const EstimateUsageDialog = ({
         organizationId,
       });
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "The overage could not be previewed.");
+      setFormError(error instanceof Error ? error.message : t("ESTIMATE_USAGE_DIALOG.THE_OVERAGE_COULD_NOT_BE"));
     }
   };
 
@@ -192,18 +197,16 @@ export const EstimateUsageDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Estimate additional usage — {meter.displayName}</DialogTitle>
+          <DialogTitle>{t("ESTIMATE_USAGE_DIALOG.ESTIMATE_ADDITIONAL_USAGE", { displayName: meter.displayName })}</DialogTitle>
           <DialogDescription>
-            Sends <code>POST /api/subscription-usage/overage/preview</code> — prices a
-            hypothetical slice of additional usage with this subscription&apos;s own terms.
+            {t("ESTIMATE_USAGE_DIALOG.SENDS_PRICES_A_SLICE", { endpoint: "POST /api/subscription-usage/overage/preview" })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="estimate-usage-quantity">
-              Additional {meter.unitLabel}s to estimate
-            </Label>
+              {t("ESTIMATE_USAGE_DIALOG.ADDITIONAL_S_TO_ESTIMATE", { unitLabel: meter.unitLabel })}</Label>
             <Input
               id="estimate-usage-quantity"
               type="number"
@@ -221,11 +224,11 @@ export const EstimateUsageDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Close
+            {t("common:CLOSE")}
           </Button>
           <Button onClick={submit} disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Estimate
+            {t("ESTIMATE_USAGE_DIALOG.ESTIMATE")}
           </Button>
         </DialogFooter>
       </DialogContent>

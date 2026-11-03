@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useRef, MouseEvent, useState, useEffect, ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
@@ -27,11 +28,12 @@ interface DropdownSearchInputProps {
 
 export const DropdownSearchInput: React.FC<DropdownSearchInputProps> = ({
   onChange,
-  placeholder = "Search...",
+  placeholder,
   value,
   className = {},
   options = [],
 }) => {
+  const { t } = useT("utilities.shared");
   const [state, setState] = useState<ValueType>(value);
   const [prevValue, setPrevValue] = useState<ValueType>(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -90,7 +92,7 @@ export const DropdownSearchInput: React.FC<DropdownSearchInputProps> = ({
 
       <Input
         ref={inputRef}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("DROPDOWN_SEARCH_INPUT.SEARCH")}
         value={state.value}
         onChange={handleChange}
         className={cn(

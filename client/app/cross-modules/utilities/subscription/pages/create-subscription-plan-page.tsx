@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "@/hooks/use-toast";
@@ -12,6 +13,7 @@ import { planToFormValues, toCreatePlanRequest } from "../utilities/plan-form-ma
 import { submitPlanWithPrices } from "../utilities/submit-plan-with-prices";
 
 export const CreateSubscriptionPlanPage = () => {
+  const { t } = useT("utilities.subscription.pages");
   const { itemId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -42,17 +44,21 @@ export const CreateSubscriptionPlanPage = () => {
             checked={marksAsSuccessor}
             onCheckedChange={(checked) => setMarksAsSuccessor(checked === true)}
           />
-          This plan replaces &ldquo;{duplicatePlan.displayName}&rdquo;
+          {t("CREATE_PAGE.REPLACES_PLAN", { name: duplicatePlan.displayName })}
         </label>
       )}
       <PlanBuilder
         mode="create"
         defaultValues={initialValues}
-        title={duplicatePlan ? `Duplicate ${duplicatePlan.displayName}` : "Create subscription plan"}
-        description="A guided walkthrough — nothing is created until you review and confirm at the end."
+        title={
+          duplicatePlan
+            ? t("CREATE_PAGE.TITLE_DUPLICATE", { name: duplicatePlan.displayName })
+            : t("CREATE_PAGE.TITLE")
+        }
+        description={t("CREATE_PAGE.DESCRIPTION")}
         backTo={listPath}
-        submitLabel="Create plan"
-        submittingLabel="Creating plan…"
+        submitLabel={t("CREATE_PAGE.SUBMIT")}
+        submittingLabel={t("CREATE_PAGE.SUBMITTING")}
         // One submission spans both calls, so the buttons stay locked through the price loop too.
         isSubmitting={isPending || isPricing}
         onSubmit={async (values) => {
@@ -72,14 +78,19 @@ export const CreateSubscriptionPlanPage = () => {
           if (failures.length > 0) {
             toast({
               variant: "destructive",
-              title: `${plan.displayName} was created, but ${failures.length} price${failures.length === 1 ? "" : "s"} was not`,
-              description: `${failures.join(" ")} Add the missing prices from the plan page.`,
+              title: t("CREATE_PAGE.PARTIAL_TITLE", {
+                name: plan.displayName,
+                count: failures.length,
+              }),
+              description: t("CREATE_PAGE.PARTIAL_DESCRIPTION", {
+                failures: failures.join(" "),
+              }),
             });
           } else {
             toast({
               variant: "success",
-              title: "Plan created",
-              description: `${plan.displayName} is ready to subscribe to.`,
+              title: t("CREATE_PAGE.CREATED_TITLE"),
+              description: t("CREATE_PAGE.CREATED_DESCRIPTION", { name: plan.displayName }),
             });
           }
 

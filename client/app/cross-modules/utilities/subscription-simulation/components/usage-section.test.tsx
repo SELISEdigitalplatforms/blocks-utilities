@@ -15,7 +15,8 @@ vi.mock("../hooks/use-record-usage", () => ({
   useRecordUsage: () => ({ mutateAsync: vi.fn() }),
 }));
 
-vi.mock("@seliseblocks/genesis-os", () => ({
+vi.mock("@seliseblocks/genesis-os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@seliseblocks/genesis-os")>()),
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
 }));
 
@@ -73,7 +74,7 @@ describe("UsageSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mine" }));
 
     expect(await screen.findByText(/30\/1000 tokens used/)).toBeInTheDocument();
-    expect(screen.getByText("GET /api/subscription-usage/mine")).toBeInTheDocument();
+    expect(screen.getByText(/GET \/api\/subscription-usage\/mine/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Organization" }));
 
@@ -114,7 +115,7 @@ describe("UsageSection", () => {
 
     expect(await screen.findByText(/700\/1000 tokens used/)).toBeInTheDocument();
     expect(screen.getByText("By person")).toBeInTheDocument();
-    expect(screen.getByText("user-a").parentElement).toHaveTextContent("user-a used 500 token");
-    expect(screen.getByText("user-b").parentElement).toHaveTextContent("user-b used 200 token");
+    expect(screen.getByText(/user-a used/)).toHaveTextContent("user-a used 500 token");
+    expect(screen.getByText(/user-b used/)).toHaveTextContent("user-b used 200 token");
   });
 });

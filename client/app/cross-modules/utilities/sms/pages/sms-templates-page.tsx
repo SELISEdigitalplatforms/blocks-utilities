@@ -14,6 +14,7 @@ import { SmsTemplateDialog } from "../components/sms-template-dialog";
 import { SMS_TEMPLATE_PAGE_SIZE } from "../constants/sms.constants";
 import { useDeleteSmsTemplate, useSmsTemplates } from "../hooks/use-sms";
 import type { SmsTemplate } from "../models/sms.model";
+import { useT } from "@seliseblocks/genesis-os";
 
 // Debounced so each keystroke does not become a request.
 const useDebounced = (value: string, delay = 300) => {
@@ -26,6 +27,7 @@ const useDebounced = (value: string, delay = 300) => {
 };
 
 export const SmsTemplatesPage = () => {
+  const { t } = useT("utilities.sms");
   const [search, setSearch] = useState("");
   const [language, setLanguage] = useState("");
   const [page, setPage] = useState(1);
@@ -54,12 +56,12 @@ export const SmsTemplatesPage = () => {
     if (!deleting) return;
     try {
       await deleteTemplate.mutateAsync(deleting.itemId);
-      toast({ variant: "success", title: "Template deleted", description: `${deleting.name} (${deleting.language})` });
+      toast({ variant: "success", title: t("SMS_TEMPLATES_PAGE.TEMPLATE_DELETED"), description: `${deleting.name} (${deleting.language})` });
       setDeleting(null);
     } catch (deleteError) {
       toast({
         variant: "destructive",
-        title: "Template not deleted",
+        title: t("SMS_TEMPLATES_PAGE.TEMPLATE_NOT_DELETED"),
         description: deleteError instanceof Error ? deleteError.message : undefined,
       });
     }
@@ -68,13 +70,13 @@ export const SmsTemplatesPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SmsPageHeader
-        title="SMS templates"
-        description="Reusable messages with placeholders, picked by name and language when sending."
+        title={t("SMS_TEMPLATES_PAGE.SMS_TEMPLATES")}
+        description={t("SMS_TEMPLATES_PAGE.REUSABLE_MESSAGES_WITH")}
         icon={<FileText className="h-6 w-6" />}
         actions={
           <Button onClick={() => openEditor(null)}>
             <Plus className="mr-2 h-4 w-4" />
-            New template
+            {t("SMS_TEMPLATES_PAGE.NEW_TEMPLATE")}
           </Button>
         }
       />
@@ -82,8 +84,8 @@ export const SmsTemplatesPage = () => {
       <Card className="rounded-xl p-0">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div>
-            <h2 className="font-semibold">Templates</h2>
-            <p className="text-xs text-muted-foreground">{data ? `${data.totalCount} in total` : " "}</p>
+            <h2 className="font-semibold">{t("SMS_TEMPLATES_PAGE.TEMPLATES")}</h2>
+            <p className="text-xs text-muted-foreground">{data ? t("SMS_TEMPLATES_PAGE.IN_TOTAL", { totalCount: data.totalCount }) : " "}</p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <div className="relative min-w-0 sm:w-64">
@@ -94,9 +96,9 @@ export const SmsTemplatesPage = () => {
                   setSearch(event.target.value);
                   setPage(1);
                 }}
-                placeholder="Search by name"
+                placeholder={t("SMS_TEMPLATES_PAGE.SEARCH_BY_NAME")}
                 className="pl-9"
-                aria-label="Search templates"
+                aria-label={t("SMS_TEMPLATES_PAGE.SEARCH_TEMPLATES")}
               />
             </div>
             <Input
@@ -105,15 +107,15 @@ export const SmsTemplatesPage = () => {
                 setLanguage(event.target.value);
                 setPage(1);
               }}
-              placeholder="Language, e.g. en-US"
+              placeholder={t("SMS_TEMPLATES_PAGE.LANGUAGE_E_G_EN_US")}
               className="sm:w-44"
-              aria-label="Filter by language"
+              aria-label={t("SMS_TEMPLATES_PAGE.FILTER_BY_LANGUAGE")}
             />
           </div>
         </div>
 
         {isLoading ? (
-          <div className="space-y-3 p-5" aria-label="Loading templates">
+          <div className="space-y-3 p-5" aria-label={t("SMS_TEMPLATES_PAGE.LOADING_TEMPLATES")}>
             {Array.from({ length: 4 }, (_, index) => (
               <Skeleton key={index} className="h-12 w-full" />
             ))}
@@ -123,10 +125,10 @@ export const SmsTemplatesPage = () => {
             <span className="rounded-full bg-destructive/10 p-4 text-destructive">
               <AlertCircle className="h-7 w-7" />
             </span>
-            <h3 className="mt-4 text-lg font-semibold">Templates could not be loaded</h3>
+            <h3 className="mt-4 text-lg font-semibold">{t("SMS_TEMPLATES_PAGE.TEMPLATES_COULD_NOT_BE_LOADED")}</h3>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">{error instanceof Error ? error.message : ""}</p>
             <Button className="mt-5" variant="outline" onClick={() => refetch()}>
-              Try again
+              {t("SMS_TEMPLATES_PAGE.TRY_AGAIN")}
             </Button>
           </div>
         ) : !data?.items.length ? (
@@ -134,14 +136,14 @@ export const SmsTemplatesPage = () => {
             <span className="rounded-full bg-muted p-4 text-muted-foreground">
               <FileText className="h-7 w-7" />
             </span>
-            <h3 className="mt-4 text-lg font-semibold">{hasFilters ? "No templates match" : "No templates yet"}</h3>
+            <h3 className="mt-4 text-lg font-semibold">{hasFilters ? t("SMS_TEMPLATES_PAGE.NO_TEMPLATES_MATCH") : t("SMS_TEMPLATES_PAGE.NO_TEMPLATES_YET")}</h3>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              {hasFilters ? "Change the search or language filter." : "Create one to send messages with placeholders."}
+              {hasFilters ? t("SMS_TEMPLATES_PAGE.CHANGE_THE_SEARCH_OR_LANGUAGE") : t("SMS_TEMPLATES_PAGE.CREATE_ONE_TO_SEND_MESSAGES")}
             </p>
             {!hasFilters && (
               <Button className="mt-5" onClick={() => openEditor(null)}>
                 <Plus className="mr-2 h-4 w-4" />
-                New template
+                {t("SMS_TEMPLATES_PAGE.NEW_TEMPLATE")}
               </Button>
             )}
           </div>
@@ -150,12 +152,12 @@ export const SmsTemplatesPage = () => {
             <Table className={isFetching ? "opacity-70" : undefined}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Language</TableHead>
-                  <TableHead>Message</TableHead>
-                  <TableHead>Placeholders</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("common:NAME")}</TableHead>
+                  <TableHead>{t("SMS_TEMPLATES_PAGE.LANGUAGE")}</TableHead>
+                  <TableHead>{t("SMS_TEMPLATES_PAGE.MESSAGE")}</TableHead>
+                  <TableHead>{t("SMS_TEMPLATES_PAGE.PLACEHOLDERS")}</TableHead>
+                  <TableHead>{t("SMS_TEMPLATES_PAGE.UPDATED")}</TableHead>
+                  <TableHead className="text-right">{t("common:ACTIONS")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -186,9 +188,9 @@ export const SmsTemplatesPage = () => {
                       <div className="flex justify-end gap-2">
                         <Button variant="outline" size="sm" onClick={() => openEditor(template)}>
                           <Pencil className="mr-2 h-4 w-4" />
-                          Edit
+                          {t("common:EDIT")}
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => setDeleting(template)} aria-label={`Delete ${template.name}`}>
+                        <Button variant="outline" size="sm" onClick={() => setDeleting(template)} aria-label={t("SMS_TEMPLATES_PAGE.DELETE", { name: template.name })}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -199,9 +201,9 @@ export const SmsTemplatesPage = () => {
             </Table>
             <div className="flex items-center justify-end gap-2 border-t p-3 text-sm">
               <span className="text-muted-foreground">
-                Page {page} of {totalPages}
+                {t("SMS_TEMPLATES_PAGE.PAGE_OF", { page, total: totalPages })}
               </span>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page <= 1} aria-label="Previous page">
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page <= 1} aria-label={t("SMS_TEMPLATES_PAGE.PREVIOUS_PAGE")}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Button
@@ -209,7 +211,7 @@ export const SmsTemplatesPage = () => {
                 size="sm"
                 onClick={() => setPage((p) => p + 1)}
                 disabled={page >= totalPages}
-                aria-label="Next page"
+                aria-label={t("SMS_TEMPLATES_PAGE.NEXT_PAGE")}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -223,9 +225,9 @@ export const SmsTemplatesPage = () => {
       <Dialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
         <ConfirmationModal
           data={{
-            dialogTitle: "Delete template?",
-            dialogSubtitle: `"${deleting?.name}" (${deleting?.language}) will be removed. Senders using it will get "template not found".`,
-            confirmButton: "Delete",
+            dialogTitle: t("SMS_TEMPLATES_PAGE.DELETE_TEMPLATE"),
+            dialogSubtitle: t("SMS_TEMPLATES_PAGE.DELETE_CONFIRM", { name: deleting?.name ?? "", language: deleting?.language ?? "" }),
+            confirmButton: t("common:DELETE"),
           }}
           onCancel={() => setDeleting(null)}
           onConfirm={confirmDelete}

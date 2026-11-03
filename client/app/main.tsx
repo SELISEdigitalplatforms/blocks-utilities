@@ -1,4 +1,5 @@
 import "@seliseblocks/genesis-os/lib";
+import "./i18n";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router/dom";

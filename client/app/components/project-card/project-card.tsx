@@ -11,8 +11,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui-kits/tooltip/tooltip";
-import { environmentOptions } from "@/constants/environment-options";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { getEnvironmentOptions } from "@/constants/environment-options";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import {
   useScopedPath,
   useStartImpersonation,
@@ -26,6 +26,7 @@ type ProjectCardProps = {
 };
 
 export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
+  const { t } = useT("utilities.shared");
   const navigate = useNavigate();
   const { setTenantGroup, setSelectedProject } = useProjectStore();
   const scoped = useScopedPath();
@@ -55,7 +56,7 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
   const envList = projects.map((p) => p.environment);
 
   const renderEnvChip = (env: string, envProject: IProject) => {
-    const label = environmentOptions.find((o) => o.value === env)?.label;
+    const label = getEnvironmentOptions().find((o) => o.value === env)?.label;
     return (
       <button
         key={env}
@@ -87,7 +88,7 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
                   <Settings2 size={16} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Configure Project</TooltipContent>
+              <TooltipContent>{t("PROJECT_CARD.CONFIGURE_PROJECT")}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
@@ -120,7 +121,7 @@ export const ProjectCard = ({ project, projects }: ProjectCardProps) => {
           )
         ) : (
           <span className="inline-flex items-center text-xs text-muted-foreground">
-            No environments
+            {t("PROJECT_CARD.NO_ENVIRONMENTS")}
           </span>
         )}
       </div>

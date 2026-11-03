@@ -3,6 +3,7 @@ import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui-kits/card/card";
 import { Button } from "@/components/ui-kits/button/button";
 import { Badge } from "@/components/ui-kits/badge/badge";
+import { useT } from "@seliseblocks/genesis-os";
 
 const PeopleManagementLoading = () => (
   <main className="flex flex-col p-6">
@@ -28,6 +29,7 @@ const PeopleManagementLoading = () => (
 );
 
 export const PeopleManagement = () => {
+  const { t } = useT("utilities.console");
   const { isLoading, data } = useGetPeople({
     page: 0,
     pageSize: 100,
@@ -43,7 +45,7 @@ export const PeopleManagement = () => {
     <main className="flex flex-col p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h4 className="text-lg font-semibold md:text-xl">People</h4>
+          <h4 className="text-lg font-semibold md:text-xl">{t("PEOPLE_MANAGEMENT.PEOPLE")}</h4>
         </div>
       </div>
 
@@ -52,7 +54,7 @@ export const PeopleManagement = () => {
           <CardContent className="pt-6">
             {peoples.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
-                No people found in this project.
+                {t("PEOPLE_MANAGEMENT.NO_PEOPLE_FOUND_IN_THIS")}
               </div>
             ) : (
               <div className="space-y-3">

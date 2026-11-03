@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Check } from "lucide-react";
 import { useStepper } from "@/components/stepper/stepper-provider";
 import { cn } from "@/lib/utils";
@@ -18,11 +19,12 @@ export interface CampaignBuilderProgressProps {
  */
 export const CampaignBuilderProgress = ({ isStuck = false }: CampaignBuilderProgressProps) => {
   const { completedSteps, currentStep, getSteps, goToStep, totalSteps } = useStepper();
+  const { t } = useT("utilities.subscription.campaign-builder");
   const steps = getSteps();
 
   return (
     <section
-      aria-label="Discount creation progress"
+      aria-label={t("CAMPAIGN_BUILDER_PROGRESS.LABEL")}
       data-stuck={isStuck ? "true" : "false"}
       className={cn(
         "relative overflow-hidden rounded-2xl border bg-card/95 px-4 py-4 backdrop-blur-xl transition-[box-shadow,border-color] duration-300 supports-[backdrop-filter]:bg-card/80 sm:px-6 sm:py-5",
@@ -32,7 +34,7 @@ export const CampaignBuilderProgress = ({ isStuck = false }: CampaignBuilderProg
       )}
     >
       <p className="mb-4 text-sm font-medium text-foreground">
-        Step {currentStep} of {totalSteps}
+        {t("CAMPAIGN_BUILDER_PROGRESS.STEP_OF", { current: currentStep, total: totalSteps })}
       </p>
 
       <ol className="grid grid-cols-4">

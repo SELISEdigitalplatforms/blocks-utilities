@@ -10,7 +10,8 @@ const genesisState = vi.hoisted(() => ({
   selectedProject: { tenantId: "tg1" } as { tenantId: string } | null,
 }));
 
-vi.mock("@seliseblocks/genesis-os", () => ({
+vi.mock("@seliseblocks/genesis-os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@seliseblocks/genesis-os")>()),
   useProjectStore: () => ({ selectedProject: genesisState.selectedProject }),
 }));
 

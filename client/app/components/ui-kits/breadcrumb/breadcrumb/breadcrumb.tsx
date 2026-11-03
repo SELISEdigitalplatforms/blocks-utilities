@@ -3,13 +3,17 @@ import { Slot } from "@radix-ui/react-slot"
 import { ChevronRight, MoreHorizontal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useT } from "@seliseblocks/genesis-os";
 
 const Breadcrumb = React.forwardRef<
   HTMLElement,
   React.ComponentPropsWithoutRef<"nav"> & {
     separator?: React.ReactNode
   }
->(({ ...props }, ref) => <nav ref={ref} aria-label="breadcrumb" {...props} />)
+>(({ ...props }, ref) => {
+  const { t } = useT("utilities.shared");
+  return <nav ref={ref} aria-label={t("BREADCRUMB.BREADCRUMB")} {...props} />;
+})
 Breadcrumb.displayName = "Breadcrumb"
 
 const BreadcrumbList = React.forwardRef<
@@ -91,7 +95,9 @@ BreadcrumbSeparator.displayName = "BreadcrumbSeparator"
 const BreadcrumbEllipsis = ({
   className,
   ...props
-}: React.ComponentProps<"span">) => (
+}: React.ComponentProps<"span">) => {
+  const { t } = useT("utilities.shared");
+  return (
   <span
     role="presentation"
     aria-hidden="true"
@@ -99,9 +105,10 @@ const BreadcrumbEllipsis = ({
     {...props}
   >
     <MoreHorizontal className="h-4 w-4" />
-    <span className="sr-only">More</span>
+    <span className="sr-only">{t("BREADCRUMB.MORE")}</span>
   </span>
-)
+);
+}
 BreadcrumbEllipsis.displayName = "BreadcrumbElipssis"
 
 export {

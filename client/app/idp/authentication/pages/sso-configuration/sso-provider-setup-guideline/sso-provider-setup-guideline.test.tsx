@@ -9,10 +9,10 @@ vi.mock("./sso-setup-guideline", () => ({
   SSOSetupGuideLine: () => <div data-testid="guide-steps" />,
 }));
 vi.mock("./sso-setup-guideline-steps-docs", () => ({
-  SSOSetupGuideSteps: {
+  getSsoSetupGuideSteps: () => ({
     google: [{ id: "1", description: "step" }],
     github: null,
-  },
+  }),
 }));
 
 describe("SSoProviderSetupGuideLine", () => {
