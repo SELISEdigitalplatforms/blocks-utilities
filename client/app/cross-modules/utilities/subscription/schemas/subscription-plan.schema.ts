@@ -544,6 +544,7 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
         wholeNumber().optional(),
       ),
       trialRequiresPaymentMethod: z.boolean(),
+      oneTrialPerPlan: z.boolean(),
       requirePaymentMethodUpfront: z.boolean(),
       // Always in the form, whether or not any item has bands: a plan edited while the field
       // was absent came back from the server reset to BestDiscount, which changes what every
@@ -941,6 +942,7 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   trialDurationKind: undefined,
   trialDurationCount: undefined,
   trialRequiresPaymentMethod: true,
+  oneTrialPerPlan: true,
   // False, which is what every plan authored before this existed meant: nothing due today, so
   // nothing to collect.
   requirePaymentMethodUpfront: false,

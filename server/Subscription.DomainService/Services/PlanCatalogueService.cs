@@ -1301,6 +1301,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         TrialDurationKind = request.TrialDurationKind ?? TrialDurationKind.Days,
         TrialDurationCount = request.TrialDurationCount,
         TrialRequiresPaymentMethod = request.TrialRequiresPaymentMethod,
+        OneTrialPerPlan = request.OneTrialPerPlan,
         RequirePaymentMethodUpfront = request.RequirePaymentMethodUpfront,
         QuantityItems = request.QuantityItems
             .Select(item => new PlanQuantityItem

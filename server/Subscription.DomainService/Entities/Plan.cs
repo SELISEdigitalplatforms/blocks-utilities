@@ -115,6 +115,22 @@ public sealed class Plan
     public bool TrialRequiresPaymentMethod { get; set; } = true;
 
     /// <summary>
+    /// Whether an organization gets this plan's trial only once, whoever buys it for them.
+    /// </summary>
+    /// <remarks>
+    /// On, the claim in <see cref="TrialUsage"/> is permanent: cancelling and subscribing again,
+    /// or a colleague subscribing instead, goes to paid checkout. Off, nothing is claimed and every
+    /// signup gets the trial, for a demo plan meant to be tried again. Turning it on later starts
+    /// counting from then; signups made while it was off left nothing behind to count.
+    /// <para>
+    /// Defaults to true, and the initializer is what makes that so for a plan authored before this
+    /// existed: a missing field would otherwise read as false and silently lift the trial limit off
+    /// every existing plan.
+    /// </para>
+    /// </remarks>
+    public bool OneTrialPerPlan { get; set; } = true;
+
+    /// <summary>
     /// Whether a card must be collected before this plan grants anything, even when the opening
     /// amount is zero.
     /// </summary>

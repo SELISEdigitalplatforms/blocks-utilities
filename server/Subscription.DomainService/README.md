@@ -627,18 +627,26 @@ This holds the same way regardless of which `TrialDurationKind` produced `Trial.
 
 ### One trial per plan
 
-A subscriber gets each plan's trial once. Cancelling and signing up again does not buy a second
-one: the new signup has no trial, so it is an ordinary paid signup — the schedule anchors on now and
-checkout takes the opening charge. Trialing one plan never blocks the trial of another.
-
-| Plan scope | Whose trial it is |
-|---|---|
-| `Organization` | the organization |
-| `User` | the person who bought it (`SubscriptionDetail.PurchasedBy`), not the people seated on it |
+An organization gets each plan's trial once, whatever the plan's scope and whoever buys it.
+Cancelling and signing up again, or a colleague signing up instead, does not buy a second one: the
+new signup has no trial, so it is an ordinary paid signup — the schedule anchors on now and checkout
+takes the opening charge. A person who had the trial in one organization still gets it for another
+organization that never did. Trialing one plan never blocks the trial of another.
 
 A plan is identified by its `Code`, so editing a plan does not hand out fresh trials. A user-wise
-signup with no user behind it (an API key, or the console acting for an organization) is not
-limited.
+signup with no user behind it (an API key, or the console acting for an organization) claims for its
+organization like any other.
+
+**`OneTrialPerPlan`** (on by default, and on for every plan stored before it existed) is what turns
+this on. Off, nothing is claimed or checked and every signup gets the trial — for a demo plan meant
+to be tried again. Turning it back on counts from then: signups made while it was off left nothing
+behind. The setting is snapshotted onto the subscription, so a trial that starts after the plan was
+switched off records nothing either.
+
+User-wise trials were once claimed per buyer. On first use per tenant per process, those claims are
+moved onto their organization's key — one per organization and plan, a `Used` claim before a
+`Claimed` one and the earliest first. The others stay on their buyer's key, where nothing reads them
+again; claims are never deleted.
 
 The rule lives in the `SubscriptionTrialUsages` ledger (`TrialUsage`), enforced by a partial unique
 index on tenant, scope, subject and plan code rather than by a read before a write:

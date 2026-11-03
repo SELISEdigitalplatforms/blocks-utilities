@@ -364,6 +364,45 @@ public sealed class SubscriptionPlanChangeServiceTests
             Times.Once);
     }
 
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public async Task A_trial_carried_onto_a_plan_claims_its_trial_only_when_that_plan_keeps_one(
+        bool oneTrialPerPlan, int claims)
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Trialing, 1_000);
+        var target = NewPlan();
+        target.OneTrialPerPlan = oneTrialPerPlan;
+        _catalogue
+            .Setup(repository => repository.FindPlanByCodeAsync(
+                TenantId, OrganizationId, "premium", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(target);
+        var trials = new Mock<ITrialUsageRepository>();
+
+        var result = await new SubscriptionPlanChangeService(
+            _contextResolver.Object,
+            _subscriptions.Object,
+            _catalogue.Object,
+            _billingAccounts.Object,
+            _gateway.Object,
+            new SubscriptionOutboxEventFactory(),
+            _cache.Object,
+            new SubscriptionResponseMapper(),
+            new ChangeSubscriptionPlanRequestValidator(),
+            NullLogger<SubscriptionPlanChangeService>.Instance,
+            _time,
+            billingProfile: _billingProfile.Object,
+            trialUsages: trials.Object)
+            .ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        trials.Verify(
+            repository => repository.MarkUsedAsync(
+                It.IsAny<TrialUsage>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(claims),
+            "a plan that allows repeat trials must not be left with a claim that refuses the next one");
+    }
+
     [Fact]
     public async Task A_different_currency_is_refused()
     {

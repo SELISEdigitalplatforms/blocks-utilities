@@ -566,6 +566,47 @@ public sealed class SubscriptionActivationProcessorTests
             "the charge that was taken was discounted, so one of the three periods is spent");
     }
 
+    /// <summary>
+    /// A replacing code that reduced a yearly stub leaves its period for the year still to come.
+    /// </summary>
+    /// <remarks>
+    /// Spent here, a one-period code would be exhausted before the boundary that bills the year,
+    /// and the subscriber would pay the year undiscounted for having been given half off a fortnight.
+    /// </remarks>
+    [Fact]
+    public async Task A_replacing_code_on_a_yearly_stub_saves_its_period_for_the_year()
+    {
+        GivenDueLink();
+        GivenPayment(PaymentStatuses.Authorized, webhookConfirmed: true);
+        GivenSubscription(subscription =>
+        {
+            subscription.Price = CalendarMonthly();
+            subscription.InitialChargeAmountMinor = 1_005;
+            subscription.InitialChargeProrated = true;
+            subscription.InitialChargeDiscountApplied = true;
+            subscription.ProrationDays = 7;
+            subscription.ProrationTotalDays = 31;
+            subscription.PendingAnnualPeriod = new PendingAnnualPeriod { CollectedWithCheckout = false };
+            subscription.Discount = new DiscountTerms
+            {
+                Code = "half",
+                Kind = DiscountKind.Percent,
+                PercentBasisPoints = 5_000,
+                DurationPeriods = 1,
+                Campaign = new CampaignTerms
+                {
+                    Precedence = CampaignPrecedence.ReplaceBuiltIn,
+                    PrecedenceConfigured = true
+                }
+            };
+        });
+
+        await Processor().ProcessDueAsync(TenantId, CancellationToken.None);
+
+        _transition!.DiscountPeriodsApplied.Should().BeNull(
+            because: "the code's one period belongs to the year, which has not been charged yet");
+    }
+
     [Fact]
     public async Task A_stub_that_no_promotion_reduced_spends_nothing()
     {
