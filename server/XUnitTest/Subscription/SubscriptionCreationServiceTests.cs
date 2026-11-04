@@ -2076,6 +2076,78 @@ public sealed class SubscriptionCreationServiceTests
         _created!.OrganizationName.Should().BeNull();
     }
 
+    /// <summary>
+    /// INV-2026-000022: a token with no name claim recorded the buyer as their bare id, and the
+    /// invoice the worker issued fifteen seconds later printed "Initiated by" that id.
+    /// </summary>
+    [Fact]
+    public async Task A_buyer_whose_token_carries_no_name_is_named_from_their_own_iam_account()
+    {
+        var directory = new Mock<IMemberDirectory>();
+        directory
+            .Setup(lookup => lookup.FindSelfAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MemberContact("fahad@example.com", "Fahad Mohammad", null));
+
+        await ServiceWith(directory.Object).CreateAsync(
+            NewRequest(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1"),
+            "corr-1",
+            CancellationToken.None);
+
+        _created!.PurchasedBy!.Name.Should().Be("Fahad Mohammad",
+            because: "every invoice issued for this signup names its initiator from here");
+        _created.PurchasedBy.Email.Should().Be("fahad@example.com");
+        _created.PurchasedBy.UserId.Should().Be("user-1");
+    }
+
+    [Fact]
+    public async Task A_buyer_the_token_already_names_is_not_looked_up()
+    {
+        var directory = new Mock<IMemberDirectory>();
+
+        await ServiceWith(directory.Object).CreateAsync(
+            NewRequest(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1", "Ada Byron", "ada@northwind.example"),
+            "corr-1",
+            CancellationToken.None);
+
+        _created!.PurchasedBy!.Name.Should().Be("Ada Byron");
+        directory.Verify(
+            lookup => lookup.FindSelfAsync(It.IsAny<CancellationToken>()),
+            Times.Never(),
+            "a name the identity provider already gave needs no second opinion from IAM");
+    }
+
+    [Fact]
+    public async Task A_buyer_IAM_cannot_name_keeps_what_the_token_gave()
+    {
+        var directory = new Mock<IMemberDirectory>();
+        directory
+            .Setup(lookup => lookup.FindSelfAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync((MemberContact?)null);
+
+        var result = await ServiceWith(directory.Object).CreateAsync(
+            NewRequest(),
+            new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1"),
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            because: "a name for the invoice is not worth refusing a customer who is trying to pay");
+        _created!.PurchasedBy!.UserId.Should().Be("user-1");
+    }
+
+    private SubscriptionCreationService ServiceWith(IMemberDirectory directory) => new(
+        _catalogue.Object,
+        _subscriptions.Object,
+        _discounts.Object,
+        _accounts.Object,
+        new CreateSubscriptionRequestValidator(),
+        NullLogger<SubscriptionCreationService>.Instance,
+        _time,
+        billingProfile: _billingProfile.Object,
+        directory: directory);
+
     [Fact]
     public async Task An_organization_that_already_had_the_plans_trial_signs_up_paid()
     {
