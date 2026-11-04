@@ -3,6 +3,7 @@ import type {
   SubscriptionFinancialDocument,
 } from "../models/subscription-billing.model";
 import { formatMoney } from "./subscription-format";
+import { joinList, tSubscription } from "./subscription-i18n";
 
 /**
  * How a document type is named to somebody reading a list.
@@ -13,11 +14,11 @@ import { formatMoney } from "./subscription-format";
 export const describeDocumentType = (documentType: string): string => {
   switch (documentType) {
     case "TrialInvoice":
-      return "Trial invoice";
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_TRIAL_INVOICE");
     case "CreditNote":
-      return "Credit note";
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_CREDIT_NOTE");
     default:
-      return "Invoice";
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_INVOICE");
   }
 };
 
@@ -31,20 +32,20 @@ export const describeDocumentStatus = (
   document: Pick<SubscriptionFinancialDocument, "documentType" | "status">,
 ): string => {
   if (document.documentType === "TrialInvoice") {
-    return "No payment due";
+    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_NO_PAYMENT_DUE");
   }
 
   if (document.documentType === "CreditNote") {
-    return "Credited";
+    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_CREDITED");
   }
 
   switch (document.status) {
     case "Refunded":
-      return "Refunded in full";
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_REFUNDED_IN_FULL");
     case "PartiallyRefunded":
-      return "Partially refunded";
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_PARTIALLY_REFUNDED");
     default:
-      return "Paid";
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_PAID");
   }
 };
 
@@ -98,23 +99,34 @@ export const documentAmountRows = (
   currencyCode: string,
 ): DocumentAmountRow[] => {
   const money = (minor: number) => formatMoney(minor, currencyCode);
-  const rate = (basisPoints?: number | null) =>
-    basisPoints && basisPoints > 0 ? ` (${basisPoints / 100}%)` : "";
+  const withRate = (label: string, basisPoints?: number | null) =>
+    basisPoints && basisPoints > 0
+      ? tSubscription("FINANCIAL_DOCUMENT_FORMAT.LABEL_WITH_RATE", {
+          label,
+          rate: basisPoints / 100,
+        })
+      : label;
 
   const rows: DocumentAmountRow[] = [
-    { label: "Subtotal", amount: money(amounts.grossSubtotalMinor) },
+    { label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_SUBTOTAL"), amount: money(amounts.grossSubtotalMinor) },
   ];
 
   if (amounts.automaticDiscountMinor) {
     rows.push({
-      label: `Automatic price discount${rate(amounts.automaticDiscountBasisPoints)}`,
+      label: withRate(
+        tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_AUTOMATIC_DISCOUNT"),
+        amounts.automaticDiscountBasisPoints,
+      ),
       amount: money(-amounts.automaticDiscountMinor),
     });
   }
 
   if (amounts.quantityDiscountMinor) {
     rows.push({
-      label: `Volume discount${rate(amounts.quantityDiscountBasisPoints)}`,
+      label: withRate(
+        tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_VOLUME_DISCOUNT"),
+        amounts.quantityDiscountBasisPoints,
+      ),
       amount: money(-amounts.quantityDiscountMinor),
     });
   }
@@ -122,23 +134,25 @@ export const documentAmountRows = (
   if (amounts.promotionalDiscountMinor) {
     rows.push({
       label: amounts.promotionCode
-        ? `Promotional discount (${amounts.promotionCode})`
-        : "Promotional discount",
+        ? tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_PROMOTIONAL_DISCOUNT_CODE", {
+            code: amounts.promotionCode,
+          })
+        : tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_PROMOTIONAL_DISCOUNT"),
       amount: money(-amounts.promotionalDiscountMinor),
     });
   }
 
-  rows.push({ label: "Net subtotal", amount: money(amounts.netSubtotalMinor) });
+  rows.push({ label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_NET_SUBTOTAL"), amount: money(amounts.netSubtotalMinor) });
   rows.push({ label: describeTax(amounts), amount: money(amounts.taxAmountMinor) });
 
   if (amounts.creditAppliedMinor) {
     rows.push({
-      label: "Account credit applied",
+      label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_CREDIT_APPLIED"),
       amount: money(-amounts.creditAppliedMinor),
     });
   }
 
-  rows.push({ label: "Total", amount: money(amounts.totalMinor), isTotal: true });
+  rows.push({ label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_TOTAL"), amount: money(amounts.totalMinor), isTotal: true });
 
   return rows;
 };
@@ -151,12 +165,15 @@ export const documentAmountRows = (
  */
 export const describeTax = (amounts: FinancialDocumentAmounts): string => {
   if (!amounts.taxRateBasisPoints) {
-    return "Tax";
+    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TAX");
   }
 
-  const mode = amounts.taxMode === "Inclusive" ? "included" : "added";
-
-  return `Tax (${amounts.taxRateBasisPoints / 100}%, ${mode})`;
+  return tSubscription(
+    amounts.taxMode === "Inclusive"
+      ? "FINANCIAL_DOCUMENT_FORMAT.TAX_INCLUDED"
+      : "FINANCIAL_DOCUMENT_FORMAT.TAX_ADDED",
+    { rate: amounts.taxRateBasisPoints / 100 },
+  );
 };
 
 /**
@@ -200,32 +217,32 @@ export const settlementRows = (
 
   return [
     {
-      label: "Period total before discounts",
+      label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.SETTLEMENT_PERIOD_TOTAL"),
       outgoing: money(settlement.outgoing.grossAmountMinor),
       target: money(settlement.target.grossAmountMinor),
     },
     {
-      label: "Automatic and volume discounts",
+      label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.SETTLEMENT_BUILT_IN_DISCOUNTS"),
       outgoing: money(-settlement.outgoing.builtInDiscountMinor),
       target: money(-settlement.target.builtInDiscountMinor),
     },
     {
-      label: "Promotional discount",
+      label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.ROW_PROMOTIONAL_DISCOUNT"),
       outgoing: money(-settlement.outgoing.promotionalDiscountMinor),
       target: money(-settlement.target.promotionalDiscountMinor),
     },
     {
-      label: "Tax",
+      label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.TAX"),
       outgoing: money(settlement.outgoing.taxAmountMinor),
       target: money(settlement.target.taxAmountMinor),
     },
     {
-      label: "Full period",
+      label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.SETTLEMENT_FULL_PERIOD"),
       outgoing: money(settlement.outgoing.periodTotalMinor),
       target: money(settlement.target.periodTotalMinor),
     },
     {
-      label: "Counted in this settlement",
+      label: tSubscription("FINANCIAL_DOCUMENT_FORMAT.SETTLEMENT_COUNTED"),
       outgoing: money(settlement.outgoing.proratedValueMinor),
       target: money(settlement.target.proratedValueMinor),
     },
@@ -242,14 +259,19 @@ export const describeTrial = (
   trial: NonNullable<SubscriptionFinancialDocument["trial"]>,
 ): string => {
   const window = `${trial.startsAtUtc.slice(0, 10)} → ${trial.endsAtUtc.slice(0, 10)}`;
-  const card = trial.requiresPaymentMethod
-    ? "a payment method was taken up front"
-    : "no payment method was required";
-  const billing = trial.firstBillingAtUtc
-    ? `, first billing expected ${trial.firstBillingAtUtc.slice(0, 10)}`
-    : "";
+  const key = trial.requiresPaymentMethod
+    ? "FINANCIAL_DOCUMENT_FORMAT.TRIAL_CARD"
+    : "FINANCIAL_DOCUMENT_FORMAT.TRIAL_NO_CARD";
+  const keyWithBilling = trial.requiresPaymentMethod
+    ? "FINANCIAL_DOCUMENT_FORMAT.TRIAL_CARD_BILLING"
+    : "FINANCIAL_DOCUMENT_FORMAT.TRIAL_NO_CARD_BILLING";
 
-  return `Trial ${window} — ${card}${billing}. Nothing was charged.`;
+  return trial.firstBillingAtUtc
+    ? tSubscription(keyWithBilling, {
+        window,
+        billing: trial.firstBillingAtUtc.slice(0, 10),
+      })
+    : tSubscription(key, { window });
 };
 
 /**
@@ -258,10 +280,17 @@ export const describeTrial = (
  * The server names the fields so a form can highlight the inputs; this is for the sentence beside
  * them, because "LegalName" is not a thing anybody types into a support ticket.
  */
-const MISSING_FIELD_LABEL: Record<string, string> = {
-  LegalName: "legal name",
-  BillingContactName: "billing contact name",
-  BillingContactEmail: "billing contact email",
+const missingFieldLabel = (field: string): string => {
+  switch (field) {
+    case "LegalName":
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.MISSING_LEGAL_NAME");
+    case "BillingContactName":
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.MISSING_CONTACT_NAME");
+    case "BillingContactEmail":
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.MISSING_CONTACT_EMAIL");
+    default:
+      return field;
+  }
 };
 
 export const describeMissingProfileFields = (missingFields: string[]): string => {
@@ -269,11 +298,7 @@ export const describeMissingProfileFields = (missingFields: string[]): string =>
     return "";
   }
 
-  const labels = missingFields.map((field) => MISSING_FIELD_LABEL[field] ?? field);
-  const listed =
-    labels.length === 1
-      ? labels[0]
-      : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+  const listed = joinList(missingFields.map(missingFieldLabel));
 
-  return `Add the ${listed} before starting a paid subscription.`;
+  return tSubscription("FINANCIAL_DOCUMENT_FORMAT.ADD_MISSING_FIELDS", { fields: listed });
 };

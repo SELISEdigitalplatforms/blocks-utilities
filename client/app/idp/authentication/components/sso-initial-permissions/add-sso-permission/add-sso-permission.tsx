@@ -23,10 +23,10 @@ import {
   TableRow,
 } from "@/components/ui-kits/table/table";
 import { cn } from "@/lib/utils";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { useGetPermissions } from "@blocks-idp/iam/hooks/use-permission";
-import { IPermission, RESOURCE_TYPE } from "@blocks-idp/iam/models/permission";
+import { IPermission, getResourceType } from "@blocks-idp/iam/models/permission";
 import { CirclePlus } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -36,6 +36,7 @@ type AddSSOPermissionProps = {
 };
 
 export const AddSSOPermission = ({ onAdd, permissions }: AddSSOPermissionProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const tenantId = useProjectStore().selectedProject?.tenantId || "";
   const [open, setOpen] = useState<boolean>(false);
   const [selectedPermission, setSelectedPermissions] = useState<IPermission[]>([]);
@@ -109,17 +110,17 @@ export const AddSSOPermission = ({ onAdd, permissions }: AddSSOPermissionProps) 
           disabled={permissions.length >= 5}
         >
           <CirclePlus className="h-5 w-5 md:mr-2.5" />
-          <span className="sr-only sm:not-sr-only">Assign Permissions</span>
+          <span className="sr-only sm:not-sr-only">{t("ADD_SSO_PERMISSION.ASSIGN_PERMISSIONS")}</span>
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-left">Assign Permissions</DialogTitle>
+          <DialogTitle className="text-left">{t("ADD_SSO_PERMISSION.ASSIGN_PERMISSIONS")}</DialogTitle>
           <DialogDescription></DialogDescription>
         </DialogHeader>
         <div>
           <FilterControls.SearchInput
-            placeholder="Search by permission name"
+            placeholder={t("ADD_SSO_PERMISSION.SEARCH_BY_PERMISSION_NAME")}
             onChange={(search) => setFilter((prev) => ({ ...prev, search, page: 0 }))}
             value={filter.search}
             className="h-fit w-full py-3"
@@ -128,7 +129,7 @@ export const AddSSOPermission = ({ onAdd, permissions }: AddSSOPermissionProps) 
         <h1
           className={cn("text-sm font-semibold", selectedPermission.length === 5 && "text-error")}
         >
-          *You can select up to 5 permissions. <span>{`(${selectedPermission.length}/5)`}</span>
+          {t("ADD_SSO_PERMISSION.YOU_CAN_SELECT_UP_TO", { span: `(${selectedPermission.length}/5)` })}
         </h1>
         <Card>
           <CardContent>
@@ -136,8 +137,8 @@ export const AddSSOPermission = ({ onAdd, permissions }: AddSSOPermissionProps) 
               <TableHeader>
                 <TableRow>
                   <TableHead></TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
+                  <TableHead>{t("common:NAME")}</TableHead>
+                  <TableHead>{t("common:TYPE")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -162,7 +163,7 @@ export const AddSSOPermission = ({ onAdd, permissions }: AddSSOPermissionProps) 
                     </TableCell>
                     <TableCell>
                       {
-                        RESOURCE_TYPE.find((resource) => resource.value === item.type.toString())
+                        getResourceType().find((resource) => resource.value === item.type.toString())
                           ?.label
                       }
                     </TableCell>
@@ -186,7 +187,7 @@ export const AddSSOPermission = ({ onAdd, permissions }: AddSSOPermissionProps) 
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="outline" size="default">
-              Cancel
+              {t("common:CANCEL")}
             </Button>
           </DialogClose>
           <Button
@@ -194,7 +195,7 @@ export const AddSSOPermission = ({ onAdd, permissions }: AddSSOPermissionProps) 
             onClick={onClickHandler}
             disabled={selectedPermission.length === 0}
           >
-            Add
+            {t("common:ADD")}
           </Button>
         </DialogFooter>
       </DialogContent>

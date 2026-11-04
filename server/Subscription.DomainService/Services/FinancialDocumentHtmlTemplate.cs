@@ -213,10 +213,8 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("<div class=\"col\"><div class=\"kind\">").Append(Escape(title)).Append("</div>");
         html.Append("<table class=\"meta\">");
 
-        AppendMetaRow(
-            html,
-            "Organization",
-            Fallback(document.Subscriber.OrganizationName, document.Subscriber.OrganizationId));
+        // No organization row: the bill-to block already names the customer, and the organization
+        // beside it read as a second, conflicting customer reference.
         AppendMetaRow(html, "Currency", document.CurrencyCode);
         AppendMetaRow(html, $"{title} total", money.Format(document.Amounts.TotalMinor), strong: true);
         AppendMetaRow(html, $"{title} number", document.DocumentNumber);
@@ -240,16 +238,10 @@ public static class FinancialDocumentHtmlTemplate
         // by document number anyway. The id stays as the fallback for a document with no plan name.
         AppendMetaRow(html, "Subscription", Fallback(document.Subject.PlanName, document.SubscriptionId));
 
-        var period = document.Period;
-        if (period.StartUtc != default || period.EndUtc != default)
-        {
-            // The UTC instants are the only version two documents can be compared on; the local
-            // dates the subscriber experienced are in the details table's Period column.
-            AppendMetaRow(
-                html,
-                "Service period (UTC)",
-                $"{Instant(period.StartUtc)} to {Instant(period.EndUtc)}");
-        }
+        // No UTC service period: the details table's Period column states each line's dates in the
+        // subscriber's own zone, and a second, UTC version of the same period beside it — ending at
+        // 23:00Z on a different day — read as a contradiction. The UTC instants stay on the stored
+        // document for comparing documents; they are just not printed.
 
         AppendMetaRow(html, "Status", StatusText(document));
 
@@ -825,12 +817,6 @@ public static class FinancialDocumentHtmlTemplate
 
     private static string Date(DateOnly day) =>
         day.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
-
-    private static string Instant(DateTime instantUtc) =>
-        instantUtc == default
-            ? "—"
-            : instantUtc.ToUniversalTime()
-                .ToString("yyyy-MM-dd HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
     private static string Join(string? left, string? right) =>
         string.Join(

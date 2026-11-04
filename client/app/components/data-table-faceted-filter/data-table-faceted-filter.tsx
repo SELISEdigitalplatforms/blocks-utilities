@@ -20,6 +20,7 @@ import { Badge } from "../ui-kits/badge/badge";
 import usePopoverWidth from "@/hooks/use-popover-width";
 
 import useIsMobile from "@/hooks/use-is-mobile";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface DataTableFacetedFilterProps<TData, TValue> {
   column?: Column<TData, TValue>;
@@ -35,6 +36,7 @@ export function DataTableFacetedFilter<TData, TValue>({
   title,
   options,
 }: DataTableFacetedFilterProps<TData, TValue>) {
+  const { t } = useT("utilities.shared");
   const facets = column?.getFacetedUniqueValues();
   const columnFilterValue = column?.getFilterValue() as { types?: string[] } | undefined;
   const selectedValues = new Set(columnFilterValue?.types || []);
@@ -59,8 +61,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                 <div className="flex space-x-1">
                   {selectedValues.size > 2 ? (
                     <Badge variant="secondary" className="rounded-sm px-1 font-normal">
-                      {selectedValues.size} selected
-                    </Badge>
+                      {t("DATA_TABLE_FACETED_FILTER.SELECTED", { size: selectedValues.size })}</Badge>
                   ) : (
                     options
                       .filter((option) => selectedValues.has(option.value))
@@ -88,7 +89,7 @@ export function DataTableFacetedFilter<TData, TValue>({
         <Command>
           <CommandInput placeholder={title} />
           <CommandList>
-            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandEmpty>{t("DATA_TABLE_FACETED_FILTER.NO_RESULTS_FOUND")}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
                 const isSelected = selectedValues.has(option.value);
@@ -137,7 +138,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                     onSelect={() => column?.setFilterValue(undefined)}
                     className="justify-center text-center"
                   >
-                    Clear
+                    {t("common:CLEAR")}
                   </CommandItem>
                 </CommandGroup>
               </>

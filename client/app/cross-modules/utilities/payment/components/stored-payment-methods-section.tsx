@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import {
   AlertCircle,
@@ -52,8 +52,10 @@ const ORGANIZATION_PAGE_SIZE = 200;
 const normalize = (value: string | null) =>
   value?.trim().toLowerCase() || "";
 
-const StoredPaymentMethodsSkeleton = () => (
-  <div aria-label="Loading saved payment methods" className="space-y-3">
+const StoredPaymentMethodsSkeleton = () => {
+  const { t } = useT("utilities.payment");
+  return (
+  <div aria-label={t("STORED_PAYMENT_METHODS_SECTION.LOADING_SAVED_PAYMENT_METHODS")} className="space-y-3">
     <div className="grid gap-3 sm:grid-cols-3">
       <Skeleton className="h-10" />
       <Skeleton className="h-10" />
@@ -75,8 +77,10 @@ const StoredPaymentMethodsSkeleton = () => (
     <Skeleton className="h-40 md:hidden" />
   </div>
 );
+};
 
 export const StoredPaymentMethodsSection = () => {
+  const { t } = useT("utilities.payment");
   // A card is stamped with the organization that saved it, and the console is fixed to one
   // organization, so the cards from payments taken for another are only reachable by naming it.
   const [organizationValue, setOrganizationValue] = useState(
@@ -202,22 +206,22 @@ export const StoredPaymentMethodsSection = () => {
         variant: outcome === "removed" ? "success" : "info",
         title:
           outcome === "removed"
-            ? "Payment method removed"
-            : "Removal is processing",
+            ? t("STORED_PAYMENT_METHODS_SECTION.PAYMENT_METHOD_REMOVED")
+            : t("STORED_PAYMENT_METHODS_SECTION.REMOVAL_IS_PROCESSING"),
         description:
           outcome === "removed"
-            ? "The saved payment method is no longer available."
-            : "The method is blocked locally while the provider confirms removal.",
+            ? t("STORED_PAYMENT_METHODS_SECTION.THE_SAVED_PAYMENT_METHOD_IS")
+            : t("STORED_PAYMENT_METHODS_SECTION.THE_METHOD_IS_BLOCKED_LOCALLY"),
       });
       setSelectedMethod(null);
     } catch (removalError) {
       toast({
         variant: "destructive",
-        title: "Removal failed",
+        title: t("STORED_PAYMENT_METHODS_SECTION.REMOVAL_FAILED"),
         description:
           removalError instanceof Error
             ? removalError.message
-            : "The saved payment method could not be removed.",
+            : t("STORED_PAYMENT_METHODS_SECTION.THE_SAVED_PAYMENT_METHOD_COULD"),
       });
     }
   };
@@ -231,9 +235,9 @@ export const StoredPaymentMethodsSection = () => {
               <ShieldCheck className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="font-semibold">Saved payment methods</h2>
+              <h2 className="font-semibold">{t("STORED_PAYMENT_METHODS_SECTION.SAVED_PAYMENT_METHODS")}</h2>
               <p className="text-xs text-muted-foreground">
-                Active methods belonging to the authenticated shopper.
+                {t("STORED_PAYMENT_METHODS_SECTION.ACTIVE_METHODS_BELONGING_TO_THE")}
               </p>
             </div>
           </div>
@@ -249,14 +253,14 @@ export const StoredPaymentMethodsSection = () => {
               }}
             >
               <SelectTrigger
-                aria-label="Organization"
+                aria-label={t("STORED_PAYMENT_METHODS_SECTION.ORGANIZATION")}
                 className="w-56"
               >
-                <SelectValue placeholder="My organization" />
+                <SelectValue placeholder={t("STORED_PAYMENT_METHODS_SECTION.MY_ORGANIZATION")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={OWN_ORGANIZATION_VALUE}>
-                  My organization
+                  {t("STORED_PAYMENT_METHODS_SECTION.MY_ORGANIZATION")}
                 </SelectItem>
                 {organizations.map((organization) => (
                   <SelectItem
@@ -271,7 +275,7 @@ export const StoredPaymentMethodsSection = () => {
 
             {!isLoading && !isError && (
               <p className="whitespace-nowrap text-sm text-muted-foreground">
-                {filteredMethods.length} of {methods.length} methods
+                {t("STORED_PAYMENT_METHODS_SECTION.METHODS_COUNT", { shown: filteredMethods.length, total: methods.length })}
               </p>
             )}
           </div>
@@ -286,15 +290,15 @@ export const StoredPaymentMethodsSection = () => {
                 <AlertCircle className="h-6 w-6" />
               </span>
               <h3 className="mt-4 font-semibold">
-                Saved methods could not be loaded
+                {t("STORED_PAYMENT_METHODS_SECTION.SAVED_METHODS_COULD_NOT_BE")}
               </h3>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
                 {error instanceof Error
                   ? error.message
-                  : "Check your connection and try again."}
+                  : t("STORED_PAYMENT_METHODS_SECTION.CHECK_YOUR_CONNECTION_AND_TRY")}
               </p>
               <Button className="mt-4" onClick={() => refetch()}>
-                Try again
+                {t("STORED_PAYMENT_METHODS_SECTION.TRY_AGAIN")}
               </Button>
             </div>
           ) : (
@@ -305,8 +309,8 @@ export const StoredPaymentMethodsSection = () => {
                   <Input
                     value={searchText}
                     className="pl-9"
-                    placeholder="Search brand or last four digits"
-                    aria-label="Search saved payment methods"
+                    placeholder={t("STORED_PAYMENT_METHODS_SECTION.SEARCH_BRAND_OR_LAST_FOUR")}
+                    aria-label={t("STORED_PAYMENT_METHODS_SECTION.SEARCH_SAVED_PAYMENT_METHODS")}
                     onChange={(event) =>
                       setSearchText(event.target.value.slice(0, 50))
                     }
@@ -317,12 +321,12 @@ export const StoredPaymentMethodsSection = () => {
                   value={brandFilter}
                   onValueChange={setBrandFilter}
                 >
-                  <SelectTrigger aria-label="Filter by card brand">
-                    <SelectValue placeholder="All brands" />
+                  <SelectTrigger aria-label={t("STORED_PAYMENT_METHODS_SECTION.FILTER_BY_CARD_BRAND")}>
+                    <SelectValue placeholder={t("STORED_PAYMENT_METHODS_SECTION.ALL_BRANDS")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL_FILTER_VALUE}>
-                      All brands
+                      {t("STORED_PAYMENT_METHODS_SECTION.ALL_BRANDS")}
                     </SelectItem>
                     {brands.map((brand) => (
                       <SelectItem key={brand} value={brand}>
@@ -336,12 +340,12 @@ export const StoredPaymentMethodsSection = () => {
                   value={typeFilter}
                   onValueChange={setTypeFilter}
                 >
-                  <SelectTrigger aria-label="Filter by method type">
-                    <SelectValue placeholder="All types" />
+                  <SelectTrigger aria-label={t("STORED_PAYMENT_METHODS_SECTION.FILTER_BY_METHOD_TYPE")}>
+                    <SelectValue placeholder={t("STORED_PAYMENT_METHODS_SECTION.ALL_TYPES")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL_FILTER_VALUE}>
-                      All types
+                      {t("STORED_PAYMENT_METHODS_SECTION.ALL_TYPES")}
                     </SelectItem>
                     {types.map((type) => (
                       <SelectItem key={type} value={type}>
@@ -357,7 +361,7 @@ export const StoredPaymentMethodsSection = () => {
                   disabled={!hasFilters}
                   onClick={clearFilters}
                 >
-                  Clear filters
+                  {t("STORED_PAYMENT_METHODS_SECTION.CLEAR_FILTERS")}
                 </Button>
               </div>
 
@@ -368,13 +372,13 @@ export const StoredPaymentMethodsSection = () => {
                   </span>
                   <h3 className="mt-4 font-semibold">
                     {hasFilters
-                      ? "No matching payment methods"
-                      : "No saved payment methods"}
+                      ? t("STORED_PAYMENT_METHODS_SECTION.NO_MATCHING_PAYMENT_METHODS")
+                      : t("STORED_PAYMENT_METHODS_SECTION.NO_SAVED_PAYMENT_METHODS")}
                   </h3>
                   <p className="mt-1 max-w-md text-sm text-muted-foreground">
                     {hasFilters
-                      ? "Try changing or clearing the current filters."
-                      : "A method appears here after the shopper gives consent during hosted checkout."}
+                      ? t("STORED_PAYMENT_METHODS_SECTION.TRY_CHANGING_OR_CLEARING_THE")
+                      : t("STORED_PAYMENT_METHODS_SECTION.A_METHOD_APPEARS_HERE_AFTER")}
                   </p>
                   {hasFilters && (
                     <Button
@@ -383,7 +387,7 @@ export const StoredPaymentMethodsSection = () => {
                       className="mt-4"
                       onClick={clearFilters}
                     >
-                      Clear filters
+                      {t("STORED_PAYMENT_METHODS_SECTION.CLEAR_FILTERS")}
                     </Button>
                   )}
                 </div>
@@ -417,7 +421,7 @@ export const StoredPaymentMethodsSection = () => {
                 htmlFor="stored-method-page-size"
                 className="text-xs text-muted-foreground"
               >
-                Rows per page
+                {t("STORED_PAYMENT_METHODS_SECTION.ROWS_PER_PAGE")}
               </label>
               <Select
                 value={pageSize.toString()}
@@ -446,12 +450,7 @@ export const StoredPaymentMethodsSection = () => {
 
             <div className="flex items-center justify-between gap-3 sm:justify-end">
               <p className="text-sm text-muted-foreground">
-                Page{" "}
-                <span className="font-medium text-foreground">{page}</span>
-                {" of "}
-                <span className="font-medium text-foreground">
-                  {totalPages}
-                </span>
+                {t("STORED_PAYMENT_METHODS_SECTION.PAGE_OF", { page, total: totalPages })}
               </p>
               <div className="flex gap-2">
                 <Button
@@ -459,7 +458,7 @@ export const StoredPaymentMethodsSection = () => {
                   variant="outline"
                   size="sm"
                   disabled={page <= 1}
-                  aria-label="Previous saved-method page"
+                  aria-label={t("STORED_PAYMENT_METHODS_SECTION.PREVIOUS_SAVED_METHOD_PAGE")}
                   onClick={() =>
                     setPage((current) => Math.max(1, current - 1))
                   }
@@ -471,7 +470,7 @@ export const StoredPaymentMethodsSection = () => {
                   variant="outline"
                   size="sm"
                   disabled={page >= totalPages}
-                  aria-label="Next saved-method page"
+                  aria-label={t("STORED_PAYMENT_METHODS_SECTION.NEXT_SAVED_METHOD_PAGE")}
                   onClick={() =>
                     setPage((current) =>
                       Math.min(totalPages, current + 1),
@@ -496,11 +495,12 @@ export const StoredPaymentMethodsSection = () => {
       >
         <DialogContent hideCloseButton={isRemoving}>
           <DialogHeader>
-            <DialogTitle>Remove saved payment method?</DialogTitle>
+            <DialogTitle>{t("STORED_PAYMENT_METHODS_SECTION.REMOVE_SAVED_PAYMENT_METHOD")}</DialogTitle>
             <DialogDescription>
-              {selectedMethod?.brand ?? "This payment method"} ending in{" "}
-              {selectedMethod?.lastFour ?? "unknown digits"} will no
-              longer be available for hosted checkout.
+              {t("STORED_PAYMENT_METHODS_SECTION.REMOVE_CONFIRM", {
+                brand: selectedMethod?.brand ?? t("STORED_PAYMENT_METHODS_SECTION.THIS_PAYMENT_METHOD"),
+                lastFour: selectedMethod?.lastFour ?? t("STORED_PAYMENT_METHODS_SECTION.UNKNOWN_DIGITS"),
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -510,7 +510,7 @@ export const StoredPaymentMethodsSection = () => {
               disabled={isRemoving}
               onClick={() => setSelectedMethod(null)}
             >
-              Keep method
+              {t("STORED_PAYMENT_METHODS_SECTION.KEEP_METHOD")}
             </Button>
             <Button
               type="button"
@@ -523,7 +523,7 @@ export const StoredPaymentMethodsSection = () => {
               ) : (
                 <Trash2 className="mr-2 h-4 w-4" />
               )}
-              {isRemoving ? "Removing…" : "Remove method"}
+              {isRemoving ? t("STORED_PAYMENT_METHODS_SECTION.REMOVING") : t("STORED_PAYMENT_METHODS_SECTION.REMOVE_METHOD")}
             </Button>
           </DialogFooter>
         </DialogContent>

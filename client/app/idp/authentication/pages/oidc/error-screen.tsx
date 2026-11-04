@@ -11,6 +11,7 @@ import { buildOIDCNavigationUrl } from "@blocks-idp/authentication/utils/oidc-ut
 import { AlertCircle } from "lucide-react";
 import { Link } from "react-router";
 import { useSearchParams } from "react-router";
+import { useT } from "@seliseblocks/genesis-os";
 
 const formatErrorCode = (code: string): string =>
   code
@@ -18,6 +19,7 @@ const formatErrorCode = (code: string): string =>
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
 export const OIDCErrorScreen = () => {
+  const { t } = useT("utilities.idp.authentication");
   const { themeColor } = useOIDCContext();
   const [searchParams] = useSearchParams();
 
@@ -33,7 +35,7 @@ export const OIDCErrorScreen = () => {
           <AlertCircle className="h-7 w-7 text-red-500" />
         </div>
         <CardTitle className="text-2xl font-semibold text-foreground">
-          {hasApiError ? "Sign In Failed" : "Access Blocked"}
+          {hasApiError ? t("ERROR_SCREEN.SIGN_IN_FAILED") : t("ERROR_SCREEN.ACCESS_BLOCKED")}
         </CardTitle>
       </CardHeader>
       <CardContent className="mt-2 flex flex-1 flex-col justify-between gap-6">
@@ -45,24 +47,22 @@ export const OIDCErrorScreen = () => {
               )}
               {errorCode && (
                 <p className="text-xs text-red-500">
-                  Error code:{" "}
-                  <span className="font-semibold">{formatErrorCode(errorCode)}</span>
+                  {t("ERROR_SCREEN.ERROR_CODE", { span: `${formatErrorCode(errorCode)}` })}
                 </p>
               )}
             </div>
           ) : (
             <div className="space-y-2 rounded-lg border border-red-100 bg-red-50 p-4">
               <p className="text-sm font-medium text-red-700">
-                We couldn&apos;t sign you in at this time.
+                {t("ERROR_SCREEN.WE_COULDN_T_SIGN_YOU")}
               </p>
               <p className="text-xs text-red-500">
-                The request could not be completed. Please try again, or contact support if the
-                problem persists.
+                {t("ERROR_SCREEN.THE_REQUEST_COULD_NOT_BE")}
               </p>
             </div>
           )}
           <p className="text-center text-sm text-muted-foreground">
-            If this problem persists, please contact your administrator.
+            {t("ERROR_SCREEN.IF_THIS_PROBLEM_PERSISTS_PLEASE")}
           </p>
         </div>
         <Link to={buildOIDCNavigationUrl("/oidc/login")} className="w-full">
@@ -71,7 +71,7 @@ export const OIDCErrorScreen = () => {
             className="w-full rounded font-medium hover:opacity-90"
             style={{ color: themeColor, borderColor: themeColor }}
           >
-            Back to Sign In
+            {t("ERROR_SCREEN.BACK_TO_SIGN_IN")}
           </Button>
         </Link>
       </CardContent>

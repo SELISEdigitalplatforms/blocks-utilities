@@ -158,7 +158,7 @@ describe("against real validation output", () => {
   });
 
   const errorTree = (values: Record<string, unknown>) => {
-    const result = createSubscriptionPlanSchema.safeParse(values);
+    const result = createSubscriptionPlanSchema().safeParse(values);
 
     expect(result.success).toBe(false);
 

@@ -21,7 +21,8 @@ vi.mock("@/hooks/use-toast", () => ({
 
 // The organization selector reaches IAM through react-query, which these tests render without
 // a client. Stubbed rather than provided, because none of them are about the selector.
-vi.mock("@seliseblocks/genesis-os", () => ({
+vi.mock("@seliseblocks/genesis-os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@seliseblocks/genesis-os")>()),
   useProjectStore: () => ({ selectedProject: { tenantId: "tenant-1" } }),
 }));
 

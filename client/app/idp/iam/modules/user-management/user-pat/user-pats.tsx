@@ -6,8 +6,10 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Sailboat } from "lucide-react";
 import { useState } from "react";
 import { GenerateTokenModal } from "./generate-pat-modal";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const UserPats = ({ id }: { id: string }) => {
+  const { t } = useT("utilities.idp");
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const { isLoading, isFetching, data } = useGetPats();
@@ -27,14 +29,14 @@ export const UserPats = ({ id }: { id: string }) => {
                       </div>
                       <div className="space-y-2">
                         <h3 className="text-lg font-semibold text-high-emphasis">
-                          No PAT(Personal Access Token) generated{" "}
+                          {t("USER_PATS.NO_PAT_PERSONAL_ACCESS_TOKEN")}{" "}
                         </h3>
                         <p className="max-w-md text-sm text-low-emphasis">
-                          No PAT available. Create a new PAT to enable access.
+                          {t("USER_PATS.NO_PAT_AVAILABLE_CREATE_A")}
                         </p>
                       </div>
                       <Button onClick={() => setIsModalOpen(true)} size="sm">
-                        Generate PAT
+                        {t("USER_PATS.GENERATE_PAT")}
                       </Button>
                     </div>
                   </div>

@@ -32,7 +32,7 @@ describe("whole-number fields", () => {
    * zod 3's behaviour: the fraction is reported in zod 3's words, and so is everything else.
    */
   it("report a fraction and keep the plan-level checks running", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       usageIntervalCount: 1.5,
       prices: [],
@@ -49,7 +49,7 @@ describe("whole-number fields", () => {
   });
 
   it("accept an integer beyond the safe range as zod 3 did, leaving the bound to say no", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       usageIntervalCount: 2 ** 53,
     });
@@ -65,19 +65,19 @@ describe("whole-number fields", () => {
 
 describe("createSubscriptionPlanSchema", () => {
   it("accepts a minimal tenant-wide plan", () => {
-    const result = createSubscriptionPlanSchema.safeParse(validPlan);
+    const result = createSubscriptionPlanSchema().safeParse(validPlan);
 
     expect(result.success).toBe(true);
   });
 
   it("accepts a plan with no trial", () => {
-    const result = createSubscriptionPlanSchema.safeParse(validPlan);
+    const result = createSubscriptionPlanSchema().safeParse(validPlan);
 
     expect(result.success).toBe(true);
   });
 
   it("accepts a days trial with a valid count", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       trialDurationKind: "Days",
       trialDurationCount: 14,
@@ -87,7 +87,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects a days trial with no count", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       trialDurationKind: "Days",
     });
@@ -97,7 +97,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects a days trial count outside 1-365", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       trialDurationKind: "Days",
       trialDurationCount: 366,
@@ -107,7 +107,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("accepts an anniversary-months trial with a valid count", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       trialDurationKind: "AnniversaryMonths",
       trialDurationCount: 1,
@@ -117,7 +117,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects an anniversary-months trial count outside 1-12", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       trialDurationKind: "AnniversaryMonths",
       trialDurationCount: 13,
@@ -127,7 +127,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("accepts an end-of-calendar-month trial with no count", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       trialDurationKind: "EndOfCalendarMonth",
     });
@@ -136,7 +136,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects an end-of-calendar-month trial that specifies a count", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       trialDurationKind: "EndOfCalendarMonth",
       trialDurationCount: 1,
@@ -147,7 +147,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects a plan code with characters the server would reject", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       code: "Pro Plan!",
     });
@@ -156,7 +156,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("requires an organization to be explicitly chosen", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       organizationId: "",
     });
@@ -165,7 +165,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects malformed features JSON", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       featuresJson: "{not json",
     });
@@ -174,7 +174,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("accepts a features JSON object", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       featuresJson: '{"betaAccess": true}',
     });
@@ -183,7 +183,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("requires a counted entitlement to name both a limit and a meter", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [
         {
@@ -209,7 +209,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("accepts a counted entitlement that names an existing meter and limit", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [
         {
@@ -237,7 +237,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects an entitlement naming a meter the plan does not define", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       entitlements: [
         {
@@ -252,7 +252,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects a trial grant naming a meter the plan does not define", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       trialDurationKind: "Days",
       trialDurationCount: 14,
@@ -269,7 +269,7 @@ describe("createSubscriptionPlanSchema", () => {
     [1, false],
     [51, false],
   ])("judges a trial maximum of %s against the item's bounds", (trialMaxQuantity, accepted) => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       quantityItems: [
         {
@@ -287,7 +287,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects a quantity item whose maximum sits below its minimum", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       quantityItems: [
         {
@@ -304,7 +304,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("keeps enum fields as numbers rather than strings, matching the request body", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [
         {
@@ -327,7 +327,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("accepts lifetime capacity when overage is blocked", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [
         {
@@ -348,7 +348,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects monthly overage pricing on lifetime capacity", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [
         {
@@ -382,7 +382,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("accepts a carry-forward meter that caps what rolls in", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [carryForwardMeter({ carryForwardCap: 500_000 })],
     });
@@ -393,7 +393,7 @@ describe("createSubscriptionPlanSchema", () => {
   it("refuses a carry-forward meter with no cap", () => {
     // Without a ceiling a dormant subscription banks allowance indefinitely, which is never
     // what was sold.
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [carryForwardMeter()],
     });
@@ -403,7 +403,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("refuses a cap on a meter that does not carry forward", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [carryForwardMeter({ resetPolicy: 0, carryForwardCap: 500_000 })],
     });
@@ -413,7 +413,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("refuses a plan with no price, which nobody could subscribe to", () => {
-    const result = createSubscriptionPlanSchema.safeParse({ ...validPlan, prices: [] });
+    const result = createSubscriptionPlanSchema().safeParse({ ...validPlan, prices: [] });
 
     expect(result.success).toBe(false);
     expect(issuePaths(result)).toContainEqual(["prices"]);
@@ -429,7 +429,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects a price charging for a quantity item the plan does not define", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       prices: [{ ...price, quantityItemKey: "seat" }],
     });
@@ -439,7 +439,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("accepts a price charging for a quantity item the plan does define", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       quantityItems: [
         {
@@ -456,7 +456,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("rejects two prices with identical terms, which the server would reject after creating the plan", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       prices: [price, { ...price, amount: 99 }],
     });
@@ -466,7 +466,7 @@ describe("createSubscriptionPlanSchema", () => {
   });
 
   it("accepts a monthly and an annual price on the same plan", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       prices: [price, { ...price, interval: 3, amount: 30 }],
     });
@@ -501,19 +501,19 @@ describe("quantity discount bands", () => {
   ];
 
   it("accepts a quantity item with no bands at all", () => {
-    const result = createSubscriptionPlanSchema.safeParse(withTiers([]));
+    const result = createSubscriptionPlanSchema().safeParse(withTiers([]));
 
     expect(result.success).toBe(true);
   });
 
   it("accepts contiguous bands ending open on an unbounded item", () => {
-    const result = createSubscriptionPlanSchema.safeParse(withTiers(contiguous));
+    const result = createSubscriptionPlanSchema().safeParse(withTiers(contiguous));
 
     expect(result.success).toBe(true);
   });
 
   it("rejects a single band, which the unit price already expresses", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers([{ minimumQuantity: 1, discountPercent: 10 }]),
     );
 
@@ -521,7 +521,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects a first band that does not start where the item does", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers([
         { minimumQuantity: 2, maximumQuantity: 4, discountPercent: 0 },
         { minimumQuantity: 5, discountPercent: 5 },
@@ -538,7 +538,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects a gap between bands", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers([
         { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
         { minimumQuantity: 7, discountPercent: 5 },
@@ -557,7 +557,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects overlapping bands", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers([
         { minimumQuantity: 1, maximumQuantity: 5, discountPercent: 0 },
         { minimumQuantity: 5, discountPercent: 5 },
@@ -568,7 +568,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects a band left open before the last one", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers([
         { minimumQuantity: 1, discountPercent: 0 },
         { minimumQuantity: 5, discountPercent: 5 },
@@ -585,7 +585,7 @@ describe("quantity discount bands", () => {
   });
 
   it("requires the final band to reach a finite item maximum", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers(
         [
           { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
@@ -605,7 +605,7 @@ describe("quantity discount bands", () => {
   });
 
   it("requires the final band to stay open when the item has no maximum", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers([
         { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
         { minimumQuantity: 5, maximumQuantity: 9, discountPercent: 5 },
@@ -623,7 +623,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects a discount above 100 per cent", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers([
         { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
         { minimumQuantity: 5, discountPercent: 140 },
@@ -634,7 +634,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects a band ending below where it starts", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       withTiers([
         { minimumQuantity: 1, maximumQuantity: 4, discountPercent: 0 },
         { minimumQuantity: 5, maximumQuantity: 2, discountPercent: 5 },
@@ -664,7 +664,7 @@ describe("quantity discount bands", () => {
    * fixture in this file and every plan already stored has, so absent has to mean zero.
    */
   it("defaults a meter with no declared scale to whole units", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter()],
     });
@@ -676,7 +676,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects a fractional allowance on a whole-unit meter", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ includedQuantity: 512.5 })],
     });
@@ -686,7 +686,7 @@ describe("quantity discount bands", () => {
   });
 
   it("accepts a fractional allowance once the meter declares the places for it", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ quantityScale: 1, includedQuantity: 512.5 })],
     });
@@ -695,7 +695,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects an allowance finer than the declared scale", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ quantityScale: 2, includedQuantity: 512.005 })],
     });
@@ -705,7 +705,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects a scale beyond six places", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ quantityScale: 7 })],
     });
@@ -715,7 +715,7 @@ describe("quantity discount bands", () => {
 
   /** The band's edge would otherwise sit between two quantities the meter can represent. */
   it("rejects a rate band bound finer than the meter's scale", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [
         meter({
@@ -743,7 +743,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects a carry-forward cap finer than the meter's scale", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ quantityScale: 1, resetPolicy: 2, carryForwardCap: 50.05 })],
     });
@@ -754,7 +754,7 @@ describe("quantity discount bands", () => {
 
   /** A grant replaces its meter's allowance, so it is held to that meter's own scale. */
   it("rejects a trial grant finer than its own meter's scale", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ quantityScale: 1 })],
       trialGrants: [{ meterKey: "storage-gb", includedQuantity: 25.25 }],
@@ -765,7 +765,7 @@ describe("quantity discount bands", () => {
   });
 
   it("accepts a trial grant within its own meter's scale", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ quantityScale: 2 })],
       trialGrants: [{ meterKey: "storage-gb", includedQuantity: 25.25 }],
@@ -781,7 +781,7 @@ describe("quantity discount bands", () => {
    * reset for the swap to be well-defined.
    */
   it("accepts a trial grant on a lifetime-capacity meter", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ resetPolicy: 1, overageAllowed: false })],
       trialGrants: [{ meterKey: "storage-gb", includedQuantity: 100 }],
@@ -795,7 +795,7 @@ describe("quantity discount bands", () => {
    * a whole-unit screening meter is the case this whole design exists for.
    */
   it("holds each meter to its own scale rather than to the plan's finest", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [
         meter({ quantityScale: 3, includedQuantity: 512.5 }),
@@ -817,7 +817,7 @@ describe("quantity discount bands", () => {
    * the form had produced and would not let anyone correct. The plan could not be saved at all.
    */
   it("accepts an entitlement limit that matches its meter's fractional allowance", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ meterKey: "tokens", quantityScale: 2, includedQuantity: 550.55 })],
       entitlements: [
@@ -829,7 +829,7 @@ describe("quantity discount bands", () => {
   });
 
   it("rejects an entitlement limit finer than the meter it draws down", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ meterKey: "tokens", quantityScale: 1, includedQuantity: 550.5 })],
       entitlements: [
@@ -843,7 +843,7 @@ describe("quantity discount bands", () => {
 
   /** A whole-unit meter still refuses a fractional entitlement limit, as it always has. */
   it("rejects a fractional entitlement limit on a whole-unit meter", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       meters: [meter({ meterKey: "tokens" })],
       entitlements: [{ key: "tokens", limitKind: 1, limit: 550.55, meterKey: "tokens" }],
@@ -858,14 +858,14 @@ describe("quantity discount bands", () => {
    * meter's scale governs it — only the platform maximum.
    */
   it("holds a meterless entitlement limit only to the platform maximum", () => {
-    const allowed = createSubscriptionPlanSchema.safeParse({
+    const allowed = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       entitlements: [{ key: "projects", limitKind: 2, limit: 1.5 }],
     });
 
     expect(allowed.success).toBe(true);
 
-    const tooFine = createSubscriptionPlanSchema.safeParse({
+    const tooFine = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       entitlements: [{ key: "projects", limitKind: 2, limit: 1.00000005 }],
     });
@@ -908,7 +908,7 @@ describe("a plan sold to each person", () => {
   });
 
   it("leaves an organization-wise plan exactly as it validated before", () => {
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       prices: [price],
       quantityItems: [item("seat"), item("workspace")],
@@ -920,7 +920,7 @@ describe("a plan sold to each person", () => {
   });
 
   it("refuses two quantities with none marked as counting people", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       userWise({ quantityItems: [item("place"), item("workspace")] }),
     );
 
@@ -928,7 +928,7 @@ describe("a plan sold to each person", () => {
   });
 
   it("refuses two quantities both marked as counting people", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       userWise({
         quantityItems: [
           item("place", { countsMembers: true }),
@@ -941,14 +941,14 @@ describe("a plan sold to each person", () => {
   });
 
   it("needs no mark on a plan selling one quantity", () => {
-    const result = createSubscriptionPlanSchema.safeParse(userWise({ quantityItems: [item("place")] }));
+    const result = createSubscriptionPlanSchema().safeParse(userWise({ quantityItems: [item("place")] }));
 
     expect(result.success).toBe(true);
   });
 
   /** Priced flat, only the maximum can say how many places there are. */
   it("refuses a flat price over a counting quantity with no maximum", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       userWise({ quantityItems: [item("place")], prices: [price] }),
     );
 
@@ -956,7 +956,7 @@ describe("a plan sold to each person", () => {
   });
 
   it("accepts a flat price once the counting quantity has a maximum", () => {
-    const result = createSubscriptionPlanSchema.safeParse(
+    const result = createSubscriptionPlanSchema().safeParse(
       userWise({ quantityItems: [item("place", { maxQuantity: 10 })], prices: [price] }),
     );
 
@@ -964,7 +964,7 @@ describe("a plan sold to each person", () => {
   });
 
   const paced = (...subLimits: Record<string, unknown>[]) =>
-    createSubscriptionPlanSchema.safeParse({
+    createSubscriptionPlanSchema().safeParse({
       ...validPlan,
       prices: [price],
       meters: [meter({ subLimits })],

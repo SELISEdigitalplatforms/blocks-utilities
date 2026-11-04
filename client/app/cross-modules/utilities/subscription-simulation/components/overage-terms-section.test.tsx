@@ -86,7 +86,7 @@ describe("OverageTermsSection", () => {
   it("states plainly that additional usage is blocked", () => {
     renderSection([blockedMeter]);
 
-    expect(screen.getByText(/150 screenings included per month/)).toBeInTheDocument();
+    expect(screen.getByText(/150 screenings included every month/)).toBeInTheDocument();
     expect(screen.getByText(/Additional usage is blocked/)).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /estimate additional usage/i }),
@@ -98,7 +98,7 @@ describe("OverageTermsSection", () => {
 
     expect(
       screen.getByText(
-        /During the trial: 1,000 screenings included\. After it: 150 screenings included per month\./,
+        /During the trial: 1,000 screenings included\. After it: 150 screenings included every month\./,
       ),
     ).toBeInTheDocument();
   });
@@ -144,7 +144,7 @@ describe("OverageTermsSection", () => {
       usageIntervalCount: 1,
     });
 
-    expect(screen.getByText(/150 screenings included per month/)).toBeInTheDocument();
+    expect(screen.getByText(/150 screenings included every month/)).toBeInTheDocument();
     expect(screen.queryByText(/per year/)).not.toBeInTheDocument();
   });
 

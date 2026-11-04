@@ -8,12 +8,14 @@ import {
   FormMessage,
 } from "@/components/ui-kits/form/form";
 import { ConfigureCaptchaFormDefaultValue } from "./utils";
+import { useT } from "@seliseblocks/genesis-os";
 
 type ConfigureGeneralCaptchaFormProps = {
   form: UseFormReturn<typeof ConfigureCaptchaFormDefaultValue>;
 };
 
 export const ConfigureGeneralCaptchaFormField = ({ form }: ConfigureGeneralCaptchaFormProps) => {
+  const { t } = useT("utilities.idp");
   return (
     <>
       <FormField
@@ -21,9 +23,9 @@ export const ConfigureGeneralCaptchaFormField = ({ form }: ConfigureGeneralCaptc
         control={form.control}
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Site key</FormLabel>
+            <FormLabel>{t("CONFIGURE_GENERAL_CAPTCHA_FROM_FIELD.SITE_KEY")}</FormLabel>
             <FormControl>
-              <Input placeholder="Enter site key" {...field} />
+              <Input placeholder={t("CONFIGURE_GENERAL_CAPTCHA_FROM_FIELD.ENTER_SITE_KEY")} {...field} />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -34,9 +36,9 @@ export const ConfigureGeneralCaptchaFormField = ({ form }: ConfigureGeneralCaptc
         control={form.control}
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Secret key</FormLabel>
+            <FormLabel>{t("CONFIGURE_GENERAL_CAPTCHA_FROM_FIELD.SECRET_KEY")}</FormLabel>
             <FormControl>
-              <Input placeholder="Enter secret key" {...field} />
+              <Input placeholder={t("CONFIGURE_GENERAL_CAPTCHA_FROM_FIELD.ENTER_SECRET_KEY")} {...field} />
             </FormControl>
             <FormMessage />
           </FormItem>

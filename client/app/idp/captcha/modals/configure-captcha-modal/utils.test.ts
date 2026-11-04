@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  ConfigureCaptchaFormSchema,
+  createConfigureCaptchaFormSchema,
   ConfigureCaptchaFormDefaultValue,
 } from "./utils";
 
@@ -10,7 +10,7 @@ describe("configure captcha form schema", () => {
   });
 
   it("accepts a valid configuration", () => {
-    const result = ConfigureCaptchaFormSchema.safeParse({
+    const result = createConfigureCaptchaFormSchema().safeParse({
       provider: "recaptcha",
       captchaKey: "site",
       captchaSecret: "secret",
@@ -20,7 +20,7 @@ describe("configure captcha form schema", () => {
   });
 
   it("rejects an unknown provider", () => {
-    const result = ConfigureCaptchaFormSchema.safeParse({
+    const result = createConfigureCaptchaFormSchema().safeParse({
       provider: "unknown",
       captchaKey: "site",
       captchaSecret: "secret",
@@ -30,7 +30,7 @@ describe("configure captcha form schema", () => {
   });
 
   it("requires the site and secret keys", () => {
-    const result = ConfigureCaptchaFormSchema.safeParse({
+    const result = createConfigureCaptchaFormSchema().safeParse({
       provider: "hcaptcha",
       captchaKey: "",
       captchaSecret: "",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authConfigFormDefaultValues, authConfigFormSchema } from "./utils";
+import { authConfigFormDefaultValues, createAuthConfigFormSchema } from "./utils";
 
 const validForm = {
   refreshTokenValidForNumberMinutes: 60,
@@ -15,11 +15,11 @@ describe("auth config form schema", () => {
   });
 
   it("accepts positive whole numbers", () => {
-    expect(authConfigFormSchema.safeParse(validForm).success).toBe(true);
+    expect(createAuthConfigFormSchema().safeParse(validForm).success).toBe(true);
   });
 
   it("coerces numeric strings", () => {
-    const result = authConfigFormSchema.safeParse({
+    const result = createAuthConfigFormSchema().safeParse({
       ...validForm,
       refreshTokenValidForNumberMinutes: "120",
     });
@@ -28,7 +28,7 @@ describe("auth config form schema", () => {
 
   it("rejects zero and negative values", () => {
     expect(
-      authConfigFormSchema.safeParse({
+      createAuthConfigFormSchema().safeParse({
         ...validForm,
         accountLockDurationInMinutes: 0,
       }).success,
@@ -37,7 +37,7 @@ describe("auth config form schema", () => {
 
   it("rejects non-integer values", () => {
     expect(
-      authConfigFormSchema.safeParse({
+      createAuthConfigFormSchema().safeParse({
         ...validForm,
         accessTokenValidForNumberMinutes: 1.5,
       }).success,
@@ -46,7 +46,7 @@ describe("auth config form schema", () => {
 
   it("rejects values above the max", () => {
     expect(
-      authConfigFormSchema.safeParse({
+      createAuthConfigFormSchema().safeParse({
         ...validForm,
         accessTokenValidForNumberMinutes: 2147483648,
       }).success,

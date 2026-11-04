@@ -184,3 +184,7 @@ if (
   (document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint =
     () => null;
 }
+
+// Register the bundled English text so tests see the same labels as the app. Loaded last, after the
+// browser polyfills above, because genesis-os reads matchMedia and process.env when it is imported.
+await import("../i18n");

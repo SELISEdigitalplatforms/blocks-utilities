@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui-kits/textarea/textarea";
 import { toast } from "@/hooks/use-toast";
 import { useCancelSubscription } from "../hooks/use-cancel-subscription";
 import type { SimulatedSubscription } from "../models/subscription-simulation.model";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const CancelSubscriptionDialog = ({
   subscription,
@@ -30,6 +31,7 @@ export const CancelSubscriptionDialog = ({
   /** Called with the subscription as the cancellation left it. */
   onCanceled?: (canceled: SimulatedSubscription) => void;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const { mutateAsync, isPending } = useCancelSubscription();
 
   const [immediately, setImmediately] = useState(false);
@@ -49,17 +51,17 @@ export const CancelSubscriptionDialog = ({
 
       toast({
         variant: "success",
-        title: "Cancellation sent",
+        title: t("CANCEL_SUBSCRIPTION_DIALOG.CANCELLATION_SENT"),
         description: immediately
-          ? "The subscription stopped granting immediately."
-          : `Access continues until ${new Date(canceled.currentPeriodEndUtc).toLocaleString()}.`,
+          ? t("CANCEL_SUBSCRIPTION_DIALOG.THE_SUBSCRIPTION_STOPPED_GRANTING")
+          : t("CANCEL_SUBSCRIPTION_DIALOG.ACCESS_CONTINUES_UNTIL", { date: new Date(canceled.currentPeriodEndUtc).toLocaleString() }),
       });
 
       onOpenChange(false);
       onCanceled?.(canceled);
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : "The subscription could not be canceled.",
+        error instanceof Error ? error.message : t("CANCEL_SUBSCRIPTION_DIALOG.THE_SUBSCRIPTION_COULD_NOT_BE"),
       );
     }
   };
@@ -75,10 +77,9 @@ export const CancelSubscriptionDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Cancel {subscription.planName}</DialogTitle>
+          <DialogTitle>{t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL", { planName: subscription.planName })}</DialogTitle>
           <DialogDescription>
-            Sends <code>DELETE /api/subscriptions/{subscription.subscriptionId}</code> exactly as
-            an integrating application would.
+            {t("CANCEL_SUBSCRIPTION_DIALOG.SENDS_EXACTLY", { endpoint: `DELETE /api/subscriptions/${subscription.subscriptionId}` })}
           </DialogDescription>
         </DialogHeader>
 
@@ -90,26 +91,23 @@ export const CancelSubscriptionDialog = ({
             <div className="flex items-start gap-2">
               <RadioGroupItem value="period-end" id="cancel-period-end" className="mt-1" />
               <Label htmlFor="cancel-period-end" className="font-normal">
-                Cancel at period end — keeps granting until{" "}
-                {new Date(subscription.currentPeriodEndUtc).toLocaleDateString()}, then stops
-                renewing.
-              </Label>
+                {t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL_AT_PERIOD_END_KEEPS", { date: new Date(subscription.currentPeriodEndUtc).toLocaleDateString() })}</Label>
             </div>
             <div className="flex items-start gap-2">
               <RadioGroupItem value="immediately" id="cancel-immediately" className="mt-1" />
               <Label htmlFor="cancel-immediately" className="font-normal">
-                Cancel immediately — stops granting right now.
+                {t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL_IMMEDIATELY_STOPS_GRANTING")}
               </Label>
             </div>
           </RadioGroup>
 
           <div className="space-y-1.5">
-            <Label htmlFor="cancel-reason">Reason (optional)</Label>
+            <Label htmlFor="cancel-reason">{t("CANCEL_SUBSCRIPTION_DIALOG.REASON_OPTIONAL")}</Label>
             <Textarea
               id="cancel-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="Recorded on the cancellation event."
+              placeholder={t("CANCEL_SUBSCRIPTION_DIALOG.RECORDED_ON_THE_CANCELLATION_EVENT")}
             />
           </div>
 
@@ -118,11 +116,11 @@ export const CancelSubscriptionDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Back
+            {t("common:BACK")}
           </Button>
           <Button variant="destructive" onClick={submit} disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Cancel subscription
+            {t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL_SUBSCRIPTION")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -39,6 +39,10 @@ import { CloseUsagePeriodDialog } from "./close-usage-period-dialog";
 import { RunDueJobsDialog } from "./run-due-jobs-dialog";
 import { SubscriptionStatusBadge } from "./subscription-status-badge";
 import { describePendingMove } from "../utilities/plan-change-label";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+const MEMBERS_CARD_TRY_AGAIN_2 = "MEMBERS_CARD.TRY_AGAIN_2";
 
 const LIVE_STATUSES = new Set(["Trialing", "Active", "PastDue"]);
 
@@ -56,6 +60,7 @@ export const MembersCard = ({
   plans: SubscriptionPlan[] | undefined;
   organizationId: string | undefined;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { data: subscriptions, isError, error, refetch } =
     useMemberBasedSubscriptions(organizationId);
 
@@ -66,15 +71,9 @@ export const MembersCard = ({
   return (
     <Card className="rounded-xl p-0">
       <div className="border-b p-4 sm:p-5">
-        <h2 className="font-semibold">Members</h2>
+        <h2 className="font-semibold">{t("MEMBERS_CARD.MEMBERS")}</h2>
         <p className="text-xs text-muted-foreground">
-          Subscriptions sold to each person, from{" "}
-          <code className="mx-1 rounded bg-muted px-1">GET /api/subscriptions/member-based</code>.
-          Places are read with{" "}
-          <code className="mx-1 rounded bg-muted px-1">GET …/{"{id}"}/members</code>, filled with{" "}
-          <code className="mx-1 rounded bg-muted px-1">POST …/{"{id}"}/members</code> and emptied
-          with <code className="mx-1 rounded bg-muted px-1">DELETE …/{"{id}"}/members/{"{userId}"}</code>.
-        </p>
+          {t("MEMBERS_CARD.SUBSCRIPTIONS_SOLD_TO_EACH_PERSON", { code: "GET /api/subscriptions/member-based", code2: `GET …/${"{id}"}/members`, code3: `POST …/${"{id}"}/members`, code4: `DELETE …/${"{id}"}/members/${"{userId}"}` })}</p>
       </div>
 
       <div className="space-y-4 p-4 sm:p-5">
@@ -82,13 +81,13 @@ export const MembersCard = ({
           <div className="flex flex-col items-start gap-2">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">Member-based subscriptions could not be loaded</span>
+              <span className="font-medium">{t("MEMBERS_CARD.MEMBER_BASED_SUBSCRIPTIONS_COULD")}</span>
             </div>
             <p className="text-sm text-muted-foreground">
-              {error instanceof Error ? error.message : "Try again in a moment."}
+              {error instanceof Error ? error.message : t("MEMBERS_CARD.TRY_AGAIN_IN_A_MOMENT")}
             </p>
             <Button size="sm" variant="outline" onClick={() => refetch()}>
-              Try again
+              {t("MEMBERS_CARD.TRY_AGAIN")}
             </Button>
           </div>
         ) : (
@@ -121,6 +120,7 @@ const SubscriptionPlaces = ({
   organizationId: string | undefined;
   onRefresh: () => void;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isChangingPlaces, setIsChangingPlaces] = useState(false);
   // Here because current never returns a user-wise subscription, so the current subscription
@@ -159,12 +159,12 @@ const SubscriptionPlaces = ({
   const releaseHolder = async (userId: string) => {
     try {
       await release.mutateAsync({ subscriptionId: subscription.subscriptionId, userId });
-      toast({ variant: "success", title: "Place released", description: `${userId} is off it.` });
+      toast({ variant: "success", title: t("MEMBERS_CARD.PLACE_RELEASED"), description: t("MEMBERS_CARD.IS_OFF_IT", { userId }) });
     } catch (failure) {
       toast({
         variant: "destructive",
-        title: "Could not release",
-        description: failure instanceof Error ? failure.message : "Try again.",
+        title: t("MEMBERS_CARD.COULD_NOT_RELEASE"),
+        description: failure instanceof Error ? failure.message : t(MEMBERS_CARD_TRY_AGAIN_2),
       });
     }
   };
@@ -178,8 +178,9 @@ const SubscriptionPlaces = ({
           <SubscriptionStatusBadge status={subscription.status} />
           {members ? (
             <span className="text-xs text-muted-foreground">
-              {members.held} of {members.purchased} places held
-              {scheduled !== null ? ` · drops to ${scheduled} on ${cutOn}` : ""}
+              {scheduled === null
+                ? t("MEMBERS_CARD.OF_PLACES_HELD", { held: members.held, purchased: members.purchased })
+                : t("MEMBERS_CARD.OF_PLACES_HELD_DROPS", { held: members.held, purchased: members.purchased, scheduled, cutOn: cutOn ?? "" })}
             </span>
           ) : null}
         </div>
@@ -190,7 +191,7 @@ const SubscriptionPlaces = ({
             disabled={!isLive}
             onClick={() => setIsChangingPlan(true)}
           >
-            Change plan
+            {t("MEMBERS_CARD.CHANGE_PLAN")}
           </Button>
           <Button
             size="sm"
@@ -198,7 +199,7 @@ const SubscriptionPlaces = ({
             disabled={!isLive}
             onClick={() => setIsChangingPlaces(true)}
           >
-            Change places
+            {t("MEMBERS_CARD.CHANGE_PLACES")}
           </Button>
           <Button
             size="sm"
@@ -206,16 +207,16 @@ const SubscriptionPlaces = ({
             disabled={!isLive}
             onClick={() => setIsCancelling(true)}
           >
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button
             size="sm"
             disabled={!isLive || isFull}
-            title={isFull ? "Every place that can be filled is taken." : undefined}
+            title={isFull ? t("MEMBERS_CARD.EVERY_PLACE_THAT_CAN_BE") : undefined}
             onClick={() => setIsAssigning(true)}
           >
             <UserPlus className="mr-1 h-4 w-4" />
-            Assign
+            {t("MEMBERS_CARD.ASSIGN")}
           </Button>
         </div>
       </div>
@@ -224,10 +225,10 @@ const SubscriptionPlaces = ({
         <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3 text-xs">
           <span className="text-muted-foreground">
             {subscription.cancelAtPeriodEnd
-              ? `Cancellation scheduled for ${new Date(subscription.currentPeriodEndUtc).toLocaleDateString()}.`
-              : `Moving to ${describePendingMove(subscription, subscription.pendingPlanChange!)} on ${new Date(
+              ? t("MEMBERS_CARD.CANCELLATION_SCHEDULED_FOR", { date: new Date(subscription.currentPeriodEndUtc).toLocaleDateString() })
+              : t("MEMBERS_CARD.MOVING_TO_ON", { subscription: describePendingMove(subscription, subscription.pendingPlanChange!), date: new Date(
                   subscription.pendingPlanChange!.effectiveAtUtc,
-                ).toLocaleDateString()}.`}
+                ).toLocaleDateString() })}
           </span>
           <Button
             size="sm"
@@ -240,34 +241,34 @@ const SubscriptionPlaces = ({
                   onError: (failure) =>
                     toast({
                       variant: "destructive",
-                      title: "Could not undo it",
-                      description: failure instanceof Error ? failure.message : "Try again.",
+                      title: t("MEMBERS_CARD.COULD_NOT_UNDO_IT"),
+                      description: failure instanceof Error ? failure.message : t(MEMBERS_CARD_TRY_AGAIN_2),
                     }),
                 },
               )
             }
           >
-            {subscription.cancelAtPeriodEnd ? "Keep subscription" : "Keep current plan"}
+            {subscription.cancelAtPeriodEnd ? t("MEMBERS_CARD.KEEP_SUBSCRIPTION") : t("MEMBERS_CARD.KEEP_CURRENT_PLAN")}
           </Button>
         </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
-        Harness:
+        {t("MEMBERS_CARD.HARNESS")}
         <Button size="sm" variant="ghost" onClick={() => setIsClosingPeriod(true)}>
-          Close usage period
+          {t("MEMBERS_CARD.CLOSE_USAGE_PERIOD")}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setIsRunningJobs(true)}>
-          Run due jobs
+          {t("MEMBERS_CARD.RUN_DUE_JOBS")}
         </Button>
       </div>
 
       {!isLive && subscription.checkoutUrl ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3 text-xs text-muted-foreground">
-          <span>Waiting on its first payment — nobody can be given a place until it is paid.</span>
+          <span>{t("MEMBERS_CARD.WAITING_ON_ITS_FIRST_PAYMENT")}</span>
           <Button size="sm" asChild>
             <a href={subscription.checkoutUrl} target="_blank" rel="noreferrer">
-              Continue checkout
+              {t("MEMBERS_CARD.CONTINUE_CHECKOUT")}
               <ExternalLink className="ml-2 h-3.5 w-3.5" />
             </a>
           </Button>
@@ -279,12 +280,11 @@ const SubscriptionPlaces = ({
           <Skeleton className="h-16 w-full rounded-md" />
         ) : isError ? (
           <p className="text-sm text-destructive">
-            {error instanceof Error ? error.message : "The members could not be loaded."}
+            {error instanceof Error ? error.message : t("MEMBERS_CARD.THE_MEMBERS_COULD_NOT_BE")}
           </p>
         ) : places.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            This subscription has no places — a flat price with no maximum has no ceiling to give
-            out.
+            {t("MEMBERS_CARD.THIS_SUBSCRIPTION_HAS_NO_PLACES")}
           </p>
         ) : (
           <ul className="divide-y text-sm">
@@ -292,15 +292,15 @@ const SubscriptionPlaces = ({
               <li key={number} className="py-1.5">
                 <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-3">
-                  <span className="w-16 text-xs text-muted-foreground">Place {number}</span>
+                  <span className="w-16 text-xs text-muted-foreground">{t("MEMBERS_CARD.PLACE", { number })}</span>
                   {holder ? (
                     <span className="font-mono text-xs">{holder.userId}</span>
                   ) : scheduled !== null && number > scheduled ? (
                     <span className="text-xs italic text-muted-foreground">
-                      Removed on {cutOn}
+                      {t("MEMBERS_CARD.REMOVED_ON", { cutOn: cutOn ?? "" })}
                     </span>
                   ) : (
-                    <span className="text-xs italic text-muted-foreground">Empty</span>
+                    <span className="text-xs italic text-muted-foreground">{t("MEMBERS_CARD.EMPTY")}</span>
                   )}
                 </span>
                 {holder ? (
@@ -309,10 +309,10 @@ const SubscriptionPlaces = ({
                     variant="ghost"
                     disabled={release.isPending}
                     onClick={() => releaseHolder(holder.userId)}
-                    aria-label={`Release ${holder.userId}`}
+                    aria-label={t("MEMBERS_CARD.RELEASE_2", { userId: holder.userId })}
                   >
                     <UserMinus className="mr-1 h-4 w-4" />
-                    Release
+                    {t("MEMBERS_CARD.RELEASE")}
                   </Button>
                 ) : null}
                 </div>
@@ -432,29 +432,29 @@ const reportPlacesAfterCancel = async (canceled: SimulatedSubscription) => {
       members.held === 0
         ? {
             variant: "success",
-            title: "Every place released",
-            description: `${canceled.planName} has ended and nobody holds a place on it.`,
+            title: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.EVERY_PLACE_RELEASED"),
+            description: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.HAS_ENDED_AND_NOBODY_HOLDS", { planName: canceled.planName }),
           }
         : {
             variant: "destructive",
-            title: `${members.held} place${members.held === 1 ? "" : "s"} still held`,
-            description: `${canceled.planName} has ended but still lists ${members.seats
+            title: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.PLACES_STILL_HELD", { count: members.held }),
+            description: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.HAS_ENDED_BUT_STILL_LISTS", { planName: canceled.planName, users: members.seats
               .map((seat) => seat.userId)
-              .join(", ")}.`,
+              .join(", ") }),
           },
     );
   } catch (failure) {
     toast({
       variant: "destructive",
-      title: "Could not read the places back",
-      description: failure instanceof Error ? failure.message : "Try again.",
+      title: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.COULD_NOT_READ_THE_PLACES"),
+      description: failure instanceof Error ? failure.message : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, MEMBERS_CARD_TRY_AGAIN_2),
     });
   }
 };
 
 /** The current subscription card shows a harness run in full; here a line is enough. */
 const harnessToast = () =>
-  toast({ variant: "success", title: "Harness run finished", description: "Re-read the card for its effect." });
+  toast({ variant: "success", title: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.HARNESS_RUN_FINISHED"), description: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "MEMBERS_CARD.RE_READ_THE_CARD_FOR") });
 
 /** One name per line; commas and spaces also separate, since ids are pasted from anywhere. */
 const parseUserIds = (text: string): string[] => [
@@ -482,6 +482,7 @@ export const AssignMembersDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [text, setText] = useState("");
   const [outcome, setOutcome] = useState<SubscriptionMemberAssignment | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -499,16 +500,17 @@ export const AssignMembersDialog = ({
     }
   };
 
+  const idleAssignLabel = userIds.length
+    ? t("MEMBERS_CARD.ASSIGN_PEOPLE", { count: userIds.length })
+    : t("MEMBERS_CARD.ASSIGN_NONE");
+
   return (
     <Dialog open={open} onOpenChange={(next) => !assign.isPending && onOpenChange(next)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Assign people</DialogTitle>
+          <DialogTitle>{t("MEMBERS_CARD.ASSIGN_PEOPLE")}</DialogTitle>
           <DialogDescription>
-            One user id per line, sent as a single{" "}
-            <code className="rounded bg-muted px-1">POST …/members</code>. Each person gets the free
-            place with the most allowance left.
-          </DialogDescription>
+            {t("MEMBERS_CARD.ONE_USER_ID_PER_LINE", { code: "POST …/members" })}</DialogDescription>
         </DialogHeader>
 
         {outcome ? (
@@ -518,10 +520,10 @@ export const AssignMembersDialog = ({
             value={text}
             onChange={(event) => setText(event.target.value)}
             rows={6}
-            placeholder={"user-1\nuser-2"}
+            placeholder={t("MEMBERS_CARD.USER_1_USER_2")}
             spellCheck={false}
             className="font-mono text-xs"
-            aria-label="User ids"
+            aria-label={t("MEMBERS_CARD.USER_IDS")}
           />
         )}
 
@@ -541,15 +543,13 @@ export const AssignMembersDialog = ({
                   setText("");
                 }}
               >
-                Assign more
+                {t("MEMBERS_CARD.ASSIGN_MORE")}
               </Button>
-              <Button onClick={() => onOpenChange(false)}>Done</Button>
+              <Button onClick={() => onOpenChange(false)}>{t("common:DONE")}</Button>
             </>
           ) : (
             <Button onClick={submit} disabled={userIds.length === 0 || assign.isPending}>
-              {assign.isPending
-                ? "Assigning…"
-                : `Assign ${userIds.length ? `${userIds.length} ` : ""}${userIds.length === 1 ? "person" : "people"}`}
+              {assign.isPending ? t("MEMBERS_CARD.ASSIGNING") : idleAssignLabel}
             </Button>
           )}
         </DialogFooter>
@@ -558,10 +558,12 @@ export const AssignMembersDialog = ({
   );
 };
 
-const AssignmentOutcome = ({ outcome }: { outcome: SubscriptionMemberAssignment }) => (
+const AssignmentOutcome = ({ outcome }: { outcome: SubscriptionMemberAssignment }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
+  return (
   <div className="space-y-3 text-sm">
-    <section aria-label="Assigned">
-      <h3 className="font-medium">Assigned ({outcome.assigned.length})</h3>
+    <section aria-label={t("MEMBERS_CARD.ASSIGNED")}>
+      <h3 className="font-medium">{t("MEMBERS_CARD.ASSIGNED_2", { assignedCount: outcome.assigned.length })}</h3>
       {outcome.assigned.length ? (
         <ul className="mt-1 space-y-0.5">
           {outcome.assigned.map((member) => (
@@ -569,20 +571,20 @@ const AssignmentOutcome = ({ outcome }: { outcome: SubscriptionMemberAssignment 
               {member.userId}
               {member.seatNumber ? (
                 <span className="ml-2 font-sans text-muted-foreground">
-                  place {member.seatNumber}
+                  {t("MEMBERS_CARD.PLACE_2", { seatNumber: member.seatNumber })}
                 </span>
               ) : null}
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-muted-foreground">Nobody.</p>
+        <p className="text-xs text-muted-foreground">{t("MEMBERS_CARD.NOBODY")}</p>
       )}
     </section>
 
     {outcome.refused.length ? (
-      <section aria-label="Refused">
-        <h3 className="font-medium text-destructive">Refused ({outcome.refused.length})</h3>
+      <section aria-label={t("MEMBERS_CARD.REFUSED")}>
+        <h3 className="font-medium text-destructive">{t("MEMBERS_CARD.REFUSED_2", { refusedCount: outcome.refused.length })}</h3>
         <ul className="mt-1 space-y-1">
           {outcome.refused.map((refusal) => (
             <li key={refusal.userId} className="text-xs">
@@ -596,3 +598,4 @@ const AssignmentOutcome = ({ outcome }: { outcome: SubscriptionMemberAssignment 
     ) : null}
   </div>
 );
+};

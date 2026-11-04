@@ -1,3 +1,7 @@
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SHARED_MODULE = "utilities.shared";
+
 type BreadcrumbRouteConfig = {
   title?: string;
   skip?: boolean;
@@ -5,63 +9,63 @@ type BreadcrumbRouteConfig = {
   href?: string;
 };
 
-export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
+export const getBreadcrumbRoutes = (): Record<string, BreadcrumbRouteConfig> => ({
   "/notification": {
-    title: "Notifications",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.NOTIFICATIONS"),
   },
   "/app/:itemId/notification": {
-    title: "Notifications",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.NOTIFICATIONS"),
   },
   "/payment": {
-    title: "Payments",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENTS"),
   },
   "/app/:itemId/payment": {
-    title: "Payments",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENTS"),
   },
   "/payment/list": {
-    title: "Payment List",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENT_LIST"),
   },
   "/app/:itemId/payment/list": {
-    title: "Payment List",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENT_LIST"),
   },
   "/payment/create": {
-    title: "Create Payment",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.CREATE_PAYMENT"),
   },
   "/app/:itemId/payment/create": {
-    title: "Create Payment",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.CREATE_PAYMENT"),
   },
   "/payment/cards": {
-    title: "Saved Cards",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.SAVED_CARDS"),
   },
   "/app/:itemId/payment/cards": {
-    title: "Saved Cards",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.SAVED_CARDS"),
   },
   "/payment/result": {
-    title: "Payment Result",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENT_RESULT"),
   },
   "/app/:itemId/payment/result": {
-    title: "Payment Result",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PAYMENT_RESULT"),
   },
   "/sms": { title: "SMS" },
   "/app/:itemId/sms": { title: "SMS" },
-  "/sms/send": { title: "Send SMS" },
-  "/app/:itemId/sms/send": { title: "Send SMS" },
-  "/sms/templates": { title: "Templates" },
-  "/app/:itemId/sms/templates": { title: "Templates" },
-  "/sms/provider": { title: "Provider settings" },
-  "/app/:itemId/sms/provider": { title: "Provider settings" },
+  "/sms/send": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.SEND_SMS") },
+  "/app/:itemId/sms/send": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.SEND_SMS") },
+  "/sms/templates": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.TEMPLATES") },
+  "/app/:itemId/sms/templates": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.TEMPLATES") },
+  "/sms/provider": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PROVIDER_SETTINGS") },
+  "/app/:itemId/sms/provider": { title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.PROVIDER_SETTINGS") },
   "/magic-url": {
-    title: "Magic URL",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.MAGIC_URL"),
   },
   "/app/:itemId/magic-url": {
-    title: "Magic URL",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.MAGIC_URL"),
   },
   "/magic-url/details": {
-    title: "List",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.LIST"),
     href: "/magic-url",
   },
   "/app/:itemId/magic-url/details": {
-    title: "List",
+    title: tStatic(UTILITIES_SHARED_MODULE, "BREADCRUMB_CUSTOM_TITLE.LIST"),
     href: "/app/:itemId/magic-url",
   },
   "/magic-url/details/:id": {
@@ -70,13 +74,13 @@ export const BREADCRUMB_ROUTES: Record<string, BreadcrumbRouteConfig> = {
   "/app/:itemId/magic-url/details/:id": {
     dynamic: true,
   },
-};
+});
 
 const BREADCRUMB_CUSTOM_TITLES: Record<string, string | null> = {};
 const BREADCRUMB_HREF_OVERRIDES: Record<string, string> = {};
 const BREADCRUMB_SKIP_PATHS: string[] = [];
 
-for (const [path, config] of Object.entries(BREADCRUMB_ROUTES)) {
+for (const [path, config] of Object.entries(getBreadcrumbRoutes())) {
   if (config.title !== undefined) {
     BREADCRUMB_CUSTOM_TITLES[path] = config.title;
   } else if (config.dynamic) {

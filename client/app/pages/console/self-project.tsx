@@ -3,6 +3,7 @@ import { useGetProjects } from "@blocks-identifier/hooks/use-project";
 import ConsoleCreateProject from "@/components/console-create/console-create";
 import { ProjectCard } from "@/components/project-card/project-card";
 import { ProjectCardLoading } from "@/components/project-card/loading";
+import { useT } from "@seliseblocks/genesis-os";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 20, scale: 0.97 },
@@ -31,6 +32,7 @@ const SelfProjectLoading = () => {
 };
 
 export const SelfProject = () => {
+  const { t } = useT("utilities.console");
   const { data, isLoading, isFetching } = useGetProjects();
 
   if (isLoading || isFetching) return <SelfProjectLoading />;
@@ -42,7 +44,7 @@ export const SelfProject = () => {
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <h2 className="shrink-0 text-base font-semibold text-[hsl(var(--high-emphasis))]">
-            Your Blocks Projects
+            {t("SELF_PROJECT.YOUR_BLOCKS_PROJECTS")}
           </h2>
           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
             {projectGroups.length}
@@ -50,7 +52,7 @@ export const SelfProject = () => {
         </div>
         {projectGroups.length > 9 && (
           <span className="shrink-0 text-sm text-[hsl(var(--medium-emphasis))]">
-            Please delete an existing project to create a new one.
+            {t("SELF_PROJECT.PLEASE_DELETE_AN_EXISTING_PROJECT")}
           </span>
         )}
       </div>

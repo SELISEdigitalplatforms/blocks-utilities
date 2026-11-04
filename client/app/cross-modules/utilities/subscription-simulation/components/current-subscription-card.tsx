@@ -10,6 +10,7 @@ import type {
   SimulatedSubscription,
 } from "../models/subscription-simulation.model";
 import { SubscriptionStatusBadge } from "./subscription-status-badge";
+import { useT } from "@seliseblocks/genesis-os";
 
 const formatDate = (isoDate: string | null) =>
   isoDate ? new Date(isoDate).toLocaleString() : "—";
@@ -83,6 +84,7 @@ export const CurrentSubscriptionCard = ({
   onAddPaymentMethod: () => void;
   isStartingPaymentMethodSetup: boolean;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   if (isLoading) {
     return <Skeleton className="h-28 w-full rounded-xl" />;
   }
@@ -92,13 +94,13 @@ export const CurrentSubscriptionCard = ({
       <Card className="flex flex-col items-start gap-2 rounded-xl border-destructive/30 bg-destructive/5 p-4">
         <div className="flex items-center gap-2 text-destructive">
           <AlertCircle className="h-4 w-4" />
-          <span className="font-medium">Current subscription could not be loaded</span>
+          <span className="font-medium">{t("CURRENT_SUBSCRIPTION_CARD.CURRENT_SUBSCRIPTION_COULD_NOT_BE")}</span>
         </div>
         <p className="text-sm text-muted-foreground">
-          {error instanceof Error ? error.message : "Try again in a moment."}
+          {error instanceof Error ? error.message : t("CURRENT_SUBSCRIPTION_CARD.TRY_AGAIN_IN_A_MOMENT")}
         </p>
         <Button size="sm" variant="outline" onClick={onRetry}>
-          Try again
+          {t("CURRENT_SUBSCRIPTION_CARD.TRY_AGAIN")}
         </Button>
       </Card>
     );
@@ -109,8 +111,7 @@ export const CurrentSubscriptionCard = ({
       <Card className="flex items-center gap-3 rounded-xl p-4 text-sm text-muted-foreground">
         <Inbox className="h-5 w-5 shrink-0" />
         <span>
-          <strong className="text-foreground">{scopeLabel}</strong> has no subscription yet.
-          Subscribe to a plan below to start one.
+          <strong className="text-foreground">{scopeLabel}</strong> {t("CURRENT_SUBSCRIPTION_CARD.HAS_NO_SUBSCRIPTION_YET_SUBSCRIBE")}
         </span>
       </Card>
     );
@@ -168,12 +169,12 @@ export const CurrentSubscriptionCard = ({
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="ghost" onClick={onViewAuditTrail}>
             <History className="mr-2 h-3.5 w-3.5" />
-            Audit trail
+            {t("CURRENT_SUBSCRIPTION_CARD.AUDIT_TRAIL")}
           </Button>
           {subscription.checkoutUrl && (
             <Button size="sm" asChild>
               <a href={subscription.checkoutUrl} target="_blank" rel="noreferrer">
-                Continue checkout
+                {t("CURRENT_SUBSCRIPTION_CARD.CONTINUE_CHECKOUT")}
                 <ExternalLink className="ml-2 h-3.5 w-3.5" />
               </a>
             </Button>
@@ -188,7 +189,7 @@ export const CurrentSubscriptionCard = ({
             <Button size="sm" asChild>
               <a href={pendingSetupUrl} target="_blank" rel="noreferrer">
                 <CreditCard className="mr-2 h-3.5 w-3.5" />
-                Complete card setup
+                {t("CURRENT_SUBSCRIPTION_CARD.COMPLETE_CARD_SETUP")}
                 <ExternalLink className="ml-2 h-3.5 w-3.5" />
               </a>
             </Button>
@@ -201,7 +202,7 @@ export const CurrentSubscriptionCard = ({
               disabled={isStartingPaymentMethodSetup}
             >
               <CreditCard className="mr-2 h-3.5 w-3.5" />
-              Add payment method
+              {t("CURRENT_SUBSCRIPTION_CARD.ADD_PAYMENT_METHOD")}
             </Button>
           )}
           {canChangePaymentMethod && (
@@ -212,28 +213,28 @@ export const CurrentSubscriptionCard = ({
               disabled={isStartingPaymentMethodSetup}
             >
               <CreditCard className="mr-2 h-3.5 w-3.5" />
-              Change card
+              {t("CURRENT_SUBSCRIPTION_CARD.CHANGE_CARD")}
             </Button>
           )}
           {canRecover && (
             <Button size="sm" onClick={onAddPaymentMethod} disabled={isStartingPaymentMethodSetup}>
               <CreditCard className="mr-2 h-3.5 w-3.5" />
-              Add card and continue subscription
+              {t("CURRENT_SUBSCRIPTION_CARD.ADD_CARD_AND_CONTINUE_SUBSCRIPTION")}
             </Button>
           )}
           {CHANGEABLE_STATUSES.has(subscription.status) && subscription.quantities.length > 0 && (
             <Button size="sm" variant="outline" onClick={onChangeQuantity}>
-              Change quantity
+              {t("CURRENT_SUBSCRIPTION_CARD.CHANGE_QUANTITY")}
             </Button>
           )}
           {CHANGEABLE_STATUSES.has(subscription.status) && (
             <Button size="sm" variant="outline" onClick={onChangePlan}>
-              Change plan
+              {t("CURRENT_SUBSCRIPTION_CARD.CHANGE_PLAN")}
             </Button>
           )}
           {CANCELABLE_STATUSES.has(subscription.status) && (
             <Button size="sm" variant="destructive-outline" onClick={onCancel}>
-              Cancel
+              {t("common:CANCEL")}
             </Button>
           )}
         </div>
@@ -242,10 +243,10 @@ export const CurrentSubscriptionCard = ({
       <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <CalendarClock className="h-3.5 w-3.5" />
-          Current period ends {formatDate(subscription.currentPeriodEndUtc)}
+          {t("CURRENT_SUBSCRIPTION_CARD.CURRENT_PERIOD_ENDS", { currentPeriodEndUtc: formatDate(subscription.currentPeriodEndUtc) })}
         </span>
         {subscription.trialEndsAtUtc && (
-          <span>Trial ends {formatDate(subscription.trialEndsAtUtc)}</span>
+          <span>{t("CURRENT_SUBSCRIPTION_CARD.TRIAL_ENDS", { trialEndsAtUtc: formatDate(subscription.trialEndsAtUtc) })}</span>
         )}
         {subscription.quantities.length > 0 && (
           <span>
@@ -272,16 +273,14 @@ export const CurrentSubscriptionCard = ({
         >
           <span className="flex items-center gap-1.5 text-warning-900">
             <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-            Cancellation scheduled for {formatDate(subscription.currentPeriodEndUtc)}. You keep{" "}
-            {subscription.planName} until then.
-          </span>
+            {t("CURRENT_SUBSCRIPTION_CARD.CANCELLATION_SCHEDULED_FOR_YOU", { currentPeriodEndUtc: formatDate(subscription.currentPeriodEndUtc), planName: subscription.planName })}</span>
           <Button
             size="sm"
             variant="outline"
             onClick={onWithdrawCancellation}
             disabled={isWithdrawingCancellation}
           >
-            Keep subscription
+            {t("CURRENT_SUBSCRIPTION_CARD.KEEP_SUBSCRIPTION")}
           </Button>
         </div>
       )}
@@ -296,17 +295,14 @@ export const CurrentSubscriptionCard = ({
         >
           <span className="flex items-center gap-1.5 text-warning-900">
             <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-            Moving to {describePendingMove(subscription, subscription.pendingPlanChange)} on{" "}
-            {formatDate(subscription.pendingPlanChange.effectiveAtUtc)} — nothing is charged until
-            then, and you keep {subscription.planName} until it does.
-          </span>
+            {t("CURRENT_SUBSCRIPTION_CARD.MOVING_TO_ON_NOTHING_IS", { subscription: describePendingMove(subscription, subscription.pendingPlanChange), effectiveAtUtc: formatDate(subscription.pendingPlanChange.effectiveAtUtc), planName: subscription.planName })}</span>
           <Button
             size="sm"
             variant="outline"
             onClick={onCancelPendingPlanChange}
             disabled={isCancelingPendingPlanChange}
           >
-            Keep current plan
+            {t("CURRENT_SUBSCRIPTION_CARD.KEEP_CURRENT_PLAN")}
           </Button>
         </div>
       )}
@@ -318,11 +314,9 @@ export const CurrentSubscriptionCard = ({
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-300 bg-warning-50 p-2.5 text-xs">
           <span className="flex items-center gap-1.5 text-warning-900">
             <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-            Reducing to{" "}
-            {subscription.pendingQuantityChange.quantities
+            {t("CURRENT_SUBSCRIPTION_CARD.REDUCING_TO_ON", { quantities: subscription.pendingQuantityChange.quantities
               .map((entry) => `${entry.quantity} ${entry.unitLabel ?? entry.itemKey}`)
-              .join(", ")}{" "}
-            on {formatDate(subscription.pendingQuantityChange.effectiveAtUtc)}
+              .join(", "), effectiveAtUtc: formatDate(subscription.pendingQuantityChange.effectiveAtUtc) })}
           </span>
           <Button
             size="sm"
@@ -330,7 +324,7 @@ export const CurrentSubscriptionCard = ({
             onClick={onCancelPendingQuantityChange}
             disabled={isCancelingPendingQuantityChange}
           >
-            Keep current quantity
+            {t("CURRENT_SUBSCRIPTION_CARD.KEEP_CURRENT_QUANTITY")}
           </Button>
         </div>
       )}

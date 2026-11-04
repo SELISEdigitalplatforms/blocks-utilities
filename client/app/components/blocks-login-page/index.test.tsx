@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { BlocksLoginPage } from "./index";
-import { BLOCKS_PRODUCTS } from "@/constants/blocks-products";
+import { getBlocksProducts } from "@/constants/blocks-products";
 
 vi.mock("@/hooks/use-theme", () => ({
   useTheme: () => ({ setTheme: vi.fn(), resolvedTheme: "light" }),
@@ -16,19 +16,19 @@ describe("BlocksLoginPage", () => {
     vi.useRealTimers();
   });
 
-  const product = BLOCKS_PRODUCTS[0];
+  const product = getBlocksProducts()[0];
 
   it("renders the active product hero and other services in the carousel", () => {
     render(<BlocksLoginPage name={product.name} onLogin={() => {}} />);
     expect(
-      screen.getByText(`${BLOCKS_PRODUCTS.length - 1} services`),
+      screen.getByText(`${getBlocksProducts().length - 1} services`),
     ).toBeInTheDocument();
     expect(screen.getByText(product.tagline)).toBeInTheDocument();
   });
 
   it("falls back to the first product for an unknown name", () => {
     render(<BlocksLoginPage name="does-not-exist" onLogin={() => {}} />);
-    expect(screen.getByText(BLOCKS_PRODUCTS[0].tagline)).toBeInTheDocument();
+    expect(screen.getByText(getBlocksProducts()[0].tagline)).toBeInTheDocument();
   });
 
   it("invokes onLogin when the login button is clicked", () => {

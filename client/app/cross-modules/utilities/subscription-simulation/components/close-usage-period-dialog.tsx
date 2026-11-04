@@ -24,18 +24,21 @@ import type {
   SimulatedRenewalOutcome,
   SubscriptionSimulationActionResponse,
 } from "../models/subscription-simulation-harness.model";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
 
 /** Not a server value — selecting this omits `paymentOutcome` so the real gateway decides. */
 const REAL_GATEWAY = "RealGateway" as const;
 
-const OUTCOMES: { value: SimulatedRenewalOutcome | typeof REAL_GATEWAY; label: string }[] = [
-  { value: REAL_GATEWAY, label: "Real payment gateway (no script)" },
-  { value: "Succeeded", label: "Succeeded" },
-  { value: "Declined", label: "Declined" },
-  { value: "InsufficientFunds", label: "Insufficient funds" },
-  { value: "PaymentMethodExpired", label: "Payment method expired" },
-  { value: "ProviderUnavailable", label: "Provider unavailable" },
-  { value: "OutcomeUnknown", label: "Outcome unknown" },
+const getOutcomes = (): { value: SimulatedRenewalOutcome | typeof REAL_GATEWAY; label: string }[] => [
+  { value: REAL_GATEWAY, label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CLOSE_USAGE_PERIOD_DIALOG.REAL_PAYMENT_GATEWAY_NO_SCRIPT") },
+  { value: "Succeeded", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CLOSE_USAGE_PERIOD_DIALOG.SUCCEEDED") },
+  { value: "Declined", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CLOSE_USAGE_PERIOD_DIALOG.DECLINED") },
+  { value: "InsufficientFunds", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CLOSE_USAGE_PERIOD_DIALOG.INSUFFICIENT_FUNDS") },
+  { value: "PaymentMethodExpired", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CLOSE_USAGE_PERIOD_DIALOG.PAYMENT_METHOD_EXPIRED") },
+  { value: "ProviderUnavailable", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CLOSE_USAGE_PERIOD_DIALOG.PROVIDER_UNAVAILABLE") },
+  { value: "OutcomeUnknown", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CLOSE_USAGE_PERIOD_DIALOG.OUTCOME_UNKNOWN") },
 ];
 
 export const CloseUsagePeriodDialog = ({
@@ -51,6 +54,7 @@ export const CloseUsagePeriodDialog = ({
   onOpenChange: (open: boolean) => void;
   onResult: (result: SubscriptionSimulationActionResponse) => void;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { mutateAsync, isPending } = useCloseUsagePeriod();
 
   const [selection, setSelection] = useState<SimulatedRenewalOutcome | typeof REAL_GATEWAY>(
@@ -72,20 +76,20 @@ export const CloseUsagePeriodDialog = ({
 
       onResult(result);
 
+      const chargedDescription = paymentOutcome
+        ? t("CLOSE_USAGE_PERIOD_DIALOG.ANY_OVERAGE_INVOICE_WAS_CHARGED", { paymentOutcome })
+        : t("CLOSE_USAGE_PERIOD_DIALOG.ANY_OVERAGE_INVOICE_WAS_CHARGED_2");
+
       toast({
         variant: "success",
-        title: "Usage period closed",
-        description: !chargeInvoice
-          ? "No overage invoice was charged."
-          : paymentOutcome
-            ? `Any overage invoice was charged as ${paymentOutcome}.`
-            : "Any overage invoice was charged against the real payment gateway.",
+        title: t("CLOSE_USAGE_PERIOD_DIALOG.USAGE_PERIOD_CLOSED"),
+        description: chargeInvoice ? chargedDescription : t("CLOSE_USAGE_PERIOD_DIALOG.NO_OVERAGE_INVOICE_WAS_CHARGED"),
       });
 
       onOpenChange(false);
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : "The usage period could not be closed.",
+        error instanceof Error ? error.message : t("CLOSE_USAGE_PERIOD_DIALOG.THE_USAGE_PERIOD_COULD_NOT"),
       );
     }
   };
@@ -101,15 +105,9 @@ export const CloseUsagePeriodDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Close usage period</DialogTitle>
+          <DialogTitle>{t("CLOSE_USAGE_PERIOD_DIALOG.CLOSE_USAGE_PERIOD")}</DialogTitle>
           <DialogDescription>
-            Sends{" "}
-            <code>
-              POST /api/subscription-simulation/subscriptions/{subscriptionId}/close-usage-period
-            </code>
-            — closes the current usage period now, prices any overage, and — unless told
-            otherwise — charges it with a scripted outcome.
-          </DialogDescription>
+            {t("CLOSE_USAGE_PERIOD_DIALOG.SENDS_CLOSES_THE_CURRENT_USAGE", { endpoint: `POST /api/subscription-simulation/subscriptions/${subscriptionId}/close-usage-period` })}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -121,13 +119,13 @@ export const CloseUsagePeriodDialog = ({
               className="mt-0.5"
             />
             <Label htmlFor="close-usage-period-charge" className="font-normal">
-              Also charge the overage invoice this close produces, if any.
+              {t("CLOSE_USAGE_PERIOD_DIALOG.ALSO_CHARGE_THE_OVERAGE_INVOICE")}
             </Label>
           </div>
 
           {chargeInvoice && (
             <div className="space-y-1.5">
-              <Label htmlFor="close-usage-period-outcome">Payment outcome</Label>
+              <Label htmlFor="close-usage-period-outcome">{t("CLOSE_USAGE_PERIOD_DIALOG.PAYMENT_OUTCOME")}</Label>
               <Select
                 value={selection}
                 onValueChange={(value) =>
@@ -138,7 +136,7 @@ export const CloseUsagePeriodDialog = ({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {OUTCOMES.map((option) => (
+                  {getOutcomes().map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -153,11 +151,11 @@ export const CloseUsagePeriodDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button onClick={submit} disabled={isPending}>
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Close period
+            {t("CLOSE_USAGE_PERIOD_DIALOG.CLOSE_PERIOD")}
           </Button>
         </DialogFooter>
       </DialogContent>

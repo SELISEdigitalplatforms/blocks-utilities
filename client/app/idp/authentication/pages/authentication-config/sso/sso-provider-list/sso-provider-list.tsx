@@ -8,7 +8,7 @@ import {
 import { useMemo } from "react";
 import { useGetSsoCredentials } from "@blocks-idp/authentication/hooks/use-sso";
 import {
-  SOCIAL_AUTH_PROVIDERS_CONFIG,
+  getSocialAuthProvidersConfig,
   SSO_PROVIDERS,
 } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { useGetAuthConfig } from "@blocks-idp/authentication/hooks/use-auth-config";
@@ -35,7 +35,7 @@ export const SSOProviderList = () => {
     const configuredMap = new Map(data?.map((item) => [item.provider, item]));
 
     return Object.values(SSO_PROVIDERS).map((key) => {
-      const base = SOCIAL_AUTH_PROVIDERS_CONFIG[key];
+      const base = getSocialAuthProvidersConfig()[key];
       const config = configuredMap.get(key) || {};
       return {
         ...base,

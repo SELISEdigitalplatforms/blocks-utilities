@@ -2,6 +2,7 @@ import {
   isRepresentableInMinorUnits,
   minorUnitExponent,
 } from "./subscription-format";
+import { tSubscription } from "./subscription-i18n";
 
 /**
  * Why a fixed discount's amount cannot be sent, or null when it can.
@@ -19,7 +20,7 @@ export const describeDiscountAmountProblem = (
   currencyCode: string,
 ): string | null => {
   if (amount.trim() === "") {
-    return "Enter an amount to take off.";
+    return tSubscription("DISCOUNT_AMOUNT.ENTER_AMOUNT");
   }
 
   const value = Number(amount);
@@ -28,15 +29,15 @@ export const describeDiscountAmountProblem = (
     // Zero is refused here although a zero tier price is allowed: a band priced at nothing is a
     // real decision about overage, while a discount that takes nothing off is a code that does
     // nothing when somebody redeems it.
-    return "An amount off has to be more than zero.";
+    return tSubscription("DISCOUNT_AMOUNT.MORE_THAN_ZERO");
   }
 
   if (!isRepresentableInMinorUnits(value, currencyCode)) {
     const exponent = minorUnitExponent(currencyCode);
 
     return exponent === 0
-      ? `${currencyCode} has no decimal places — enter a whole amount.`
-      : `${currencyCode} allows at most ${exponent} decimal places.`;
+      ? tSubscription("DISCOUNT_AMOUNT.NO_DECIMALS", { currency: currencyCode })
+      : tSubscription("DISCOUNT_AMOUNT.MAX_DECIMALS", { currency: currencyCode, count: exponent });
   }
 
   return null;

@@ -1,15 +1,13 @@
+import type { TFunction } from "@seliseblocks/genesis-os";
 import { Link } from "react-router";
 
-export const linkedinStepupDocs = [
+export const getLinkedinStepupDocs = (t: TFunction) => [
   {
     id: "0",
     description: (
       <div>
         <p>
-          LinkedIn login allows users to authenticate using their LinkedIn account via OAuth 2.0.
-          You’ll need to create a LinkedIn Developer Application, obtain your <b>Client ID</b> and{" "}
-          <b>Client Secret</b>, and configure redirect URIs properly in your app.
-        </p>
+          {t("SSO_SETUP_GUIDELINE_LINKEDIN.LINKEDIN_LOGIN_ALLOWS_USERS_TO", { b: t("SSO_SETUP_GUIDELINE_LINKEDIN.CLIENT_ID"), b2: t("SSO_SETUP_GUIDELINE_LINKEDIN.CLIENT_SECRET") })}</p>
       </div>
     ),
   },
@@ -17,15 +15,15 @@ export const linkedinStepupDocs = [
     id: "1",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Prerequisites</h4>
-        <p>Before starting:</p>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_LINKEDIN.PREREQUISITES")}</h4>
+        <p>{t("SSO_SETUP_GUIDELINE_LINKEDIN.BEFORE_STARTING")}</p>
         <ul className="mt-2 list-inside list-disc">
           <li>
             <Link to="https://www.linkedin.com/developers/" className="text-primary">
-              Sign in to the LinkedIn Developer Portal
+              {t("SSO_SETUP_GUIDELINE_LINKEDIN.SIGN_IN_TO_THE_LINKEDIN")}
             </Link>
           </li>
-          <li>Ensure you have a verified LinkedIn account</li>
+          <li>{t("SSO_SETUP_GUIDELINE_LINKEDIN.ENSURE_YOU_HAVE_A_VERIFIED")}</li>
         </ul>
       </div>
     ),
@@ -34,16 +32,15 @@ export const linkedinStepupDocs = [
     id: "4",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Obtain OAuth Credentials</h4>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_LINKEDIN.OBTAIN_OAUTH_CREDENTIALS")}</h4>
         <p>
-          In your LinkedIn App Dashboard under <b>Auth</b>, you’ll find:
-        </p>
+          {t("SSO_SETUP_GUIDELINE_LINKEDIN.IN_YOUR_LINKEDIN_APP_DASHBOARD", { b: t("SSO_SETUP_GUIDELINE_LINKEDIN.AUTH") })}</p>
         <ul className="mt-2 list-inside list-disc">
-          <li><b>Client ID</b></li>
-          <li><b>Client Secret</b></li>
+          <li><b>{t("SSO_SETUP_GUIDELINE_LINKEDIN.CLIENT_ID")}</b></li>
+          <li><b>{t("SSO_SETUP_GUIDELINE_LINKEDIN.CLIENT_SECRET")}</b></li>
         </ul>
         <p className="mt-2">
-          Keep these credentials secure and do not expose them on the frontend.
+          {t("SSO_SETUP_GUIDELINE_LINKEDIN.KEEP_THESE_CREDENTIALS_SECURE_AND")}
         </p>
       </div>
     ),

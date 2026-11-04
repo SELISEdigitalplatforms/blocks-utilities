@@ -118,7 +118,7 @@ describe("meter tier prices", () => {
 
   describe("precision", () => {
     const parse = (currency: string, unitAmount: number) =>
-      createSubscriptionPlanSchema.safeParse({
+      createSubscriptionPlanSchema().safeParse({
         ...formValuesWithTier(currency, unitAmount),
         prices: [
           {

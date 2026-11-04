@@ -6,6 +6,7 @@ import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-provider
 import PageBreadcrumb from "@/components/breadcrumb/breadcrumb";
 import { BREADCRUMB_CUSTOM_TITLES } from "@/constants/breadcrumb-custom-title";
 import { useState } from "react";
+import { useT } from "@seliseblocks/genesis-os";
 
 type SSOProviderConfigProps = {
   provider: SSO_PROVIDERS;
@@ -13,6 +14,7 @@ type SSOProviderConfigProps = {
 };
 
 export const SSOProviderConfig = ({ provider, id = "" }: SSOProviderConfigProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const [open, setOpen] = useState<boolean>(false);
   if (!provider) return null;
 
@@ -27,7 +29,7 @@ export const SSOProviderConfig = ({ provider, id = "" }: SSOProviderConfigProps)
         <h3 className="text-2xl font-bold tracking-tight">{provider.toUpperCase()}</h3>
         <Button variant="outline" onClick={() => setOpen((open) => !open)}>
           <BookText className="aspect-square w-4" />
-          <span className="sr-only sm:not-sr-only sm:ml-2">Setup Guide</span>
+          <span className="sr-only sm:not-sr-only sm:ml-2">{t("SSO_PROVIDER_CONFIG.SETUP_GUIDE")}</span>
         </Button>
       </div>
 

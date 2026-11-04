@@ -1,10 +1,14 @@
-export const UserCreationType: Record<number, string> = {
-  0: "None",
-  1: "Portal",
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
+
+export const getUserCreationType = (): Record<number, string> => ({
+  0: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.NONE"),
+  1: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.PORTAL"),
   2: "API",
-  3: "Service",
-  4: "Social",
-};
+  3: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.SERVICE"),
+  4: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.SOCIAL"),
+});
 
 export enum GRANT_TYPES {
   password = "password",
@@ -13,46 +17,46 @@ export enum GRANT_TYPES {
   authorizationCode = "authorization_code",
 }
 
-export const GRANT_TYPES_OPTIONS: { id: GRANT_TYPES; label: string; value: string }[] = [
-  { id: GRANT_TYPES.password, label: "Email/Password", value: GRANT_TYPES.password },
+export const getGrantTypesOptions = (): { id: GRANT_TYPES; label: string; value: string }[] => [
+  { id: GRANT_TYPES.password, label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.EMAIL_PASSWORD"), value: GRANT_TYPES.password },
   { id: GRANT_TYPES.social, label: "SSO", value: GRANT_TYPES.social },
   {
     id: GRANT_TYPES.clientCredential,
-    label: "Client Credential",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.CLIENT_CREDENTIAL"),
     value: GRANT_TYPES.clientCredential,
   },
   {
     id: GRANT_TYPES.authorizationCode,
-    label: "Authorization Code",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.AUTHORIZATION_CODE"),
     value: GRANT_TYPES.authorizationCode,
   },
 ];
 
-export const AuthenticationTabs: { id: string; label: string; value: string }[] = [
+export const getAuthenticationTabs = (): { id: string; label: string; value: string }[] => [
   // { id: "general", label: "General", value: "general" },
-  { id: "users", label: "Users", value: "users" },
-  { id: "organizations", label: "Organizations", value: "organizations" },
+  { id: "users", label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.USERS"), value: "users" },
+  { id: "organizations", label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.ORGANIZATIONS"), value: "organizations" },
   {
     id: GRANT_TYPES.clientCredential,
-    label: "Client Credential",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.CLIENT_CREDENTIAL"),
     value: GRANT_TYPES.clientCredential,
   },
 ];
 
-export const SecretManagementTabs: { id: string; label: string; value: string }[] = [
+export const getSecretManagementTabs = (): { id: string; label: string; value: string }[] => [
   {
     id: "infra-config",
-    label: "Infra Config",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.INFRA_CONFIG"),
     value: "infra-config",
   },
   {
     id: "my-secret",
-    label: "My Secret",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.MY_SECRET"),
     value: "my-secret",
   },
   {
     id: "managed-services",
-    label: "My Service",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.MY_SERVICE"),
     value: "managed-services",
   },
   {
@@ -67,12 +71,12 @@ export const SecretManagementTabs: { id: string; label: string; value: string }[
   },
   {
     id: "external-idp",
-    label: "External IdP",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.EXTERNAL_IDP"),
     value: "external-idp",
   },
   {
     id: "captcha",
-    label: "Captcha",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.CAPTCHA"),
     value: "captcha",
   },
   {
@@ -82,17 +86,17 @@ export const SecretManagementTabs: { id: string; label: string; value: string }[
   },
   {
     id: "magic-url",
-    label: "Magic URL",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.MAGIC_URL"),
     value: "magic-url",
   },
   {
     id: "storage",
-    label: "Storage",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.STORAGE"),
     value: "storage",
   },
   {
     id: "ai-models",
-    label: "AI Models",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "AUTHENTICATION_CONSTANT.AI_MODELS"),
     value: "ai-models",
   },
 ];

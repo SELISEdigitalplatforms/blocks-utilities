@@ -1,4 +1,5 @@
 import React from "react";
+import { useT } from "@seliseblocks/genesis-os";
 import { Badge } from "@/components/ui-kits/badge/badge";
 
 export interface LinkStatusBadgeProps {
@@ -6,12 +7,13 @@ export interface LinkStatusBadgeProps {
 }
 
 export function LinkStatusBadge({ status }: LinkStatusBadgeProps) {
+  const { t } = useT("utilities.magic-url");
   const getStatusLabel = (status: string): string => {
     const statusMap: Record<string, string> = {
-      Active: "Active",
-      Expired: "Expired",
-      Link_Disabled: "Disabled",
-      Link_Action_Limit_Exceeded: "Limit Exceeded",
+      Active: t("LINK_STATUS_BADGE.ACTIVE"),
+      Expired: t("LINK_STATUS_BADGE.EXPIRED"),
+      Link_Disabled: t("common:DISABLED"),
+      Link_Action_Limit_Exceeded: t("LINK_STATUS_BADGE.LIMIT_EXCEEDED"),
     };
     return statusMap[status] || status;
   };

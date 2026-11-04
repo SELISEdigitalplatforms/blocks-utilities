@@ -3,8 +3,10 @@ import { BlocksLoginPage } from "@/components/blocks-login-page";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { showErrorToast } from "@/hooks/use-toast";
 import { API_BASES } from "@/constants/endpoint.constant";
+import { useT } from "@seliseblocks/genesis-os";
 
 export default function LoginSimplePage() {
+  const { t } = useT("utilities.console");
   const [isStarting, setIsStarting] = useState(false);
 
   const startLogin = async () => {
@@ -25,12 +27,12 @@ export default function LoginSimplePage() {
       if (data.redirect_uri) {
         window.location.href = data.redirect_uri;
       } else {
-        showErrorToast({ errors: "Failed to get authorization URL" });
+        showErrorToast({ errors: t("LOGIN_SIMPLE.FAILED_TO_GET_AUTHORIZATION_URL") });
         setIsStarting(false);
       }
     } catch (errors) {
       console.error("Login initiation error:", errors);
-      showErrorToast({ errors: "Unable to start login. Please try again." });
+      showErrorToast({ errors: t("LOGIN_SIMPLE.UNABLE_TO_START_LOGIN_PLEASE") });
       setIsStarting(false);
     }
   };

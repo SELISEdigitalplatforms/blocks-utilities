@@ -12,11 +12,10 @@ import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
 const emptyProfilePhoto = "/assets/images/empty-profile-photo.png";
 import { ModuleName } from "@/constants/modules.constants";
+import { useT } from "@seliseblocks/genesis-os";
 type ProfileImageUploaderProps = { projectKey: string; id: string };
-export const ProfileImageUploader = ({
-  projectKey,
-  id,
-}: ProfileImageUploaderProps) => {
+export const ProfileImageUploader = ({ projectKey, id }: ProfileImageUploaderProps) => {
+  const { t } = useT("utilities.idp");
   const [image, setImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data } = useGetMe();
@@ -28,11 +27,10 @@ export const ProfileImageUploader = ({
     id,
     own: true,
   });
-  const [isProfileImageUploading, setIsProfileImageUploading] =
-    useState<boolean>(false);
-  const [prevImageData, setPrevImageData] = useState<
-    NonNullable<typeof data>["data"] | undefined
-  >(undefined);
+  const [isProfileImageUploading, setIsProfileImageUploading] = useState<boolean>(false);
+  const [prevImageData, setPrevImageData] = useState<NonNullable<typeof data>["data"] | undefined>(
+    undefined,
+  );
   if (data?.data && prevImageData !== data.data) {
     setPrevImageData(data.data);
     setImage(data.data.profileImageUrl);
@@ -61,7 +59,8 @@ export const ProfileImageUploader = ({
         });
         if (completion.verificationStatus !== "Verified") {
           return showErrorToast({
-            errors: completion.rejectionReason ?? "Profile picture failed verification",
+            errors:
+              completion.rejectionReason ?? t("PROFILE_IMAGE_UPLOADER.PROFILE_PICTURE_FAILED"),
           });
         }
       }
@@ -76,14 +75,15 @@ export const ProfileImageUploader = ({
         profileImageId: userProfileFile.itemId,
         profileImageUrl: userProfileFile.url,
       });
-      if (!updatedUser.isSuccess)
-        return showErrorToast({ errors: updatedUser.errors });
-      showSuccessToast({ description: "Profile pic updated successfully" });
+      if (!updatedUser.isSuccess) return showErrorToast({ errors: updatedUser.errors });
+      showSuccessToast({
+        description: t("PROFILE_IMAGE_UPLOADER.PROFILE_PIC_UPDATED_SUCCESSFULLY"),
+      });
     } catch (error) {
       if (isErrorWithErrors(error)) {
         return showErrorToast({ errors: error.errors });
       }
-      return showErrorToast({ errors: "Something wen wrong" });
+      return showErrorToast({ errors: t("PROFILE_IMAGE_UPLOADER.SOMETHING_WEN_WRONG") });
     } finally {
       setIsProfileImageUploading(false);
     }
@@ -103,16 +103,18 @@ export const ProfileImageUploader = ({
     if (!ALLOWED_TYPES.includes(selectedFile.type)) {
       event.target.value = "";
       return showErrorToast({
-        errors: "Only image files (PNG, JPG, GIF, WebP, and SVG) are allowed",
+        errors: t("PROFILE_IMAGE_UPLOADER.ONLY_IMAGE_FILES_PNG_JPG"),
       });
     }
     if (selectedFile.size > MAX_SIZE_MB * 1024 * 1024) {
       event.target.value = "";
       return showErrorToast({
-        errors: `File size must be less than ${MAX_SIZE_MB}MB`,
+        errors: t("PROFILE_IMAGE_UPLOADER.FILE_SIZE_MUST_BE_LESS", { MAX_SIZE_MB }),
       });
     }
-    setImage(URL.createObjectURL(selectedFile));
+    // The preview is the file's own object URL; only a blob: URL is ever used as the image source.
+    const preview = new URL(URL.createObjectURL(selectedFile));
+    if (preview.protocol === "blob:") setImage(preview.href);
     uploadImage(selectedFile);
     event.target.value = "";
   };
@@ -123,7 +125,7 @@ export const ProfileImageUploader = ({
           <>
             <img
               src={image}
-              alt="Profile Image"
+              alt={t("PROFILE_IMAGE_UPLOADER.PROFILE_IMAGE")}
               className="rounded-full object-cover"
             />
             {isProfileImageUploading && (
@@ -133,7 +135,7 @@ export const ProfileImageUploader = ({
         ) : (
           <img
             src={emptyProfilePhoto}
-            alt="Empty Profile Image"
+            alt={t("PROFILE_IMAGE_UPLOADER.EMPTY_PROFILE_IMAGE")}
             className="rounded-full object-cover"
           />
         )}
@@ -154,7 +156,7 @@ export const ProfileImageUploader = ({
         }}
       >
         <Camera className="h-5 w-5" />
-        <span className="ml-2.5">Change Image</span>
+        <span className="ml-2.5">{t("PROFILE_IMAGE_UPLOADER.CHANGE_IMAGE")}</span>
       </Button>
     </div>
   );

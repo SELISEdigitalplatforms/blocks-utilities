@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signinFormDefaultValue, signinFormSchema } from "./schema";
+import { signinFormDefaultValue, createSigninFormSchema } from "./schema";
 
 describe("signin form schema", () => {
   it("has empty defaults", () => {
@@ -8,19 +8,19 @@ describe("signin form schema", () => {
 
   it("accepts a valid email and password", () => {
     expect(
-      signinFormSchema.safeParse({ username: "a@b.com", password: "x" }).success,
+      createSigninFormSchema().safeParse({ username: "a@b.com", password: "x" }).success,
     ).toBe(true);
   });
 
   it("rejects an invalid email", () => {
     expect(
-      signinFormSchema.safeParse({ username: "nope", password: "x" }).success,
+      createSigninFormSchema().safeParse({ username: "nope", password: "x" }).success,
     ).toBe(false);
   });
 
   it("requires a password", () => {
     expect(
-      signinFormSchema.safeParse({ username: "a@b.com", password: "" }).success,
+      createSigninFormSchema().safeParse({ username: "a@b.com", password: "" }).success,
     ).toBe(false);
   });
 });

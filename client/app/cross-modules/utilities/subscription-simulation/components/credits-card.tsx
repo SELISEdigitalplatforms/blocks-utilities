@@ -30,11 +30,37 @@ import type {
   MeterTerms,
   SimulatedSubscription,
 } from "../models/subscription-simulation.model";
+import { tStatic, useT } from "@seliseblocks/genesis-os";
 
-const EXPIRY_LABEL: Record<CreditGrant["expiryPolicy"], string> = {
-  Periodic: "expire with the usage window",
-  CarryForward: "carry forward until the plan changes",
-  Never: "never expire",
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
+const CREDITS_CARD_SHARED_POOL = "CREDITS_CARD.SHARED_POOL";
+const CREDITS_CARD_CREDITS = "CREDITS_CARD.CREDITS";
+const COMMON_CANCEL = "common:CANCEL";
+
+const expiryLabel = (policy: CreditGrant["expiryPolicy"]): string => {
+  switch (policy) {
+    case "Periodic":
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.EXPIRE_WITH_USAGE_WINDOW");
+    case "CarryForward":
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.CARRY_FORWARD");
+    default:
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.NEVER_EXPIRE");
+  }
+};
+
+const expiresAfterText = (count: number, unit: string): string => {
+  switch (unit) {
+    case "Hour":
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_HOURS", { count });
+    case "Week":
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_WEEKS", { count });
+    case "Month":
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_MONTHS", { count });
+    case "Year":
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_YEARS", { count });
+    default:
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.LAST_DAYS", { count });
+  }
 };
 
 const errorMessage = (error: unknown, fallback: string) =>
@@ -60,7 +86,10 @@ const isSettledPurchaseFailure = (error: unknown): boolean =>
 /** A blank seat field means the shared pool; anything else must be a seat number. */
 const seatOf = (value: string): number | null => (value.trim() === "" ? null : Number(value));
 
-const bucketLabel = (seat: number | null) => (seat === null ? "Shared pool" : `Seat ${seat}`);
+const bucketLabel = (seat: number | null) =>
+  seat === null
+    ? tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, CREDITS_CARD_SHARED_POOL)
+    : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CREDITS_CARD.SEAT_NUMBER", { seat });
 
 type Action = { kind: "buy" | "grant" | "move"; meter: MeterTerms };
 
@@ -77,6 +106,7 @@ export const CreditsCard = ({
   subscription: SimulatedSubscription;
   organizationId: string | undefined;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [action, setAction] = useState<Action | null>(null);
   const grants = useCreditGrants(subscription.subscriptionId, organizationId);
 
@@ -87,13 +117,17 @@ export const CreditsCard = ({
     return null;
   }
 
+  const describeExpiry = (purchase: NonNullable<(typeof meters)[number]["creditPurchase"]>): string => {
+    if (purchase.expiresAfter) return expiresAfterText(purchase.expiresAfter.count, purchase.expiresAfter.unit);
+    return t("CREDITS_CARD.CREDITS_EXPIRY", { expiry: expiryLabel(purchase.expiryPolicy) });
+  };
+
   return (
     <Card className="rounded-xl p-0">
       <div className="border-b p-4 sm:p-5">
-        <h2 className="font-semibold">Credits</h2>
+        <h2 className="font-semibold">{t(CREDITS_CARD_CREDITS)}</h2>
         <p className="text-xs text-muted-foreground">
-          Extra credits are spent after the plan&apos;s allowance runs out and before any overage.
-          A seat spends its own credits first, then the shared pool&apos;s.
+          {t("CREDITS_CARD.EXTRA_CREDITS_ARE_SPENT_AFTER")}
         </p>
       </div>
 
@@ -107,25 +141,26 @@ export const CreditsCard = ({
               <p className="text-sm font-medium">{meter.displayName || meter.meterKey}</p>
               <p className="text-xs text-muted-foreground">
                 {meter.creditPurchase
-                  ? `${meter.creditPurchase.unitAmount} ${meter.creditPurchase.currencyCode} per credit, ` +
-                    `${meter.creditPurchase.minQuantity.toLocaleString()}–${meter.creditPurchase.maxQuantity.toLocaleString()} per purchase. ` +
-                    (meter.creditPurchase.expiresAfter
-                      ? `Credits last ${meter.creditPurchase.expiresAfter.count} ${meter.creditPurchase.expiresAfter.unit.toLowerCase()}${meter.creditPurchase.expiresAfter.count === 1 ? "" : "s"} from purchase.`
-                      : `Credits ${EXPIRY_LABEL[meter.creditPurchase.expiryPolicy]}.`)
-                  : `Credits for this meter are not for sale in ${subscription.currencyCode}.`}
+                  ? `${t("CREDITS_CARD.PURCHASE_TERMS", {
+                      unitAmount: meter.creditPurchase.unitAmount,
+                      currencyCode: meter.creditPurchase.currencyCode,
+                      min: meter.creditPurchase.minQuantity.toLocaleString(),
+                      max: meter.creditPurchase.maxQuantity.toLocaleString(),
+                    })} ${describeExpiry(meter.creditPurchase)}`
+                  : t("CREDITS_CARD.CREDITS_FOR_THIS_METER_ARE", { currencyCode: subscription.currencyCode })}
               </p>
             </div>
             <div className="flex gap-2">
               {meter.creditPurchase && (
                 <Button size="sm" onClick={() => setAction({ kind: "buy", meter })}>
-                  Buy credits
+                  {t("CREDITS_CARD.BUY_CREDITS")}
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => setAction({ kind: "grant", meter })}>
-                Grant
+                {t("CREDITS_CARD.GRANT")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setAction({ kind: "move", meter })}>
-                Move
+                {t("CREDITS_CARD.MOVE")}
               </Button>
             </div>
           </li>
@@ -170,25 +205,27 @@ const GrantList = ({
   grants: CreditGrant[] | undefined;
   isLoading: boolean;
   error: unknown;
-}) => (
+}) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
+  return (
   <div className="border-t p-4 sm:p-5">
-    <h3 className="mb-2 text-sm font-semibold">Grants</h3>
+    <h3 className="mb-2 text-sm font-semibold">{t("CREDITS_CARD.GRANTS")}</h3>
     {isLoading ? (
-      <p className="text-xs text-muted-foreground">Loading…</p>
+      <p className="text-xs text-muted-foreground">{t("CREDITS_CARD.LOADING")}</p>
     ) : error ? (
-      <p className="text-xs text-destructive">{errorMessage(error, "The credits could not be loaded.")}</p>
+      <p className="text-xs text-destructive">{errorMessage(error, t("CREDITS_CARD.THE_CREDITS_COULD_NOT_BE"))}</p>
     ) : !grants?.length ? (
-      <p className="text-xs text-muted-foreground">No credits bought or granted yet.</p>
+      <p className="text-xs text-muted-foreground">{t("CREDITS_CARD.NO_CREDITS_BOUGHT_OR_GRANTED")}</p>
     ) : (
       <table className="w-full text-left text-xs">
         <thead className="text-muted-foreground">
           <tr>
-            <th className="py-1 font-medium">Meter</th>
-            <th className="py-1 font-medium">Bucket</th>
-            <th className="py-1 font-medium">Source</th>
-            <th className="py-1 text-right font-medium">Remaining</th>
-            <th className="py-1 font-medium">Expires</th>
-            <th className="py-1 font-medium">Status</th>
+            <th className="py-1 font-medium">{t("CREDITS_CARD.METER")}</th>
+            <th className="py-1 font-medium">{t("CREDITS_CARD.BUCKET")}</th>
+            <th className="py-1 font-medium">{t("CREDITS_CARD.SOURCE")}</th>
+            <th className="py-1 text-right font-medium">{t("CREDITS_CARD.REMAINING")}</th>
+            <th className="py-1 font-medium">{t("CREDITS_CARD.EXPIRES")}</th>
+            <th className="py-1 font-medium">{t("common:STATUS")}</th>
           </tr>
         </thead>
         <tbody>
@@ -203,7 +240,7 @@ const GrantList = ({
               <td className="py-1">
                 {grant.expiresAtUtc
                   ? new Date(grant.expiresAtUtc).toLocaleString()
-                  : EXPIRY_LABEL[grant.expiryPolicy]}
+                  : expiryLabel(grant.expiryPolicy)}
               </td>
               <td className="py-1">
                 <Badge variant={grant.status === "Active" ? "default" : "secondary"}>{grant.status}</Badge>
@@ -215,6 +252,7 @@ const GrantList = ({
     )}
   </div>
 );
+};
 
 const BuyCreditsDialog = ({
   subscription,
@@ -227,6 +265,7 @@ const BuyCreditsDialog = ({
   organizationId: string | undefined;
   onClose: () => void;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const terms = meter.creditPurchase!;
   const [quantity, setQuantity] = useState(String(Math.max(terms.minQuantity, 100)));
   const [seat, setSeat] = useState("");
@@ -264,7 +303,7 @@ const BuyCreditsDialog = ({
       setQuote(await preview.mutateAsync(request()));
       setIdempotencyKey(crypto.randomUUID());
     } catch (error) {
-      setProblem(errorMessage(error, "The credits could not be quoted."));
+      setProblem(errorMessage(error, t("CREDITS_CARD.THE_CREDITS_COULD_NOT_BE_2")));
     }
   };
 
@@ -283,12 +322,12 @@ const BuyCreditsDialog = ({
       }
 
       toast({
-        title: result.replayed ? "Already bought" : "Credits bought",
-        description: `${result.quote.quantity.toLocaleString()} credits for ${formatMoney(result.quote.totalMinor, result.quote.currencyCode)}.`,
+        title: result.replayed ? t("CREDITS_CARD.ALREADY_BOUGHT") : t("CREDITS_CARD.CREDITS_BOUGHT"),
+        description: t("CREDITS_CARD.CREDITS_FOR", { quantity: result.quote.quantity.toLocaleString(), totalMinor: formatMoney(result.quote.totalMinor, result.quote.currencyCode) }),
       });
       onClose();
     } catch (error) {
-      setProblem(errorMessage(error, "The credits could not be bought."));
+      setProblem(errorMessage(error, t("CREDITS_CARD.THE_CREDITS_COULD_NOT_BE_3")));
 
       // The server replays a failed purchase for its key, so a retry after a declined card needs a
       // new one. Kept whenever the charge may still have gone through, where a retry under the
@@ -305,19 +344,14 @@ const BuyCreditsDialog = ({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Buy {meter.displayName || meter.meterKey} credits</DialogTitle>
+          <DialogTitle>{t("CREDITS_CARD.BUY_CREDITS_2", { displayName: meter.displayName || meter.meterKey })}</DialogTitle>
           <DialogDescription>
-            {checkout
-              ? "No card is saved, so this is paid at checkout, which saves the card for later top-ups. "
-              : "Charged once to the subscription's saved card. "}
-            Between{" "}
-            {terms.minQuantity.toLocaleString()} and {terms.maxQuantity.toLocaleString()} credits.
-          </DialogDescription>
+            {(checkout ? t("CREDITS_CARD.BUY_CHECKOUT_TERMS", { min: terms.minQuantity.toLocaleString(), max: terms.maxQuantity.toLocaleString() }) : t("CREDITS_CARD.BUY_SAVED_CARD_TERMS", { min: terms.minQuantity.toLocaleString(), max: terms.maxQuantity.toLocaleString() }))}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1">
-            <Label htmlFor="credit-quantity">Credits</Label>
+            <Label htmlFor="credit-quantity">{t(CREDITS_CARD_CREDITS)}</Label>
             <Input
               id="credit-quantity"
               type="number"
@@ -328,18 +362,18 @@ const BuyCreditsDialog = ({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="credit-seat">Seat (optional)</Label>
+            <Label htmlFor="credit-seat">{t("CREDITS_CARD.SEAT_OPTIONAL")}</Label>
             <Input
               id="credit-seat"
               type="number"
               min={1}
-              placeholder="Shared pool"
+              placeholder={t(CREDITS_CARD_SHARED_POOL)}
               value={seat}
               onChange={(event) => edit(() => setSeat(event.target.value))}
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="credit-code">Discount code</Label>
+            <Label htmlFor="credit-code">{t("CREDITS_CARD.DISCOUNT_CODE")}</Label>
             <Input
               id="credit-code"
               value={code}
@@ -349,12 +383,12 @@ const BuyCreditsDialog = ({
         </div>
 
         {quote && (
-          <dl className="grid grid-cols-2 gap-1 rounded-md border p-3 text-sm" aria-label="Quote">
-            <dt>Subtotal</dt>
+          <dl className="grid grid-cols-2 gap-1 rounded-md border p-3 text-sm" aria-label={t("CREDITS_CARD.QUOTE")}>
+            <dt>{t("CREDITS_CARD.SUBTOTAL")}</dt>
             <dd className="text-right tabular-nums">{formatMoney(quote.grossMinor, quote.currencyCode)}</dd>
             {quote.discountMinor > 0 && (
               <>
-                <dt>Discount ({quote.discountCode})</dt>
+                <dt>{t("CREDITS_CARD.DISCOUNT", { discountCode: (quote.discountCode) ?? "" })}</dt>
                 <dd className="text-right tabular-nums">
                   −{formatMoney(quote.discountMinor, quote.currencyCode)}
                 </dd>
@@ -362,30 +396,30 @@ const BuyCreditsDialog = ({
             )}
             {quote.taxMinor > 0 && (
               <>
-                <dt>Tax</dt>
+                <dt>{t("CREDITS_CARD.TAX")}</dt>
                 <dd className="text-right tabular-nums">{formatMoney(quote.taxMinor, quote.currencyCode)}</dd>
               </>
             )}
-            <dt className="font-semibold">Total</dt>
+            <dt className="font-semibold">{t("CREDITS_CARD.TOTAL")}</dt>
             <dd className="text-right font-semibold tabular-nums">
               {formatMoney(quote.totalMinor, quote.currencyCode)}
             </dd>
             <dt className="col-span-2 pt-1 text-xs text-muted-foreground">
               {quote.expiresAtUtc
-                ? `These credits expire on ${new Date(quote.expiresAtUtc).toLocaleString()}.`
-                : `These credits ${EXPIRY_LABEL[quote.expiryPolicy]}.`}
+                ? t("CREDITS_CARD.THESE_CREDITS_EXPIRE_ON", { date: new Date(quote.expiresAtUtc).toLocaleString() })
+                : t("CREDITS_CARD.THESE_CREDITS", { expiry: expiryLabel(quote.expiryPolicy) })}
             </dt>
           </dl>
         )}
 
         {awaiting && (
           <div role="status" className="rounded-md border p-3 text-sm">
-            <p className="font-medium">Waiting for payment</p>
+            <p className="font-medium">{t("CREDITS_CARD.WAITING_FOR_PAYMENT")}</p>
             <p className="text-muted-foreground">
-              Credits are added once the payment provider confirms the payment.{" "}
+              {t("CREDITS_CARD.CREDITS_ARE_ADDED_ONCE_THE")}{" "}
               {awaiting.checkoutUrl && (
                 <a href={awaiting.checkoutUrl} target="_blank" rel="noopener noreferrer" className="underline">
-                  Open checkout
+                  {t("CREDITS_CARD.OPEN_CHECKOUT")}
                 </a>
               )}
             </p>
@@ -400,22 +434,22 @@ const BuyCreditsDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t(COMMON_CANCEL)}
           </Button>
           {awaiting ? (
             <Button onClick={buy} disabled={purchase.isPending}>
               {purchase.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Check payment
+              {t("CREDITS_CARD.CHECK_PAYMENT")}
             </Button>
           ) : quote ? (
             <Button onClick={buy} disabled={purchase.isPending}>
               {purchase.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {checkout ? "Pay at checkout" : "Buy"} for {formatMoney(quote.totalMinor, quote.currencyCode)}
+              {(checkout ? t("CREDITS_CARD.PAY_AT_CHECKOUT_FOR", { total: formatMoney(quote.totalMinor, quote.currencyCode) }) : t("CREDITS_CARD.BUY_FOR", { total: formatMoney(quote.totalMinor, quote.currencyCode) }))}
             </Button>
           ) : (
             <Button onClick={getQuote} disabled={preview.isPending}>
               {preview.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Get quote
+              {t("CREDITS_CARD.GET_QUOTE")}
             </Button>
           )}
         </DialogFooter>
@@ -435,6 +469,7 @@ const GrantCreditsDialog = ({
   organizationId: string | undefined;
   onClose: () => void;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [quantity, setQuantity] = useState("10");
   const [seat, setSeat] = useState("");
   const [reason, setReason] = useState("");
@@ -451,10 +486,10 @@ const GrantCreditsDialog = ({
         seatNumber: seatOf(seat),
         reason: reason.trim(),
       });
-      toast({ title: "Credits granted", description: `${quantity} credits, no charge.` });
+      toast({ title: t("CREDITS_CARD.CREDITS_GRANTED"), description: t("CREDITS_CARD.CREDITS_NO_CHARGE", { quantity }) });
       onClose();
     } catch (error) {
-      setProblem(errorMessage(error, "The credits could not be granted."));
+      setProblem(errorMessage(error, t("CREDITS_CARD.THE_CREDITS_COULD_NOT_BE_4")));
     }
   };
 
@@ -462,14 +497,14 @@ const GrantCreditsDialog = ({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Grant {meter.displayName || meter.meterKey} credits</DialogTitle>
+          <DialogTitle>{t("CREDITS_CARD.GRANT_CREDITS", { displayName: meter.displayName || meter.meterKey })}</DialogTitle>
           <DialogDescription>
-            Free credits, with the meter&apos;s own expiry. The reason is kept with the grant.
+            {t("CREDITS_CARD.FREE_CREDITS_WITH_THE_METER")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="grant-quantity">Credits</Label>
+            <Label htmlFor="grant-quantity">{t(CREDITS_CARD_CREDITS)}</Label>
             <Input
               id="grant-quantity"
               type="number"
@@ -479,23 +514,23 @@ const GrantCreditsDialog = ({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="grant-seat">Seat (optional)</Label>
+            <Label htmlFor="grant-seat">{t("CREDITS_CARD.SEAT_OPTIONAL")}</Label>
             <Input
               id="grant-seat"
               type="number"
               min={1}
-              placeholder="Shared pool"
+              placeholder={t(CREDITS_CARD_SHARED_POOL)}
               value={seat}
               onChange={(event) => setSeat(event.target.value)}
             />
           </div>
         </div>
         <div className="space-y-1">
-          <Label htmlFor="grant-reason">Reason</Label>
+          <Label htmlFor="grant-reason">{t("CREDITS_CARD.REASON")}</Label>
           <Input
             id="grant-reason"
             value={reason}
-            placeholder="Outage on 12 October"
+            placeholder={t("CREDITS_CARD.OUTAGE_ON_12_OCTOBER")}
             onChange={(event) => setReason(event.target.value)}
           />
         </div>
@@ -506,11 +541,11 @@ const GrantCreditsDialog = ({
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t(COMMON_CANCEL)}
           </Button>
           <Button onClick={submit} disabled={grant.isPending || !reason.trim()}>
             {grant.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Grant credits
+            {t("CREDITS_CARD.GRANT_CREDITS_2")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -529,6 +564,7 @@ const MoveCreditsDialog = ({
   organizationId: string | undefined;
   onClose: () => void;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const [quantity, setQuantity] = useState("10");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -546,12 +582,12 @@ const MoveCreditsDialog = ({
         toSeatNumber: seatOf(to),
       });
       toast({
-        title: "Credits moved",
-        description: `${quantity} credits from ${bucketLabel(seatOf(from)).toLowerCase()} to ${bucketLabel(seatOf(to)).toLowerCase()}.`,
+        title: t("CREDITS_CARD.CREDITS_MOVED"),
+        description: t("CREDITS_CARD.CREDITS_FROM_TO", { quantity, from: bucketLabel(seatOf(from)).toLowerCase(), to: bucketLabel(seatOf(to)).toLowerCase() }),
       });
       onClose();
     } catch (error) {
-      setProblem(errorMessage(error, "The credits could not be moved."));
+      setProblem(errorMessage(error, t("CREDITS_CARD.THE_CREDITS_COULD_NOT_BE_5")));
     }
   };
 
@@ -559,15 +595,14 @@ const MoveCreditsDialog = ({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Move {meter.displayName || meter.meterKey} credits</DialogTitle>
+          <DialogTitle>{t("CREDITS_CARD.MOVE_CREDITS", { displayName: meter.displayName || meter.meterKey })}</DialogTitle>
           <DialogDescription>
-            Seated plans only. The credits that would expire soonest move first, and keep their expiry.
-            Leave a seat blank for the shared pool.
+            {t("CREDITS_CARD.SEATED_PLANS_ONLY_THE_CREDITS")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1">
-            <Label htmlFor="move-quantity">Credits</Label>
+            <Label htmlFor="move-quantity">{t(CREDITS_CARD_CREDITS)}</Label>
             <Input
               id="move-quantity"
               type="number"
@@ -577,23 +612,23 @@ const MoveCreditsDialog = ({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="move-from">From seat</Label>
+            <Label htmlFor="move-from">{t("CREDITS_CARD.FROM_SEAT")}</Label>
             <Input
               id="move-from"
               type="number"
               min={1}
-              placeholder="Shared pool"
+              placeholder={t(CREDITS_CARD_SHARED_POOL)}
               value={from}
               onChange={(event) => setFrom(event.target.value)}
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="move-to">To seat</Label>
+            <Label htmlFor="move-to">{t("CREDITS_CARD.TO_SEAT")}</Label>
             <Input
               id="move-to"
               type="number"
               min={1}
-              placeholder="Shared pool"
+              placeholder={t(CREDITS_CARD_SHARED_POOL)}
               value={to}
               onChange={(event) => setTo(event.target.value)}
             />
@@ -606,11 +641,11 @@ const MoveCreditsDialog = ({
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t(COMMON_CANCEL)}
           </Button>
           <Button onClick={submit} disabled={move.isPending || from === to}>
             {move.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Move credits
+            {t("CREDITS_CARD.MOVE_CREDITS_2")}
           </Button>
         </DialogFooter>
       </DialogContent>

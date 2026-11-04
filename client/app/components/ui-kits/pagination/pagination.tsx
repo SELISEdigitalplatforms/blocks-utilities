@@ -8,6 +8,7 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { Button } from "@/components/ui-kits/button/button";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface PaginationProps {
   onChange: (pageIndex: number) => void;
@@ -26,6 +27,7 @@ export function Pagination({
   pageSize,
   onPageSizeChange,
 }: PaginationProps) {
+  const { t } = useT("utilities.shared");
   const pageChangeHandler = (page: number) => {
     onChange(page);
   };
@@ -42,7 +44,7 @@ export function Pagination({
     <div className="flex flex-col gap-0 md:flex-row md:gap-8">
       {pageSizeOptions && pageSizeOptions?.length > 0 ? (
         <div className="flex items-center space-x-2">
-          <p className="text-sm font-medium">Rows per page</p>
+          <p className="text-sm font-medium">{t("PAGINATION.ROWS_PER_PAGE")}</p>
           <Select value={`${pageSize}`} onValueChange={onPageSizeChangeHandler}>
             <SelectTrigger className="h-8 w-[70px]">
               <SelectValue placeholder={pageSize} />
@@ -62,7 +64,7 @@ export function Pagination({
 
       <div className="mt-2 flex items-center gap-4 md:mt-0">
         <div className="flex items-center justify-center text-sm font-medium">
-          Page {page + 1} of {totalPage}
+          {t("PAGINATION.PAGE_OF", { page: page + 1, totalPage })}
         </div>
         <div className="flex items-center gap-1">
           <Button

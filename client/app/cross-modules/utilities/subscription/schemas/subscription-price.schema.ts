@@ -1,16 +1,14 @@
 import { z } from "zod";
 import { zod3Messages } from "@/lib/zod3-messages";
 
-import {
-  isRepresentableInMinorUnits,
-  minorUnitExponent,
-} from "../utilities/subscription-format";
+import { isRepresentableInMinorUnits, minorUnitExponent } from "../utilities/subscription-format";
 
 import { AUTOMATIC_DISCOUNT_COMBINATIONS } from "../utilities/subscription-discount";
 import {
   BILLING_ALIGNMENT_NAMES,
   CALENDAR_ANNUAL_CHARGE_TIMING_NAMES,
 } from "../models/subscription-plan.model";
+import { tSubscription } from "../utilities/subscription-i18n";
 import { TAX_MODES } from "../utilities/subscription-tax";
 
 /**
@@ -27,15 +25,16 @@ export const FLAT_FEE = "__flat_fee__";
 // The checks without a message of their own carry zod 3's default one, so the forms read the same
 // after the zod 4 upgrade. Number.isInteger, not .int(): zod 4's .int() also rejects unsafe integers
 // and skips the checks after it and the superRefine below; zod 3's did neither.
-const priceFields = z.object({
+const priceFields = () =>
+  z.object({
   currencyCode: z
     .string()
     .trim()
-    .length(3, "Use a three-letter currency code.")
+    .length(3, tSubscription("SUBSCRIPTION_PRICE_SCHEMA.CURRENCY_CODE_LENGTH"))
     .toUpperCase(),
   // Entered in major units in the UI (e.g. "89.00") and converted to minor units on submit —
   // the API never wants a decimal, since the exponent belongs to the currency, not the request.
-  amount: z.coerce.number<number>().min(0, "Enter an amount of zero or more."),
+  amount: z.coerce.number<number>().min(0, tSubscription("SUBSCRIPTION_PRICE_SCHEMA.AMOUNT_MIN")),
   interval: z.coerce
     .number<number>()
     .refine(Number.isInteger, zod3Messages.integer)
@@ -91,8 +90,8 @@ const priceFields = z.object({
     (value) => (value === "" || value === null || value === undefined ? undefined : value),
     z.coerce
       .number<number>()
-      .min(0, "A tax rate cannot be negative.")
-      .max(100, "A tax rate cannot exceed 100%.")
+      .min(0, tSubscription("SUBSCRIPTION_PRICE_SCHEMA.TAX_NEGATIVE"))
+      .max(100, tSubscription("SUBSCRIPTION_PRICE_SCHEMA.TAX_EXCEEDS"))
       .optional(),
   ),
   /**
@@ -112,8 +111,8 @@ const priceFields = z.object({
     (value) => (value === "" || value === null || value === undefined ? undefined : value),
     z.coerce
       .number<number>()
-      .min(0, "A discount cannot be negative.")
-      .max(100, "A discount cannot exceed 100%.")
+      .min(0, tSubscription("SUBSCRIPTION_PRICE_SCHEMA.DISCOUNT_NEGATIVE"))
+      .max(100, tSubscription("SUBSCRIPTION_PRICE_SCHEMA.DISCOUNT_EXCEEDS"))
       .optional(),
   ),
   /**
@@ -124,7 +123,7 @@ const priceFields = z.object({
   quantityDiscountCombination: z
     .enum(AUTOMATIC_DISCOUNT_COMBINATIONS)
     .default("BestDiscount"),
-});
+  });
 
 /**
  * The same fields, with the one rule that needs two of them at once.
@@ -133,26 +132,32 @@ const priceFields = z.object({
  * expressed on the amount alone. Left unchecked, submit rounds: 89.999 CHF is charged as 90.00 and
  * 100.5 JPY as 101, with nothing said to the author either time.
  */
-export const subscriptionPriceFieldsSchema = priceFields.superRefine((price, context) => {
-  if (isRepresentableInMinorUnits(price.amount, price.currencyCode)) {
-    return;
-  }
+export const subscriptionPriceFieldsSchema = () =>
+  priceFields().superRefine((price, context) => {
+    if (isRepresentableInMinorUnits(price.amount, price.currencyCode)) {
+      return;
+    }
 
-  const exponent = minorUnitExponent(price.currencyCode);
+    const exponent = minorUnitExponent(price.currencyCode);
 
-  context.addIssue({
-    code: "custom",
-    path: ["amount"],
-    message:
-      exponent === 0
-        ? `${price.currencyCode} has no decimal places — enter a whole amount.`
-        : `${price.currencyCode} allows at most ${exponent} decimal places.`,
+    context.addIssue({
+      code: "custom",
+      path: ["amount"],
+      message:
+        exponent === 0
+          ? tSubscription("SUBSCRIPTION_PRICE_SCHEMA.NO_DECIMALS", { currency: price.currencyCode })
+          : tSubscription("SUBSCRIPTION_PRICE_SCHEMA.MAX_DECIMALS", {
+              currency: price.currencyCode,
+              count: exponent,
+            }),
+    });
   });
-});
 
 export const createSubscriptionPriceSchema = subscriptionPriceFieldsSchema;
 
-export type CreateSubscriptionPriceFormValues = z.infer<typeof createSubscriptionPriceSchema>;
+export type CreateSubscriptionPriceFormValues = z.infer<
+  ReturnType<typeof createSubscriptionPriceSchema>
+>;
 
 export const defaultSubscriptionPriceFormValues: CreateSubscriptionPriceFormValues = {
   currencyCode: "USD",

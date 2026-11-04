@@ -31,7 +31,7 @@ import {
 } from "@/components/ui-kits/select/select";
 import { toast } from "@/hooks/use-toast";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { PaymentProviderConfigurationFields } from "../components/payment-provider-configuration-fields";
 import { PaymentProviderPageHeader } from "../components/payment-provider-page-header";
 import { PaymentWebhookEndpointsCard } from "../components/payment-webhook-endpoints-card";
@@ -40,7 +40,7 @@ import type { RegisterPaymentProviderRequest } from "../models/payment-provider.
 import {
   parseCaptureDelayHours,
   providerDisplayName,
-  registerPaymentProviderSchema,
+  createRegisterPaymentProviderSchema,
   type RegisterPaymentProviderFormValues,
 } from "../schemas/payment-provider.schema";
 
@@ -61,6 +61,7 @@ const normalizeOptional = (value?: string): string | undefined => {
 };
 
 export const CreatePaymentProviderPage = () => {
+  const { t } = useT("utilities.payment");
   const { itemId } = useParams();
   const navigate = useNavigate();
   const { mutateAsync, isPending } = useRegisterPaymentProvider();
@@ -83,7 +84,7 @@ export const CreatePaymentProviderPage = () => {
   const organizations = organizationsData?.organizations ?? [];
 
   const form = useForm<RegisterPaymentProviderFormValues>({
-    resolver: zodResolver(registerPaymentProviderSchema) as Resolver<RegisterPaymentProviderFormValues>,
+    resolver: zodResolver(createRegisterPaymentProviderSchema()) as Resolver<RegisterPaymentProviderFormValues>,
     mode: "onBlur",
     defaultValues: {
       providerName: "ADYEN-ONLINE",
@@ -178,19 +179,20 @@ export const CreatePaymentProviderPage = () => {
 
         toast({
           variant: "warning",
-          title: `${name} configured for ${configured} of ${result.organizations.length} organizations`,
-          description: `${failed
-            .map((outcome) => outcome.organizationId)
-            .join(", ")} failed: ${failed[0].errorMessage ?? "unknown error"}`,
+          title: t("CREATE_PAYMENT_PROVIDER_PAGE.CONFIGURED_FOR_OF_ORGANIZATIONS", { name, configured, organizationsCount: result.organizations.length }),
+          description: t("CREATE_PAYMENT_PROVIDER_PAGE.ORGANIZATIONS_FAILED", {
+            organizations: failed.map((outcome) => outcome.organizationId).join(", "),
+            errorMessage: failed[0].errorMessage ?? t("CREATE_PAYMENT_PROVIDER_PAGE.UNKNOWN_ERROR"),
+          }),
         });
       } else {
         toast({
           variant: "success",
-          title: "Payment provider created",
+          title: t("CREATE_PAYMENT_PROVIDER_PAGE.PAYMENT_PROVIDER_CREATED"),
           description:
             result.organizations.length > 1
-              ? `${name} is ready for ${result.organizations.length} organizations.`
-              : `${name} is ready to configure payments.`,
+              ? t("CREATE_PAYMENT_PROVIDER_PAGE.IS_READY_FOR_ORGANIZATIONS", { name, organizationsCount: result.organizations.length })
+              : t("CREATE_PAYMENT_PROVIDER_PAGE.IS_READY_TO_CONFIGURE_PAYMENTS", { name }),
         });
       }
 
@@ -199,7 +201,7 @@ export const CreatePaymentProviderPage = () => {
       setSubmissionError(
         error instanceof Error
           ? error.message
-          : "The payment provider could not be created.",
+          : t("CREATE_PAYMENT_PROVIDER_PAGE.THE_PAYMENT_PROVIDER_COULD_NOT"),
       );
     }
   };
@@ -207,8 +209,8 @@ export const CreatePaymentProviderPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <PaymentProviderPageHeader
-        title="Create payment provider"
-        description="Register a provider for the current tenant. Credentials are encrypted and never returned."
+        title={t("CREATE_PAYMENT_PROVIDER_PAGE.CREATE_PAYMENT_PROVIDER")}
+        description={t("CREATE_PAYMENT_PROVIDER_PAGE.REGISTER_A_PROVIDER_FOR_THE")}
         backTo={providersPath}
         icon={<Plus className="h-6 w-6" />}
       />
@@ -224,11 +226,10 @@ export const CreatePaymentProviderPage = () => {
               <section className="space-y-5">
                 <div>
                   <h2 className="text-lg font-semibold">
-                    Provider identity
+                    {t("CREATE_PAYMENT_PROVIDER_PAGE.PROVIDER_IDENTITY")}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Provider and merchant form the immutable registration
-                    identity.
+                    {t("CREATE_PAYMENT_PROVIDER_PAGE.PROVIDER_AND_MERCHANT_FORM_THE")}
                   </p>
                 </div>
 
@@ -238,7 +239,7 @@ export const CreatePaymentProviderPage = () => {
                     name="providerName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Provider</FormLabel>
+                        <FormLabel>{t("CREATE_PAYMENT_PROVIDER_PAGE.PROVIDER")}</FormLabel>
                         <Select
                           value={field.value}
                           onValueChange={(value) => {
@@ -283,7 +284,7 @@ export const CreatePaymentProviderPage = () => {
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          Changing this later requires a new registration.
+                          {t("CREATE_PAYMENT_PROVIDER_PAGE.CHANGING_THIS_LATER_REQUIRES_A")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -295,7 +296,7 @@ export const CreatePaymentProviderPage = () => {
                     name="organizationId"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Organization</FormLabel>
+                        <FormLabel>{t("CREATE_PAYMENT_PROVIDER_PAGE.ORGANIZATION")}</FormLabel>
                         <Select
                           value={field.value || CONTEXT_ORGANIZATION}
                           onValueChange={(value) =>
@@ -311,7 +312,7 @@ export const CreatePaymentProviderPage = () => {
                           </FormControl>
                           <SelectContent>
                             <SelectItem value={CONTEXT_ORGANIZATION}>
-                              Every organization in this tenant
+                              {t("CREATE_PAYMENT_PROVIDER_PAGE.EVERY_ORGANIZATION_IN_THIS_TENANT")}
                             </SelectItem>
                             {organizations.map((organization) => (
                               <SelectItem
@@ -325,8 +326,8 @@ export const CreatePaymentProviderPage = () => {
                         </Select>
                         <FormDescription>
                           {organizationsFailed
-                            ? "Organizations could not be loaded; this configuration will serve every organization in the tenant."
-                            : "Which organization this configuration serves. Left as-is it serves every organization that has none of its own. Immutable — it decides which key ring encrypts the credentials."}
+                            ? t("CREATE_PAYMENT_PROVIDER_PAGE.ORGANIZATIONS_COULD_NOT_BE_LOADED")
+                            : t("CREATE_PAYMENT_PROVIDER_PAGE.WHICH_ORGANIZATION_THIS")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -340,7 +341,7 @@ export const CreatePaymentProviderPage = () => {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>
-                            Also configure these organizations
+                            {t("CREATE_PAYMENT_PROVIDER_PAGE.ALSO_CONFIGURE_THESE_ORGANIZATIONS")}
                           </FormLabel>
                           <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border p-3">
                             {additionalOrganizations.map((organization) => (
@@ -370,11 +371,7 @@ export const CreatePaymentProviderPage = () => {
                             ))}
                           </div>
                           <FormDescription>
-                            Each selected organization gets its own
-                            configuration, with these same credentials encrypted
-                            under its own key ring. They are written
-                            independently, so one failing leaves the others in
-                            place.
+                            {t("CREATE_PAYMENT_PROVIDER_PAGE.EACH_SELECTED_ORGANIZATION_GETS")}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -387,7 +384,7 @@ export const CreatePaymentProviderPage = () => {
                     name="merchantId"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Merchant ID</FormLabel>
+                        <FormLabel>{t("CREATE_PAYMENT_PROVIDER_PAGE.MERCHANT_ID")}</FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -401,7 +398,7 @@ export const CreatePaymentProviderPage = () => {
                           />
                         </FormControl>
                         <FormDescription>
-                          The provider merchant or account identifier.
+                          {t("CREATE_PAYMENT_PROVIDER_PAGE.THE_PROVIDER_MERCHANT_OR_ACCOUNT")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -414,7 +411,7 @@ export const CreatePaymentProviderPage = () => {
                       name="apiBaseUrl"
                       render={({ field }) => (
                         <FormItem className="sm:col-span-2">
-                          <FormLabel>Checkout API base URL</FormLabel>
+                          <FormLabel>{t("CREATE_PAYMENT_PROVIDER_PAGE.CHECKOUT_API_BASE_URL")}</FormLabel>
                           <FormControl>
                             <Input
                               {...field}
@@ -425,8 +422,7 @@ export const CreatePaymentProviderPage = () => {
                             />
                           </FormControl>
                           <FormDescription>
-                            Use the approved Adyen Checkout host and API
-                            version for this environment.
+                            {t("CREATE_PAYMENT_PROVIDER_PAGE.USE_THE_APPROVED_ADYEN_CHECKOUT")}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -439,10 +435,10 @@ export const CreatePaymentProviderPage = () => {
               <section className="space-y-5 border-t pt-6">
                 <div>
                   <h2 className="text-lg font-semibold">
-                    Payment configuration
+                    {t("CREATE_PAYMENT_PROVIDER_PAGE.PAYMENT_CONFIGURATION")}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Runtime behavior that can be edited later.
+                    {t("CREATE_PAYMENT_PROVIDER_PAGE.RUNTIME_BEHAVIOR_THAT_CAN_BE")}
                   </p>
                 </div>
                 <PaymentProviderConfigurationFields
@@ -456,10 +452,9 @@ export const CreatePaymentProviderPage = () => {
                     <KeyRound className="h-5 w-5" />
                   </span>
                   <div>
-                    <h2 className="text-lg font-semibold">Credentials</h2>
+                    <h2 className="text-lg font-semibold">{t("CREATE_PAYMENT_PROVIDER_PAGE.CREDENTIALS")}</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Values are sent once over TLS, encrypted at rest, and
-                      never displayed again.
+                      {t("CREATE_PAYMENT_PROVIDER_PAGE.VALUES_ARE_SENT_ONCE_OVER")}
                     </p>
                   </div>
                 </div>
@@ -470,7 +465,7 @@ export const CreatePaymentProviderPage = () => {
                     name="apiKey"
                     render={({ field }) => (
                       <FormItem className="sm:col-span-2">
-                        <FormLabel>API key</FormLabel>
+                        <FormLabel>{t("CREATE_PAYMENT_PROVIDER_PAGE.API_KEY")}</FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -480,12 +475,12 @@ export const CreatePaymentProviderPage = () => {
                             placeholder={
                               providerName === "STRIPE"
                                 ? "sk_… or rk_…"
-                                : "Adyen Checkout API key"
+                                : t("CREATE_PAYMENT_PROVIDER_PAGE.ADYEN_CHECKOUT_API_KEY")
                             }
                           />
                         </FormControl>
                         <FormDescription>
-                          Used only for authenticated calls to the provider.
+                          {t("CREATE_PAYMENT_PROVIDER_PAGE.USED_ONLY_FOR_AUTHENTICATED_CALLS")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -499,8 +494,8 @@ export const CreatePaymentProviderPage = () => {
                       <FormItem>
                         <FormLabel>
                           {providerName === "STRIPE"
-                            ? "Webhook endpoint secret"
-                            : "Standard webhook HMAC"}
+                            ? t("CREATE_PAYMENT_PROVIDER_PAGE.WEBHOOK_ENDPOINT_SECRET")
+                            : t("CREATE_PAYMENT_PROVIDER_PAGE.STANDARD_WEBHOOK_HMAC")}
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -511,12 +506,12 @@ export const CreatePaymentProviderPage = () => {
                             placeholder={
                               providerName === "STRIPE"
                                 ? "whsec_…"
-                                : "64 hexadecimal characters"
+                                : t("CREATE_PAYMENT_PROVIDER_PAGE.N_64_HEXADECIMAL_CHARACTERS")
                             }
                           />
                         </FormControl>
                         <FormDescription>
-                          Verifies payment lifecycle webhooks.
+                          {t("CREATE_PAYMENT_PROVIDER_PAGE.VERIFIES_PAYMENT_LIFECYCLE")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -529,7 +524,7 @@ export const CreatePaymentProviderPage = () => {
                       name="tokenHmacKey"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Token webhook HMAC</FormLabel>
+                          <FormLabel>{t("CREATE_PAYMENT_PROVIDER_PAGE.TOKEN_WEBHOOK_HMAC")}</FormLabel>
                           <FormControl>
                             <Input
                               {...field}
@@ -537,11 +532,11 @@ export const CreatePaymentProviderPage = () => {
                               type="password"
                               autoComplete="new-password"
                               spellCheck={false}
-                              placeholder="64 hexadecimal characters"
+                              placeholder={t("CREATE_PAYMENT_PROVIDER_PAGE.N_64_HEXADECIMAL_CHARACTERS")}
                             />
                           </FormControl>
                           <FormDescription>
-                            Verifies stored-payment-method lifecycle events.
+                            {t("CREATE_PAYMENT_PROVIDER_PAGE.VERIFIES_STORED_PAYMENT_METHOD")}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -567,7 +562,7 @@ export const CreatePaymentProviderPage = () => {
                   onClick={() => navigate(providersPath)}
                   disabled={isPending}
                 >
-                  Cancel
+                  {t("common:CANCEL")}
                 </Button>
                 <Button type="submit" disabled={isPending}>
                   {isPending ? (
@@ -575,7 +570,7 @@ export const CreatePaymentProviderPage = () => {
                   ) : (
                     <Plus className="mr-2 h-4 w-4" />
                   )}
-                  {isPending ? "Creating provider…" : "Create provider"}
+                  {isPending ? t("CREATE_PAYMENT_PROVIDER_PAGE.CREATING_PROVIDER") : t("CREATE_PAYMENT_PROVIDER_PAGE.CREATE_PROVIDER")}
                 </Button>
               </div>
             </form>
@@ -587,10 +582,9 @@ export const CreatePaymentProviderPage = () => {
             <div className="flex items-start gap-3">
               <LockKeyhole className="mt-0.5 h-5 w-5 text-blocks-primary-600" />
               <div>
-                <h2 className="font-semibold">Identity keys</h2>
+                <h2 className="font-semibold">{t("CREATE_PAYMENT_PROVIDER_PAGE.IDENTITY_KEYS")}</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Return-state and shopper-reference keys are generated by
-                  the server. They are intentionally absent from this form.
+                  {t("CREATE_PAYMENT_PROVIDER_PAGE.RETURN_STATE_AND_SHOPPER_REFERENCE")}
                 </p>
               </div>
             </div>
@@ -602,10 +596,9 @@ export const CreatePaymentProviderPage = () => {
             <div className="flex items-start gap-3">
               <Info className="mt-0.5 h-5 w-5 text-blue-700" />
               <div>
-                <h2 className="font-semibold">Before creating</h2>
+                <h2 className="font-semibold">{t("CREATE_PAYMENT_PROVIDER_PAGE.BEFORE_CREATING")}</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Register the endpoints above in your provider account first.
-                  The backend validates credential shape before writing.
+                  {t("CREATE_PAYMENT_PROVIDER_PAGE.REGISTER_THE_ENDPOINTS_ABOVE_IN")}
                 </p>
               </div>
             </div>

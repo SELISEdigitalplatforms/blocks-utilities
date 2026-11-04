@@ -2,7 +2,7 @@ import ConfirmationModal from "@/components/confirmation-modal/confirmation-moda
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { isErrorWithErrors } from "@/lib/error";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { useUpdateSsoCredentialStatus } from "@blocks-idp/authentication/hooks/use-sso";
 import { ISsoProviderConfigurationWithMeta } from "@blocks-idp/authentication/models/sso.model";
@@ -18,13 +18,14 @@ export const SSoProviderStatusToggle = ({
   setOpen,
   configuration,
 }: SSoProviderStatusToggleProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const tenantId = useProjectStore().selectedProject?.tenantId || "";
   const { mutateAsync } = useUpdateSsoCredentialStatus();
 
   const udpateStatus = async () => {
     try {
       if (!configuration.itemId || !tenantId)
-        return showErrorToast({ errors: "Something went wrong" });
+        return showErrorToast({ errors: t("SSO_PROVIDER_STATUS_TOGGLE.SOMETHING_WENT_WRONG") });
 
       const res = await mutateAsync({
         itemId: configuration.itemId,
@@ -35,13 +36,13 @@ export const SSoProviderStatusToggle = ({
       if (!res.isSuccess) return showErrorToast({ errors: res.errors });
 
       showSuccessToast({
-        description: `SSO provider has been successfully ${configuration.isDisabled ? "enabled" : "disabled"}`,
+        description: (configuration.isDisabled ? t("SSO_PROVIDER_STATUS_TOGGLE.SSO_PROVIDER_ENABLED") : t("SSO_PROVIDER_STATUS_TOGGLE.SSO_PROVIDER_DISABLED")),
       });
       setOpen(false);
     } catch (error) {
       if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
 
-      showErrorToast({ errors: "Something went wrong" });
+      showErrorToast({ errors: t("SSO_PROVIDER_STATUS_TOGGLE.SOMETHING_WENT_WRONG") });
     }
   };
 

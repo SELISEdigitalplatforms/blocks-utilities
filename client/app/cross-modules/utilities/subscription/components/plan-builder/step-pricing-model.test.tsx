@@ -33,7 +33,7 @@ const Harness = ({ values }: { values?: Partial<CreateSubscriptionPlanFormValues
  */
 const ValidatedHarness = ({ values }: { values?: Partial<CreateSubscriptionPlanFormValues> }) => {
   const form = useForm<CreateSubscriptionPlanFormValues>({
-    resolver: zodResolver(createSubscriptionPlanSchema) as Resolver<CreateSubscriptionPlanFormValues>,
+    resolver: zodResolver(createSubscriptionPlanSchema()) as Resolver<CreateSubscriptionPlanFormValues>,
     mode: "onBlur",
     defaultValues: { ...defaultSubscriptionPlanFormValues, ...values },
   });

@@ -149,7 +149,7 @@ describe("planToFormValues", () => {
 
   it("produces a draft the create schema still accepts, apart from the price it now lacks", () => {
     const values = planToFormValues(storedPlan());
-    const result = createSubscriptionPlanSchema.safeParse({
+    const result = createSubscriptionPlanSchema().safeParse({
       ...values,
       prices: [
         {
@@ -263,7 +263,7 @@ describe("credit expiry", () => {
     );
     values.meterCredits[0].expiresAfterCount = undefined;
 
-    const result = createSubscriptionPlanSchema.safeParse(values);
+    const result = createSubscriptionPlanSchema().safeParse(values);
 
     expect(result.success).toBe(false);
     expect(JSON.stringify(result.error?.issues)).toContain("expiresAfterCount");

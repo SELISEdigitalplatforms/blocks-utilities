@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ export const PlanBuilderActions = ({
   onSubmit,
 }: PlanBuilderActionsProps) => {
   const { barRef, isStuck } = useStickyActionBar();
+  const { t } = useT("utilities.subscription.plan-builder");
 
   return (
     <div
@@ -74,7 +76,7 @@ export const PlanBuilderActions = ({
           className="group rounded-xl border-border/70 transition-all duration-200 hover:-translate-x-0.5 hover:border-blocks-primary-300 hover:bg-blocks-primary-shades-200 hover:text-blocks-primary-600 disabled:hover:translate-x-0"
         >
           <ArrowLeft className="mr-2 h-4 w-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
-          Back
+          {t("common:BACK")}
         </Button>
 
         {isLastStep ? (
@@ -102,7 +104,7 @@ export const PlanBuilderActions = ({
             onClick={onNext}
             className="group rounded-xl bg-gradient-to-br from-blocks-primary-500 to-blocks-primary-700 px-6 text-white shadow-[0_10px_30px_-12px_hsl(var(--blocks-primary-700)/0.9)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_38px_-12px_hsl(var(--blocks-primary-700)/0.95)]"
           >
-            Next
+            {t("common:NEXT")}
             <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
           </Button>
         )}

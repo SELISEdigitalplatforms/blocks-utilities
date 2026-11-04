@@ -14,6 +14,7 @@ import type {
   SubscriptionSimulationActionResponse,
   SubscriptionSimulationJobRunResponse,
 } from "../models/subscription-simulation-harness.model";
+import { useT } from "@seliseblocks/genesis-os";
 
 type HarnessResult = SubscriptionSimulationActionResponse | SubscriptionSimulationJobRunResponse;
 
@@ -43,36 +44,36 @@ export const SimulationHarnessCard = ({
   onRunDueJobs: () => void;
   onOpenDataConsole: () => void;
   lastResult: HarnessResult | null;
-}) => (
+}) => {
+  const { t } = useT("utilities.subscription-simulation");
+  return (
   <Card className="rounded-xl p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <div className="flex items-center gap-2">
           <Beaker className="h-4 w-4 text-muted-foreground" />
-          <h3 className="font-semibold">Simulation harness</h3>
+          <h3 className="font-semibold">{t("SIMULATION_HARNESS_CARD.SIMULATION_HARNESS")}</h3>
         </div>
         <p className="text-xs text-muted-foreground">
-          Forces payment outcomes and background work directly, for scenarios the plan catalogue
-          and actions above cannot reach on their own — console-only, and unavailable unless the
-          server has the harness enabled.
+          {t("SIMULATION_HARNESS_CARD.FORCES_PAYMENT_OUTCOMES_AND")}
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" onClick={onSimulatePaymentOutcome}>
-          Simulate payment outcome
+          {t("SIMULATION_HARNESS_CARD.SIMULATE_PAYMENT_OUTCOME")}
         </Button>
         <Button size="sm" variant="outline" onClick={onAdvanceRenewal}>
-          Advance renewal
+          {t("SIMULATION_HARNESS_CARD.ADVANCE_RENEWAL")}
         </Button>
         <Button size="sm" variant="outline" onClick={onCloseUsagePeriod}>
-          Close usage period
+          {t("SIMULATION_HARNESS_CARD.CLOSE_USAGE_PERIOD")}
         </Button>
         <Button size="sm" variant="outline" onClick={onRunDueJobs}>
-          Run due jobs
+          {t("SIMULATION_HARNESS_CARD.RUN_DUE_JOBS")}
         </Button>
         <Button size="sm" variant="ghost" onClick={onOpenDataConsole}>
-          Data console
+          {t("SIMULATION_HARNESS_CARD.DATA_CONSOLE")}
         </Button>
       </div>
     </div>
@@ -82,25 +83,22 @@ export const SimulationHarnessCard = ({
         {isJobRun(lastResult) ? (
           <>
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>Run {lastResult.simulationRunId}</span>
+              <span>{t("SIMULATION_HARNESS_CARD.RUN", { simulationRunId: lastResult.simulationRunId })}</span>
               <Badge variant="info" className="font-normal">
-                {lastResult.claimed} claimed
-              </Badge>
+                {t("SIMULATION_HARNESS_CARD.CLAIMED", { claimed: lastResult.claimed })}</Badge>
               <Badge variant="success" className="font-normal">
-                {lastResult.completed} completed
-              </Badge>
+                {t("SIMULATION_HARNESS_CARD.COMPLETED", { completed: lastResult.completed })}</Badge>
               <Badge variant="secondary" className="font-normal">
-                {lastResult.notDue} not due
-              </Badge>
+                {t("SIMULATION_HARNESS_CARD.NOT_DUE", { notDue: lastResult.notDue })}</Badge>
             </div>
             {lastResult.jobs.length > 0 && (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Work type</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Detail</TableHead>
-                    <TableHead>Duration</TableHead>
+                    <TableHead>{t("SIMULATION_HARNESS_CARD.WORK_TYPE")}</TableHead>
+                    <TableHead>{t("common:STATUS")}</TableHead>
+                    <TableHead>{t("SIMULATION_HARNESS_CARD.DETAIL")}</TableHead>
+                    <TableHead>{t("SIMULATION_HARNESS_CARD.DURATION")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -122,25 +120,25 @@ export const SimulationHarnessCard = ({
           <>
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>{lastResult.action}</span>
-              <span>Run {lastResult.simulationRunId}</span>
+              <span>{t("SIMULATION_HARNESS_CARD.RUN", { simulationRunId: lastResult.simulationRunId })}</span>
               <span>{formatDate(lastResult.completedAtUtc)}</span>
             </div>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead />
-                  <TableHead>Before</TableHead>
-                  <TableHead>After</TableHead>
+                  <TableHead>{t("SIMULATION_HARNESS_CARD.BEFORE")}</TableHead>
+                  <TableHead>{t("SIMULATION_HARNESS_CARD.AFTER")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow>
-                  <TableCell className="text-xs font-medium">Status</TableCell>
+                  <TableCell className="text-xs font-medium">{t("common:STATUS")}</TableCell>
                   <TableCell className="text-xs">{lastResult.before.subscriptionStatus}</TableCell>
                   <TableCell className="text-xs">{lastResult.after.subscriptionStatus}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-xs font-medium">Current period ends</TableCell>
+                  <TableCell className="text-xs font-medium">{t("SIMULATION_HARNESS_CARD.CURRENT_PERIOD_ENDS")}</TableCell>
                   <TableCell className="text-xs">
                     {formatDate(lastResult.before.currentPeriodEndUtc)}
                   </TableCell>
@@ -149,7 +147,7 @@ export const SimulationHarnessCard = ({
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-xs font-medium">Next fee billing</TableCell>
+                  <TableCell className="text-xs font-medium">{t("SIMULATION_HARNESS_CARD.NEXT_FEE_BILLING")}</TableCell>
                   <TableCell className="text-xs">
                     {formatDate(lastResult.before.nextFeeBillingAtUtc)}
                   </TableCell>
@@ -158,12 +156,12 @@ export const SimulationHarnessCard = ({
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-xs font-medium">Dunning attempts</TableCell>
+                  <TableCell className="text-xs font-medium">{t("SIMULATION_HARNESS_CARD.DUNNING_ATTEMPTS")}</TableCell>
                   <TableCell className="text-xs">{lastResult.before.dunningAttemptCount}</TableCell>
                   <TableCell className="text-xs">{lastResult.after.dunningAttemptCount}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="text-xs font-medium">Version</TableCell>
+                  <TableCell className="text-xs font-medium">{t("SIMULATION_HARNESS_CARD.VERSION")}</TableCell>
                   <TableCell className="text-xs">{lastResult.before.version}</TableCell>
                   <TableCell className="text-xs">{lastResult.after.version}</TableCell>
                 </TableRow>
@@ -175,3 +173,4 @@ export const SimulationHarnessCard = ({
     )}
   </Card>
 );
+};

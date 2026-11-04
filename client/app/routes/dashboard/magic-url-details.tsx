@@ -14,7 +14,7 @@ import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import { Button } from "@/components/ui-kits/button/button";
 import { useGetMagicUrlById } from "@blocks-utilities/magic-url/hooks/use-magic-url";
 import { useDeactivateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-deactivate-magic-url";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { useScopedPath } from "@seliseblocks/genesis-os/hooks";
 import { MagicUrlStatusBadge } from "@blocks-utilities/magic-url/pages/magic-url-status-badge";
 import { Progress } from "@/components/ui-kits/progress/progress";
@@ -31,6 +31,7 @@ import { MagicUrl, MagicUrlDetailsSkeleton } from "@blocks-utilities/magic-url";
 import { toast } from "@/hooks/use-toast";
 
 export default function MagicUrlDetailsPage() {
+  const { t } = useT("utilities.console");
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const scoped = useScopedPath();
@@ -61,11 +62,11 @@ export default function MagicUrlDetailsPage() {
   }
 
   if (isError) {
-    return <div>Error loading details</div>;
+    return <div>{t("MAGIC_URL_DETAILS.ERROR_LOADING_DETAILS")}</div>;
   }
 
   if (!magicUrl) {
-    return <div>Details not found</div>;
+    return <div>{t("MAGIC_URL_DETAILS.DETAILS_NOT_FOUND")}</div>;
   }
 
   const handleDeactivate = (item: MagicUrl, event: React.MouseEvent) => {
@@ -76,8 +77,8 @@ export default function MagicUrlDetailsPage() {
     if (!tenantId) {
       toast({
         variant: "destructive",
-        title: "Error",
-        description: "No project selected. Please select a project first.",
+        title: t("common:ERROR"),
+        description: t("MAGIC_URL_DETAILS.NO_PROJECT_SELECTED_PLEASE_SELECT"),
       });
       setIsDeactivateModalOpen(false);
       return;
@@ -110,19 +111,19 @@ export default function MagicUrlDetailsPage() {
               }}
             >
               <CircleSlash className="mr-2 h-4 w-4" />
-              <span>Deactivate</span>
+              <span>{t("MAGIC_URL_DETAILS.DEACTIVATE")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Details</CardTitle>
+          <CardTitle>{t("common:DETAILS")}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-6 p-4">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="col-span-1">
-              <p className="text-sm text-muted-foreground">Total Usage</p>
+              <p className="text-sm text-muted-foreground">{t("MAGIC_URL_DETAILS.TOTAL_USAGE")}</p>
               {magicUrl.usageLimit > 0 ? (
                 <div className="mt-2 flex items-center gap-2">
                   <Progress
@@ -150,14 +151,14 @@ export default function MagicUrlDetailsPage() {
               )}
             </div>
             <div className="col-span-1">
-              <p className="text-sm text-muted-foreground">Status</p>
+              <p className="text-sm text-muted-foreground">{t("common:STATUS")}</p>
               <div className="mt-1 w-fit">
                 <MagicUrlStatusBadge item={magicUrl} />
               </div>
             </div>
             <div className="space-y-2">
               <span className="text-sm font-medium text-muted-foreground">
-                Created By
+                {t("MAGIC_URL_DETAILS.CREATED_BY")}
               </span>
               <div className="text-sm font-medium">{createdByName ?? "-"}</div>
             </div>
@@ -165,7 +166,7 @@ export default function MagicUrlDetailsPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-1">
               <span className="text-sm font-medium text-muted-foreground">
-                Created On
+                {t("MAGIC_URL_DETAILS.CREATED_ON")}
               </span>
               <div className="text-sm font-medium">
                 {formatDate(parseDateString(magicUrl.createdAt))}
@@ -173,7 +174,7 @@ export default function MagicUrlDetailsPage() {
             </div>
             <div className="space-y-1">
               <span className="text-sm font-medium text-muted-foreground">
-                Scheduled Expiry Date
+                {t("MAGIC_URL_DETAILS.SCHEDULED_EXPIRY_DATE")}
               </span>
               <div className="text-sm font-medium">
                 {magicUrl.expiryDate
@@ -184,7 +185,7 @@ export default function MagicUrlDetailsPage() {
             {magicUrl.expiredReason && (
               <div className="space-y-1">
                 <span className="text-sm font-medium text-muted-foreground">
-                  Expiry Reason
+                  {t("MAGIC_URL_DETAILS.EXPIRY_REASON")}
                 </span>
                 <div className="text-sm font-medium">
                   {magicUrl.expiredReason}
@@ -195,7 +196,7 @@ export default function MagicUrlDetailsPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1">
               <span className="text-sm font-medium text-muted-foreground">
-                Shortened URL
+                {t("MAGIC_URL_DETAILS.SHORTENED_URL")}
               </span>
               <CopyToClipboardButton textToCopy={magicUrl.shortUri} isHoverable>
                 <div className="min-w-0 truncate text-sm font-medium">
@@ -205,7 +206,7 @@ export default function MagicUrlDetailsPage() {
             </div>
             <div className="space-y-1">
               <span className="text-sm font-medium text-muted-foreground">
-                URL
+                {t("MAGIC_URL_DETAILS.URL")}
               </span>
               <CopyToClipboardButton textToCopy={magicUrl.uri} isHoverable>
                 <div className="min-w-0 truncate text-sm font-medium">
@@ -224,11 +225,11 @@ export default function MagicUrlDetailsPage() {
           onCancel={() => setIsDeactivateModalOpen(false)}
           onConfirm={confirmDeactivate}
           data={{
-            dialogTitle: "Deactivate Magic URL",
+            dialogTitle: t("MAGIC_URL_DETAILS.DEACTIVATE_MAGIC_URL"),
             dialogSubtitle:
-              "Are you sure you want to deactivate this Magic URL? This action cannot be undone.",
-            confirmButton: "Deactivate",
-            cancelButton: "Cancel",
+              t("MAGIC_URL_DETAILS.ARE_YOU_SURE_YOU_WANT"),
+            confirmButton: t("MAGIC_URL_DETAILS.DEACTIVATE"),
+            cancelButton: t("common:CANCEL"),
           }}
           buttonState={{ confirm: { disable: isRemoving } }}
         />

@@ -5,11 +5,11 @@ import { Input } from "@/components/ui-kits/input/input";
 import { Link } from "react-router";
 import { Button } from "@/components/ui-kits/button/button";
 import { z } from "zod";
-import { useAuthStore } from "@seliseblocks/genesis-os";
+import { useAuthStore, useT, tStatic } from "@seliseblocks/genesis-os";
 import { showErrorToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router";
 import { useState } from "react";
-import { signinFormDefaultValue, signinFormSchema } from "../login/schema";
+import { signinFormDefaultValue, createSigninFormSchema } from "../login/schema";
 import { useOIDCContext } from "@/layouts/oidc-layout";
 import { ISigninByEmailPayload, ISigninByEmailResponse } from "@blocks-idp/authentication/models/auth.model";
 import { buildOIDCNavigationUrl, getCurrentOIDCParams } from "@blocks-idp/authentication/utils/oidc-utils";
@@ -60,7 +60,7 @@ export const signinByEmail = async (
       if (errorJSON?.error) {
         throw errorJSON;
       }
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(tStatic("utilities.idp.authentication", "OIDC_SIGNIN_FORM.HTTP", { status: response.status, statusText: response.statusText }));
     }
 
     const text = await response.text();
@@ -78,7 +78,18 @@ export const signinByEmail = async (
   }
 };
 
+const withErrorQuery = (baseUrl: string, apiError: { error?: string; error_description?: string } | undefined) => {
+  const errorParams = new URLSearchParams();
+  if (apiError?.error) errorParams.set("error", apiError.error);
+  if (apiError?.error_description) errorParams.set("error_description", apiError.error_description);
+  const errorQuery = errorParams.toString();
+  if (!errorQuery) return baseUrl;
+  const separator = baseUrl.includes("?") ? "&" : "?";
+  return `${baseUrl}${separator}${errorQuery}`;
+};
+
 export const OidcSigninForm = () => {
+  const { t } = useT("utilities.idp.authentication");
   const { themeColor, projectKey, clientId, scope, state, redirectUri, nonce } = useOIDCContext();
   const navigate = useNavigate();
   const { setAuthenticated } = useAuthStore();
@@ -86,13 +97,13 @@ export const OidcSigninForm = () => {
 
   const form = useForm({
     defaultValues: signinFormDefaultValue,
-    resolver: zodResolver(signinFormSchema),
+    resolver: zodResolver(createSigninFormSchema()),
   });
 
-  const onSubmitHandler = async (values: z.infer<typeof signinFormSchema>) => {
+  const onSubmitHandler = async (values: z.infer<ReturnType<typeof createSigninFormSchema>>) => {
     try {
       if (!projectKey) {
-        showErrorToast({ errors: "Project key is required" });
+        showErrorToast({ errors: t("OIDC_SIGNIN_FORM.PROJECT_KEY_IS_REQUIRED") });
         return;
       }
 
@@ -109,7 +120,8 @@ export const OidcSigninForm = () => {
       });
 
       if (res.enable_mfa) {
-        return navigate(buildOIDCNavigationUrl(`/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`));
+        navigate(buildOIDCNavigationUrl(`/mfa-check?mfa_id=${res.mfaId}&mfa_type=${res.mfaType}`));
+        return;
       }
 
       try {
@@ -129,12 +141,7 @@ export const OidcSigninForm = () => {
     } catch (_error: unknown) {
       const apiError = _error as { error?: string; error_description?: string };
       const baseUrl = buildOIDCNavigationUrl(`/oidc/error`);
-      const errorParams = new URLSearchParams();
-      if (apiError?.error) errorParams.set("error", apiError.error);
-      if (apiError?.error_description) errorParams.set("error_description", apiError.error_description);
-      const errorQuery = errorParams.toString();
-      const separator = baseUrl.includes("?") ? "&" : "?";
-      navigate(errorQuery ? `${baseUrl}${separator}${errorQuery}` : baseUrl);
+      navigate(withErrorQuery(baseUrl, apiError));
     } finally {
       setIsPending(false);
     }
@@ -148,9 +155,9 @@ export const OidcSigninForm = () => {
           name="username"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>{t("common:EMAIL")}</FormLabel>
               <FormControl>
-                <Input placeholder="Enter your email" {...field} />
+                <Input placeholder={t("OIDC_SIGNIN_FORM.ENTER_YOUR_EMAIL")} {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -161,9 +168,9 @@ export const OidcSigninForm = () => {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>{t("OIDC_SIGNIN_FORM.PASSWORD")}</FormLabel>
               <FormControl>
-                <PasswordInput placeholder="Enter your password" {...field} />
+                <PasswordInput placeholder={t("OIDC_SIGNIN_FORM.ENTER_YOUR_PASSWORD")} {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -175,7 +182,7 @@ export const OidcSigninForm = () => {
           className="ml-auto inline-block text-sm hover:underline"
           style={{ color: themeColor }}
         >
-          Forgot password?
+          {t("OIDC_SIGNIN_FORM.FORGOT_PASSWORD")}
         </Link>
 
         <Button
@@ -186,7 +193,7 @@ export const OidcSigninForm = () => {
           }}
           disabled={isPending}
         >
-          Log in
+          {t("OIDC_SIGNIN_FORM.LOG_IN")}
         </Button>
       </form>
     </Form>

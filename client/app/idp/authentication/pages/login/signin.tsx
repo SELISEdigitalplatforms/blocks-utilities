@@ -16,6 +16,7 @@ import { Link } from "react-router";
 import { useEffect } from "react";
 import { SigninForm } from "./signin-form";
 import { SsoSignin } from "./sso-signin";
+import { useT } from "@seliseblocks/genesis-os";
 
 type SigninProps = {
   ssoError?: string;
@@ -67,6 +68,7 @@ const SigninSkeleton = () => (
 );
 
 export const Signin = ({ ssoError }: SigninProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const projectKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "";
 
   const { data: loginOption, isLoading: isLoginOptionLoading } = useGetLoginOptions();
@@ -93,7 +95,7 @@ export const Signin = ({ ssoError }: SigninProps) => {
     <Card className="flex h-full flex-col rounded border-solid border-background shadow-none md:min-w-[448px] md:border-[#95ADC4] lg:max-w-md">
       <CardHeader className="text-center">
         <CardTitle className="text-3xl">Blocks Cloud</CardTitle>
-        <CardDescription className="text-xl text-foreground">Log in</CardDescription>
+        <CardDescription className="text-xl text-foreground">{t("SIGNIN.LOG_IN")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col justify-between">
         <div className="flex flex-1 flex-col justify-center">
@@ -101,7 +103,7 @@ export const Signin = ({ ssoError }: SigninProps) => {
           {loginOption?.allowedGrantTypes.includes(GRANT_TYPES.password) && (
             <div className="my-2 mt-4 flex items-center">
               <hr className="flex-grow border" />
-              <span className="mx-2 text-xs text-low-emphasis">OR</span>
+              <span className="mx-2 text-xs text-low-emphasis">{t("SIGNIN.OR")}</span>
               <hr className="flex-grow border" />
             </div>
           )}
@@ -112,9 +114,9 @@ export const Signin = ({ ssoError }: SigninProps) => {
         {showSignUp && (
           <div className="flex items-center justify-center">
             <div className="mt-3 flex items-center text-medium-emphasis">
-              <p>Not a member?</p>
+              <p>{t("SIGNIN.NOT_A_MEMBER")}</p>
               <Link to="/signup" className="ml-2 inline-block text-sm text-primary">
-                Sign up
+                {t("SIGNIN.SIGN_UP")}
               </Link>
             </div>
           </div>

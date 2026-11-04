@@ -14,7 +14,7 @@ import {
   useGetProjects,
 } from "@blocks-identifier/hooks/use-project";
 import { IProject } from "@blocks-identifier/models/project.model";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 const redirectPaths: Record<string, string> = {
   "/services/iam/user-detail/*": "/services/iam",
@@ -29,6 +29,7 @@ const wildcardToRegex = (pattern: string) => {
   return `^${escaped.replace(/\*/g, "[^/]+")}$`;
 };
 export function ProjectList({ collapsed = false }: { collapsed?: boolean }) {
+  const { t } = useT("utilities.shared");
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { data: projectGroups = [], isLoading } = useGetProjects();
@@ -86,7 +87,7 @@ export function ProjectList({ collapsed = false }: { collapsed?: boolean }) {
         >
           <FolderOpen className="h-5 w-5 text-muted-foreground" />
           <div className="pointer-events-none absolute left-full top-0 z-20 ml-2 min-w-max whitespace-nowrap rounded bg-gray-300 px-2 py-1 text-xs text-primary opacity-0 transition-opacity group-hover:opacity-100">
-            {name || "Select a Project"}
+            {name || t("PROJECT_LIST.SELECT_A_PROJECT")}
           </div>
         </DropdownMenuTrigger>
       ) : (
@@ -98,10 +99,10 @@ export function ProjectList({ collapsed = false }: { collapsed?: boolean }) {
             <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Project
+                {t("PROJECT_LIST.PROJECT")}
               </div>
               <div className="break-all text-sm font-medium leading-tight">
-                {name || "Select a Project"}
+                {name || t("PROJECT_LIST.SELECT_A_PROJECT")}
               </div>
             </div>
             {/* <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> */}
@@ -116,7 +117,7 @@ export function ProjectList({ collapsed = false }: { collapsed?: boolean }) {
           collapsed ? "min-w-48" : "w-[--radix-dropdown-menu-trigger-width]"
         }
       >
-        <DropdownMenuLabel>Your Projects</DropdownMenuLabel>
+        <DropdownMenuLabel>{t("PROJECT_LIST.YOUR_PROJECTS")}</DropdownMenuLabel>
         {isLoading ? (
           <DropdownMenuItem disabled>
             <div className="flex w-full items-center justify-center py-1">
@@ -138,7 +139,7 @@ export function ProjectList({ collapsed = false }: { collapsed?: boolean }) {
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled>
-          Project overview is not part of this client
+          {t("PROJECT_LIST.PROJECT_OVERVIEW_IS_NOT_PART")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

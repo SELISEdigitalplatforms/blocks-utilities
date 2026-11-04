@@ -1,5 +1,8 @@
 import { ArrowUpRight } from "lucide-react";
 import { motion } from "framer-motion";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_CONSOLE_MODULE = "utilities.console";
 
 type DocCardProps = {
   label: string;
@@ -9,6 +12,7 @@ type DocCardProps = {
 };
 
 const DocCard = ({ label, imageUri, description, url }: DocCardProps) => {
+  const { t } = useT(UTILITIES_CONSOLE_MODULE);
   return (
     <motion.a
       href={url}
@@ -38,31 +42,31 @@ const DocCard = ({ label, imageUri, description, url }: DocCardProps) => {
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
         <span className="mt-auto pt-3 text-xs font-medium text-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-          Explore →
+          {t("DEFAULT_DOC.EXPLORE")}
         </span>
       </div>
     </motion.a>
   );
 };
 
-const data = [
+const getData = () => [
   {
-    label: "Docs",
+    label: tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.DOCS"),
     description:
-      "Established standards that help project managers and technical leaders minimize project risks.",
+      tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.ESTABLISHED_STANDARDS_THAT_HELP"),
     imageUri: "/assets/images/console/console_timeline.png",
     url: "https://github.com/SELISEdigitalplatforms/Wiki-BlocksGuideline-Code/wiki",
   },
   {
-    label: "Code",
+    label: tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.CODE"),
     description:
-      "A repository of well-documented, reusable, tried and tested core components for developers.",
+      tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.A_REPOSITORY_OF_WELL_DOCUMENTED"),
     imageUri: "/assets/images/console/console_coding.png",
     url: "https://github.com/SELISEdigitalplatforms",
   },
   {
-    label: "Cloud",
-    description: "High-performing, optimized, and 24/7 monitored enterprise cloud deployment.",
+    label: tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.CLOUD"),
+    description: tStatic(UTILITIES_CONSOLE_MODULE, "DEFAULT_DOC.HIGH_PERFORMING_OPTIMIZED_AND_24"),
     imageUri: "/assets/images/console/console_data-center.png",
     url: "https://selisegroup.com/blocks/",
   },
@@ -71,7 +75,7 @@ const data = [
 export const DefaultDoc = () => {
   return (
     <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-      {data.map((item, index) => (
+      {getData().map((item, index) => (
         <DocCard key={index} {...item} />
       ))}
     </div>

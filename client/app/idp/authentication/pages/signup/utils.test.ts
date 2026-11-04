@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signupFormDefaultValue, signupFormSchema } from "./utils";
+import { signupFormDefaultValue, createSignupFormSchema } from "./utils";
 
 describe("signup form schema", () => {
   it("has an empty email default", () => {
@@ -7,10 +7,10 @@ describe("signup form schema", () => {
   });
 
   it("accepts a valid email", () => {
-    expect(signupFormSchema.safeParse({ email: "a@b.com" }).success).toBe(true);
+    expect(createSignupFormSchema().safeParse({ email: "a@b.com" }).success).toBe(true);
   });
 
   it("rejects an invalid email", () => {
-    expect(signupFormSchema.safeParse({ email: "bad" }).success).toBe(false);
+    expect(createSignupFormSchema().safeParse({ email: "bad" }).success).toBe(false);
   });
 });

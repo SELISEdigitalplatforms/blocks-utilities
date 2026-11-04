@@ -15,6 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
 import { getDefaultShortUrlBase, isValidUrl } from "@blocks-utilities/magic-url/utils/url.util";
 import { Loader2 } from "lucide-react";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface MagicUrlConfigDialogProps {
   open: boolean;
@@ -31,6 +32,7 @@ export const MagicUrlConfigDialog = ({
   onSave,
   projectKey,
 }: MagicUrlConfigDialogProps) => {
+  const { t } = useT("utilities.magic-url");
   const [contextName, setContextName] = useState("");
   const [shortUrlBase, setShortUrlBase] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -63,15 +65,15 @@ export const MagicUrlConfigDialog = ({
     const newErrors = { contextName: "", shortUrlBase: "" };
 
     if (!contextName.trim()) {
-      newErrors.contextName = "Context name is required";
+      newErrors.contextName = t("MAGIC_URL_CONFIG_DIALOG.CONTEXT_NAME_REQUIRED");
     }
 
     if (!shortUrlBase.trim()) {
-      newErrors.shortUrlBase = "Short URL base is required";
+      newErrors.shortUrlBase = t("MAGIC_URL_CONFIG_DIALOG.SHORT_URL_BASE_REQUIRED");
     } else if (!isValidUrl(shortUrlBase)) {
-      newErrors.shortUrlBase = "URL must be a valid HTTPS/HTTP URL";
+      newErrors.shortUrlBase = t("MAGIC_URL_CONFIG_DIALOG.URL_MUST_BE_VALID");
     } else if (!shortUrlBase.endsWith("/")) {
-      newErrors.shortUrlBase = "URL must end with a forward slash (/)";
+      newErrors.shortUrlBase = t("MAGIC_URL_CONFIG_DIALOG.URL_MUST_END_WITH_SLASH");
     }
 
     setErrors(newErrors);
@@ -93,7 +95,7 @@ export const MagicUrlConfigDialog = ({
       await queryClient.invalidateQueries({ queryKey: ["magic-url-config", projectKey] });
 
       if (!configData?.isSuccess) return showErrorToast({ errors: configData?.errorMessage });
-      showSuccessToast({ description: "Configuration updated successfully" });
+      showSuccessToast({ description: t("MAGIC_URL_CONFIG_DIALOG.CONFIGURATION_UPDATED_SUCCESSFULLY") });
 
       onOpenChange(false);
     } catch (error) {
@@ -134,7 +136,7 @@ export const MagicUrlConfigDialog = ({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Configure Magic URL</DialogTitle>
+            <DialogTitle>{t("MAGIC_URL_CONFIG_DIALOG.CONFIGURE_MAGIC_URL")}</DialogTitle>
           </DialogHeader>
 
           {isConfigLoading ? (
@@ -146,11 +148,11 @@ export const MagicUrlConfigDialog = ({
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <Label htmlFor="contextName">
-                    Context Name <span className="text-error">*</span>
+                    {t("MAGIC_URL_CONFIG_DIALOG.CONTEXT_NAME")} <span className="text-error">*</span>
                   </Label>
                   <Input
                     id="contextName"
-                    placeholder="Enter context name"
+                    placeholder={t("MAGIC_URL_CONFIG_DIALOG.ENTER_CONTEXT_NAME")}
                     value={contextName}
                     onChange={(e) => {
                       setContextName(e.target.value);
@@ -164,11 +166,11 @@ export const MagicUrlConfigDialog = ({
 
                 <div className="space-y-2">
                   <Label htmlFor="shortUrlBase">
-                    Short URL Base <span className="text-error">*</span>
+                    {t("MAGIC_URL_CONFIG_DIALOG.SHORT_URL_BASE")} <span className="text-error">*</span>
                   </Label>
                   <Input
                     id="shortUrlBase"
-                    placeholder="e.g., https://short.seliseblocks.com/"
+                    placeholder={t("MAGIC_URL_CONFIG_DIALOG.E_G_HTTPS_SHORT_SELISEBLOCKS")}
                     value={shortUrlBase}
                     onChange={(e) => {
                       setShortUrlBase(e.target.value);
@@ -189,10 +191,10 @@ export const MagicUrlConfigDialog = ({
                   onClick={() => handleOpenChange(false)}
                   disabled={isLoading}
                 >
-                  Cancel
+                  {t("common:CANCEL")}
                 </Button>
                 <Button onClick={handleSave} disabled={isLoading}>
-                  {isLoading ? "Saving..." : "Save"}
+                  {isLoading ? t("MAGIC_URL_CONFIG_DIALOG.SAVING") : t("common:SAVE")}
                 </Button>
               </DialogFooter>
             </>

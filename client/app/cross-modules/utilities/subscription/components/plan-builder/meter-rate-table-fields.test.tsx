@@ -22,7 +22,7 @@ const meter = {
 
 const Harness = () => {
   const form = useForm<CreateSubscriptionPlanFormValues>({
-    resolver: zodResolver(createSubscriptionPlanSchema) as Resolver<CreateSubscriptionPlanFormValues>,
+    resolver: zodResolver(createSubscriptionPlanSchema()) as Resolver<CreateSubscriptionPlanFormValues>,
     defaultValues: { ...defaultSubscriptionPlanFormValues, meters: [meter] },
   });
 
@@ -87,7 +87,7 @@ describe("MeterRateTableFields", () => {
 
 describe("the schema behind it", () => {
   const withTiers = (tiers: { upToQuantity?: number; unitAmount: number }[]) =>
-    createSubscriptionPlanSchema.safeParse({
+    createSubscriptionPlanSchema().safeParse({
       ...defaultSubscriptionPlanFormValues,
       code: "metered",
       displayName: "Metered",
@@ -139,7 +139,7 @@ describe("the ordering error", () => {
   it("is shown against the table rather than failing silently", async () => {
     const Invalid = () => {
       const form = useForm<CreateSubscriptionPlanFormValues>({
-        resolver: zodResolver(createSubscriptionPlanSchema) as Resolver<CreateSubscriptionPlanFormValues>,
+        resolver: zodResolver(createSubscriptionPlanSchema()) as Resolver<CreateSubscriptionPlanFormValues>,
         defaultValues: {
           ...defaultSubscriptionPlanFormValues,
           code: "metered",

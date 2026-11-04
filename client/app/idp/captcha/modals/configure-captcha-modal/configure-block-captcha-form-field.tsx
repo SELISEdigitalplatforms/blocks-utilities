@@ -14,13 +14,15 @@ import {
   SelectValue,
 } from "@/components/ui-kits/select/select";
 import { ConfigureCaptchaFormDefaultValue } from "./utils";
-import { CAPTCHA_GENERATOR_TYPE } from "../../models/captcha";
+import { getCaptchaGeneratorType } from "../../models/captcha";
+import { useT } from "@seliseblocks/genesis-os";
 
 type ConfigureBlockCaptchaFormProps = {
   form: UseFormReturn<typeof ConfigureCaptchaFormDefaultValue>;
 };
 
 export const ConfigureBlockCaptchaFormField = ({ form }: ConfigureBlockCaptchaFormProps) => {
+  const { t } = useT("utilities.idp");
   return (
     <>
       <FormField
@@ -28,14 +30,14 @@ export const ConfigureBlockCaptchaFormField = ({ form }: ConfigureBlockCaptchaFo
         control={form.control}
         render={({ field }) => (
           <FormItem>
-            <FormLabel>CAPTCHA Generator type</FormLabel>
+            <FormLabel>{t("CONFIGURE_BLOCK_CAPTCHA_FORM_FIELD.CAPTCHA_GENERATOR_TYPE")}</FormLabel>
             <FormControl>
               <Select onValueChange={field.onChange} defaultValue={field.value}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select type" />
+                  <SelectValue placeholder={t("CONFIGURE_BLOCK_CAPTCHA_FORM_FIELD.SELECT_TYPE")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.values(CAPTCHA_GENERATOR_TYPE).map((item) => (
+                  {Object.values(getCaptchaGeneratorType()).map((item) => (
                     <SelectItem key={item.value} value={item.value}>
                       {item.label}
                     </SelectItem>

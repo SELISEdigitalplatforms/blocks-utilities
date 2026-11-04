@@ -545,12 +545,6 @@ export interface SubscriptionPlanChangePreview {
   quotedAtUtc: string;
 }
 
-export type PlanChangeLabel =
-  | "Upgrade"
-  | "Downgrade"
-  | "Switch plan"
-  | "Change billing cadence";
-
 /**
  * A single entitlement's live decision. Reading one is a check, not enforcement — two callers
  * both a unit under the limit can both read `allowed: true`, and only the usage call below tells

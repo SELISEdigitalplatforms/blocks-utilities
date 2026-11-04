@@ -1,3 +1,5 @@
+import { tSubscription } from "./subscription-i18n";
+
 /**
  * How a volume band reads to a person.
  *
@@ -7,21 +9,23 @@
  */
 export const formatDiscountPercent = (discountBasisPoints: number): string => {
   if (discountBasisPoints <= 0) {
-    return "no discount";
+    return tSubscription("QUANTITY_DISCOUNT_FORMAT.NO_DISCOUNT");
   }
 
   // Basis points are integers, so at most two decimals can survive, and trailing zeros read as
   // false precision on a price list.
   const percent = discountBasisPoints / 100;
 
-  return `${Number(percent.toFixed(2))}% off`;
+  return tSubscription("QUANTITY_DISCOUNT_FORMAT.PERCENT_OFF", {
+    percent: Number(percent.toFixed(2)),
+  });
 };
 
 export const formatQuantityBand = (
   tier: { minimumQuantity: number; maximumQuantity?: number | null },
   unitLabel: string,
 ): string => {
-  const unit = unitLabel || "unit";
+  const unit = unitLabel || tSubscription("QUANTITY_DISCOUNT_FORMAT.UNIT_FALLBACK");
   const range =
     tier.maximumQuantity === null || tier.maximumQuantity === undefined
       ? `${tier.minimumQuantity.toLocaleString()}+`
@@ -29,7 +33,11 @@ export const formatQuantityBand = (
         ? tier.minimumQuantity.toLocaleString()
         : `${tier.minimumQuantity.toLocaleString()}\u2013${tier.maximumQuantity.toLocaleString()}`;
 
-  return `${range} ${unit}${tier.maximumQuantity === 1 ? "" : "s"}`;
+  return tSubscription("QUANTITY_DISCOUNT_FORMAT.BAND", {
+    count: tier.maximumQuantity ?? 2,
+    range,
+    unit,
+  });
 };
 
 export const describeQuantityBand = (

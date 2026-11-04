@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import {
@@ -23,30 +24,35 @@ import { StepHeading } from "./step-heading";
 /** Not a server value — selecting this clears the trial fields entirely. */
 const NO_TRIAL = "None" as const;
 
-const TRIAL_DURATION_KIND_OPTIONS: {
+type Translate = ReturnType<typeof useT>["t"];
+
+const trialDurationKindOptions = (
+  t: Translate,
+): {
   value: "Days" | "EndOfCalendarMonth" | "AnniversaryMonths";
   label: string;
   description: string;
-}[] = [
+}[] => [
   {
     value: "Days",
-    label: "Fixed number of days",
-    description: "14 days from signup.",
+    label: t("STEP_TRIAL.KIND_DAYS"),
+    description: t("STEP_TRIAL.KIND_DAYS_DESCRIPTION"),
   },
   {
     value: "EndOfCalendarMonth",
-    label: "Until the end of the calendar month",
-    description:
-      "Until the end of the calendar month; late signups may receive a short trial.",
+    label: t("STEP_TRIAL.KIND_END_OF_MONTH"),
+    description: t("STEP_TRIAL.KIND_END_OF_MONTH_DESCRIPTION"),
   },
   {
     value: "AnniversaryMonths",
-    label: "Fixed number of months",
-    description: "Same local date and time after N months.",
+    label: t("STEP_TRIAL.KIND_MONTHS"),
+    description: t("STEP_TRIAL.KIND_MONTHS_DESCRIPTION"),
   },
 ];
 
 export const StepTrial = () => {
+  const { t } = useT("utilities.subscription.plan-builder");
+  const kindOptions = trialDurationKindOptions(t);
   const { control, setValue } = useFormContext<CreateSubscriptionPlanFormValues>();
   const trialGrants = useFieldArray({ control, name: "trialGrants" });
   const trialDurationKind = useWatch({ control, name: "trialDurationKind" });
@@ -67,9 +73,9 @@ export const StepTrial = () => {
   return (
     <div className="space-y-6">
       <StepHeading
-        eyebrow="Trial"
-        title="Trial"
-        description={'Optional. Choose “No trial” for a plan that charges from day one.'}
+        eyebrow={t("STEP_TRIAL.TITLE")}
+        title={t("STEP_TRIAL.TITLE")}
+        description={t("STEP_TRIAL.DESCRIPTION")}
       />
 
       <div className="grid gap-5 sm:grid-cols-2">
@@ -78,7 +84,7 @@ export const StepTrial = () => {
           name="trialDurationKind"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Trial duration</FormLabel>
+              <FormLabel>{t("STEP_TRIAL.DURATION")}</FormLabel>
               <Select
                 value={field.value ?? NO_TRIAL}
                 onValueChange={(value) => {
@@ -99,8 +105,8 @@ export const StepTrial = () => {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value={NO_TRIAL}>No trial</SelectItem>
-                  {TRIAL_DURATION_KIND_OPTIONS.map((option) => (
+                  <SelectItem value={NO_TRIAL}>{t("STEP_TRIAL.NO_TRIAL")}</SelectItem>
+                  {kindOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -109,9 +115,9 @@ export const StepTrial = () => {
               </Select>
               <p className="text-xs text-muted-foreground">
                 {trialDurationKind
-                  ? TRIAL_DURATION_KIND_OPTIONS.find((option) => option.value === trialDurationKind)
+                  ? kindOptions.find((option) => option.value === trialDurationKind)
                       ?.description
-                  : "A plan that charges from day one."}
+                  : t("STEP_TRIAL.NO_TRIAL_HINT")}
               </p>
               <FormMessage />
             </FormItem>
@@ -125,7 +131,9 @@ export const StepTrial = () => {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>
-                  {trialDurationKind === "AnniversaryMonths" ? "Months" : "Days"}
+                  {trialDurationKind === "AnniversaryMonths"
+                    ? t("STEP_TRIAL.MONTHS")
+                    : t("STEP_TRIAL.DAYS")}
                 </FormLabel>
                 <FormControl>
                   <Input
@@ -151,7 +159,7 @@ export const StepTrial = () => {
                 <FormControl>
                   <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                 </FormControl>
-                <FormLabel className="!m-0">Require a card to start the trial</FormLabel>
+                <FormLabel className="!m-0">{t("STEP_TRIAL.REQUIRE_CARD")}</FormLabel>
               </div>
               {/*
                 Both branches describe a trial that is free until it ends. Requiring a card and
@@ -161,8 +169,8 @@ export const StepTrial = () => {
               */}
               <p className="text-xs text-muted-foreground">
                 {trialRequiresPaymentMethod
-                  ? "A card is saved now without a charge. The first paid period is charged when the trial ends."
-                  : "The trial starts without a card. A payment method is required before paid access can continue."}
+                  ? t("STEP_TRIAL.CARD_HINT")
+                  : t("STEP_TRIAL.NO_CARD_HINT")}
               </p>
             </FormItem>
           )}
@@ -177,12 +185,12 @@ export const StepTrial = () => {
                 <FormControl>
                   <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                 </FormControl>
-                <FormLabel className="!m-0">One trial per plan</FormLabel>
+                <FormLabel className="!m-0">{t("STEP_TRIAL.ONE_TRIAL_PER_PLAN")}</FormLabel>
               </div>
               <p className="text-xs text-muted-foreground">
                 {oneTrialPerPlan
-                  ? "Each organization gets the trial once, whoever buys it. Subscribing again after cancelling goes to paid checkout."
-                  : "Every signup gets the trial, including an organization that cancelled and comes back."}
+                  ? t("STEP_TRIAL.ONE_TRIAL_PER_PLAN_ON_HINT")
+                  : t("STEP_TRIAL.ONE_TRIAL_PER_PLAN_OFF_HINT")}
               </p>
             </FormItem>
           )}
@@ -191,15 +199,12 @@ export const StepTrial = () => {
 
       {Boolean(trialDurationKind) && (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold">Trial grants</h3>
+          <h3 className="text-sm font-semibold">{t("STEP_TRIAL.GRANTS")}</h3>
           <p className="text-xs text-muted-foreground">
-            Give a trial its own allowance for a meter instead of the plan&apos;s normal one —
-            useful when the regular allowance would be an open invitation to sign up, consume and
-            leave. Works on a lifetime-capacity meter too: the grant governs the trial, and the
-            plan&apos;s own quantity takes over the moment it converts.
+            {t("STEP_TRIAL.GRANTS_HINT")}
           </p>
           <CardListShell
-            addLabel="Add trial grant"
+            addLabel={t("STEP_TRIAL.ADD_GRANT")}
             onAdd={() => trialGrants.append({ meterKey: "", includedQuantity: 0 })}
           >
             {trialGrants.fields.map((field, index) => (
@@ -209,11 +214,11 @@ export const StepTrial = () => {
                   name={`trialGrants.${index}.meterKey`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Meter</FormLabel>
+                      <FormLabel className="text-xs">{t("STEP_TRIAL.METER")}</FormLabel>
                       <Select value={inputField.value} onValueChange={inputField.onChange}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Choose a meter" />
+                            <SelectValue placeholder={t("STEP_TRIAL.CHOOSE_METER")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -235,7 +240,7 @@ export const StepTrial = () => {
                   name={`trialGrants.${index}.includedQuantity`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Included during trial</FormLabel>
+                      <FormLabel className="text-xs">{t("STEP_TRIAL.INCLUDED")}</FormLabel>
                       <FormControl>
                         {/* Stepped to the granularity of the meter this grant replaces, since a
                             grant it cannot hold is refused. */}

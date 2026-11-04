@@ -12,26 +12,28 @@ import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import {
   createProjectEnvironmentFormDefaultValue,
   createProjectEnvironmentFormSchema,
-  environmentOptions,
+  getEnvironmentOptions,
 } from "./utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui-kits/button/button";
 import { useCreateProjectFormState } from "../../utils";
 import { useProjectForm } from "@blocks-identifier/hooks/use-project";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const CreateProjectEnvironmentsForm = () => {
+  const { t } = useT("utilities.shared");
   const { isPending, saveProject } = useProjectForm();
   const { formData, setFormData } = useCreateProjectFormState();
   const form = useForm({
     defaultValues: formData[2],
-    resolver: zodResolver(createProjectEnvironmentFormSchema),
+    resolver: zodResolver(createProjectEnvironmentFormSchema()),
   });
 
   const onSubmitHandler = (values: typeof createProjectEnvironmentFormDefaultValue) => {
     const sortedEnvironments = [...values.environments].sort(
       (a: { value: string }, b: { value: string }) => {
-        const aIndex = environmentOptions.find((opt) => opt.value === a.value)?.index ?? 0;
-        const bIndex = environmentOptions.find((opt) => opt.value === b.value)?.index ?? 0;
+        const aIndex = getEnvironmentOptions().find((opt) => opt.value === a.value)?.index ?? 0;
+        const bIndex = getEnvironmentOptions().find((opt) => opt.value === b.value)?.index ?? 0;
         return aIndex - bIndex;
       },
     );
@@ -45,16 +47,13 @@ export const CreateProjectEnvironmentsForm = () => {
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmitHandler)}>
         <div className="mt-4 flex flex-col gap-1 text-left">
-          <p className="text-3xl font-bold tracking-tight">Select environments</p>
+          <p className="text-3xl font-bold tracking-tight">{t("CREATE_PROJECT_ENVIRONMENTS_FORM.SELECT_ENVIRONMENTS")}</p>
           <p className="text-base font-normal tracking-tight">
-            Select the environments you want to enable for this project. You can configure each one
-            individually later.
+            {t("CREATE_PROJECT_ENVIRONMENTS_FORM.SELECT_THE_ENVIRONMENTS_YOU_WANT")}
           </p>
           <div className="mt-2 flex min-h-10 w-fit flex-row items-center gap-1 rounded border border-base-warning bg-warning-100 p-3 text-sm text-warning-800">
             <span>
-              Please ensure that the branch name in your Git repository matches the
-              environment&apos;s label exactly — for example, use &apos;dev&apos; for the
-              Development environment.
+              {t("CREATE_PROJECT_ENVIRONMENTS_FORM.PLEASE_ENSURE_THAT_THE_BRANCH")}
             </span>
           </div>
           <div className="">
@@ -64,7 +63,7 @@ export const CreateProjectEnvironmentsForm = () => {
                 name="environments"
                 render={() => (
                   <FormItem>
-                    {environmentOptions.map((option) => (
+                    {getEnvironmentOptions().map((option) => (
                       <FormField
                         key={option.value}
                         control={form.control}
@@ -121,7 +120,7 @@ export const CreateProjectEnvironmentsForm = () => {
         </div>
         <div className="mb-4 mt-10">
           <Button size="lg" disabled={!isValid || isPending}>
-            Submit
+            {t("common:SUBMIT")}
           </Button>
         </div>
       </form>

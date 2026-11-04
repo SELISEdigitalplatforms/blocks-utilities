@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activationFormDefaultValue, activationFormSchema } from "./utils";
+import { activationFormDefaultValue, createActivationFormSchema } from "./utils";
 
 describe("reset-password form schema", () => {
   it("has empty defaults", () => {
@@ -7,7 +7,7 @@ describe("reset-password form schema", () => {
   });
 
   it("accepts a strong matching password", () => {
-    const result = activationFormSchema.safeParse({
+    const result = createActivationFormSchema().safeParse({
       password: "Str0ng!pass",
       confirmPassword: "Str0ng!pass",
     });
@@ -15,7 +15,7 @@ describe("reset-password form schema", () => {
   });
 
   it("rejects a weak password", () => {
-    const result = activationFormSchema.safeParse({
+    const result = createActivationFormSchema().safeParse({
       password: "weakpass",
       confirmPassword: "weakpass",
     });
@@ -23,7 +23,7 @@ describe("reset-password form schema", () => {
   });
 
   it("rejects mismatched confirmation", () => {
-    const result = activationFormSchema.safeParse({
+    const result = createActivationFormSchema().safeParse({
       password: "Str0ng!pass",
       confirmPassword: "Different1!",
     });

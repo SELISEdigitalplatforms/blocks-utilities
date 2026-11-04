@@ -1,13 +1,13 @@
+import type { TFunction } from "@seliseblocks/genesis-os";
 import { Link } from "react-router";
 
-export const googleStepupDocs = [
+export const getGoogleStepupDocs = (t: TFunction) => [
   {
     id: "0",
     description: (
       <div>
         <p>
-          Google login allows users to authenticate using their Google account. You need to create
-          OAuth credentials and configure your app in the Google Cloud Console.
+          {t("SSO_SETUP_GUIDELINE_GOOGLE.GOOGLE_LOGIN_ALLOWS_USERS_TO")}
         </p>
       </div>
     ),
@@ -16,15 +16,15 @@ export const googleStepupDocs = [
     id: "1",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Prerequisites</h4>
-        <p>Before you begin:</p>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_GOOGLE.PREREQUISITES")}</h4>
+        <p>{t("SSO_SETUP_GUIDELINE_GOOGLE.BEFORE_YOU_BEGIN")}</p>
         <ul className="mt-2 list-inside list-disc">
           <li>
             <Link to="https://console.cloud.google.com/" className="text-primary">
-              Sign in to Google Cloud Console
+              {t("SSO_SETUP_GUIDELINE_GOOGLE.SIGN_IN_TO_GOOGLE_CLOUD")}
             </Link>
           </li>
-          <li>Create a new project or select an existing one</li>
+          <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.CREATE_A_NEW_PROJECT_OR")}</li>
         </ul>
       </div>
     ),
@@ -33,21 +33,21 @@ export const googleStepupDocs = [
     id: "2",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Configure Consent Screen</h4>
-        <p>In Google Cloud Console:</p>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_GOOGLE.CONFIGURE_CONSENT_SCREEN")}</h4>
+        <p>{t("SSO_SETUP_GUIDELINE_GOOGLE.IN_GOOGLE_CLOUD_CONSOLE")}</p>
         <ul className="mt-2 list-inside list-disc">
           <li>
-            Go to{" "}
+            {t("SSO_SETUP_GUIDELINE_GOOGLE.GO_TO")}{" "}
             <Link
               to="https://console.cloud.google.com/apis/credentials/consent"
               className="text-primary"
             >
-              OAuth consent screen
+              {t("SSO_SETUP_GUIDELINE_GOOGLE.OAUTH_CONSENT_SCREEN")}
             </Link>
           </li>
-          <li>Select “External” as user type</li>
-          <li>Fill required fields like app name, support email, and scopes</li>
-          <li>Save and continue through the steps</li>
+          <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.SELECT_EXTERNAL_AS_USER_TYPE")}</li>
+          <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.FILL_REQUIRED_FIELDS_LIKE_APP")}</li>
+          <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.SAVE_AND_CONTINUE_THROUGH_THE")}</li>
         </ul>
       </div>
     ),
@@ -56,26 +56,26 @@ export const googleStepupDocs = [
     id: "3",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Create OAuth 2.0 Credentials</h4>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_GOOGLE.CREATE_OAUTH_2_0_CREDENTIALS")}</h4>
         <ul className="mt-2 list-inside list-disc">
           <li>
-            Go to{" "}
+            {t("SSO_SETUP_GUIDELINE_GOOGLE.GO_TO")}{" "}
             <Link to="https://console.cloud.google.com/apis/credentials" className="text-primary">
-              APIs & Services &gt; Credentials
+              {t("SSO_SETUP_GUIDELINE_GOOGLE.APIS_SERVICES_CREDENTIALS")}
             </Link>
           </li>
-          <li>Click “Create Credentials” &gt; “OAuth Client ID”</li>
-          <li>Select “Web application” as application type</li>
+          <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.CLICK_CREATE_CREDENTIALS_OAUTH")}</li>
+          <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.SELECT_WEB_APPLICATION_AS")}</li>
           <li>
-            Add your domain in <b>Authorized JavaScript origins</b>:<br />
+            {t("SSO_SETUP_GUIDELINE_GOOGLE.ADD_YOUR_DOMAIN_IN", { b: t("SSO_SETUP_GUIDELINE_GOOGLE.AUTHORIZED_JAVASCRIPT_ORIGINS") })}<br />
             <code>https://yourdomain.com</code>
           </li>
           <li>
-            Add redirect URI:
+            {t("SSO_SETUP_GUIDELINE_GOOGLE.ADD_REDIRECT_URI")}
             <br />
             <code>https://yourdomain.com/login/callback</code>
           </li>
-          <li>Click “Create” and note the Client ID and Client Secret</li>
+          <li>{t("SSO_SETUP_GUIDELINE_GOOGLE.CLICK_CREATE_AND_NOTE_THE")}</li>
         </ul>
       </div>
     ),
@@ -84,20 +84,19 @@ export const googleStepupDocs = [
     id: "4",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Configure in Admin Panel</h4>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_GOOGLE.CONFIGURE_IN_ADMIN_PANEL")}</h4>
         <p>
-          Copy the following values from the Google Cloud Console and enter them into your admin
-          panel:
+          {t("SSO_SETUP_GUIDELINE_GOOGLE.COPY_THE_FOLLOWING_VALUES_FROM")}
         </p>
         <ul className="mt-2 list-inside list-disc">
           <li>
-            <b>Client ID</b>
+            <b>{t("SSO_SETUP_GUIDELINE_GOOGLE.CLIENT_ID")}</b>
           </li>
           <li>
-            <b>Client Secret</b>
+            <b>{t("SSO_SETUP_GUIDELINE_GOOGLE.CLIENT_SECRET")}</b>
           </li>
           <li>
-            <b>Redirect URI</b>: <code>https://yourdomain.com/login/callback</code>
+            <b>{t("SSO_SETUP_GUIDELINE_GOOGLE.REDIRECT_URI")}</b>: <code>https://yourdomain.com/login/callback</code>
           </li>
         </ul>
       </div>
@@ -107,8 +106,8 @@ export const googleStepupDocs = [
     id: "5",
     description: (
       <div>
-        <h4 className="text-lg font-semibold text-high-emphasis">Test Connection</h4>
-        <p>Log out and try logging in via Google to verify the integration.</p>
+        <h4 className="text-lg font-semibold text-high-emphasis">{t("SSO_SETUP_GUIDELINE_GOOGLE.TEST_CONNECTION")}</h4>
+        <p>{t("SSO_SETUP_GUIDELINE_GOOGLE.LOG_OUT_AND_TRY_LOGGING")}</p>
       </div>
     ),
   },
