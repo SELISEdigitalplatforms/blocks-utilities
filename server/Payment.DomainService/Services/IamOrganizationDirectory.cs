@@ -23,15 +23,23 @@ public sealed class IamOrganizationDirectory : IOrganizationDirectory
     private readonly IHttpService _httpService;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<IamOrganizationDirectory> _logger;
+    private readonly ICallerToken? _callerToken;
 
+    /// <param name="callerToken">
+    /// Where the caller's token is read from. Optional so a test can supply it through the context;
+    /// absent, only <see cref="BlocksContext.OAuthToken"/> is read, which Genesis 4.5.5 leaves empty —
+    /// see <see cref="CallerToken"/>.
+    /// </param>
     public IamOrganizationDirectory(
         IHttpService httpService,
         IOptionsMonitor<PaymentOptions> options,
-        ILogger<IamOrganizationDirectory> logger)
+        ILogger<IamOrganizationDirectory> logger,
+        ICallerToken? callerToken = null)
     {
         _httpService = httpService;
         _options = options;
         _logger = logger;
+        _callerToken = callerToken;
     }
 
     public async Task<OrganizationLookupOutcome> FindAsync(
@@ -53,7 +61,7 @@ public sealed class IamOrganizationDirectory : IOrganizationDirectory
             return OrganizationLookupOutcome.Unavailable;
         }
 
-        var token = BlocksContext.GetContext()?.OAuthToken;
+        var token = _callerToken?.Current() ?? BlocksContext.GetContext()?.OAuthToken;
 
         if (string.IsNullOrWhiteSpace(token))
         {
