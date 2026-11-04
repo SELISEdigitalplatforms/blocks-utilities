@@ -104,6 +104,19 @@ public sealed class IamMemberDirectoryTests : IDisposable
     }
 
     [Fact]
+    public async Task The_caller_is_read_from_their_own_account_which_needs_no_users_permission()
+    {
+        Reply("""{"data":{"email":"fahad@example.com","firstName":"Fahad","lastName":"Mohammad","language":"en"}}""");
+
+        var self = await Directory().FindSelfAsync(CancellationToken.None);
+
+        self.Should().Be(new MemberContact("fahad@example.com", "Fahad Mohammad", "en"));
+        _requestedUrl.Should().Be("https://iam.example.com/api/iam/me",
+            "users/{id} needs IAM's users permission, which a buyer naming themselves rarely holds");
+        _requestedHeaders!["Authorization"].Should().Be("Bearer caller-token");
+    }
+
+    [Fact]
     public async Task The_default_organization_is_named_Default_without_asking_iam()
     {
         var name = await Directory().FindOrganizationNameAsync("default", CancellationToken.None);
