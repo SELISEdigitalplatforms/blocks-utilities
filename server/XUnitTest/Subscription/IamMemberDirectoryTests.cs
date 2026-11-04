@@ -116,6 +116,48 @@ public sealed class IamMemberDirectoryTests : IDisposable
         _requestedHeaders!["Authorization"].Should().Be("Bearer caller-token");
     }
 
+    /// <summary>
+    /// The production case: Genesis leaves the context's token empty and the request carries it.
+    /// </summary>
+    /// <remarks>
+    /// Every test above sets a token on the context, which Genesis 4.5.5 never does — so they passed
+    /// while production never reached IAM at all (INV-2026-000023).
+    /// </remarks>
+    [Fact]
+    public async Task A_request_token_reaches_iam_when_the_context_carries_none()
+    {
+        BlocksContext.SetContext(BlocksContext.Create(
+            "tenant-1", null, "user-1", true, null, "org-1",
+            DateTime.UtcNow.AddHours(1), null, null, null, null, null, string.Empty, null));
+        Reply("""{"data":{"email":"fahad@example.com","firstName":"Fahad","lastName":"Mohammad","language":"en"}}""");
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.Request.Headers.Authorization = "Bearer request-token";
+
+        var self = await Directory(new CallerToken(
+                new Microsoft.AspNetCore.Http.HttpContextAccessor { HttpContext = http },
+                Mock.Of<ITenants>()))
+            .FindSelfAsync(CancellationToken.None);
+
+        self!.DisplayName.Should().Be("Fahad Mohammad",
+            because: "the buyer named on every invoice comes from this lookup");
+        _requestedHeaders!["Authorization"].Should().Be("Bearer request-token");
+    }
+
+    [Fact]
+    public async Task With_no_token_anywhere_iam_is_not_asked()
+    {
+        BlocksContext.SetContext(BlocksContext.Create(
+            "tenant-1", null, "user-1", true, null, "org-1",
+            DateTime.UtcNow.AddHours(1), null, null, null, null, null, string.Empty, null));
+
+        var self = await Directory(new CallerToken(
+                new Microsoft.AspNetCore.Http.HttpContextAccessor(), Mock.Of<ITenants>()))
+            .FindSelfAsync(CancellationToken.None);
+
+        self.Should().BeNull(because: "a lookup with no caller has no authority to ask with");
+        _http.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task The_default_organization_is_named_Default_without_asking_iam()
     {
@@ -147,13 +189,13 @@ public sealed class IamMemberDirectoryTests : IDisposable
                     .Invoke(null, [tuple]);
             }));
 
-    private IamMemberDirectory Directory()
+    private IamMemberDirectory Directory(ICallerToken? callerToken = null)
     {
         var options = new Mock<IOptionsMonitor<PaymentOptions>>();
         options.Setup(monitor => monitor.CurrentValue)
             .Returns(new PaymentOptions { IamBaseUrl = "https://iam.example.com" });
 
         return new IamMemberDirectory(
-            _http.Object, options.Object, NullLogger<IamMemberDirectory>.Instance);
+            _http.Object, options.Object, NullLogger<IamMemberDirectory>.Instance, callerToken);
     }
 }
