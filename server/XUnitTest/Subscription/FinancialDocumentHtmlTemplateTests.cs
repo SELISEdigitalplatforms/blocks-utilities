@@ -85,18 +85,11 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
-    public void The_organization_is_named_by_its_iam_name()
+    public void The_facts_name_no_organization_because_the_bill_to_block_names_the_customer()
     {
         Render(document => document.Subscriber.OrganizationName = "Northwind")
-            .Should().Contain("<tr><th>Organization</th><td>Northwind</td></tr>",
-                because: "an organization id names nothing a reader of the invoice recognises");
-    }
-
-    [Fact]
-    public void An_organization_with_no_recorded_name_falls_back_to_its_id()
-    {
-        Render().Should().Contain("<tr><th>Organization</th><td>org-1</td></tr>",
-            because: "subscriptions created before the name was recorded still need their organization identified");
+            .Should().NotContain("<th>Organization</th>",
+                because: "a second customer reference beside the bill-to block reads as a conflicting one");
     }
 
     [Fact]
@@ -134,7 +127,7 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
-    public void The_service_period_is_stated_in_the_subscribers_zone_and_in_utc()
+    public void The_service_period_is_stated_once_in_the_subscribers_own_zone()
     {
         var html = Render(document =>
         {
@@ -145,10 +138,11 @@ public sealed class FinancialDocumentHtmlTemplateTests
             document.Period.TimeZoneId = "Pacific/Auckland";
         });
 
-        // Both, because a period ending at midnight UTC ends on a different date in Auckland, and an
-        // invoice that states only one of the two is wrong to somebody.
-        html.Should().Contain("Pacific/Auckland");
-        html.Should().Contain("2026-01-01 00:00:00Z");
+        html.Should().Contain("Pacific/Auckland",
+            because: "the Period column names the zone its dates are in");
+        html.Should().NotContain("Service period (UTC)",
+            because: "a UTC restatement ending on a different day read as a contradiction of the Period column");
+        html.Should().NotContain("00:00:00Z");
     }
 
     [Fact]
@@ -473,15 +467,13 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
-    public void The_subscription_and_its_utc_period_are_kept_among_the_facts()
+    public void The_subscription_is_kept_among_the_facts()
     {
         var html = Render();
 
         // The plan the subscriber bought, not its GUID, which tells them nothing (issue #682).
         html.Should().Contain("<tr><th>Subscription</th><td>Pro</td></tr>",
             because: "the plan name is what the subscriber can match against what they bought");
-        html.Should().Contain(
-            "<tr><th>Service period (UTC)</th><td>2026-01-01 00:00:00Z to 2027-01-01 00:00:00Z</td></tr>");
     }
 
     [Fact]
