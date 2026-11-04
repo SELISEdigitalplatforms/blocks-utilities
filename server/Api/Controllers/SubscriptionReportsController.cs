@@ -141,6 +141,41 @@ public sealed class SubscriptionReportsController : ControllerBase
     }
 
     /// <summary>
+    /// How the recurring run-rate changed across a window: new, expansion, contraction and churn.
+    /// </summary>
+    /// <remarks>
+    /// Compares the capture in force when the window opens with the latest one before it closes,
+    /// firm by firm, so the four movements reconcile exactly to the change. Pass this week's,
+    /// this month's or this year's bounds for the matching dashboard figure.
+    /// <para>
+    /// Captures began before they recorded firms. A window that opens on such a capture returns
+    /// the totals with <c>breakdownAvailable</c> false, and one that opens before the first
+    /// capture starts from the first one with <c>coversWholeWindow</c> false.
+    /// </para>
+    /// </remarks>
+    [HttpGet("recurring-revenue/movement")]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueMovementResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueMovementResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueMovementResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
+    public async Task<IActionResult> GetRecurringRevenueMovement(
+        [FromQuery] GetRecurringRevenueMovementRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _reports.GetRecurringRevenueMovementAsync(
+            request, correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
     /// Billed revenue over a window, split between the subscription fee and metered overage, and
     /// folded into day, week or month periods.
     /// </summary>
