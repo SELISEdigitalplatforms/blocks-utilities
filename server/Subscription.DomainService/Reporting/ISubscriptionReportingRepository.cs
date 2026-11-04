@@ -59,11 +59,25 @@ public interface ISubscriptionReportingRepository
         DateTime toUtc,
         CancellationToken cancellationToken);
 
-    /// <summary>Recurring revenue captures whose day falls in the window, oldest first.</summary>
+    /// <summary>
+    /// Recurring revenue captures whose day falls in the window, oldest first, without their
+    /// per-firm rows.
+    /// </summary>
     Task<IReadOnlyList<RecurringRevenueSnapshot>> ListRecurringRevenueSnapshotsAsync(
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The latest or the earliest capture whose day falls in the window, with its per-firm rows.
+    /// Null when the window holds none.
+    /// </summary>
+    Task<RecurringRevenueSnapshot?> FindRecurringRevenueSnapshotAsync(
+        string tenantId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        bool latest,
         CancellationToken cancellationToken);
 
     /// <summary>Writes a capture, replacing any already held for the same day.</summary>

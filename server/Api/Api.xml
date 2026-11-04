@@ -1097,6 +1097,21 @@
             </para>
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionReportsController.GetRecurringRevenueMovement(Subscription.DomainService.Reporting.GetRecurringRevenueMovementRequest,System.Threading.CancellationToken)">
+            <summary>
+            How the recurring run-rate changed across a window: new, expansion, contraction and churn.
+            </summary>
+            <remarks>
+            Compares the capture in force when the window opens with the latest one before it closes,
+            firm by firm, so the four movements reconcile exactly to the change. Pass this week's,
+            this month's or this year's bounds for the matching dashboard figure.
+            <para>
+            Captures began before they recorded firms. A window that opens on such a capture returns
+            the totals with <c>breakdownAvailable</c> false, and one that opens before the first
+            capture starts from the first one with <c>coversWholeWindow</c> false.
+            </para>
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionReportsController.GetRevenue(Subscription.DomainService.Reporting.GetBucketedReportRequest,System.Threading.CancellationToken)">
             <summary>
             Billed revenue over a window, split between the subscription fee and metered overage, and

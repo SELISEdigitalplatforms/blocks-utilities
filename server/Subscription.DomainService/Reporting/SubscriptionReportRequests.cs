@@ -78,6 +78,25 @@ public sealed class GetBucketedReportRequest
 }
 
 /// <summary>
+/// The window a recurring revenue movement covers.
+/// </summary>
+public sealed class GetRecurringRevenueMovementRequest
+{
+    /// <summary>Inclusive. Defaults to the first instant of the current UTC month.</summary>
+    [Description(
+        "Start of the window, inclusive. Opening run-rate is the capture in force at this " +
+        "instant. Defaults to the first instant of the current UTC month.")]
+    public DateTime? FromUtc { get; set; }
+
+    /// <summary>Exclusive. Defaults to the first instant of the next UTC month.</summary>
+    [Description(
+        "End of the window, exclusive. Closing run-rate is the latest capture before it, so a " +
+        "window still running closes on today's capture. Defaults to the first instant of the " +
+        "next UTC month. The window may not exceed 366 days.")]
+    public DateTime? ToUtc { get; set; }
+}
+
+/// <summary>
 /// How the coupon report is bounded. It reads documents by the date they were issued.
 /// </summary>
 public sealed class GetRevenueReportRequest
