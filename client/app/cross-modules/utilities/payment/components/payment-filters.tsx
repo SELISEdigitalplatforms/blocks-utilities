@@ -17,15 +17,18 @@ import {
 } from "@/components/ui-kits/select/select";
 import { cn } from "@/lib/utils";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT, tStatic } from "@seliseblocks/genesis-os";
 import {
+  getCurrencyName,
   PAYMENT_CURRENCY_OPTIONS,
-  PAYMENT_FLOW_OPTIONS,
+  getPaymentFlowOptions,
   PAYMENT_PROVIDER_SUGGESTIONS,
   PAYMENT_STATUS_OPTIONS,
 } from "../constants/payment.constants";
 import type { PaymentFilters } from "../models/payment.model";
 import { PaymentMultiSelect } from "./payment-multi-select";
+
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
 
 interface PaymentFiltersPanelProps {
   value: PaymentFilters;
@@ -50,7 +53,7 @@ const validateFilters = (filters: PaymentFilters): string | null => {
     maxAmount !== undefined &&
     minAmount > maxAmount
   ) {
-    return "Maximum amount must be greater than or equal to minimum amount.";
+    return tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_FILTERS.MAX_AMOUNT_BELOW_MIN");
   }
 
   if (
@@ -58,14 +61,14 @@ const validateFilters = (filters: PaymentFilters): string | null => {
     filters.paymentDateTo &&
     filters.paymentDateFrom > filters.paymentDateTo
   ) {
-    return "The end date must be the same as or later than the start date.";
+    return tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_FILTERS.END_DATE_BEFORE_START");
   }
 
   if (
     filters.currencyCode &&
     !/^[A-Z]{3}$/.test(filters.currencyCode)
   ) {
-    return "Currency must contain exactly three letters.";
+    return tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_FILTERS.CURRENCY_THREE_LETTERS");
   }
 
   return null;
@@ -78,6 +81,7 @@ export const PaymentFiltersPanel = ({
   onApply,
   onReset,
 }: PaymentFiltersPanelProps) => {
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   const [expanded, setExpanded] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -118,9 +122,9 @@ export const PaymentFiltersPanel = ({
             <Filter className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold">Filter payments</h2>
+            <h2 className="text-sm font-semibold">{t("PAYMENT_FILTERS.FILTER_PAYMENTS")}</h2>
             <p className="text-xs text-muted-foreground">
-              Narrow the list using exact payment data.
+              {t("PAYMENT_FILTERS.NARROW_THE_LIST_USING_EXACT")}
             </p>
           </div>
           {activeFilterCount > 0 && (
@@ -139,31 +143,31 @@ export const PaymentFiltersPanel = ({
           disabled={activeFilterCount === 0}
         >
           <RotateCcw className="mr-2 h-4 w-4" />
-          Reset
+          {t("common:RESET")}
         </Button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <PaymentMultiSelect
-          label="Providers"
+          label={t("PAYMENT_FILTERS.PROVIDERS")}
           values={value.providerNames}
           options={PAYMENT_PROVIDER_SUGGESTIONS}
-          emptyLabel="All providers"
+          emptyLabel={t("PAYMENT_FILTERS.ALL_PROVIDERS")}
           allowCustomValue
           onChange={(providerNames) => update("providerNames", providerNames)}
         />
         <PaymentMultiSelect
-          label="Statuses"
+          label={t("PAYMENT_FILTERS.STATUSES")}
           values={value.paymentStatuses}
           options={PAYMENT_STATUS_OPTIONS}
-          emptyLabel="All statuses"
+          emptyLabel={t("PAYMENT_FILTERS.ALL_STATUSES")}
           onChange={(paymentStatuses) =>
             update("paymentStatuses", paymentStatuses)
           }
         />
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">
-            Currency
+            {t("PAYMENT_FILTERS.CURRENCY")}
           </label>
           <Select
             value={value.currencyCode || "all"}
@@ -175,16 +179,16 @@ export const PaymentFiltersPanel = ({
             }
           >
             <SelectTrigger>
-              <SelectValue placeholder="All currencies" />
+              <SelectValue placeholder={t("PAYMENT_FILTERS.ALL_CURRENCIES")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All currencies</SelectItem>
+              <SelectItem value="all">{t("PAYMENT_FILTERS.ALL_CURRENCIES")}</SelectItem>
               {PAYMENT_CURRENCY_OPTIONS.map((currency) => (
                 <SelectItem
                   key={currency.code}
                   value={currency.code}
                 >
-                  {currency.code} — {currency.name}
+                  {currency.code} — {getCurrencyName(currency.code, currency.name)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -192,7 +196,7 @@ export const PaymentFiltersPanel = ({
         </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">
-            Payment flow
+            {t("PAYMENT_FILTERS.PAYMENT_FLOW")}
           </label>
           <Select
             value={value.paymentFlow || "all"}
@@ -204,10 +208,10 @@ export const PaymentFiltersPanel = ({
             }
           >
             <SelectTrigger>
-              <SelectValue placeholder="All flows" />
+              <SelectValue placeholder={t("PAYMENT_FILTERS.ALL_FLOWS")} />
             </SelectTrigger>
             <SelectContent>
-              {PAYMENT_FLOW_OPTIONS.map((option) => (
+              {getPaymentFlowOptions().map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -217,7 +221,7 @@ export const PaymentFiltersPanel = ({
         </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">
-            Organization
+            {t("PAYMENT_FILTERS.ORGANIZATION")}
           </label>
           <Select
             value={value.organizationId || "all"}
@@ -229,10 +233,10 @@ export const PaymentFiltersPanel = ({
             }
           >
             <SelectTrigger>
-              <SelectValue placeholder="All organizations" />
+              <SelectValue placeholder={t("PAYMENT_FILTERS.ALL_ORGANIZATIONS")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All organizations</SelectItem>
+              <SelectItem value="all">{t("PAYMENT_FILTERS.ALL_ORGANIZATIONS")}</SelectItem>
               {organizations.map((organization) => (
                 <SelectItem
                   key={organization.itemId}
@@ -254,7 +258,7 @@ export const PaymentFiltersPanel = ({
             size="sm"
             className="mt-3 px-0 text-primary hover:bg-transparent"
           >
-            {expanded ? "Fewer filters" : "More filters"}
+            {expanded ? t("PAYMENT_FILTERS.FEWER_FILTERS") : t("PAYMENT_FILTERS.MORE_FILTERS")}
             <ChevronDown
               className={cn(
                 "ml-2 h-4 w-4 transition-transform",
@@ -270,7 +274,7 @@ export const PaymentFiltersPanel = ({
                 htmlFor="payment-min-amount"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Minimum amount
+                {t("PAYMENT_FILTERS.MINIMUM_AMOUNT")}
               </label>
               <Input
                 id="payment-min-amount"
@@ -287,7 +291,7 @@ export const PaymentFiltersPanel = ({
                 htmlFor="payment-max-amount"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Maximum amount
+                {t("PAYMENT_FILTERS.MAXIMUM_AMOUNT")}
               </label>
               <Input
                 id="payment-max-amount"
@@ -304,7 +308,7 @@ export const PaymentFiltersPanel = ({
                 htmlFor="payment-date-from"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Payment date from
+                {t("PAYMENT_FILTERS.PAYMENT_DATE_FROM")}
               </label>
               <Input
                 id="payment-date-from"
@@ -320,7 +324,7 @@ export const PaymentFiltersPanel = ({
                 htmlFor="payment-date-to"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Payment date to
+                {t("PAYMENT_FILTERS.PAYMENT_DATE_TO")}
               </label>
               <Input
                 id="payment-date-to"
@@ -336,13 +340,13 @@ export const PaymentFiltersPanel = ({
                 htmlFor="payment-order-id"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Order ID
+                {t("PAYMENT_FILTERS.ORDER_ID")}
               </label>
               <Input
                 id="payment-order-id"
                 value={value.orderId}
                 maxLength={80}
-                placeholder="Exact order ID"
+                placeholder={t("PAYMENT_FILTERS.EXACT_ORDER_ID")}
                 onChange={(event) => update("orderId", event.target.value)}
               />
             </div>
@@ -351,13 +355,13 @@ export const PaymentFiltersPanel = ({
                 htmlFor="payment-detail-id"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Payment ID
+                {t("PAYMENT_FILTERS.PAYMENT_ID")}
               </label>
               <Input
                 id="payment-detail-id"
                 value={value.paymentDetailId}
                 maxLength={128}
-                placeholder="Exact payment detail ID"
+                placeholder={t("PAYMENT_FILTERS.EXACT_PAYMENT_DETAIL_ID")}
                 onChange={(event) =>
                   update("paymentDetailId", event.target.value)
                 }
@@ -375,7 +379,7 @@ export const PaymentFiltersPanel = ({
 
       <div className="mt-4 flex justify-end">
         <Button type="submit" className="min-w-28">
-          Apply filters
+          {t("PAYMENT_FILTERS.APPLY_FILTERS")}
         </Button>
       </div>
     </form>

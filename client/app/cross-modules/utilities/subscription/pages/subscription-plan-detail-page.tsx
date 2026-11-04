@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card, CardTitle } from "@/components/ui-kits/card/card";
@@ -33,6 +33,7 @@ import {
 } from "../utilities/subscription-format";
 
 export const SubscriptionPlanDetailPage = () => {
+  const { t } = useT("utilities.subscription.pages");
   const { itemId, planId } = useParams();
   const organizationScope = useOrganizationScope();
   const basePath = `/app/${itemId ?? ""}/subscription/plans`;
@@ -54,7 +55,7 @@ export const SubscriptionPlanDetailPage = () => {
 
   const organizationLabel = useMemo(() => {
     if (!planOrganizationId) {
-      return "Tenant-wide";
+      return t("PLAN_DETAIL_PAGE.TENANT_WIDE");
     }
 
     const match = organizationsData?.organizations.find(
@@ -62,7 +63,7 @@ export const SubscriptionPlanDetailPage = () => {
     );
 
     return match?.name ?? planOrganizationId;
-  }, [organizationsData, planOrganizationId]);
+  }, [organizationsData, planOrganizationId, t]);
 
   if (isLoading) {
     return (
@@ -77,19 +78,19 @@ export const SubscriptionPlanDetailPage = () => {
     return (
       <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
         <SubscriptionPlanPageHeader
-          title="Plan"
-          description="This plan could not be loaded."
+          title={t("PLAN_DETAIL_PAGE.TITLE_NOT_LOADED")}
+          description={t("PLAN_DETAIL_PAGE.NOT_LOADED")}
           backTo={listPath}
         />
         <Card className="flex min-h-56 flex-col items-center justify-center text-center">
           <span className="rounded-full bg-destructive/10 p-4 text-destructive">
             <AlertCircle className="h-7 w-7" />
           </span>
-          <h3 className="mt-4 text-lg font-semibold">Plan not found</h3>
+          <h3 className="mt-4 text-lg font-semibold">{t("PLAN_DETAIL_PAGE.NOT_FOUND")}</h3>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
             {error instanceof Error
               ? error.message
-              : "It may belong to another organization, or no longer exists."}
+              : t("PLAN_DETAIL_PAGE.NOT_FOUND_HINT")}
           </p>
         </Card>
       </main>
@@ -102,15 +103,14 @@ export const SubscriptionPlanDetailPage = () => {
     try {
       await archivePrice({ priceId, organizationId: plan.organizationId ?? undefined });
       toast({
-        title: "Price retired",
-        description:
-          "It is no longer offered. Anyone already on it keeps their terms and renewals.",
+        title: t("PLAN_DETAIL_PAGE.PRICE_RETIRED"),
+        description: t("PLAN_DETAIL_PAGE.PRICE_RETIRED_DESCRIPTION"),
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "The price could not be retired",
-        description: error instanceof Error ? error.message : "Try again in a moment.",
+        title: t("PLAN_DETAIL_PAGE.RETIRE_FAILED"),
+        description: error instanceof Error ? error.message : t("PLAN_DETAIL_PAGE.TRY_AGAIN"),
       });
     } finally {
       setRetiringPriceId(null);
@@ -151,7 +151,7 @@ export const SubscriptionPlanDetailPage = () => {
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SubscriptionPlanPageHeader
         title={plan.displayName}
-        description={plan.description || "No description provided."}
+        description={plan.description || t("PLAN_DETAIL_PAGE.NO_DESCRIPTION")}
         backTo={listPath}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -161,7 +161,7 @@ export const SubscriptionPlanDetailPage = () => {
                 state={{ duplicatePlan: plan }}
               >
                 <Copy className="mr-2 h-4 w-4" />
-                Duplicate plan
+                {t("PLAN_DETAIL_PAGE.DUPLICATE")}
               </Link>
             </Button>
             {/* One button, leading to the one editor, subscribed or not: an edit is the plan's
@@ -180,7 +180,7 @@ export const SubscriptionPlanDetailPage = () => {
                 )}
               >
                 <Pencil className="mr-2 h-4 w-4" />
-                Edit
+                {t("common:EDIT")}
               </Link>
             </Button>
             )}
@@ -198,13 +198,10 @@ export const SubscriptionPlanDetailPage = () => {
         >
           <div className="flex items-center gap-2">
             <Archive className="h-4 w-4 text-muted-foreground" />
-            <h2 className="font-semibold">This plan is archived</h2>
+            <h2 className="font-semibold">{t("PLAN_DETAIL_PAGE.ARCHIVED_TITLE")}</h2>
           </div>
           <p className="text-sm text-muted-foreground">
-            It cannot be subscribed to, changed onto, or edited, and it does not appear in your
-            customers&rsquo; choices. Everyone already subscribed carries on unchanged — they bill
-            from the terms they bought, so renewals, usage, entitlements and invoices are
-            unaffected. Archiving cannot be undone; duplicate the plan to build a replacement.
+            {t("PLAN_DETAIL_PAGE.ARCHIVED_EXPLANATION")}
           </p>
         </div>
       ) : null}
@@ -221,7 +218,9 @@ export const SubscriptionPlanDetailPage = () => {
               )}
               className="underline-offset-4 hover:underline"
             >
-              Replaces {plan.predecessorDisplayName ?? "a retired plan"} →
+              {t("PLAN_DETAIL_PAGE.REPLACES", {
+                name: plan.predecessorDisplayName ?? t("PLAN_DETAIL_PAGE.A_RETIRED_PLAN"),
+              })}
             </Link>
           )}
           {plan.successorPlanId && (
@@ -232,7 +231,9 @@ export const SubscriptionPlanDetailPage = () => {
               )}
               className="underline-offset-4 hover:underline"
             >
-              Replaced by {plan.successorDisplayName ?? "a newer plan"} →
+              {t("PLAN_DETAIL_PAGE.REPLACED_BY", {
+                name: plan.successorDisplayName ?? t("PLAN_DETAIL_PAGE.A_NEWER_PLAN"),
+              })}
             </Link>
           )}
         </div>
@@ -241,15 +242,19 @@ export const SubscriptionPlanDetailPage = () => {
       <div className="grid items-start gap-5 xl:grid-cols-[1fr_22rem]">
         <div className="space-y-5">
           {plan.quantityItems.length > 0 && (
-            <Section title="Quantity items">
+            <Section title={t("PLAN_DETAIL_PAGE.SECTION_QUANTITY_ITEMS")}>
               <div className="grid gap-3 sm:grid-cols-2">
                 {plan.quantityItems.map((item) => (
                   <Card key={item.itemKey} className="rounded-lg">
                     <p className="font-medium">{item.itemKey}</p>
                     <p className="text-sm text-muted-foreground">
-                      {item.defaultQuantity.toLocaleString()} {item.unitLabel}
-                      {item.defaultQuantity === 1 ? "" : "s"} by default
-                      {item.maxQuantity !== null && ` (max ${item.maxQuantity.toLocaleString()})`}
+                      {t("PLAN_DETAIL_PAGE.BY_DEFAULT", {
+                        count: item.defaultQuantity,
+                        quantity: item.defaultQuantity.toLocaleString(),
+                        unit: item.unitLabel,
+                      })}
+                      {item.maxQuantity !== null &&
+                        ` (${t("PLAN_DETAIL_PAGE.MAX", { max: item.maxQuantity.toLocaleString() })})`}
                     </p>
                     {/* An administrator checking the live catalogue before editing it needs to see
                         the bands here: they decide what every subscriber is charged, and were
@@ -268,7 +273,7 @@ export const SubscriptionPlanDetailPage = () => {
           )}
 
           {plan.meters.length > 0 && (
-            <Section title="Meters">
+            <Section title={t("PLAN_DETAIL_PAGE.SECTION_METERS")}>
               <div className="grid gap-3 sm:grid-cols-2">
                 {plan.meters.map((meter) => (
                   <Card key={meter.meterKey} className="rounded-lg">
@@ -276,23 +281,27 @@ export const SubscriptionPlanDetailPage = () => {
                     {/* The value every POST /subscription-usage call has to carry. Showing only
                         the display name sent integrators to the API to find out what to send,
                         which is the errand this page exists to save them. */}
-                    <IdentifierField label="Meter key" value={meter.meterKey} />
+                    <IdentifierField label={t("PLAN_DETAIL_PAGE.METER_KEY")} value={meter.meterKey} />
                     <p className="mt-2 text-sm text-muted-foreground">
                       {formatMeterAllowance(meter)}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {meter.resetPolicy === "Never"
-                        ? "Lifetime allowance — usage survives renewals"
+                        ? t("PLAN_DETAIL_PAGE.RESET_NEVER")
                         : meter.resetPolicy === "CarryForward"
-                          ? `Resets each period, carrying up to ${meter.carryForwardCap ?? 0} unused`
-                          : "Resets with the plan allowance period"}
+                          ? t("PLAN_DETAIL_PAGE.RESET_CARRY_FORWARD", {
+                              cap: meter.carryForwardCap ?? 0,
+                            })
+                          : t("PLAN_DETAIL_PAGE.RESET_PERIODIC")}
                     </p>
                     {/* Optional-chained deliberately: a plan stored before the response
                         carried thresholds has no array here at all, and reading length off
                         that took the whole page down rather than hiding one line. */}
                     {meter.thresholdPercents?.length ? (
                       <p className="mt-2 text-xs text-muted-foreground">
-                        Notifies at {meter.thresholdPercents.join("%, ")}% of allowance
+                        {t("PLAN_DETAIL_PAGE.NOTIFIES_AT", {
+                          percents: meter.thresholdPercents.map((percent) => `${percent}%`).join(", "),
+                        })}
                       </p>
                     ) : null}
                   </Card>
@@ -302,7 +311,7 @@ export const SubscriptionPlanDetailPage = () => {
           )}
 
           {plan.entitlements.length > 0 && (
-            <Section title="Entitlements">
+            <Section title={t("PLAN_DETAIL_PAGE.SECTION_ENTITLEMENTS")}>
               <div className="grid gap-3 sm:grid-cols-2">
                 {plan.entitlements.map((entitlement) => {
                   const mismatch = describeEntitlementMeterMismatch(entitlement, plan.meters);
@@ -316,7 +325,10 @@ export const SubscriptionPlanDetailPage = () => {
                       {/* Which meter draws this down was equally invisible, so a limit could not
                           be traced to the counter that enforces it without reading the API. */}
                       {entitlement.meterKey && (
-                        <IdentifierField label="Draws down" value={entitlement.meterKey} />
+                        <IdentifierField
+                          label={t("PLAN_DETAIL_PAGE.DRAWS_DOWN")}
+                          value={entitlement.meterKey}
+                        />
                       )}
                       {mismatch && (
                         <p className="mt-2 flex items-start gap-1.5 text-xs text-warning-700">
@@ -331,14 +343,14 @@ export const SubscriptionPlanDetailPage = () => {
             </Section>
           )}
 
-          <Section title="Prices">
+          <Section title={t("PLAN_DETAIL_PAGE.SECTION_PRICES")}>
             {plan.prices.length === 0 ? (
               <Card className="flex flex-col items-center gap-3 rounded-lg py-8 text-center">
                 <Layers className="h-6 w-6 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
                   {isArchived
-                    ? "This plan was archived without a price, so nothing was ever sold on it."
-                    : "No price yet — subscribers cannot check out until one exists."}
+                    ? t("PLAN_DETAIL_PAGE.NO_PRICE_ARCHIVED")
+                    : t("PLAN_DETAIL_PAGE.NO_PRICE")}
                 </p>
                 {/* Offered only while the plan can still be sold. The server refuses a price on an
                     archived plan, so this button led to a form whose submission always failed. */}
@@ -351,7 +363,7 @@ export const SubscriptionPlanDetailPage = () => {
                       )}
                     >
                       <Plus className="mr-2 h-4 w-4" />
-                      Add price
+                      {t("PLAN_DETAIL_PAGE.ADD_PRICE")}
                     </Link>
                   </Button>
                 )}
@@ -366,7 +378,7 @@ export const SubscriptionPlanDetailPage = () => {
                     )}
                     {/* Subscribing names the price by this id, so leaving it off the page meant
                         nobody could subscribe without reading the API first. */}
-                    <IdentifierField label="Price id" value={price.priceId} />
+                    <IdentifierField label={t("PLAN_DETAIL_PAGE.PRICE_ID")} value={price.priceId} />
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <Badge variant="outline" className="font-normal">
                         {price.currencyCode}
@@ -387,7 +399,9 @@ export const SubscriptionPlanDetailPage = () => {
                           onClick={() => retirePrice(price.priceId)}
                           className="h-7 text-xs text-muted-foreground hover:text-destructive"
                         >
-                          {retiringPriceId === price.priceId ? "Retiring…" : "Retire"}
+                          {retiringPriceId === price.priceId
+                            ? t("PLAN_DETAIL_PAGE.RETIRING")
+                            : t("PLAN_DETAIL_PAGE.RETIRE")}
                         </Button>
                       )}
                     </div>
@@ -411,6 +425,7 @@ export const SubscriptionPlanDetailPage = () => {
  * retyped. Monospaced because a slug that is retyped by eye is a slug that arrives with a typo.
  */
 const IdentifierField = ({ label, value }: { label: string; value: string }) => {
+  const { t } = useT("utilities.subscription.pages");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -437,7 +452,7 @@ const IdentifierField = ({ label, value }: { label: string; value: string }) => 
             () => setCopied(false),
           );
         }}
-        aria-label={`Copy ${label} ${value}`}
+        aria-label={t("PLAN_DETAIL_PAGE.COPY_IDENTIFIER", { label, value })}
         className="text-muted-foreground transition hover:text-foreground"
       >
         {copied ? (

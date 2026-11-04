@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui-kits/badge/badge";
 import { Lock } from "lucide-react";
 import { MethodBadge } from "./method-badge";
 import { IApiEndpoint } from "../models/api-endpoint.model";
+import { useT } from "@seliseblocks/genesis-os";
 
 type EndpointRowProps = {
   endpoint: IApiEndpoint;
@@ -20,6 +21,7 @@ export const EndpointRow = ({
   onToggleMfa,
   onToggleCaptcha,
 }: EndpointRowProps) => {
+  const { t } = useT("utilities.idp");
   const isCritical = endpoint.method.toUpperCase() === "DELETE";
 
   return (
@@ -42,7 +44,7 @@ export const EndpointRow = ({
                 variant="error"
                 className="shrink-0 rounded-full px-2 text-[10px] uppercase tracking-wide"
               >
-                Critical
+                {t("ENDPOINT_ROW.CRITICAL")}
               </Badge>
             )}
           </div>
@@ -62,7 +64,7 @@ export const EndpointRow = ({
             checked={endpoint.isMfaRequired}
             onCheckedChange={(val) => onToggleMfa(endpoint, val)}
           />
-          <span className="text-[11px] font-medium text-muted-foreground">MFA</span>
+          <span className="text-[11px] font-medium text-muted-foreground">{t("ENDPOINT_ROW.MFA")}</span>
           <span style={{ display: "inline-block", width: 16, height: 16 }}>
             <Lock className={
               `h-3 w-3 ${endpoint.isMfaRequired ? "text-amber-500" : "text-border"}`
@@ -78,7 +80,7 @@ export const EndpointRow = ({
             checked={endpoint.isCaptchaRequired}
             onCheckedChange={(val) => onToggleCaptcha(endpoint, val)}
           />
-          <span className="text-[11px] font-medium text-muted-foreground">Captcha</span>
+          <span className="text-[11px] font-medium text-muted-foreground">{t("ENDPOINT_ROW.CAPTCHA")}</span>
         </div>
       </div>
     </div>

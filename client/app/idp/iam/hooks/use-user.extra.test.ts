@@ -15,7 +15,8 @@ const h = vi.hoisted(() => ({
 vi.mock("@blocks-idp/iam/services/user.service", () => ({
   userService: h.service,
 }));
-vi.mock("@seliseblocks/genesis-os", () => ({
+vi.mock("@seliseblocks/genesis-os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@seliseblocks/genesis-os")>()),
   useAuthStore: () => ({ setUser: h.setUser }),
 }));
 

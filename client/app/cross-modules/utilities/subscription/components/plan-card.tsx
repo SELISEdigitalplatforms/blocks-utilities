@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import {
   Archive,
   ArrowRight,
@@ -27,22 +28,26 @@ import { describeTrialDuration } from "../utilities/trial-duration-label";
  * A small tinted pill with a status dot, used for Active/Archived rather than a plain solid
  * badge — the dot carries the state at a glance, the tint keeps it legible without shouting.
  */
-const StatusPill = ({ isArchived }: { isArchived: boolean }) => (
-  <span
-    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide ${
-      isArchived
-        ? "border-border-default bg-muted text-muted-foreground"
-        : "border-success/20 bg-success/10 text-success"
-    }`}
-  >
+const StatusPill = ({ isArchived }: { isArchived: boolean }) => {
+  const { t } = useT("utilities.subscription");
+
+  return (
     <span
-      className={`h-1.5 w-1.5 rounded-full ${
-        isArchived ? "bg-muted-foreground" : "bg-success"
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wide ${
+        isArchived
+          ? "border-border-default bg-muted text-muted-foreground"
+          : "border-success/20 bg-success/10 text-success"
       }`}
-    />
-    {isArchived ? "Archived" : "Active"}
-  </span>
-);
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          isArchived ? "bg-muted-foreground" : "bg-success"
+        }`}
+      />
+      {isArchived ? t("PLAN_CARD.STATUS_ARCHIVED") : t("PLAN_CARD.STATUS_ACTIVE")}
+    </span>
+  );
+};
 
 /** One badge shape used for every other tag on the card, so the eye reads them as one family. */
 const Pill = ({
@@ -92,6 +97,7 @@ export const PlanCard = ({
   /** Absent for an archived plan, and for a caller that offers no archiving at all. */
   onArchive?: (plan: SubscriptionPlan) => void;
 }) => {
+  const { t } = useT("utilities.subscription");
   const isArchived = plan.status === "Archived";
   const cheapestPrice = plan.prices.reduce<SubscriptionPlan["prices"][number] | null>(
     (cheapest, price) =>
@@ -118,10 +124,30 @@ export const PlanCard = ({
   ).length;
 
   const counts = [
-    { label: "price", value: plan.prices.length, icon: Tag },
-    { label: "quantity item", value: plan.quantityItems.length, icon: Layers },
-    { label: "meter", value: plan.meters.length, icon: Gauge },
-    { label: "entitlement", value: plan.entitlements.length, icon: Ticket },
+    {
+      id: "price",
+      value: plan.prices.length,
+      label: t("PLAN_CARD.COUNT_PRICE", { count: plan.prices.length }),
+      icon: Tag,
+    },
+    {
+      id: "quantityItem",
+      value: plan.quantityItems.length,
+      label: t("PLAN_CARD.COUNT_QUANTITY_ITEM", { count: plan.quantityItems.length }),
+      icon: Layers,
+    },
+    {
+      id: "meter",
+      value: plan.meters.length,
+      label: t("PLAN_CARD.COUNT_METER", { count: plan.meters.length }),
+      icon: Gauge,
+    },
+    {
+      id: "entitlement",
+      value: plan.entitlements.length,
+      label: t("PLAN_CARD.COUNT_ENTITLEMENT", { count: plan.entitlements.length }),
+      icon: Ticket,
+    },
   ].filter((entry) => entry.value > 0);
 
   const hasMenu = Boolean(editPath || duplicatePath || onArchive);
@@ -167,7 +193,7 @@ export const PlanCard = ({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:bg-blocks-primary-50 hover:text-blocks-primary-700"
-                aria-label={`Actions for ${plan.displayName}`}
+                aria-label={t("PLAN_CARD.ACTIONS_FOR", { name: plan.displayName })}
               >
                 <MoreVertical className="h-4 w-4" />
               </Button>
@@ -181,7 +207,7 @@ export const PlanCard = ({
                 <DropdownMenuItem asChild>
                   <Link to={editPath}>
                     <Pencil className="mr-2 h-4 w-4" />
-                    Edit
+                    {t("common:EDIT")}
                   </Link>
                 </DropdownMenuItem>
               ) : null}
@@ -189,7 +215,7 @@ export const PlanCard = ({
                 <DropdownMenuItem asChild>
                   <Link to={duplicatePath} state={{ duplicatePlan: plan }}>
                     <Copy className="mr-2 h-4 w-4" />
-                    {isArchived ? "Duplicate as new plan" : "Duplicate"}
+                    {isArchived ? t("PLAN_CARD.DUPLICATE_AS_NEW") : t("PLAN_CARD.DUPLICATE")}
                   </Link>
                 </DropdownMenuItem>
               ) : null}
@@ -201,7 +227,7 @@ export const PlanCard = ({
                     onSelect={() => onArchive(plan)}
                   >
                     <Archive className="mr-2 h-4 w-4" />
-                    Archive
+                    {t("PLAN_CARD.ARCHIVE")}
                   </DropdownMenuItem>
                 </>
               ) : null}
@@ -217,7 +243,9 @@ export const PlanCard = ({
           <Pill tone="accent">
             <span className="break-words">
               {plan.familyCode}
-              {typeof plan.familyRank === "number" ? ` · level ${plan.familyRank}` : ""}
+              {typeof plan.familyRank === "number"
+                ? ` · ${t("PLAN_CARD.FAMILY_LEVEL", { rank: plan.familyRank })}`
+                : ""}
             </span>
           </Pill>
         ) : null}
@@ -241,7 +269,7 @@ export const PlanCard = ({
           {cheapestPrice ? (
             <>
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                From{" "}
+                {t("PLAN_CARD.FROM")}{" "}
               </span>
               <span className="bg-gradient-to-r from-blocks-primary-600 to-blocks-secondary-600 bg-clip-text text-transparent">
                 {formatPrice(cheapestPrice)}
@@ -249,20 +277,18 @@ export const PlanCard = ({
             </>
           ) : (
             <span className="text-sm font-medium text-muted-foreground">
-              No price configured yet
+              {t("PLAN_CARD.NO_PRICE")}
             </span>
           )}
         </p>
         {cadences.length > 0 ? (
           <p className="text-xs text-muted-foreground">
-            Billed {cadences.join(", ")}
+            {t("PLAN_CARD.BILLED", { cadences: cadences.join(", ") })}
           </p>
         ) : null}
         {meteredWithOverage > 0 ? (
           <p className="text-xs text-muted-foreground">
-            {meteredWithOverage} metered{" "}
-            {meteredWithOverage === 1 ? "allowance" : "allowances"} with overage
-            pricing
+            {t("PLAN_CARD.METERED_OVERAGE", { count: meteredWithOverage })}
           </p>
         ) : null}
       </div>
@@ -271,14 +297,13 @@ export const PlanCard = ({
         <div className="mt-3 flex flex-wrap gap-2">
           {counts.map((entry) => (
             <span
-              key={entry.label}
+              key={entry.id}
               className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 py-1 pl-1 pr-2.5 text-[11px] font-medium text-muted-foreground transition-colors group-hover:border-blocks-primary-100"
             >
               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blocks-primary-50 text-blocks-primary-600">
                 <entry.icon className="h-2.5 w-2.5" />
               </span>
-              {entry.value} {entry.label}
-              {entry.value === 1 ? "" : "s"}
+              {entry.label}
             </span>
           ))}
         </div>
@@ -298,7 +323,7 @@ export const PlanCard = ({
               aria-hidden
               className="absolute inset-0 -z-10 origin-left scale-x-0 bg-gradient-to-r from-blocks-primary-600 to-blocks-secondary-600 transition-transform duration-300 ease-out group-hover/cta:scale-x-100"
             />
-            View details
+            {t("PLAN_CARD.VIEW_DETAILS")}
             <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-300 group-hover/cta:translate-x-1" />
           </Link>
         </Button>

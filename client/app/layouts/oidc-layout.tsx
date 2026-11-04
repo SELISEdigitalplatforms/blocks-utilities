@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { Logo } from "@/components/logo";
 import { Loader } from "lucide-react";
 import { extractOIDCParams } from "@blocks-idp/authentication/utils/oidc-utils";
+import { LanguageSelector, useT } from "@seliseblocks/genesis-os";
 
 type OIDCContextType = {
   logoUrl?: string;
@@ -90,6 +91,7 @@ function OIDCProvider({ children }: { children: ReactNode }) {
 }
 
 function OidcLayoutContent({ children }: { children: ReactNode }) {
+  const { t } = useT("utilities.shared");
   const { logoUrl, themeColor, isLoading } = useOIDCContext();
 
   if (isLoading) {
@@ -105,10 +107,13 @@ function OidcLayoutContent({ children }: { children: ReactNode }) {
       className="flex min-h-screen flex-col items-center py-[24px] lg:py-[64px] xl:px-[154px]"
       style={{ "--theme-color": themeColor } as React.CSSProperties}
     >
+      <div className="flex w-full justify-end px-[24px] lg:px-0">
+        <LanguageSelector />
+      </div>
       <div className="flex w-full items-center justify-center">
         <Logo
           src={logoUrl || "/Logo.svg"}
-          alt="OIDC Logo"
+          alt={t("OIDC_LAYOUT.OIDC_LOGO")}
           width={128}
           height={55}
           className="max-h-[55px] max-w-[128px]"

@@ -28,6 +28,9 @@ import type {
   SubscriptionSimulationDataMutationResponse,
   SubscriptionSimulationDataQueryResponse,
 } from "../models/subscription-simulation-harness.model";
+import { useT } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
 
 const prettyPrint = (json: string): string => {
   try {
@@ -46,6 +49,7 @@ const FindTab = ({
   organizationId: string | undefined;
   readableCollections: string[];
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { mutateAsync, isPending } = useFindData();
 
   const [collection, setCollection] = useState(readableCollections[0] ?? "");
@@ -58,11 +62,11 @@ const FindTab = ({
 
     const parsedLimit = Number(limit);
     if (!collection) {
-      setFormError("Choose a collection.");
+      setFormError(t("DATA_CONSOLE_DIALOG.CHOOSE_A_COLLECTION_2"));
       return;
     }
     if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
-      setFormError("Limit must be a whole number between 1 and 100.");
+      setFormError(t("DATA_CONSOLE_DIALOG.LIMIT_MUST_BE_A_WHOLE"));
       return;
     }
 
@@ -76,7 +80,7 @@ const FindTab = ({
       setResult(response);
     } catch (error) {
       setResult(null);
-      setFormError(error instanceof Error ? error.message : "The data could not be read.");
+      setFormError(error instanceof Error ? error.message : t("DATA_CONSOLE_DIALOG.THE_DATA_COULD_NOT_BE"));
     }
   };
 
@@ -84,10 +88,10 @@ const FindTab = ({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-48 flex-1 space-y-1.5">
-          <Label htmlFor="data-console-find-collection">Collection</Label>
+          <Label htmlFor="data-console-find-collection">{t("DATA_CONSOLE_DIALOG.COLLECTION")}</Label>
           <Select value={collection} onValueChange={setCollection}>
             <SelectTrigger id="data-console-find-collection">
-              <SelectValue placeholder="Choose a collection" />
+              <SelectValue placeholder={t("DATA_CONSOLE_DIALOG.CHOOSE_A_COLLECTION")} />
             </SelectTrigger>
             <SelectContent>
               {readableCollections.map((name) => (
@@ -100,7 +104,7 @@ const FindTab = ({
         </div>
 
         <div className="w-28 space-y-1.5">
-          <Label htmlFor="data-console-find-limit">Limit</Label>
+          <Label htmlFor="data-console-find-limit">{t("DATA_CONSOLE_DIALOG.LIMIT")}</Label>
           <Input
             id="data-console-find-limit"
             type="number"
@@ -113,7 +117,7 @@ const FindTab = ({
 
         <Button onClick={submit} disabled={isPending || !collection}>
           {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Find
+          {t("DATA_CONSOLE_DIALOG.FIND")}
         </Button>
       </div>
 
@@ -122,11 +126,10 @@ const FindTab = ({
       {result && (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            {result.count} document{result.count === 1 ? "" : "s"} from {result.collection}.
-          </p>
+            {t("DATA_CONSOLE_DIALOG.DOCUMENTS_FROM", { count: result.count, collection: result.collection })}</p>
           {result.documents.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No matching documents.
+              {t("DATA_CONSOLE_DIALOG.NO_MATCHING_DOCUMENTS")}
             </p>
           ) : (
             <div className="max-h-96 space-y-2 overflow-y-auto">
@@ -153,6 +156,7 @@ const UpdateTab = ({
   organizationId: string | undefined;
   updatableCollections: { logicalName: string; updatableFields: string[] }[];
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { mutateAsync, isPending } = useUpdateDataFields();
 
   const [collectionName, setCollectionName] = useState(updatableCollections[0]?.logicalName ?? "");
@@ -177,11 +181,11 @@ const UpdateTab = ({
     );
 
     if (!collection) {
-      setFormError("Choose a collection.");
+      setFormError(t("DATA_CONSOLE_DIALOG.CHOOSE_A_COLLECTION_2"));
       return;
     }
     if (Object.keys(fields).length === 0) {
-      setFormError("Set at least one field.");
+      setFormError(t("DATA_CONSOLE_DIALOG.SET_AT_LEAST_ONE_FIELD"));
       return;
     }
 
@@ -196,24 +200,24 @@ const UpdateTab = ({
 
       toast({
         variant: "success",
-        title: response.modified ? "Field updated" : "Nothing matched",
+        title: response.modified ? t("DATA_CONSOLE_DIALOG.FIELD_UPDATED") : t("DATA_CONSOLE_DIALOG.NOTHING_MATCHED"),
         description: response.modified
-          ? `Set ${response.fieldsSet.join(", ")} on ${response.collection}.`
-          : "No document matched this subscription in that collection.",
+          ? t("DATA_CONSOLE_DIALOG.SET_ON", { fields: response.fieldsSet.join(", "), collection: response.collection })
+          : t("DATA_CONSOLE_DIALOG.NO_DOCUMENT_MATCHED_THIS"),
       });
     } catch (error) {
       setResult(null);
-      setFormError(error instanceof Error ? error.message : "The field could not be updated.");
+      setFormError(error instanceof Error ? error.message : t("DATA_CONSOLE_DIALOG.THE_FIELD_COULD_NOT_BE"));
     }
   };
 
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <Label htmlFor="data-console-update-collection">Collection</Label>
+        <Label htmlFor="data-console-update-collection">{t("DATA_CONSOLE_DIALOG.COLLECTION")}</Label>
         <Select value={collectionName} onValueChange={selectCollection}>
           <SelectTrigger id="data-console-update-collection">
-            <SelectValue placeholder="Choose a collection" />
+            <SelectValue placeholder={t("DATA_CONSOLE_DIALOG.CHOOSE_A_COLLECTION")} />
           </SelectTrigger>
           <SelectContent>
             {updatableCollections.map((entry) => (
@@ -236,13 +240,12 @@ const UpdateTab = ({
                 onChange={(event) =>
                   setValues((current) => ({ ...current, [field]: event.target.value }))
                 }
-                placeholder="ISO 8601 UTC, e.g. 2026-01-01T00:00:00Z"
+                placeholder={t("DATA_CONSOLE_DIALOG.ISO_8601_UTC_E_G")}
               />
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
-            Leave a field blank to leave it unchanged. Every value here is parsed as a UTC
-            timestamp — it is the only type any updatable field on this collection holds.
+            {t("DATA_CONSOLE_DIALOG.LEAVE_A_FIELD_BLANK_TO")}
           </p>
         </div>
       )}
@@ -252,7 +255,7 @@ const UpdateTab = ({
       {result && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-2.5 text-xs">
           <Badge variant={result.modified ? "success" : "secondary"} className="font-normal">
-            {result.modified ? "Modified" : "No match"}
+            {result.modified ? t("DATA_CONSOLE_DIALOG.MODIFIED") : t("DATA_CONSOLE_DIALOG.NO_MATCH")}
           </Badge>
           <span className="text-muted-foreground">
             {result.collection}
@@ -263,7 +266,7 @@ const UpdateTab = ({
 
       <Button onClick={submit} disabled={isPending || !collection}>
         {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        Update
+        {t("common:UPDATE")}
       </Button>
     </div>
   );
@@ -280,6 +283,7 @@ export const DataConsoleDialog = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const { data: policy, error, isError, isLoading } = useDataConsolePolicy(open);
 
   const readableCollections = (policy ?? [])
@@ -293,12 +297,9 @@ export const DataConsoleDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] w-[95vw] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Data console</DialogTitle>
+          <DialogTitle>{t("DATA_CONSOLE_DIALOG.DATA_CONSOLE")}</DialogTitle>
           <DialogDescription>
-            A narrow, allowlisted read/update surface over Mongo for whatever the actions above
-            cannot reach. Never a raw query — every call is scoped server-side to one collection
-            from the allowlist, one tenant, one organization and this one subscription, and every
-            write is restricted to a small set of UTC-timestamp fields.
+            {t("DATA_CONSOLE_DIALOG.A_NARROW_ALLOWLISTED_READ_UPDATE")}
           </DialogDescription>
         </DialogHeader>
 
@@ -311,19 +312,19 @@ export const DataConsoleDialog = ({
           <div className="flex flex-col items-start gap-2">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">The data console policy could not be loaded</span>
+              <span className="font-medium">{t("DATA_CONSOLE_DIALOG.THE_DATA_CONSOLE_POLICY_COULD")}</span>
             </div>
             <p className="text-sm text-muted-foreground">
               {error instanceof Error
                 ? error.message
-                : "The data console may not be enabled in this environment."}
+                : t("DATA_CONSOLE_DIALOG.THE_DATA_CONSOLE_MAY_NOT")}
             </p>
           </div>
         ) : (
           <Tabs defaultValue="find">
             <TabsList>
-              <TabsTrigger value="find">Find</TabsTrigger>
-              <TabsTrigger value="update">Update</TabsTrigger>
+              <TabsTrigger value="find">{t("DATA_CONSOLE_DIALOG.FIND")}</TabsTrigger>
+              <TabsTrigger value="update">{t("common:UPDATE")}</TabsTrigger>
             </TabsList>
             <TabsContent value="find" className="pt-4">
               <FindTab

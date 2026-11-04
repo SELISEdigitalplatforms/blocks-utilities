@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,7 @@ import { CalendarIcon } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { MagicUrl } from "@blocks-utilities/magic-url/models/magic-url.model";
 import { useCreateMagicUrl } from "@blocks-utilities/magic-url/hooks/use-magic-url";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { useScopedPath } from "@seliseblocks/genesis-os/hooks";
 import { useNavigate } from "react-router";
 
@@ -36,9 +36,9 @@ import { ScrollArea } from "@/components/ui-kits/scroll-area/scroll-area";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { magicUrlSchema } from "@blocks-utilities/magic-url/utils/url.util";
+import { createMagicUrlSchema } from "@blocks-utilities/magic-url/utils/url.util";
 
-type MagicUrlFormData = z.infer<typeof magicUrlSchema>;
+type MagicUrlFormData = z.infer<ReturnType<typeof createMagicUrlSchema>>;
 
 interface MagicUrlDialogProps {
   open?: boolean;
@@ -48,6 +48,8 @@ interface MagicUrlDialogProps {
 }
 
 export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: MagicUrlDialogProps) {
+  const { t, language } = useT("utilities.magic-url");
+  const magicUrlSchema = useMemo(() => createMagicUrlSchema(), [language, t]);
   const navigate = useNavigate();
   const scoped = useScopedPath();
   const tenantId = useProjectStore()?.selectedProject?.tenantId || "";
@@ -130,8 +132,8 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
     if (!isValid) {
       toast({
         variant: "destructive",
-        title: "Validation Error",
-        description: "Please fix the errors in the form",
+        title: t("MAGIC_URL_DIALOG.VALIDATION_ERROR"),
+        description: t("MAGIC_URL_DIALOG.PLEASE_FIX_THE_ERRORS_IN"),
       });
       return;
     }
@@ -166,15 +168,15 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
 
     createMagicUrl(payload, {
       onSuccess: () => {
-        toast({ variant: "success", title: "Success", description: "Magic URL created successfully" });
+        toast({ variant: "success", title: t("common:SUCCESS"), description: t("MAGIC_URL_DIALOG.MAGIC_URL_CREATED_SUCCESSFULLY") });
         handleCancel();
         navigate(scoped("magic-url"), { replace: true });
       },
       onError: (error) => {
         toast({
           variant: "destructive",
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to create Magic URL",
+          title: t("common:ERROR"),
+          description: error instanceof Error ? error.message : t("MAGIC_URL_DIALOG.FAILED_TO_CREATE_MAGIC_URL"),
         });
       },
     });
@@ -190,15 +192,15 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Magic URL</DialogTitle>
-          <DialogDescription>Create a new Magic URL with custom configurations.</DialogDescription>
+          <DialogTitle>{t("MAGIC_URL_DIALOG.MAGIC_URL")}</DialogTitle>
+          <DialogDescription>{t("MAGIC_URL_DIALOG.CREATE_A_NEW_MAGIC_URL")}</DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[60vh] pr-6">
           <div className="grid gap-6 px-1 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="url">URI *</Label>
+                <Label htmlFor="url">{t("MAGIC_URL_DIALOG.URI")}</Label>
                 <Input
                   id="url"
                   placeholder="https://example.com"
@@ -214,10 +216,10 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
                 </div>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="name">Name *</Label>
+                <Label htmlFor="name">{t("MAGIC_URL_DIALOG.NAME")}</Label>
                 <Input
                   id="name"
-                  placeholder="My Magic Link"
+                  placeholder={t("MAGIC_URL_DIALOG.MY_MAGIC_LINK")}
                   {...register("name")}
                   value={name}
                   onChange={(e) => {
@@ -233,23 +235,23 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
 
             <div className={type === "1" ? "grid gap-2" : "grid grid-cols-2 gap-4"}>
               <div className="grid gap-2">
-                <Label>Type</Label>
+                <Label>{t("common:TYPE")}</Label>
                 <Select value={type} onValueChange={setType}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
+                    <SelectValue placeholder={t("MAGIC_URL_DIALOG.SELECT_TYPE")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">Redirect</SelectItem>
-                    <SelectItem value="0">Action</SelectItem>
+                    <SelectItem value="1">{t("MAGIC_URL_DIALOG.REDIRECT")}</SelectItem>
+                    <SelectItem value="0">{t("MAGIC_URL_DIALOG.ACTION")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               {type !== "1" && (
                 <div className="grid gap-2">
-                  <Label>Request Method</Label>
+                  <Label>{t("MAGIC_URL_DIALOG.REQUEST_METHOD")}</Label>
                   <Select value={requestMethod} onValueChange={setRequestMethod}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select method" />
+                      <SelectValue placeholder={t("MAGIC_URL_DIALOG.SELECT_METHOD")} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="GET">GET</SelectItem>
@@ -263,7 +265,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
             {type !== "1" && (
               <>
                 <div className="grid gap-2">
-                  <Label htmlFor="payload">Request Payload</Label>
+                  <Label htmlFor="payload">{t("MAGIC_URL_DIALOG.REQUEST_PAYLOAD")}</Label>
                   <Textarea
                     id="payload"
                     placeholder="{}"
@@ -273,7 +275,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="headers">Request Headers</Label>
+                  <Label htmlFor="headers">{t("MAGIC_URL_DIALOG.REQUEST_HEADERS")}</Label>
                   <Textarea
                     id="headers"
                     placeholder='{"Authorization": "Bearer..."}'
@@ -288,7 +290,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
             <div className={type === "1" ? "grid gap-2" : "grid grid-cols-2 gap-4"}>
               {type !== "1" && (
                 <div className="grid gap-2">
-                  <Label htmlFor="encodedQuery">Encoded Query String</Label>
+                  <Label htmlFor="encodedQuery">{t("MAGIC_URL_DIALOG.ENCODED_QUERY_STRING")}</Label>
                   <Input
                     id="encodedQuery"
                     value={requestEncodedQueryString}
@@ -297,7 +299,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
                 </div>
               )}
               <div className="grid gap-2">
-                <Label htmlFor="clientCred">Client Credential</Label>
+                <Label htmlFor="clientCred">{t("MAGIC_URL_DIALOG.CLIENT_CREDENTIAL")}</Label>
                 <Input
                   id="clientCred"
                   type="password"
@@ -311,14 +313,14 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
               <div className="grid gap-3">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="usage-limit" className="font-medium">
-                    Set Usage Limit
+                    {t("MAGIC_URL_DIALOG.SET_USAGE_LIMIT")}
                   </Label>
                   <Switch id="usage-limit" checked={usageLimit} onCheckedChange={setUsageLimit} />
                 </div>
                 {usageLimit && (
                   <Input
                     type="number"
-                    placeholder="Enter usage limit"
+                    placeholder={t("MAGIC_URL_DIALOG.ENTER_USAGE_LIMIT")}
                     value={usageLimitValue}
                     onChange={(e) => setUsageLimitValue(e.target.value)}
                     min="1"
@@ -329,7 +331,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
               <div className="grid gap-3">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="auto-expiry" className="font-medium">
-                    Set Auto Expiry Date
+                    {t("MAGIC_URL_DIALOG.SET_AUTO_EXPIRY_DATE")}
                   </Label>
                   <Switch id="auto-expiry" checked={autoExpiry} onCheckedChange={setAutoExpiry} />
                 </div>
@@ -343,7 +345,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
                         onClick={() => setIsCalendarOpen(true)}
                       >
                         <CalendarIcon className="mr-2 h-4 w-4" />
-                        {expiryDate ? formatDate(expiryDate, true) : "Pick a date"}
+                        {expiryDate ? formatDate(expiryDate, true) : t("MAGIC_URL_DIALOG.PICK_A_DATE")}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
@@ -372,10 +374,10 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
 
         <DialogFooter className="mt-4">
           <Button variant="outline" onClick={handleCancel} disabled={isPending}>
-            Cancel
+            {t("common:CANCEL")}
           </Button>
           <Button onClick={handleShorten} disabled={isPending || !isValid}>
-            {isPending ? "Creating..." : "Create"}
+            {isPending ? t("MAGIC_URL_DIALOG.CREATING") : t("common:CREATE")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -31,7 +31,7 @@ describe("the price schema's alignment field", () => {
   });
 
   it("reads an omitted alignment as the anniversary", () => {
-    const parsed = createSubscriptionPriceSchema.parse({
+    const parsed = createSubscriptionPriceSchema().parse({
       currencyCode: "chf",
       amount: 89,
       interval: 2,
@@ -43,7 +43,7 @@ describe("the price schema's alignment field", () => {
   });
 
   it("keeps a calendar alignment the author chose", () => {
-    const parsed = createSubscriptionPriceSchema.parse({
+    const parsed = createSubscriptionPriceSchema().parse({
       currencyCode: "CHF",
       amount: 89,
       interval: 2,
@@ -56,7 +56,7 @@ describe("the price schema's alignment field", () => {
   });
 
   it("rejects an alignment it has never heard of", () => {
-    const result = createSubscriptionPriceSchema.safeParse({
+    const result = createSubscriptionPriceSchema().safeParse({
       currencyCode: "CHF",
       amount: 89,
       interval: 2,

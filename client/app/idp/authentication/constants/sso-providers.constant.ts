@@ -13,6 +13,9 @@ import {
   ISsoProviderConfigurationWithMeta,
   ISsoProviderFrontendMeta,
 } from "@blocks-idp/authentication/models/sso.model";
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_IDP_AUTHENTICATION_MODULE = "utilities.idp.authentication";
 
 export enum SSO_PROVIDERS {
   google = "google",
@@ -64,13 +67,13 @@ function createProviderConfig(
   return { ...PROVIDER_DEFAULTS, provider, ...meta };
 }
 
-export const SOCIAL_AUTH_PROVIDERS_CONFIG: Record<
+export const getSocialAuthProvidersConfig = (): Record<
   SSO_PROVIDERS,
   ISsoProviderConfigurationWithMeta
-> = {
+> => ({
   github: createProviderConfig(SSO_PROVIDERS.github, {
     label: "GitHub",
-    description: "Enable the GitHub login option for your Auth0 applications",
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.ENABLE_THE_GITHUB_LOGIN_OPTION"),
     imageSrc: Github,
     imageSrcDark: GithubDark,
     isAvailable: true,
@@ -78,14 +81,14 @@ export const SOCIAL_AUTH_PROVIDERS_CONFIG: Record<
   }),
   google: createProviderConfig(SSO_PROVIDERS.google, {
     label: "Google",
-    description: "Allow your users to seamlessly log in with their trusted Google Account.",
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.ALLOW_YOUR_USERS_TO_SEAMLESSLY"),
     imageSrc: Google,
     isAvailable: true,
     isConfigured: false,
   }),
   microsoft: createProviderConfig(SSO_PROVIDERS.microsoft, {
     label: "Microsoft",
-    description: "Enable your users to securely sign in through their trusted Microsoft Account.",
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.ENABLE_YOUR_USERS_TO_SECURELY"),
     imageSrc: Microsoft,
     isAvailable: true,
     isConfigured: false,
@@ -93,39 +96,39 @@ export const SOCIAL_AUTH_PROVIDERS_CONFIG: Record<
   linkedin: createProviderConfig(SSO_PROVIDERS.linkedin, {
     label: "LinkedIn",
     description:
-      "Leverage the largest professional social network to enhance your sign-in experience",
+      tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.LEVERAGE_THE_LARGEST_PROFESSIONAL"),
     imageSrc: LinkedIn,
     isAvailable: true,
     isConfigured: false,
   }),
   x: createProviderConfig(SSO_PROVIDERS.x, {
     label: "X",
-    description: "Twitter allows users to enjoy the benefits of login with as little as one...",
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.TWITTER_ALLOWS_USERS_TO_ENJOY"),
     imageSrc: X,
     imageSrcDark: XDark,
     isAvailable: true,
     isConfigured: false,
   }),
   apple: createProviderConfig(SSO_PROVIDERS.apple, {
-    label: "Apple",
-    description: "The easy way to add Sign in with Apple to your app or website",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.APPLE"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.THE_EASY_WAY_TO_ADD"),
     imageSrc: Apple,
     imageSrcDark: AppleDark,
     isAvailable: true,
     isConfigured: false,
   }),
   facebook: createProviderConfig(SSO_PROVIDERS.facebook, {
-    label: "Facebook",
-    description: "A fast and convenient way for users to log into your app with Facebook",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.FACEBOOK"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.A_FAST_AND_CONVENIENT_WAY"),
     imageSrc: Facebook,
     isAvailable: false,
     isConfigured: false,
   }),
   ownsso: createProviderConfig(SSO_PROVIDERS.ownsso, {
-    label: "Bring your own SSO",
-    description: "Bring your own SSO provider",
+    label: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.BRING_YOUR_OWN_SSO"),
+    description: tStatic(UTILITIES_IDP_AUTHENTICATION_MODULE, "SSO_PROVIDERS_CONSTANT.BRING_YOUR_OWN_SSO_PROVIDER"),
     imageSrc: Selise,
     isAvailable: true,
     isConfigured: false,
   }),
-};
+});

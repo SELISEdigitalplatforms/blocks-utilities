@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { Button } from "@/components/ui-kits/button/button";
 import { useCreateProject } from "@blocks-identifier/hooks/use-project";
-import { environmentOptions } from "@/constants/environment-options";
+import { getEnvironmentOptions } from "@/constants/environment-options";
+import { useT } from "@seliseblocks/genesis-os";
 
 function shortGuidGenerator(length: number): string {
   const letters = "abcdefghijklmnopqrstuvwxyz";
@@ -23,10 +24,11 @@ export const AddEnvironmentModal = ({
   tenantGroupId,
   projectName,
 }: AddEnvironmentModalProps) => {
+  const { t } = useT("utilities.shared");
   const { isPending, mutateAsync } = useCreateProject();
   const [selected, setSelected] = useState<string[]>([]);
 
-  const availableOptions = environmentOptions.filter(
+  const availableOptions = getEnvironmentOptions().filter(
     (option) => !preSelectedEnvironments.includes(option.value),
   );
 
@@ -38,8 +40,8 @@ export const AddEnvironmentModal = ({
   const onSaveClick = () => {
     if (selected.length > 0 && onClose && tenantGroupId) {
       const sortedSelected = [...selected].sort((a, b) => {
-        const aIndex = environmentOptions.find((opt) => opt.value === a)?.index ?? 0;
-        const bIndex = environmentOptions.find((opt) => opt.value === b)?.index ?? 0;
+        const aIndex = getEnvironmentOptions().find((opt) => opt.value === a)?.index ?? 0;
+        const bIndex = getEnvironmentOptions().find((opt) => opt.value === b)?.index ?? 0;
         return aIndex - bIndex;
       });
       const domain = import.meta.env.VITE_BASE_DOMAIN || "seliseblocks.com";
@@ -101,14 +103,14 @@ export const AddEnvironmentModal = ({
           disabled={isPending}
           onClick={() => onClose && onClose([])}
         >
-          Cancel
+          {t("common:CANCEL")}
         </Button>
         <Button
           type="button"
           disabled={isPending || selected.length === 0}
           onClick={() => onSaveClick()}
         >
-          Add
+          {t("common:ADD")}
         </Button>
       </div>
     </div>

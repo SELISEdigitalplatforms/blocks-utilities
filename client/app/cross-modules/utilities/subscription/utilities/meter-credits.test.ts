@@ -76,7 +76,7 @@ describe("meter credits in the plan builder", () => {
   });
 
   it("sends the terms back on the meter they belong to, in minor units and basis points", () => {
-    const request = toCreatePlanRequest(createSubscriptionPlanSchema.parse(draft(onSale)));
+    const request = toCreatePlanRequest(createSubscriptionPlanSchema().parse(draft(onSale)));
 
     expect(request.meters[0].topUp).toEqual({
       enabled: true,
@@ -91,14 +91,14 @@ describe("meter credits in the plan builder", () => {
 
   it("keeps paused terms, which an edit would otherwise delete", () => {
     const request = toCreatePlanRequest(
-      createSubscriptionPlanSchema.parse(draft({ ...onSale, enabled: false })),
+      createSubscriptionPlanSchema().parse(draft({ ...onSale, enabled: false })),
     );
 
     expect(request.meters[0].topUp?.enabled).toBe(false);
   });
 
   it("sends nothing for a meter whose credits were never set up", () => {
-    const request = toCreatePlanRequest(createSubscriptionPlanSchema.parse(draft()));
+    const request = toCreatePlanRequest(createSubscriptionPlanSchema().parse(draft()));
 
     expect(request.meters[0].topUp).toBeUndefined();
   });
@@ -107,7 +107,7 @@ describe("meter credits in the plan builder", () => {
     const values = draft(onSale);
     values.meterCredits[0].maxQuantity = undefined;
 
-    const result = createSubscriptionPlanSchema.safeParse(values);
+    const result = createSubscriptionPlanSchema().safeParse(values);
 
     expect(result.success).toBe(false);
     expect(result.error?.issues.map((issue) => issue.path.join("."))).toContain(
@@ -120,14 +120,14 @@ describe("meter credits in the plan builder", () => {
     values.meterCredits[0].maxQuantity = undefined;
     values.meterCredits[0].prices = [];
 
-    expect(createSubscriptionPlanSchema.safeParse(values).success).toBe(true);
+    expect(createSubscriptionPlanSchema().safeParse(values).success).toBe(true);
   });
 
   it("saves paused credits holding a price row not yet filled in, and sends no price for it", () => {
     const values = draft({ ...onSale, enabled: false });
     values.meterCredits[0].prices.push({ currencyCode: "", unitAmount: 0 });
 
-    const result = createSubscriptionPlanSchema.safeParse(values);
+    const result = createSubscriptionPlanSchema().safeParse(values);
 
     expect(result.success).toBe(true);
     expect(toCreatePlanRequest(result.data!).meters[0].topUp?.unitPrices).toEqual([
@@ -139,7 +139,7 @@ describe("meter credits in the plan builder", () => {
     const values = draft(onSale);
     values.meterCredits[0].prices.push({ currencyCode: "", unitAmount: 0 });
 
-    const result = createSubscriptionPlanSchema.safeParse(values);
+    const result = createSubscriptionPlanSchema().safeParse(values);
 
     expect(result.error?.issues.map((issue) => issue.path.join("."))).toEqual(
       expect.arrayContaining(["meterCredits.0.prices.1.currencyCode", "meterCredits.0.prices.1.unitAmount"]),
@@ -150,14 +150,14 @@ describe("meter credits in the plan builder", () => {
     const values = draft(onSale);
     values.meterCredits[0].prices.push({ currencyCode: "USD", unitAmount: 0.2 });
 
-    expect(createSubscriptionPlanSchema.safeParse(values).success).toBe(false);
+    expect(createSubscriptionPlanSchema().safeParse(values).success).toBe(false);
   });
 
   it("refuses credits for a meter the plan does not define", () => {
     const values = draft(onSale);
     values.meterCredits[0].meterKey = "storage";
 
-    const result = createSubscriptionPlanSchema.safeParse(values);
+    const result = createSubscriptionPlanSchema().safeParse(values);
 
     expect(result.error?.issues.map((issue) => issue.message)).toContain(
       "Choose a meter this plan defines.",
@@ -168,6 +168,6 @@ describe("meter credits in the plan builder", () => {
     const values = draft(onSale);
     values.meterCredits.push({ ...values.meterCredits[0] });
 
-    expect(createSubscriptionPlanSchema.safeParse(values).success).toBe(false);
+    expect(createSubscriptionPlanSchema().safeParse(values).success).toBe(false);
   });
 });

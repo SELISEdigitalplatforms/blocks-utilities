@@ -1,3 +1,4 @@
+import { tSubscription } from "./subscription-i18n";
 import type { CreateSubscriptionPriceRequest } from "../models/subscription-plan.model";
 import type { CreateSubscriptionPriceFormValues } from "../schemas/subscription-price.schema";
 import { FLAT_FEE } from "../schemas/subscription-price.schema";
@@ -90,9 +91,15 @@ export const createPricesInTurn = async ({
       await createPrice(toCreatePriceRequest({ price, planId, organizationId }));
     } catch (error) {
       failures.push(
-        `Price ${index + 1} (${price.currencyCode} ${price.amount}): ${
-          error instanceof Error ? error.message : "could not be added"
-        }`,
+        tSubscription("CREATE_PRICE_REQUEST.PRICE_FAILURE", {
+          number: index + 1,
+          currency: price.currencyCode,
+          amount: price.amount,
+          reason:
+            error instanceof Error
+              ? error.message
+              : tSubscription("CREATE_PRICE_REQUEST.COULD_NOT_BE_ADDED"),
+        }),
       );
     }
   }

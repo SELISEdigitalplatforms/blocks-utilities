@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useState } from "react";
 import { Card } from "@/components/ui-kits/card/card";
 import { toast } from "@/hooks/use-toast";
@@ -21,12 +22,7 @@ import { StepEligibility } from "./step-eligibility";
 import { StepIdentity } from "./step-identity";
 import { StepReview } from "./step-review";
 
-const STEPS: Steps = [
-  { id: 1, title: "Identity" },
-  { id: 2, title: "Benefit" },
-  { id: 3, title: "Eligibility" },
-  { id: 4, title: "Review" },
-];
+const STEP_COUNT = 4;
 
 export interface CampaignBuilderProps {
   plans: SubscriptionPlan[];
@@ -40,11 +36,21 @@ export interface CampaignBuilderProps {
   editing?: boolean;
 }
 
-export const CampaignBuilder = (props: CampaignBuilderProps) => (
-  <StepperProviderComponent steps={STEPS}>
-    <CampaignBuilderWizard {...props} />
-  </StepperProviderComponent>
-);
+export const CampaignBuilder = (props: CampaignBuilderProps) => {
+  const { t } = useT("utilities.subscription.campaign-builder");
+  const steps: Steps = [
+    { id: 1, title: t("CAMPAIGN_BUILDER.STEP_IDENTITY") },
+    { id: 2, title: t("CAMPAIGN_BUILDER.STEP_BENEFIT") },
+    { id: 3, title: t("CAMPAIGN_BUILDER.STEP_ELIGIBILITY") },
+    { id: 4, title: t("CAMPAIGN_BUILDER.STEP_REVIEW") },
+  ];
+
+  return (
+    <StepperProviderComponent steps={steps}>
+      <CampaignBuilderWizard {...props} />
+    </StepperProviderComponent>
+  );
+};
 
 const CampaignBuilderWizard = ({
   plans,
@@ -56,11 +62,12 @@ const CampaignBuilderWizard = ({
   initialDraft = EMPTY_DRAFT,
   editing = false,
 }: CampaignBuilderProps) => {
-  const { currentStep, nextStep, previousStep, goToStep } = useStepper();
+  const { currentStep, nextStep, previousStep, goToStep, getSteps } = useStepper();
+  const { t } = useT("utilities.subscription.campaign-builder");
   const { stepperRef, isStuck } = useStickyStepper();
   const [draft, setDraft] = useState<CampaignDraft>(initialDraft);
   const step = currentStep as StepId;
-  const isLastStep = currentStep === STEPS.length;
+  const isLastStep = currentStep === STEP_COUNT;
 
   const update = (next: Partial<CampaignDraft>) => {
     // Picking a new offer type locks in that kind's own rules immediately (a full 100% reduction
@@ -98,8 +105,8 @@ const CampaignBuilderWizard = ({
       goToStep(blocked);
       toast({
         variant: "destructive",
-        title: `Something to fix in ${STEPS[blocked - 1].title}`,
-        description: "Taken to the step that needs attention.",
+        title: t("CAMPAIGN_BUILDER.FIX_STEP", { step: getSteps()[blocked - 1].title }),
+        description: t("CAMPAIGN_BUILDER.FIX_STEP_DESCRIPTION"),
       });
       return;
     }

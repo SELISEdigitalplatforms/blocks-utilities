@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui-kits/button/button";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { ModeToggle } from "@/components/mode-toggle/mode-toggle";
-import { BLOCKS_PRODUCTS } from "@/constants/blocks-products";
+import { getBlocksProducts } from "@/constants/blocks-products";
+import { LanguageSelector, useT } from "@seliseblocks/genesis-os";
 
 export interface BlocksLoginPageProps {
   name: string;
@@ -16,14 +17,6 @@ export interface BlocksLoginPageProps {
   footerLink?: { label: string; url: string };
 }
 
-const DEFAULT_KEYWORDS = [
-  "observable",
-  "intelligent",
-  "scalable",
-  "resilient",
-  "secure",
-];
-
 /** Split "blocks IAM" -> ["blocks", "IAM"] so the hero can render two lines. */
 function splitAppName(appName: string): [string, string] {
   const idx = appName.indexOf(" ");
@@ -35,20 +28,22 @@ export function BlocksLoginPage({
   name,
   onLogin,
   isLoading = false,
-  eyebrow = "Enterprise Application OS",
-  keywords = DEFAULT_KEYWORDS,
-  keywordPrefix = "Backends that are",
-  loginLabel = "Log in to your account",
+  eyebrow,
+  loginLabel,
   docsUrl = "https://docs.seliseblocks.com/",
-  footerLink = { label: "Visit Blocks", url: "https://seliseblocks.com" },
+  footerLink,
 }: BlocksLoginPageProps) {
+  const { t } = useT("utilities.shared");
+  const resolvedEyebrow = eyebrow ?? t("BLOCKS_LOGIN_PAGE.ENTERPRISE_APPLICATION_OS");
+  const resolvedLoginLabel = loginLabel ?? t("BLOCKS_LOGIN_PAGE.LOG_IN_TO_YOUR_ACCOUNT");
+  const resolvedFooterLink = footerLink ?? { label: t("BLOCKS_LOGIN_PAGE.VISIT_BLOCKS"), url: "https://seliseblocks.com" };
   const active = useMemo(
-    () => BLOCKS_PRODUCTS.find((p) => p.name === name) ?? BLOCKS_PRODUCTS[0],
-    [name],
+    () => getBlocksProducts().find((p) => p.name === name) ?? getBlocksProducts()[0],
+    [name, t],
   );
   const otherProducts = useMemo(
-    () => BLOCKS_PRODUCTS.filter((p) => p.name !== active.name),
-    [active.name],
+    () => getBlocksProducts().filter((p) => p.name !== active.name),
+    [active.name, t],
   );
   const [titleHead, titleTail] = splitAppName(active.appName);
   const navLabel = active.badge;
@@ -287,7 +282,7 @@ export function BlocksLoginPage({
               rel="noreferrer"
               className="nav-link"
             >
-              Docs
+              {t("BLOCKS_LOGIN_PAGE.DOCS")}
             </a>
             <a
               href="https://seliseblocks.com"
@@ -306,13 +301,14 @@ export function BlocksLoginPage({
               GitHub
             </a>
           </nav>
+          <LanguageSelector />
           <ModeToggle />
         </div>
       </nav>
 
       <main className="main">
         <div className="col-left">
-          <p className="eyebrow">{eyebrow}</p>
+          <p className="eyebrow">{resolvedEyebrow}</p>
           <h1 className="title-main">
             {titleHead}
             {titleTail && (
@@ -353,7 +349,7 @@ export function BlocksLoginPage({
                 disabled={isLoading}
                 onClick={onLogin}
               >
-                {isLoading ? "Redirecting…" : loginLabel}
+                {isLoading ? t("BLOCKS_LOGIN_PAGE.REDIRECTING") : resolvedLoginLabel}
               </Button>
             </div>
             <a
@@ -362,7 +358,7 @@ export function BlocksLoginPage({
               rel="noreferrer"
               className="cta-docs"
             >
-              View documentation
+              {t("BLOCKS_LOGIN_PAGE.VIEW_DOCUMENTATION")}
               <svg
                 width="12"
                 height="12"
@@ -379,10 +375,9 @@ export function BlocksLoginPage({
 
         <div className="col-right">
           <div className="sdk-header-row">
-            <p className="sdk-header-label">Core Services — Blocks Platform</p>
+            <p className="sdk-header-label">{t("BLOCKS_LOGIN_PAGE.CORE_SERVICES_BLOCKS_PLATFORM")}</p>
             <Badge variant="outline" className="sdk-count-badge">
-              {otherProducts.length} services
-            </Badge>
+              {t("BLOCKS_LOGIN_PAGE.SERVICES", { count: otherProducts.length })}</Badge>
           </div>
 
           <div className="carousel-track">
@@ -438,12 +433,12 @@ export function BlocksLoginPage({
 
           <div className="sdk-footer">
             <a
-              href={footerLink.url}
+              href={resolvedFooterLink.url}
               target="_blank"
               rel="noreferrer"
               className="visit-construct"
             >
-              {footerLink.label}
+              {resolvedFooterLink.label}
               <svg
                 width="12"
                 height="12"
@@ -455,7 +450,7 @@ export function BlocksLoginPage({
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </a>
-            <span className="sdk-open-source">Open source</span>
+            <span className="sdk-open-source">{t("BLOCKS_LOGIN_PAGE.OPEN_SOURCE")}</span>
           </div>
         </div>
       </main>

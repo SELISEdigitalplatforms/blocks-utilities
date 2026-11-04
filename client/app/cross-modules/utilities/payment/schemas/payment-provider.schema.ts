@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { zod3Messages } from "@/lib/zod3-messages";
 import type { PaymentProviderName } from "../models/payment-provider.model";
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
 
 // The checks without a message of their own carry zod 3's default one, so the forms read the same
 // after the zod 4 upgrade.
@@ -13,10 +16,11 @@ const optionalText = (maximumLength: number) =>
     .optional()
     .or(z.literal(""));
 
-const publicHttpsUrl = z
+const publicHttpsUrl = () =>
+  z
   .string()
   .trim()
-  .min(1, "Enter the frontend result URL.")
+  .min(1, tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.ENTER_FRONTEND_RESULT_URL"))
   .refine((value) => {
     try {
       const url = new URL(value);
@@ -24,16 +28,16 @@ const publicHttpsUrl = z
     } catch {
       return false;
     }
-  }, "Enter an absolute HTTPS URL.");
+  }, tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.ENTER_ABSOLUTE_HTTPS_URL"));
 
-const providerConfigurationShape = {
-  frontendResultUrl: publicHttpsUrl,
+const providerConfigurationShape = () => ({
+  frontendResultUrl: publicHttpsUrl(),
   countryCode: z
     .string()
     .trim()
     .refine(
       (value) => value.length === 0 || /^[A-Za-z]{2}$/.test(value),
-      "Use a two-letter ISO country code.",
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.TWO_LETTER_COUNTRY_CODE"),
     ),
   manualCapture: z.boolean(),
   // Held as text so "left blank" (unknown) and "0" (captures at once) stay distinct; a number
@@ -45,14 +49,14 @@ const providerConfigurationShape = {
       (value) =>
         value.length === 0 ||
         (/^\d+$/.test(value) && Number(value) <= 168),
-      "Use a whole number of hours from 0 to 168.",
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.CAPTURE_DELAY_HOURS"),
     )
     .default(""),
   // Number.isInteger, not .int(): zod 4's .int() also rejects unsafe integers and skips the checks
   // after it; zod 3's did neither. The form sends valueAsNumber, so an emptied input is NaN.
   maxRefundDays: z.coerce
     .number<number>({ error: zod3Messages.notANumber })
-    .refine(Number.isInteger, "Use a whole number.")
+    .refine(Number.isInteger, tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.WHOLE_NUMBER"))
     .min(0, zod3Messages.numberMin(0))
     .max(3650, zod3Messages.numberMax(3650)),
   storeId: optionalText(200),
@@ -77,11 +81,11 @@ const providerConfigurationShape = {
     .max(100, zod3Messages.stringMax(100))
     .refine(
       (value) => value.length === 0 || value.startsWith("pmc_"),
-      "A Stripe payment method configuration id starts with pmc_.",
+      tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.PMC_PREFIX"),
     )
     .optional()
     .or(z.literal("")),
-};
+});
 
 /** The form's text value as the request field: blank means "not set", so it is left out. */
 export const parseCaptureDelayHours = (value: string | undefined) =>
@@ -91,7 +95,8 @@ export const parseCaptureDelayHours = (value: string | undefined) =>
 
 const isAdyenHmac =(value: string) => /^[0-9A-Fa-f]{64}$/.test(value);
 
-export const registerPaymentProviderSchema = z
+export const createRegisterPaymentProviderSchema = () =>
+  z
   .object({
     providerName: z.enum(["ADYEN-ONLINE", "STRIPE"]),
     merchantId: z
@@ -113,7 +118,7 @@ export const registerPaymentProviderSchema = z
       )
       .refine((ids) => ids.length <= 50, zod3Messages.arrayMax(50))
       .default([]),
-    ...providerConfigurationShape,
+    ...providerConfigurationShape(),
     apiBaseUrl: optionalText(500),
     apiKey: z
       .string()
@@ -133,7 +138,7 @@ export const registerPaymentProviderSchema = z
         context.addIssue({
           code: "custom",
           path: ["apiBaseUrl"],
-          message: "Adyen requires its Checkout API base URL.",
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.ADYEN_REQUIRES_ITS_CHECKOUT_API"),
         });
       }
 
@@ -141,7 +146,7 @@ export const registerPaymentProviderSchema = z
         context.addIssue({
           code: "custom",
           path: ["webhookHmacKey"],
-          message: "Use the 64-character hexadecimal Adyen HMAC key.",
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.USE_THE_64_CHARACTER_HEXADECIMAL"),
         });
       }
 
@@ -149,7 +154,7 @@ export const registerPaymentProviderSchema = z
         context.addIssue({
           code: "custom",
           path: ["tokenHmacKey"],
-          message: "Use the 64-character hexadecimal token-webhook HMAC key.",
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.USE_THE_64_CHARACTER_HEXADECIMAL_2"),
         });
       }
 
@@ -163,7 +168,7 @@ export const registerPaymentProviderSchema = z
       context.addIssue({
         code: "custom",
         path: ["apiKey"],
-        message: "Stripe API keys start with sk_ or rk_.",
+        message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_API_KEYS_START_WITH"),
       });
     }
 
@@ -171,13 +176,14 @@ export const registerPaymentProviderSchema = z
       context.addIssue({
         code: "custom",
         path: ["webhookHmacKey"],
-        message: "Stripe endpoint secrets start with whsec_.",
+        message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_ENDPOINT_SECRETS_START_WITH"),
       });
     }
   });
 
-export const updatePaymentProviderSchema = z.object({
-  ...providerConfigurationShape,
+export const createUpdatePaymentProviderSchema = () =>
+  z.object({
+  ...providerConfigurationShape(),
   isEnabled: z.boolean(),
 });
 
@@ -199,7 +205,7 @@ export const createRotatePaymentProviderSchema = (
         context.addIssue({
           code: "custom",
           path: ["apiKey"],
-          message: "Enter at least one credential to rotate.",
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.ENTER_AT_LEAST_ONE_CREDENTIAL"),
         });
       }
 
@@ -214,7 +220,7 @@ export const createRotatePaymentProviderSchema = (
             context.addIssue({
               code: "custom",
               path: [field],
-              message: "Use a 64-character hexadecimal Adyen HMAC key.",
+              message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.USE_A_64_CHARACTER_HEXADECIMAL"),
             });
           }
         });
@@ -230,7 +236,7 @@ export const createRotatePaymentProviderSchema = (
         context.addIssue({
           code: "custom",
           path: ["apiKey"],
-          message: "Stripe API keys start with sk_ or rk_.",
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_API_KEYS_START_WITH"),
         });
       }
 
@@ -241,7 +247,7 @@ export const createRotatePaymentProviderSchema = (
         context.addIssue({
           code: "custom",
           path: ["webhookHmacKey"],
-          message: "Stripe endpoint secrets start with whsec_.",
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_ENDPOINT_SECRETS_START_WITH"),
         });
       }
 
@@ -249,17 +255,17 @@ export const createRotatePaymentProviderSchema = (
         context.addIssue({
           code: "custom",
           path: ["tokenHmacKey"],
-          message: "Stripe does not use a separate token-webhook secret.",
+          message: tStatic(UTILITIES_PAYMENT_MODULE, "PAYMENT_PROVIDER_SCHEMA.STRIPE_DOES_NOT_USE_A"),
         });
       }
     });
 
 export type RegisterPaymentProviderFormValues = z.infer<
-  typeof registerPaymentProviderSchema
+  ReturnType<typeof createRegisterPaymentProviderSchema>
 >;
 
 export type UpdatePaymentProviderFormValues = z.infer<
-  typeof updatePaymentProviderSchema
+  ReturnType<typeof createUpdatePaymentProviderSchema>
 >;
 
 export type RotatePaymentProviderFormValues = {

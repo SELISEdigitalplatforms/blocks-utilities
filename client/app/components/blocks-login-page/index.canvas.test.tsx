@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "@testing-library/react";
 
 import { BlocksLoginPage } from "./index";
-import { BLOCKS_PRODUCTS } from "@/constants/blocks-products";
+import { getBlocksProducts } from "@/constants/blocks-products";
 
 /**
  * jsdom returns null from canvas.getContext, so the atmospheric-canvas effect
@@ -11,7 +11,7 @@ import { BLOCKS_PRODUCTS } from "@/constants/blocks-products";
  * draw paths execute exactly once.
  */
 describe("BlocksLoginPage canvas animation", () => {
-  const product = BLOCKS_PRODUCTS[0];
+  const product = getBlocksProducts()[0];
   let frameCb: FrameRequestCallback | null = null;
   const gradient = { addColorStop: vi.fn() };
   const ctx = {

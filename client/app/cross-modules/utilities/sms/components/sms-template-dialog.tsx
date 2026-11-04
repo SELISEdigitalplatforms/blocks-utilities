@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Save } from "lucide-react";
 import { useForm, useWatch } from "react-hook-form";
@@ -19,9 +19,10 @@ import { toast } from "@/hooks/use-toast";
 import { MAX_MESSAGE_LENGTH } from "../constants/sms.constants";
 import { useSaveSmsTemplate } from "../hooks/use-sms";
 import type { SmsTemplate } from "../models/sms.model";
-import { smsTemplateSchema, type SmsTemplateFormValues } from "../schemas/sms.schema";
+import { createSmsTemplateSchema, type SmsTemplateFormValues } from "../schemas/sms.schema";
 import { SmsRequestError } from "../services/sms.service";
 import { applyServerErrors, countSegments, extractPlaceholders } from "../utils/sms.util";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface SmsTemplateDialogProps {
   open: boolean;
@@ -40,10 +41,12 @@ export const SmsTemplateDialog = ({ open, template, onOpenChange }: SmsTemplateD
 );
 
 const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate | null; onClose: () => void }) => {
+  const { t, language } = useT("utilities.sms");
+  const schema = useMemo(() => createSmsTemplateSchema(), [language, t]);
   const { mutateAsync, isPending } = useSaveSmsTemplate();
   const [bannerError, setBannerError] = useState<string | null>(null);
   const form = useForm<SmsTemplateFormValues>({
-    resolver: zodResolver(smsTemplateSchema),
+    resolver: zodResolver(schema),
     mode: "onBlur",
     defaultValues: {
       name: template?.name ?? "",
@@ -59,14 +62,14 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
     setBannerError(null);
     try {
       const saved = await mutateAsync({ templateId: template?.itemId, ...values });
-      toast({ variant: "success", title: template ? "Template updated" : "Template created", description: `${saved.name} (${saved.language})` });
+      toast({ variant: "success", title: template ? t("SMS_TEMPLATE_DIALOG.TEMPLATE_UPDATED") : t("SMS_TEMPLATE_DIALOG.TEMPLATE_CREATED"), description: `${saved.name} (${saved.language})` });
       onClose();
     } catch (error) {
       if (error instanceof SmsRequestError) {
         const unplaced = applyServerErrors(error.fieldErrors, ["name", "language", "body"], form.setError);
         setBannerError(unplaced[0] ?? (Object.keys(error.fieldErrors).length ? null : error.message));
       } else {
-        setBannerError("The template could not be saved.");
+        setBannerError(t("SMS_TEMPLATE_DIALOG.TEMPLATE_NOT_SAVED"));
       }
     }
   };
@@ -74,10 +77,9 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
   return (
     <DialogContent className="max-w-2xl">
       <DialogHeader>
-        <DialogTitle>{template ? "Edit template" : "New template"}</DialogTitle>
+        <DialogTitle>{template ? t("SMS_TEMPLATE_DIALOG.EDIT_TEMPLATE") : t("SMS_TEMPLATE_DIALOG.NEW_TEMPLATE")}</DialogTitle>
         <DialogDescription>
-          Use <code className="rounded bg-muted px-1">{"{{key}}"}</code> for values supplied when sending. A send is refused if any
-          value is missing.
+          {t("SMS_TEMPLATE_DIALOG.USE_KEY_FOR_VALUES", { token: "{{key}}" })}
         </DialogDescription>
       </DialogHeader>
 
@@ -89,7 +91,7 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Name</FormLabel>
+                  <FormLabel>{t("common:NAME")}</FormLabel>
                   <FormControl>
                     <Input {...field} placeholder="otp-login" />
                   </FormControl>
@@ -102,7 +104,7 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
               name="language"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Language</FormLabel>
+                  <FormLabel>{t("SMS_TEMPLATE_DIALOG.LANGUAGE")}</FormLabel>
                   <FormControl>
                     <Input {...field} placeholder="en-US" />
                   </FormControl>
@@ -111,20 +113,20 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
               )}
             />
           </div>
-          <FormDescription className="-mt-3">Name and language together are unique; senders pick a template by both.</FormDescription>
+          <FormDescription className="-mt-3">{t("SMS_TEMPLATE_DIALOG.NAME_AND_LANGUAGE_TOGETHER_ARE")}</FormDescription>
 
           <FormField
             control={form.control}
             name="body"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Message</FormLabel>
+                <FormLabel>{t("SMS_TEMPLATE_DIALOG.MESSAGE")}</FormLabel>
                 <FormControl>
-                  <Textarea {...field} rows={6} maxLength={MAX_MESSAGE_LENGTH} placeholder="Hi {{name}}, your code is {{code}}." />
+                  <Textarea {...field} rows={6} maxLength={MAX_MESSAGE_LENGTH} placeholder={t("SMS_TEMPLATE_DIALOG.HI_YOUR_CODE_IS")} />
                 </FormControl>
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
-                    {body.length}/{MAX_MESSAGE_LENGTH} characters · {encoding} · about {segments} segment{segments === 1 ? "" : "s"}
+                    {t("SMS_TEMPLATE_DIALOG.MESSAGE_STATS", { length: body.length, max: MAX_MESSAGE_LENGTH, encoding, count: segments })}
                   </span>
                   <span className="flex flex-wrap items-center gap-1">
                     {placeholders.length ? (
@@ -134,7 +136,7 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
                         </Badge>
                       ))
                     ) : (
-                      <span>No placeholders</span>
+                      <span>{t("SMS_TEMPLATE_DIALOG.NO_PLACEHOLDERS")}</span>
                     )}
                   </span>
                 </div>
@@ -151,11 +153,11 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
-              Cancel
+              {t("common:CANCEL")}
             </Button>
             <Button type="submit" disabled={isPending}>
               {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              {template ? "Save changes" : "Create template"}
+              {template ? t("common:SAVE_CHANGES") : t("SMS_TEMPLATE_DIALOG.CREATE_TEMPLATE")}
             </Button>
           </DialogFooter>
         </form>

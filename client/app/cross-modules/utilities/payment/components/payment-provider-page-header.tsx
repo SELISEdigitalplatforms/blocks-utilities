@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowLeft, Settings2 } from "lucide-react";
 import { Link } from "react-router";
+import { useT } from "@seliseblocks/genesis-os";
 import { Button } from "@/components/ui-kits/button/button";
 
 interface PaymentProviderPageHeaderProps {
@@ -16,10 +17,12 @@ export const PaymentProviderPageHeader = ({
   title,
   description,
   backTo,
-  backLabel = "Back to providers",
+  backLabel,
   actions,
   icon,
-}: PaymentProviderPageHeaderProps) => (
+}: PaymentProviderPageHeaderProps) => {
+  const { t } = useT("utilities.payment");
+  return (
   <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-blocks-primary-shades-100 via-card to-blocks-secondary-50 p-5 shadow-sm sm:p-7">
     <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-blocks-primary-100/30 blur-3xl" />
     <div className="relative">
@@ -27,7 +30,7 @@ export const PaymentProviderPageHeader = ({
         <Button asChild variant="ghost" size="sm" className="-ml-3 mb-3">
           <Link to={backTo}>
             <ArrowLeft className="mr-2 h-4 w-4" />
-            {backLabel}
+            {backLabel ?? t("PAYMENT_PROVIDER_PAGE_HEADER.BACK_TO_PROVIDERS")}
           </Link>
         </Button>
       )}
@@ -54,5 +57,5 @@ export const PaymentProviderPageHeader = ({
         )}
       </div>
     </div>
-  </section>
-);
+  </section>  );
+};

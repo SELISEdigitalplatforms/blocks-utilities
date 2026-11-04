@@ -8,6 +8,7 @@ import {
   DialogTrigger,
 } from "@/components/ui-kits/dialog/dialog";
 import { Button } from "@/components/ui-kits/button/button";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface ConfirmationModalProps {
   data: {
@@ -23,7 +24,9 @@ interface ConfirmationModalProps {
   };
 }
 
-const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ data, onConfirm, buttonState }) => (
+const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ data, onConfirm, buttonState }) => {
+  const { t } = useT("utilities.shared");
+  return (
   <DialogContent className="mr-4 w-full max-w-[425px] rounded-md">
     <DialogHeader>
       <DialogTitle className="text-left text-lg font-semibold leading-7">
@@ -36,15 +39,16 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ data, onConfirm, 
     <DialogFooter className="mt-4 flex flex-row gap-2">
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
-          {data.cancelButton || "Cancel"}
+          {data.cancelButton || t("common:CANCEL")}
         </Button>
       </DialogTrigger>
 
       <Button size="sm" onClick={onConfirm} disabled={buttonState?.confirm.disable}>
-        {data.confirmButton || "Yes"}
+        {data.confirmButton || t("common:YES")}
       </Button>
     </DialogFooter>
   </DialogContent>
 );
+};
 
 export default ConfirmationModal;

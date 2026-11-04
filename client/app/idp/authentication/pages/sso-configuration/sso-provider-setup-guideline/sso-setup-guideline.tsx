@@ -3,6 +3,7 @@ import { Button } from "@/components/ui-kits/button/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Progress } from "@/components/ui-kits/progress/progress";
 import { Separator } from "@/components/ui-kits/separator/separator";
+import { useT } from "@seliseblocks/genesis-os";
 
 type Step = {
   id: string;
@@ -14,6 +15,7 @@ interface SSOSetupGuideLineProps {
 }
 
 export const SSOSetupGuideLine = ({ steps }: SSOSetupGuideLineProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const [stepIndex, setStepIndex] = useState(0);
 
   const isFirst = stepIndex === 0;
@@ -37,7 +39,7 @@ export const SSOSetupGuideLine = ({ steps }: SSOSetupGuideLineProps) => {
         <Separator orientation="horizontal" />
         <div className="flex items-center justify-between gap-4 p-4">
           <div className="flex-1">
-            <div className="text-sm text-medium-emphasis">YOUR PROGRESS</div>
+            <div className="text-sm text-medium-emphasis">{t("SSO_SETUP_GUIDELINE.YOUR_PROGRESS")}</div>
             <Progress value={progress} className="mt-1 h-3 w-full" />
           </div>
           <div className="flex items-center gap-2">

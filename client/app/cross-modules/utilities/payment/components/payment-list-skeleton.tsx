@@ -1,7 +1,10 @@
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
+import { useT } from "@seliseblocks/genesis-os";
 
-export const PaymentListSkeleton = () => (
-  <div aria-label="Loading payments" aria-busy="true">
+export const PaymentListSkeleton = () => {
+  const { t } = useT("utilities.payment");
+  return (
+  <div aria-label={t("PAYMENT_LIST_SKELETON.LOADING_PAYMENTS")} aria-busy="true">
     <div className="hidden overflow-hidden rounded-lg border md:block">
       <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_1fr] gap-4 border-b bg-muted/40 px-5 py-4">
         {Array.from({ length: 5 }).map((_, index) => (
@@ -39,3 +42,4 @@ export const PaymentListSkeleton = () => (
     </div>
   </div>
 );
+};

@@ -1,4 +1,4 @@
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { useGetAssets, useAddAssets } from "@blocks-identifier/hooks/use-project";
 import { Plus, Github } from "lucide-react";
@@ -56,6 +56,7 @@ const RepositoriesLoading = () => (
 );
 
 export const RepositoriesPage = () => {
+  const { t } = useT("utilities.console");
   const groupId = useProjectStore().selectedTenantGroup;
   const [pageNumber, setPageNumber] = useState(0);
   const [pageSize] = useState(12);
@@ -115,16 +116,16 @@ export const RepositoriesPage = () => {
       });
 
       toast({
-        title: "Success",
-        description: "Repository added successfully",
+        title: t("common:SUCCESS"),
+        description: t("REPOSITORIES.REPOSITORY_ADDED_SUCCESSFULLY"),
         variant: "success",
       });
 
       refetch();
     } catch (error) {
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "An error occurred",
+        title: t("common:ERROR"),
+        description: error instanceof Error ? error.message : t("REPOSITORIES.AN_ERROR_OCCURRED"),
         variant: "destructive",
       });
       setSelectRepositoryModalOpen(false);
@@ -138,7 +139,7 @@ export const RepositoriesPage = () => {
         accessorFn: (row) => `${row.name}`.trim(),
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Name</span>
+            <span className="font-bold text-medium-emphasis">{t("common:NAME")}</span>
           </div>
         ),
         cell: (repos) => <div className="truncate">{repos.row.original.name}</div>,
@@ -148,7 +149,7 @@ export const RepositoriesPage = () => {
         accessorFn: (row) => `${row.link}`.trim(),
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Repo Link</span>
+            <span className="font-bold text-medium-emphasis">{t("REPOSITORIES.REPO_LINK")}</span>
           </div>
         ),
         cell: (repos) => (
@@ -168,7 +169,7 @@ export const RepositoriesPage = () => {
         accessorFn: (row) => `${row.resourceId}`.trim(),
         header: () => (
           <div className="flex items-center">
-            <span className="font-bold text-medium-emphasis">Source</span>
+            <span className="font-bold text-medium-emphasis">{t("REPOSITORIES.SOURCE")}</span>
           </div>
         ),
         cell: () => (
@@ -179,7 +180,7 @@ export const RepositoriesPage = () => {
         ),
       },
     ],
-    [],
+    [t],
   );
 
   const table = useReactTable({
@@ -195,7 +196,7 @@ export const RepositoriesPage = () => {
   return (
     <main className="p-6">
       <div className="flex flex-row justify-between md:items-center">
-        <h4 className="text-lg font-semibold md:text-xl">Repositories</h4>
+        <h4 className="text-lg font-semibold md:text-xl">{t("REPOSITORIES.REPOSITORIES")}</h4>
         <Button
           size="sm"
           variant="default"
@@ -203,7 +204,7 @@ export const RepositoriesPage = () => {
           onClick={handleAddRepositoryClick}
         >
           <Plus className="mr-2 h-4 w-4" />
-          <span>Add</span>
+          <span>{t("common:ADD")}</span>
         </Button>
       </div>
 
@@ -212,7 +213,7 @@ export const RepositoriesPage = () => {
           <CardHeader>
             <div className="w-1/3">
               <Input
-                placeholder="Search repositories..."
+                placeholder={t("REPOSITORIES.SEARCH_REPOSITORIES")}
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
               />
@@ -252,7 +253,7 @@ export const RepositoriesPage = () => {
                       colSpan={columns.length}
                       className="h-24 text-center text-sm text-muted-foreground md:text-base"
                     >
-                      No repositories found. Add a repository to get started.
+                      {t("REPOSITORIES.NO_REPOSITORIES_FOUND_ADD_A")}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -286,9 +287,9 @@ export const RepositoriesPage = () => {
       <Dialog open={repositoryModalOpen} onOpenChange={setRepositoryModalOpen}>
         <DialogContent className="w-[calc(100%-2rem)] rounded-lg border p-6 shadow-lg md:w-[425px]">
           <DialogHeader>
-            <DialogTitle>Connect repository</DialogTitle>
+            <DialogTitle>{t("REPOSITORIES.CONNECT_REPOSITORY")}</DialogTitle>
             <DialogDescription>
-              Select a Git provider to import an existing project from a Git Repository.
+              {t("REPOSITORIES.SELECT_A_GIT_PROVIDER_TO")}
             </DialogDescription>
           </DialogHeader>
           <ProviderButtons destination="/intermediate-page" onClose={handleProviderClose} />
@@ -300,8 +301,8 @@ export const RepositoriesPage = () => {
         open={selectRepositoryModalOpen}
         onOpenChange={setSelectRepositoryModalOpen}
         onSelectRepository={onAddRepo}
-        title="Select repository"
-        description="Select the repositories you want to link to this project"
+        title={t("REPOSITORIES.SELECT_REPOSITORY")}
+        description={t("REPOSITORIES.SELECT_THE_REPOSITORIES_YOU_WANT")}
       />
     </main>
   );

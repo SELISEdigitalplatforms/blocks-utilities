@@ -787,6 +787,18 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             // documents printing the organization id, which is what they printed before.
             subscription.OrganizationName = await _directory.FindOrganizationNameAsync(
                 context.OrganizationId, cancellationToken);
+
+            // A token with no name claim leaves the buyer captured as their bare id, and every
+            // document the worker later issues for them prints "Initiated by" that id. Asked here,
+            // on the buyer's own sign-in, because the worker has no token to ask with.
+            if (subscription.PurchasedBy is { } buyer &&
+                (string.IsNullOrWhiteSpace(buyer.Name) ||
+                 string.Equals(buyer.Name, buyer.UserId, StringComparison.Ordinal)) &&
+                await _directory.FindSelfAsync(cancellationToken) is { } self)
+            {
+                buyer.Name = self.DisplayName;
+                buyer.Email ??= self.Email;
+            }
         }
 
         if (!ApplyPeriods(subscription, now, calendarAligned, out var stubCharge))

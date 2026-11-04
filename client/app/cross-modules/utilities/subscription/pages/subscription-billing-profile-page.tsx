@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { useState } from "react";
 import { AlertCircle, ArrowRight, Building2, CheckCircle2, ReceiptText } from "lucide-react";
 import { Link } from "react-router";
@@ -5,6 +6,7 @@ import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
+import { RichText } from "../components/rich-text";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useBillingProfile, useUpdateBillingProfile } from "../hooks/use-billing-profile";
 import { useOrganizationScope } from "../hooks/use-organization-scope";
@@ -81,6 +83,7 @@ const toForm = (profile: SubscriptionBillingProfile): ProfileForm => ({
  * fields are stated up front rather than discovered as a validation error on the next screen.
  */
 export const SubscriptionBillingProfilePage = () => {
+  const { t } = useT("utilities.subscription.pages");
   const organizationId = useOrganizationScope();
   const subscriptionLink = useSubscriptionLink();
   const { data: profile, isLoading, error } = useBillingProfile(organizationId);
@@ -147,8 +150,8 @@ export const SubscriptionBillingProfilePage = () => {
   return (
     <div className="flex flex-col gap-6">
       <SubscriptionPlanPageHeader
-        title="Billing profile"
-        description="The name, contact and address every invoice and credit note for this organization is addressed to."
+        title={t("BILLING_PROFILE_PAGE.TITLE")}
+        description={t("BILLING_PROFILE_PAGE.DESCRIPTION")}
         backTo={subscriptionLink("plans")}
         icon={<ReceiptText className="h-6 w-6" />}
       />
@@ -162,12 +165,12 @@ export const SubscriptionBillingProfilePage = () => {
           <div className="text-sm">
             <p className="font-medium">
               {subscriberName
-                ? `Billing profile for ${subscriberName}`
-                : "Billing profile for this organization"}{" "}
+                ? t("BILLING_PROFILE_PAGE.SCOPE_FOR_NAME", { name: subscriberName })
+                : t("BILLING_PROFILE_PAGE.SCOPE_FOR_ORGANIZATION")}{" "}
               — <span className="font-mono text-xs">{resolvedOrganizationId}</span>
             </p>
             <p className="text-muted-foreground">
-              Every organization keeps its own. Saving here changes nothing for any other.
+              {t("BILLING_PROFILE_PAGE.SCOPE_HINT")}
             </p>
           </div>
         </Card>
@@ -180,13 +183,15 @@ export const SubscriptionBillingProfilePage = () => {
         >
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
           <div className="text-sm">
-            <p className="font-medium">This is not the organization the link asked for.</p>
+            <p className="font-medium">{t("BILLING_PROFILE_PAGE.MISMATCH_TITLE")}</p>
             <p className="text-muted-foreground">
-              The address named{" "}
-              <span className="font-mono text-xs">{organizationId}</span>, and the server answered
-              about <span className="font-mono text-xs">{resolvedOrganizationId}</span>. Naming
-              another organization is honoured for the platform console only, so what is below
-              belongs to your own — check before saving.
+              <RichText
+                text={t("BILLING_PROFILE_PAGE.MISMATCH_DESCRIPTION", {
+                  requested: `<code>${organizationId}</code>`,
+                  resolved: `<code>${resolvedOrganizationId}</code>`,
+                })}
+                codeClassName="font-mono text-xs"
+              />
             </p>
           </div>
         </Card>
@@ -199,7 +204,7 @@ export const SubscriptionBillingProfilePage = () => {
         >
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
           <div className="text-sm">
-            <p className="font-medium">This profile is not complete yet.</p>
+            <p className="font-medium">{t("BILLING_PROFILE_PAGE.INCOMPLETE")}</p>
             <p className="text-muted-foreground">{missing}</p>
           </div>
         </Card>
@@ -212,10 +217,9 @@ export const SubscriptionBillingProfilePage = () => {
         >
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
           <div className="text-sm">
-            <p className="font-medium">Ready to be invoiced.</p>
+            <p className="font-medium">{t("BILLING_PROFILE_PAGE.COMPLETE")}</p>
             <p className="text-muted-foreground">
-              Changes here appear on documents issued from now on. Invoices already sent keep the
-              details they were issued with.
+              {t("BILLING_PROFILE_PAGE.COMPLETE_HINT")}
             </p>
           </div>
         </Card>
@@ -230,7 +234,7 @@ export const SubscriptionBillingProfilePage = () => {
       <Card className="flex flex-col gap-5 p-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="legalName">Legal name</Label>
+            <Label htmlFor="legalName">{t("BILLING_PROFILE_PAGE.LEGAL_NAME")}</Label>
             <Input
               id="legalName"
               value={form.legalName}
@@ -238,12 +242,12 @@ export const SubscriptionBillingProfilePage = () => {
               placeholder="Northwind Trading AG"
             />
             <p className="text-xs text-muted-foreground">
-              The name the organization contracts under. This is what a document has to carry.
+              {t("BILLING_PROFILE_PAGE.LEGAL_NAME_HINT")}
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="displayName">Display name</Label>
+            <Label htmlFor="displayName">{t("BILLING_PROFILE_PAGE.DISPLAY_NAME")}</Label>
             <Input
               id="displayName"
               value={form.displayName}
@@ -251,12 +255,12 @@ export const SubscriptionBillingProfilePage = () => {
               placeholder="Northwind"
             />
             <p className="text-xs text-muted-foreground">
-              Optional. Falls back to the legal name.
+              {t("BILLING_PROFILE_PAGE.DISPLAY_NAME_HINT")}
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="billingContactName">Billing contact</Label>
+            <Label htmlFor="billingContactName">{t("BILLING_PROFILE_PAGE.CONTACT")}</Label>
             <Input
               id="billingContactName"
               value={form.billingContactName}
@@ -266,7 +270,7 @@ export const SubscriptionBillingProfilePage = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="billingContactEmail">Billing email</Label>
+            <Label htmlFor="billingContactEmail">{t("BILLING_PROFILE_PAGE.EMAIL")}</Label>
             <Input
               id="billingContactEmail"
               type="email"
@@ -275,12 +279,12 @@ export const SubscriptionBillingProfilePage = () => {
               placeholder="billing@northwind.example"
             />
             <p className="text-xs text-muted-foreground">
-              Where invoices, trial invoices and credit notes are emailed.
+              {t("BILLING_PROFILE_PAGE.EMAIL_HINT")}
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="billingContactLanguage">Email language</Label>
+            <Label htmlFor="billingContactLanguage">{t("BILLING_PROFILE_PAGE.EMAIL_LANGUAGE")}</Label>
             <Input
               id="billingContactLanguage"
               list="billingContactLanguageOptions"
@@ -295,16 +299,14 @@ export const SubscriptionBillingProfilePage = () => {
               ))}
             </datalist>
             <p className="text-xs text-muted-foreground">
-              The language subscription change and cancellation emails are sent in. Use a language
-              your email templates exist in — a language with no template means no email. Empty
-              means en-US.
+              {t("BILLING_PROFILE_PAGE.EMAIL_LANGUAGE_HINT")}
             </p>
           </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2 sm:col-span-2">
-            <Label htmlFor="line1">Address</Label>
+            <Label htmlFor="line1">{t("BILLING_PROFILE_PAGE.ADDRESS")}</Label>
             <Input
               id="line1"
               value={form.line1}
@@ -315,16 +317,15 @@ export const SubscriptionBillingProfilePage = () => {
               id="line2"
               value={form.line2}
               onChange={(event) => set("line2")(event.target.value)}
-              placeholder="Second line, if there is one"
+              placeholder={t("BILLING_PROFILE_PAGE.ADDRESS_LINE2_PLACEHOLDER")}
             />
             <p className="text-xs text-muted-foreground">
-              Optional — many subscribers have no address to state, and a subscription is never
-              refused for the want of one.
+              {t("BILLING_PROFILE_PAGE.ADDRESS_HINT")}
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="postalCode">Postal code</Label>
+            <Label htmlFor="postalCode">{t("BILLING_PROFILE_PAGE.POSTAL_CODE")}</Label>
             <Input
               id="postalCode"
               value={form.postalCode}
@@ -333,7 +334,7 @@ export const SubscriptionBillingProfilePage = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="city">City</Label>
+            <Label htmlFor="city">{t("BILLING_PROFILE_PAGE.CITY")}</Label>
             <Input
               id="city"
               value={form.city}
@@ -342,7 +343,7 @@ export const SubscriptionBillingProfilePage = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="region">State or region</Label>
+            <Label htmlFor="region">{t("BILLING_PROFILE_PAGE.REGION")}</Label>
             <Input
               id="region"
               value={form.region}
@@ -351,7 +352,7 @@ export const SubscriptionBillingProfilePage = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="countryCode">Country code</Label>
+            <Label htmlFor="countryCode">{t("BILLING_PROFILE_PAGE.COUNTRY_CODE")}</Label>
             <Input
               id="countryCode"
               value={form.countryCode}
@@ -359,11 +360,11 @@ export const SubscriptionBillingProfilePage = () => {
               maxLength={2}
               placeholder="CH"
             />
-            <p className="text-xs text-muted-foreground">Two letters, ISO 3166-1.</p>
+            <p className="text-xs text-muted-foreground">{t("BILLING_PROFILE_PAGE.COUNTRY_CODE_HINT")}</p>
           </div>
 
           <div className="flex flex-col gap-2 sm:col-span-2">
-            <Label htmlFor="taxRegistrationId">Tax or VAT registration</Label>
+            <Label htmlFor="taxRegistrationId">{t("BILLING_PROFILE_PAGE.TAX_REGISTRATION")}</Label>
             <Input
               id="taxRegistrationId"
               value={form.taxRegistrationId}
@@ -371,8 +372,7 @@ export const SubscriptionBillingProfilePage = () => {
               placeholder="CHE-123.456.789"
             />
             <p className="text-xs text-muted-foreground">
-              Printed exactly as entered. Every jurisdiction spells these differently, so nothing
-              here reformats it.
+              {t("BILLING_PROFILE_PAGE.TAX_REGISTRATION_HINT")}
             </p>
           </div>
         </div>
@@ -386,14 +386,14 @@ export const SubscriptionBillingProfilePage = () => {
         {saved && (
           <div className="flex flex-wrap items-center gap-3" data-testid="profile-saved">
             <p className="text-sm text-emerald-700">
-              Saved. Documents issued from now on carry these details.
+              {t("BILLING_PROFILE_PAGE.SAVED")}
             </p>
             {/* Back to the catalogue for the same organization, because the usual reason for being
                 here is a subscription that was refused for the want of these details — and retrying
                 it against a different organization would fail for the same reason again. */}
             <Button asChild variant="outline" size="sm">
               <Link to={subscriptionLink("plans")}>
-                Continue to plans
+                {t("BILLING_PROFILE_PAGE.CONTINUE")}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
@@ -402,10 +402,10 @@ export const SubscriptionBillingProfilePage = () => {
 
         <div className="flex items-center gap-3">
           <Button onClick={submit} disabled={isLoading || update.isPending}>
-            {update.isPending ? "Saving…" : "Save billing profile"}
+            {update.isPending ? t("BILLING_PROFILE_PAGE.SAVING") : t("BILLING_PROFILE_PAGE.SAVE")}
           </Button>
           <span className="text-xs text-muted-foreground">
-            Editing this never changes an invoice that has already been issued.
+            {t("BILLING_PROFILE_PAGE.EDIT_HINT")}
           </span>
         </div>
       </Card>

@@ -1,3 +1,4 @@
+import { useT, tStatic } from "@seliseblocks/genesis-os";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router";
@@ -17,6 +18,9 @@ import { useSubscriptionPlans } from "../hooks/use-subscription-plans";
 import type { SubscriptionDiscount, SubscriptionPlan } from "../models/subscription-plan.model";
 import { subscriptionService } from "../services/subscription.service";
 import { formatMoney, formatPrice } from "../utilities/subscription-format";
+import { joinList } from "../utilities/subscription-i18n";
+
+const UTILITIES_SUBSCRIPTION_PAGES_MODULE = "utilities.subscription.pages";
 
 /**
  * What a discount applies to, in one line.
@@ -39,17 +43,21 @@ const describeApplicability = (
   });
 
   if (planCodes.length === 0 && prices.length === 0) {
-    return "Applies to any plan and any price.";
+    return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.APPLIES_TO_ANY");
   }
 
   const parts = [
-    planCodes.length > 0 ? `plans: ${planCodes.join(", ")}` : null,
-    prices.length > 0 ? `prices: ${prices.join(", ")}` : null,
+    planCodes.length > 0
+      ? tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.RESTRICTED_PLANS", { plans: planCodes.join(", ") })
+      : null,
+    prices.length > 0
+      ? tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.RESTRICTED_PRICES", { prices: prices.join(", ") })
+      : null,
   ].filter(Boolean);
 
   // "and" rather than "or": both restrictions have to match, which is the part an author is most
   // likely to get wrong when they set both.
-  return `Restricted to ${parts.join(" and ")}.`;
+  return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.RESTRICTED_TO", { parts: joinList(parts as string[]) });
 };
 
 /** A campaign's own window and rules, in one line — absent for a Standard discount. */
@@ -57,7 +65,9 @@ const describeCampaign = (discount: SubscriptionDiscount): string | null => {
   if (discount.campaignKind === "Standard") return null;
 
   const kindLabel =
-    discount.campaignKind === "FreeOpeningCalendarPeriod" ? "Free opening month" : "First-year discount";
+    discount.campaignKind === "FreeOpeningCalendarPeriod"
+      ? tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.KIND_FREE_OPENING")
+      : tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.KIND_FIRST_YEAR");
   const window =
     discount.validFromDate && discount.validThroughDate
       ? `${discount.validFromDate} – ${discount.validThroughDate}`
@@ -73,7 +83,23 @@ const EFFECTIVE_STATE_VARIANT: Record<SubscriptionDiscount["effectiveState"], "d
   Archived: "outline",
 };
 
+const stateLabel = (state: string): string => {
+  switch (state) {
+    case "Active":
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.STATE_ACTIVE");
+    case "Upcoming":
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.STATE_UPCOMING");
+    case "Expired":
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.STATE_EXPIRED");
+    case "Archived":
+      return tStatic(UTILITIES_SUBSCRIPTION_PAGES_MODULE, "DISCOUNTS_PAGE.STATE_ARCHIVED");
+    default:
+      return state;
+  }
+};
+
 export const SubscriptionDiscountsPage = () => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PAGES_MODULE);
   const { itemId } = useParams();
   const organizationId = useOrganizationScope();
   const queryClient = useQueryClient();
@@ -123,7 +149,7 @@ export const SubscriptionDiscountsPage = () => {
     try {
       await create.mutateAsync(draft);
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "The discount could not be created.");
+      setSubmissionError(error instanceof Error ? error.message : t("DISCOUNTS_PAGE.CREATE_FAILED"));
       throw error;
     }
   };
@@ -134,7 +160,7 @@ export const SubscriptionDiscountsPage = () => {
     try {
       await update.mutateAsync({ discount: editing, draft });
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "The discount could not be updated.");
+      setSubmissionError(error instanceof Error ? error.message : t("DISCOUNTS_PAGE.UPDATE_FAILED"));
       throw error;
     }
   };
@@ -142,8 +168,8 @@ export const SubscriptionDiscountsPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SubscriptionPlanPageHeader
-        title="Subscription discounts"
-        description="Reusable discount codes and time-boxed campaigns are validated at signup and copied onto each subscription."
+        title={t("DISCOUNTS_PAGE.TITLE")}
+        description={t("DISCOUNTS_PAGE.DESCRIPTION")}
         backTo={`/app/${itemId ?? ""}/subscription/plans`}
       />
 
@@ -166,17 +192,17 @@ export const SubscriptionDiscountsPage = () => {
       ) : (
         <Card className="flex items-center justify-between gap-4 rounded-xl p-5">
           <div>
-            <h2 className="font-semibold">Create a discount</h2>
+            <h2 className="font-semibold">{t("DISCOUNTS_PAGE.CREATE_HEADING")}</h2>
             <p className="text-sm text-muted-foreground">
-              An ordinary code, a free opening month, or a first-year offer — four short steps.
+              {t("DISCOUNTS_PAGE.CREATE_HINT")}
             </p>
           </div>
-          <Button onClick={() => setIsCreating(true)}>New discount</Button>
+          <Button onClick={() => setIsCreating(true)}>{t("DISCOUNTS_PAGE.NEW_DISCOUNT")}</Button>
         </Card>
       )}
 
       <Card className="rounded-xl p-0">
-        <div className="border-b p-4 font-semibold">Discount catalogue</div>
+        <div className="border-b p-4 font-semibold">{t("DISCOUNTS_PAGE.CATALOGUE")}</div>
         <div className="divide-y">
           {(discounts.data ?? []).map((discount) => {
             const campaignSummary = describeCampaign(discount);
@@ -187,22 +213,30 @@ export const SubscriptionDiscountsPage = () => {
                   <p className="flex items-center gap-2 font-medium">
                     {discount.displayName} <code className="text-xs">{discount.code}</code>
                     <Badge variant={EFFECTIVE_STATE_VARIANT[discount.effectiveState]}>
-                      {discount.effectiveState}
+                      {stateLabel(discount.effectiveState)}
                     </Badge>
                     {campaignSummary && <Badge variant="secondary">{campaignSummary}</Badge>}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {discount.percentBasisPoints
-                      ? `${discount.percentBasisPoints / 100}% off`
-                      : `${formatMoney(discount.amountMinor ?? 0, discount.currencyCode ?? "USD")} off`}{" "}
-                    · {discount.status}
+                      ? t("DISCOUNTS_PAGE.PERCENT_OFF", { percent: discount.percentBasisPoints / 100 })
+                      : t("DISCOUNTS_PAGE.AMOUNT_OFF", {
+                          amount: formatMoney(
+                            discount.amountMinor ?? 0,
+                            discount.currencyCode ?? "USD",
+                          ),
+                        })}{" "}
+                    · {stateLabel(discount.status)}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {describeApplicability(discount.applicablePlanCodes, discount.applicablePriceIds, availablePlans)}
                   </p>
                   {discount.entitlementOverrideKey && (
                     <p className="text-xs text-muted-foreground">
-                      Temporarily caps {discount.entitlementOverrideKey} at {discount.entitlementOverrideLimit}.
+                      {t("DISCOUNTS_PAGE.TEMPORARY_CAP", {
+                        key: discount.entitlementOverrideKey,
+                        limit: discount.entitlementOverrideLimit ?? "",
+                      })}
                     </p>
                   )}
                 </div>
@@ -210,17 +244,20 @@ export const SubscriptionDiscountsPage = () => {
                   {discount.status === "Active" && (
                     <>
                       <Button variant="ghost" size="sm" onClick={() => setEditing(discount)}>
-                        Edit
+                        {t("common:EDIT")}
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => archive.mutate(discount.discountId)}>
-                        Retire
+                        {t("DISCOUNTS_PAGE.RETIRE")}
                       </Button>
                     </>
                   )}
                   {discount.campaignKind !== "Standard" && (
                     <p className="text-xs text-muted-foreground">
-                      {discount.redeemedRedemptions} redeemed · {discount.reservedRedemptions} pending ·{" "}
-                      {discount.releasedRedemptions} released
+                      {t("DISCOUNTS_PAGE.REDEMPTIONS", {
+                        redeemed: discount.redeemedRedemptions,
+                        pending: discount.reservedRedemptions,
+                        released: discount.releasedRedemptions,
+                      })}
                     </p>
                   )}
                 </div>
@@ -228,7 +265,7 @@ export const SubscriptionDiscountsPage = () => {
             );
           })}
           {!discounts.isLoading && !(discounts.data?.length) && (
-            <p className="p-4 text-sm text-muted-foreground">No discounts authored yet.</p>
+            <p className="p-4 text-sm text-muted-foreground">{t("DISCOUNTS_PAGE.EMPTY")}</p>
           )}
         </div>
       </Card>

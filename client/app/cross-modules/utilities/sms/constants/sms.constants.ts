@@ -24,24 +24,6 @@ export const SmsUrlPolicy = {
 } as const;
 export type SmsUrlPolicy = (typeof SmsUrlPolicy)[keyof typeof SmsUrlPolicy];
 
-export const SMS_URL_POLICY_OPTIONS = [
-  {
-    value: SmsUrlPolicy.Allow,
-    label: "Allow",
-    hint: "Messages with links are sent without comment.",
-  },
-  {
-    value: SmsUrlPolicy.Flag,
-    label: "Flag",
-    hint: "Sent, but recorded as high risk.",
-  },
-  {
-    value: SmsUrlPolicy.Block,
-    label: "Block",
-    hint: "Messages with links are quarantined.",
-  },
-] as const;
-
 export const SMS_TEMPLATE_PAGE_SIZE = 20;
 
 // Same rules the server validates, so the form fails before the round trip.

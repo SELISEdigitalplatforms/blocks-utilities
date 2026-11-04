@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
 import {
@@ -16,21 +17,25 @@ import {
 import type { CampaignPrecedence } from "../../models/subscription-plan.model";
 import type { CampaignDraft } from "./campaign-draft";
 
-const PRECEDENCE_OPTIONS: { value: CampaignPrecedence; label: string; description: string }[] = [
+type Translate = ReturnType<typeof useT>["t"];
+
+const precedenceOptions = (
+  t: Translate,
+): { value: CampaignPrecedence; label: string; description: string }[] => [
   {
     value: "BestDiscount",
-    label: "Best discount wins",
-    description: "Whichever reduction is larger — this campaign's, or the price's own — never both.",
+    label: t("STEP_BENEFIT.PRECEDENCE_BEST"),
+    description: t("STEP_BENEFIT.PRECEDENCE_BEST_DESCRIPTION"),
   },
   {
     value: "ReplaceBuiltIn",
-    label: "Replace the price's own discount",
-    description: "This campaign's reduction only, for as long as it applies — even if smaller.",
+    label: t("STEP_BENEFIT.PRECEDENCE_REPLACE"),
+    description: t("STEP_BENEFIT.PRECEDENCE_REPLACE_DESCRIPTION"),
   },
   {
     value: "Stack",
-    label: "Stack on top",
-    description: "Both reductions combined, capped at 100% of the price.",
+    label: t("STEP_BENEFIT.PRECEDENCE_STACK"),
+    description: t("STEP_BENEFIT.PRECEDENCE_STACK_DESCRIPTION"),
   },
 ];
 
@@ -41,6 +46,7 @@ export const StepBenefit = ({
   draft: CampaignDraft;
   onChange: (next: Partial<CampaignDraft>) => void;
 }) => {
+  const { t } = useT("utilities.subscription.campaign-builder");
   const isFreeMonth = draft.campaignKind === "FreeOpeningCalendarPeriod";
   const isCampaign = draft.campaignKind !== "Standard";
   const amountMessage =
@@ -48,21 +54,23 @@ export const StepBenefit = ({
       ? describeDiscountAmountProblem(draft.amount, draft.currencyCode)
       : null;
 
+  const precedences = precedenceOptions(t);
+
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-semibold">Benefit</h2>
-        <p className="mt-1 text-sm text-muted-foreground">What redeeming this discount takes off.</p>
+        <h2 className="text-lg font-semibold">{t("STEP_BENEFIT.TITLE")}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t("STEP_BENEFIT.DESCRIPTION")}</p>
       </div>
 
       {isFreeMonth ? (
         <p className="rounded-md border border-blocks-primary-200 bg-blocks-primary-50 p-3 text-sm text-blocks-primary-900">
-          A free opening month is always a full 100% reduction — nothing to set here.
+          {t("STEP_BENEFIT.FREE_MONTH_NOTE")}
         </p>
       ) : (
         <div className="grid gap-5 sm:grid-cols-3">
           <div className="space-y-1.5">
-            <Label>Kind</Label>
+            <Label>{t("STEP_BENEFIT.KIND")}</Label>
             <Select
               value={draft.discountKind}
               onValueChange={(value) => onChange({ discountKind: value as "percent" | "fixed" })}
@@ -71,15 +79,15 @@ export const StepBenefit = ({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="percent">Percentage</SelectItem>
-                <SelectItem value="fixed">Fixed amount</SelectItem>
+                <SelectItem value="percent">{t("STEP_BENEFIT.KIND_PERCENT")}</SelectItem>
+                <SelectItem value="fixed">{t("STEP_BENEFIT.KIND_FIXED")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {draft.discountKind === "percent" ? (
             <div className="space-y-1.5">
-              <Label htmlFor="campaign-percent">Percent off</Label>
+              <Label htmlFor="campaign-percent">{t("STEP_BENEFIT.PERCENT_OFF")}</Label>
               <Input
                 id="campaign-percent"
                 type="number"
@@ -92,7 +100,9 @@ export const StepBenefit = ({
           ) : (
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label htmlFor="campaign-amount">Amount off ({draft.currencyCode})</Label>
+                <Label htmlFor="campaign-amount">
+                  {t("STEP_BENEFIT.AMOUNT_OFF", { currency: draft.currencyCode })}
+                </Label>
                 <Input
                   id="campaign-amount"
                   type="number"
@@ -111,7 +121,7 @@ export const StepBenefit = ({
                 )}
               </div>
               <div>
-                <Label htmlFor="campaign-currency">Currency</Label>
+                <Label htmlFor="campaign-currency">{t("STEP_BENEFIT.CURRENCY")}</Label>
                 <Select value={draft.currencyCode} onValueChange={(value) => onChange({ currencyCode: value })}>
                   <SelectTrigger id="campaign-currency">
                     <SelectValue />
@@ -131,16 +141,16 @@ export const StepBenefit = ({
       )}
 
       <div className="space-y-2">
-        <Label>How it meets the price's own discount</Label>
+        <Label>{t("STEP_BENEFIT.PRECEDENCE_LABEL")}</Label>
         <Select
           value={draft.campaignPrecedence}
           onValueChange={(value) => onChange({ campaignPrecedence: value as CampaignPrecedence })}
         >
-          <SelectTrigger aria-label="Discount precedence">
-            <SelectValue placeholder="Use the plan's discount policy" />
+          <SelectTrigger aria-label={t("STEP_BENEFIT.PRECEDENCE_ARIA")}>
+            <SelectValue placeholder={t("STEP_BENEFIT.PRECEDENCE_PLACEHOLDER")} />
           </SelectTrigger>
           <SelectContent>
-            {PRECEDENCE_OPTIONS.map((option) => (
+            {precedences.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
@@ -149,8 +159,8 @@ export const StepBenefit = ({
         </Select>
         <p className="text-xs text-muted-foreground">
           {draft.campaignPrecedence
-            ? PRECEDENCE_OPTIONS.find((option) => option.value === draft.campaignPrecedence)?.description
-            : "This existing Standard discount keeps using each plan's discount-combination policy until you choose an option."}
+            ? precedences.find((option) => option.value === draft.campaignPrecedence)?.description
+            : t("STEP_BENEFIT.PRECEDENCE_LEGACY")}
         </p>
       </div>
 
@@ -163,7 +173,7 @@ export const StepBenefit = ({
               availability window, when it counts charges rather than bounding a period of time. */}
           <div className="space-y-1.5">
             <Label htmlFor="campaign-duration">
-              Number of discounted billing periods (optional)
+              {t("STEP_BENEFIT.DURATION")}
             </Label>
             <Input
               id="campaign-duration"
@@ -174,8 +184,7 @@ export const StepBenefit = ({
               aria-describedby="campaign-duration-help"
             />
             <p id="campaign-duration-help" className="text-xs text-muted-foreground">
-              Example: 3 applies the discount to the next three charges. Leave empty for no period
-              limit.
+              {t("STEP_BENEFIT.DURATION_HINT")}
             </p>
           </div>
             </>
@@ -184,24 +193,24 @@ export const StepBenefit = ({
               below sm, where a datetime-local control has no room to share a row. */}
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="campaign-start">Starts at (optional)</Label>
+              <Label htmlFor="campaign-start">{t("STEP_BENEFIT.STARTS_AT")}</Label>
               <Input
                 id="campaign-start"
                 type="datetime-local"
                 value={draft.startsAtUtc}
                 onChange={(event) => onChange({ startsAtUtc: event.target.value })}
               />
-              <p className="text-xs text-muted-foreground">Leave empty to make the code available immediately.</p>
+              <p className="text-xs text-muted-foreground">{t("STEP_BENEFIT.STARTS_AT_HINT")}</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="campaign-expiry">Expires at (optional)</Label>
+              <Label htmlFor="campaign-expiry">{t("STEP_BENEFIT.EXPIRES_AT")}</Label>
               <Input
                 id="campaign-expiry"
                 type="datetime-local"
                 value={draft.expiresAtUtc}
                 onChange={(event) => onChange({ expiresAtUtc: event.target.value })}
               />
-              <p className="text-xs text-muted-foreground">The code is unavailable at and after this instant.</p>
+              <p className="text-xs text-muted-foreground">{t("STEP_BENEFIT.EXPIRES_AT_HINT")}</p>
             </div>
           </div>
         </div>
@@ -209,8 +218,7 @@ export const StepBenefit = ({
 
       {isCampaign && !isFreeMonth && (
         <p className="text-xs text-muted-foreground">
-          This offer expires itself — a first-year discount stops after the first annual period,
-          automatically. There is no duration to set.
+          {t("STEP_BENEFIT.SELF_EXPIRING")}
         </p>
       )}
     </div>

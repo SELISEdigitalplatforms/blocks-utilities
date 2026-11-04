@@ -2,7 +2,7 @@ import LoadingSpinner from "@/components/loader-spinner/loader-spinner";
 import { cn } from "@/lib/utils";
 import { LoginOption } from "@blocks-identifier/models/project.model";
 import { SSOSigninCard } from "@blocks-idp/authentication/components/sso-signin-card";
-import { SOCIAL_AUTH_PROVIDERS_CONFIG } from "@blocks-idp/authentication/constants/sso-providers.constant";
+import { getSocialAuthProvidersConfig } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { useSsoActivation } from "@blocks-idp/authentication/hooks/use-sso-activation";
 
 type SsoSigninProps = {
@@ -23,7 +23,7 @@ const GRID_COLS_MAP: Record<number, string> = {
 export const SsoSignin = ({ loginOption }: SsoSigninProps) => {
   const { isPending } = useSsoActivation();
 
-  const providers = Object.values(SOCIAL_AUTH_PROVIDERS_CONFIG)
+  const providers = Object.values(getSocialAuthProvidersConfig())
     .map((config) => {
       const sso = loginOption?.ssoInfo?.find(
         (s) => s.provider === config.provider && config.isAvailable,

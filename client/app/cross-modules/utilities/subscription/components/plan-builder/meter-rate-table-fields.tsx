@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Plus, X } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { Button } from "@/components/ui-kits/button/button";
@@ -31,6 +32,7 @@ import {
  * here is giving that usage away.
  */
 export const MeterRateTableFields = ({ meterIndex }: { meterIndex: number }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const tables = useFieldArray({
     control,
@@ -63,7 +65,9 @@ export const MeterRateTableFields = ({ meterIndex }: { meterIndex: number }) => 
         }
       >
         <Plus className="mr-2 h-4 w-4" />
-        {tables.fields.length === 0 ? "Price the overage" : "Add another currency"}
+        {tables.fields.length === 0
+          ? t("METER_RATE_TABLE_FIELDS.PRICE_OVERAGE")
+          : t("METER_RATE_TABLE_FIELDS.ADD_CURRENCY")}
       </Button>
     </div>
   );
@@ -95,6 +99,7 @@ const RateTable = ({
   tableIndex: number;
   onRemove: () => void;
 }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const { control, trigger } = useFormContext<CreateSubscriptionPlanFormValues>();
   const tiers = useFieldArray({
     control,
@@ -120,7 +125,7 @@ const RateTable = ({
           name={`meters.${meterIndex}.rateTables.${tableIndex}.currencyCode`}
           render={({ field }) => (
             <FormItem className="flex-1">
-              <FormLabel className="text-xs">Currency</FormLabel>
+              <FormLabel className="text-xs">{t("METER_RATE_TABLE_FIELDS.CURRENCY")}</FormLabel>
               <Select
                 value={field.value}
                 onValueChange={(value) => {
@@ -154,7 +159,7 @@ const RateTable = ({
           variant="ghost"
           size="icon"
           onClick={onRemove}
-          aria-label="Remove currency"
+          aria-label={t("METER_RATE_TABLE_FIELDS.REMOVE_CURRENCY")}
           className="text-muted-foreground hover:text-destructive"
         >
           <X className="h-4 w-4" />
@@ -172,7 +177,9 @@ const RateTable = ({
               render={({ field }) => (
                 <FormItem className="flex-1">
                   <FormLabel className="text-xs">
-                    {isLast ? "Everything above" : "Up to"}
+                    {isLast
+                      ? t("METER_RATE_TABLE_FIELDS.EVERYTHING_ABOVE")
+                      : t("METER_RATE_TABLE_FIELDS.UP_TO")}
                   </FormLabel>
                   <FormControl>
                     <Input
@@ -183,7 +190,7 @@ const RateTable = ({
                       // The final band has no upper bound — one that did would leave usage
                       // past it unpriced.
                       disabled={isLast}
-                      placeholder={isLast ? "no limit" : "1000"}
+                      placeholder={isLast ? t("METER_RATE_TABLE_FIELDS.NO_LIMIT") : "1000"}
                     />
                   </FormControl>
                   <FormMessage />
@@ -198,7 +205,9 @@ const RateTable = ({
                   {/* The currency is named on the label rather than left to the select above,
                       because the amount is meaningless without it and the two are read
                       separately once a meter has tables in several currencies. */}
-                  <FormLabel className="text-xs">Per unit ({currencyCode})</FormLabel>
+                  <FormLabel className="text-xs">
+                    {t("METER_RATE_TABLE_FIELDS.PER_UNIT", { currency: currencyCode })}
+                  </FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -218,7 +227,7 @@ const RateTable = ({
               size="icon"
               onClick={() => tiers.remove(tierIndex)}
               disabled={tiers.fields.length === 1}
-              aria-label="Remove tier"
+              aria-label={t("METER_RATE_TABLE_FIELDS.REMOVE_TIER")}
               className="text-muted-foreground hover:text-destructive"
             >
               <X className="h-4 w-4" />
@@ -258,12 +267,11 @@ const RateTable = ({
         }}
       >
         <Plus className="mr-2 h-4 w-4" />
-        Add another band
+        {t("METER_RATE_TABLE_FIELDS.ADD_BAND")}
       </Button>
 
       <p className="text-xs text-muted-foreground">
-        Amounts are in {currencyCode} — {exampleMinorAmount(currencyCode)} means{" "}
-        {exampleMinorAmount(currencyCode)} {currencyCode} per extra unit.
+        {t("METER_RATE_TABLE_FIELDS.AMOUNTS_HINT", { currency: currencyCode, example: exampleMinorAmount(currencyCode) })}
       </p>
     </div>
   );

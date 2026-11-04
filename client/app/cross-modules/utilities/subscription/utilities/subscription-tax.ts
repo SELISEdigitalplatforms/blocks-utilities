@@ -1,4 +1,5 @@
 import { formatMoney, toMinorUnits } from "./subscription-format";
+import { tSubscription } from "./subscription-i18n";
 
 /** Mirrors the server's `TaxMode`. Sent as the name, which is what the API accepts. */
 export const TAX_MODES = ["Exclusive", "Inclusive"] as const;
@@ -8,13 +9,21 @@ export type TaxMode = (typeof TAX_MODES)[number];
 export const TAX_MODE_OPTIONS: { value: TaxMode; label: string; hint: string }[] = [
   {
     value: "Exclusive",
-    label: "Added to the price",
-    hint: "The amount above is before tax. The customer pays more than it.",
+    get label() {
+      return tSubscription("SUBSCRIPTION_TAX.MODE_EXCLUSIVE");
+    },
+    get hint() {
+      return tSubscription("SUBSCRIPTION_TAX.MODE_EXCLUSIVE_HINT");
+    },
   },
   {
     value: "Inclusive",
-    label: "Already in the price",
-    hint: "The amount above is what the customer pays. The tax is inside it.",
+    get label() {
+      return tSubscription("SUBSCRIPTION_TAX.MODE_INCLUSIVE");
+    },
+    get hint() {
+      return tSubscription("SUBSCRIPTION_TAX.MODE_INCLUSIVE_HINT");
+    },
   },
 ];
 
@@ -91,6 +100,13 @@ export const describeTax = ({
   }
 
   return taxMode === "Inclusive"
-    ? `${formatMoney(totalMinor, currencyCode)} including ${formatMoney(taxMinor, currencyCode)} tax`
-    : `${formatMoney(netMinor, currencyCode)} + ${formatMoney(taxMinor, currencyCode)} tax = ${formatMoney(totalMinor, currencyCode)}`;
+    ? tSubscription("SUBSCRIPTION_TAX.BREAKDOWN_INCLUSIVE", {
+        total: formatMoney(totalMinor, currencyCode),
+        tax: formatMoney(taxMinor, currencyCode),
+      })
+    : tSubscription("SUBSCRIPTION_TAX.BREAKDOWN_EXCLUSIVE", {
+        net: formatMoney(netMinor, currencyCode),
+        tax: formatMoney(taxMinor, currencyCode),
+        total: formatMoney(totalMinor, currencyCode),
+      });
 };

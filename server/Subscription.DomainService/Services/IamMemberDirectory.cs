@@ -27,6 +27,8 @@ public sealed class IamMemberDirectory : IMemberDirectory
     private const string DefaultOrganizationId = "default";
     private const string DefaultOrganizationName = "Default";
     private const string MyOrganizationsId = "my";
+    private const string IamPath = "api/iam";
+    private const string MeId = "me";
 
     /// <summary>
     /// Kept short: this runs inside an administrator's request, once per person named, and a slow
@@ -50,10 +52,14 @@ public sealed class IamMemberDirectory : IMemberDirectory
 
     public async Task<MemberContact?> FindUserAsync(
         string userId,
-        CancellationToken cancellationToken)
-    {
-        var reply = await GetAsync<IamUserReply>(UsersPath, userId, cancellationToken);
+        CancellationToken cancellationToken) =>
+        ContactOf(await GetAsync<IamUserReply>(UsersPath, userId, cancellationToken));
 
+    public async Task<MemberContact?> FindSelfAsync(CancellationToken cancellationToken) =>
+        ContactOf(await GetAsync<IamUserReply>(IamPath, MeId, cancellationToken));
+
+    private static MemberContact? ContactOf(IamUserReply? reply)
+    {
         // An empty "data" is how IAM says the person is not in the caller's organization.
         if (reply?.Data is not { Email: { Length: > 0 } email } user || string.IsNullOrWhiteSpace(email))
         {

@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Plus, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui-kits/button/button";
@@ -44,26 +45,30 @@ export const CardListItem = ({
 }: {
   children: ReactNode;
   onRemove: () => void;
-}) => (
-  <Card className="group/card relative rounded-xl border-border/70 pr-9 transition-all duration-200 hover:-translate-y-0.5 hover:border-blocks-primary-200 hover:shadow-[0_16px_34px_-24px_hsl(var(--blocks-primary-700)/0.55)]">
-    {/*
-      A tint that only exists on hover, so a card being edited separates from the ones beside it
-      without every card in a long list shouting for attention at rest.
-    */}
-    <span
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-br from-blocks-primary-shades-100/0 via-blocks-primary-shades-100/0 to-blocks-secondary-50/0 opacity-0 transition-opacity duration-300 group-hover/card:opacity-100 group-hover/card:to-blocks-secondary-50/60"
-    />
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      onClick={onRemove}
-      className="absolute right-1.5 top-1.5 z-10 h-7 w-7 rounded-lg text-muted-foreground opacity-60 transition-all duration-200 hover:bg-destructive/10 hover:text-destructive hover:opacity-100 group-hover/card:opacity-100"
-      aria-label="Remove"
-    >
-      <X className="h-4 w-4" />
-    </Button>
-    <div className="relative space-y-3">{children}</div>
-  </Card>
-);
+}) => {
+  const { t } = useT("utilities.subscription.plan-builder");
+
+  return (
+    <Card className="group/card relative rounded-xl border-border/70 pr-9 transition-all duration-200 hover:-translate-y-0.5 hover:border-blocks-primary-200 hover:shadow-[0_16px_34px_-24px_hsl(var(--blocks-primary-700)/0.55)]">
+      {/*
+        A tint that only exists on hover, so a card being edited separates from the ones beside it
+        without every card in a long list shouting for attention at rest.
+      */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-br from-blocks-primary-shades-100/0 via-blocks-primary-shades-100/0 to-blocks-secondary-50/0 opacity-0 transition-opacity duration-300 group-hover/card:opacity-100 group-hover/card:to-blocks-secondary-50/60"
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={onRemove}
+        className="absolute right-1.5 top-1.5 z-10 h-7 w-7 rounded-lg text-muted-foreground opacity-60 transition-all duration-200 hover:bg-destructive/10 hover:text-destructive hover:opacity-100 group-hover/card:opacity-100"
+        aria-label={t("common:REMOVE")}
+      >
+        <X className="h-4 w-4" />
+      </Button>
+      <div className="relative space-y-3">{children}</div>
+    </Card>
+  );
+};

@@ -39,6 +39,7 @@ import {
   providerDisplayName,
   type RotatePaymentProviderFormValues,
 } from "../schemas/payment-provider.schema";
+import { useT } from "@seliseblocks/genesis-os";
 
 const normalizeOptional = (value?: string): string | undefined => {
   const normalized = value?.trim();
@@ -54,6 +55,7 @@ const RotationForm = ({
   provider,
   providersPath,
 }: RotationFormProps) => {
+  const { t } = useT("utilities.payment");
   const navigate = useNavigate();
   const { mutateAsync, isPending } =
     useRotatePaymentProviderCredentials();
@@ -95,15 +97,15 @@ const RotationForm = ({
 
       toast({
         variant: "success",
-        title: "Provider credentials rotated",
-        description: `${providerDisplayName(updated.providerName)} is now at version ${updated.version}.`,
+        title: t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.PROVIDER_CREDENTIALS_ROTATED"),
+        description: t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.IS_NOW_AT_VERSION", { providerName: providerDisplayName(updated.providerName), version: updated.version }),
       });
       navigate(providersPath);
     } catch (error) {
       setSubmissionError(
         error instanceof Error
           ? error.message
-          : "The provider credentials could not be rotated.",
+          : t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.THE_PROVIDER_CREDENTIALS_COULD_NOT"),
       );
     }
   };
@@ -124,21 +126,20 @@ const RotationForm = ({
                     {providerDisplayName(provider.providerName)}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Merchant: {provider.merchantId}
+                    {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.MERCHANT_ID", { merchantId: provider.merchantId })}
                   </p>
                 </div>
-                <Badge variant="info">Version {provider.version}</Badge>
+                <Badge variant="info">{t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.VERSION", { version: provider.version })}</Badge>
               </div>
             </section>
 
             <section className="space-y-5">
               <div>
                 <h2 className="text-lg font-semibold">
-                  New credential values
+                  {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.NEW_CREDENTIAL_VALUES")}
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Leave a field empty to keep its current value. Existing
-                  values are intentionally never loaded into this form.
+                  {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.LEAVE_A_FIELD_EMPTY_TO")}
                 </p>
               </div>
 
@@ -148,7 +149,7 @@ const RotationForm = ({
                   name="apiKey"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
-                      <FormLabel>New API key</FormLabel>
+                      <FormLabel>{t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.NEW_API_KEY")}</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
@@ -158,14 +159,13 @@ const RotationForm = ({
                           spellCheck={false}
                           placeholder={
                             isAdyen
-                              ? "Leave empty to keep the current API key"
+                              ? t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.LEAVE_EMPTY_TO_KEEP_THE")
                               : "sk_… or rk_…"
                           }
                         />
                       </FormControl>
                       <FormDescription>
-                        API authentication keys are replaced; providers do
-                        not verify requests against two API keys.
+                        {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.API_AUTHENTICATION_KEYS_ARE")}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -179,8 +179,8 @@ const RotationForm = ({
                     <FormItem>
                       <FormLabel>
                         {isAdyen
-                          ? "New standard webhook HMAC"
-                          : "New webhook endpoint secret"}
+                          ? t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.NEW_STANDARD_WEBHOOK_HMAC")
+                          : t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.NEW_WEBHOOK_ENDPOINT_SECRET")}
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -191,13 +191,13 @@ const RotationForm = ({
                           spellCheck={false}
                           placeholder={
                             isAdyen
-                              ? "64 hexadecimal characters"
+                              ? t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.N_64_HEXADECIMAL_CHARACTERS")
                               : "whsec_…"
                           }
                         />
                       </FormControl>
                       <FormDescription>
-                        The current active secret moves to the previous slot.
+                        {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.THE_CURRENT_ACTIVE_SECRET_MOVES")}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -211,7 +211,7 @@ const RotationForm = ({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          New token webhook HMAC
+                          {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.NEW_TOKEN_WEBHOOK_HMAC")}
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -220,11 +220,11 @@ const RotationForm = ({
                             type="password"
                             autoComplete="new-password"
                             spellCheck={false}
-                            placeholder="64 hexadecimal characters"
+                            placeholder={t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.N_64_HEXADECIMAL_CHARACTERS")}
                           />
                         </FormControl>
                         <FormDescription>
-                          Rotates stored-payment-method webhook verification.
+                          {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.ROTATES_STORED_PAYMENT_METHOD")}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -250,7 +250,7 @@ const RotationForm = ({
                 onClick={() => navigate(providersPath)}
                 disabled={isPending}
               >
-                Cancel
+                {t("common:CANCEL")}
               </Button>
               <Button type="submit" disabled={isPending}>
                 {isPending ? (
@@ -258,7 +258,7 @@ const RotationForm = ({
                 ) : (
                   <KeyRound className="mr-2 h-4 w-4" />
                 )}
-                {isPending ? "Rotating credentials…" : "Rotate credentials"}
+                {isPending ? t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.ROTATING_CREDENTIALS") : t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.ROTATE_CREDENTIALS")}
               </Button>
             </div>
           </form>
@@ -271,11 +271,10 @@ const RotationForm = ({
             <ShieldAlert className="mt-0.5 h-5 w-5 text-amber-700" />
             <div>
               <h2 className="font-semibold text-amber-950">
-                Webhook overlap
+                {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.WEBHOOK_OVERLAP")}
               </h2>
               <p className="mt-1 text-sm leading-6 text-amber-900">
-                The old active webhook secret remains valid as the previous
-                secret. A later rotation replaces that previous slot.
+                {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.THE_OLD_ACTIVE_WEBHOOK_SECRET")}
               </p>
             </div>
           </div>
@@ -285,11 +284,9 @@ const RotationForm = ({
           <div className="flex items-start gap-3">
             <ShieldCheck className="mt-0.5 h-5 w-5 text-blocks-primary-600" />
             <div>
-              <h2 className="font-semibold">Protected operation</h2>
+              <h2 className="font-semibold">{t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.PROTECTED_OPERATION")}</h2>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                Version {provider.version} prevents concurrent rotations from
-                silently replacing each other. The provider cache refreshes
-                immediately after a successful write.
+                {t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.VERSION_PREVENTS_CONCURRENT_ROTATIONS", { version: provider.version })}
               </p>
             </div>
           </div>
@@ -300,6 +297,7 @@ const RotationForm = ({
 };
 
 export const RotatePaymentProviderCredentialsPage = () => {
+  const { t } = useT("utilities.payment");
   const { itemId, paymentProviderId = "" } = useParams();
   const providersPath = `/app/${itemId ?? ""}/payment/providers`;
   const {
@@ -325,8 +323,8 @@ export const RotatePaymentProviderCredentialsPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <PaymentProviderPageHeader
-        title="Rotate provider credentials"
-        description="Change API or webhook credentials without exposing their current values."
+        title={t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.ROTATE_PROVIDER_CREDENTIALS")}
+        description={t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.CHANGE_API_OR_WEBHOOK_CREDENTIALS")}
         backTo={providersPath}
         icon={<KeyRound className="h-6 w-6" />}
       />
@@ -336,7 +334,7 @@ export const RotatePaymentProviderCredentialsPage = () => {
           message={
             error instanceof Error
               ? error.message
-              : "The payment provider could not be loaded."
+              : t("ROTATE_PAYMENT_PROVIDER_CREDENTIALS_PAGE.THE_PAYMENT_PROVIDER_COULD_NOT")
           }
           onRetry={() => refetch()}
         />

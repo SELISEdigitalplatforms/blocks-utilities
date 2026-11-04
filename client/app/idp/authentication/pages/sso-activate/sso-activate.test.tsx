@@ -13,7 +13,8 @@ vi.mock("react-router", async () => {
 
 const setAuthenticated = vi.fn();
 const setTokens = vi.fn();
-vi.mock("@seliseblocks/genesis-os", () => ({
+vi.mock("@seliseblocks/genesis-os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@seliseblocks/genesis-os")>()),
   useAuthStore: () => ({ setAuthenticated, setTokens }),
 }));
 
@@ -65,7 +66,7 @@ describe("SsoActivate", () => {
 
   it("renders the provider account and disables continue until terms accepted", () => {
     renderComp();
-    expect(screen.getByText("jane@example.com")).toBeInTheDocument();
+    expect(screen.getByText(/jane@example.com/)).toBeInTheDocument();
     expect(screen.getByText(/Signing in with/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
   });

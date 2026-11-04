@@ -1,3 +1,5 @@
+import { tSubscription } from "./subscription-i18n";
+
 /**
  * Minor-unit exponent per currency, matching what the server's currency resolver accepts
  * (SUBSCRIPTION_CURRENCY_OPTIONS). Defaults to 2 for anything not listed, which covers every
@@ -91,17 +93,24 @@ export const formatMoney = (unitAmountMinor: number, currencyCode: string): stri
   }
 };
 
-const INTERVAL_LABEL: Record<string, string> = {
-  Day: "day",
-  Week: "week",
-  Month: "month",
-  Year: "year",
-};
-
 export const formatInterval = (interval: string, intervalCount: number): string => {
-  const unit = INTERVAL_LABEL[interval] ?? interval.toLowerCase();
+  const values = { count: intervalCount };
 
-  return intervalCount === 1 ? `every ${unit}` : `every ${intervalCount} ${unit}s`;
+  switch (interval) {
+    case "Day":
+      return tSubscription("SUBSCRIPTION_FORMAT.EVERY_DAY", values);
+    case "Week":
+      return tSubscription("SUBSCRIPTION_FORMAT.EVERY_WEEK", values);
+    case "Month":
+      return tSubscription("SUBSCRIPTION_FORMAT.EVERY_MONTH", values);
+    case "Year":
+      return tSubscription("SUBSCRIPTION_FORMAT.EVERY_YEAR", values);
+    default:
+      return tSubscription("SUBSCRIPTION_FORMAT.EVERY_UNIT", {
+        count: intervalCount,
+        unit: interval.toLowerCase(),
+      });
+  }
 };
 
 /**
@@ -111,8 +120,10 @@ export const formatInterval = (interval: string, intervalCount: number): string 
  * already means, and spelling it out on every price would make the ordinary case look like a
  * setting somebody had chosen.
  */
-const formatAlignment = (billingAlignment?: string | null): string =>
-  billingAlignment === "CalendarMonth" ? ", on the 1st" : "";
+const formatCadence = (cadence: string, billingAlignment?: string | null): string =>
+  billingAlignment === "CalendarMonth"
+    ? tSubscription("SUBSCRIPTION_FORMAT.CADENCE_ON_FIRST", { cadence })
+    : cadence;
 
 export const formatPrice = (price: {
   currencyCode: string;
@@ -126,18 +137,26 @@ export const formatPrice = (price: {
   automaticDiscountBasisPoints?: number | null;
 }): string => {
   const amount = formatMoney(price.unitAmountMinor, price.currencyCode);
-  const cadence =
-    formatInterval(price.interval, price.intervalCount) +
-    formatAlignment(price.billingAlignment);
+  const cadence = formatCadence(
+    formatInterval(price.interval, price.intervalCount),
+    price.billingAlignment,
+  );
   const base = price.quantityItemKey
-    ? `${amount} per ${price.quantityItemKey}, ${cadence}`
-    : `${amount} ${cadence}`;
+    ? tSubscription("SUBSCRIPTION_FORMAT.PRICE_PER_ITEM", {
+        amount,
+        item: price.quantityItemKey,
+        cadence,
+      })
+    : tSubscription("SUBSCRIPTION_FORMAT.PRICE_FLAT", { amount, cadence });
 
   // Named beside the amount, because a price with 8% off it is not the price the amount says. The
   // combination is deliberately not named here: it only matters where there is also a volume band,
   // and this string appears in lists where a reader has no quantity in mind.
   const discounted = price.automaticDiscountBasisPoints
-    ? `${base}, ${price.automaticDiscountBasisPoints / 100}% off`
+    ? tSubscription("SUBSCRIPTION_FORMAT.PRICE_DISCOUNTED", {
+        base,
+        percent: price.automaticDiscountBasisPoints / 100,
+      })
     : base;
 
   // Stated wherever a price is shown, because the number alone does not say whether the customer
@@ -150,8 +169,8 @@ export const formatPrice = (price: {
   const rate = `${price.taxRateBasisPoints / 100}%`;
 
   return price.taxMode === "Inclusive"
-    ? `${discounted} (incl. ${rate} tax)`
-    : `${discounted} + ${rate} tax`;
+    ? tSubscription("SUBSCRIPTION_FORMAT.PRICE_TAX_INCLUSIVE", { base: discounted, rate })
+    : tSubscription("SUBSCRIPTION_FORMAT.PRICE_TAX_EXCLUSIVE", { base: discounted, rate });
 };
 
 export const formatMeterAllowance = (meter: {
@@ -162,10 +181,14 @@ export const formatMeterAllowance = (meter: {
   /** Empty or absent means the rater prices overage at zero. */
   rateTables?: { currencyCode: string }[];
 }): string => {
-  const included = `${meter.includedQuantity.toLocaleString()} ${meter.unitLabel}${meter.includedQuantity === 1 ? "" : "s"} included`;
+  const included = tSubscription("SUBSCRIPTION_FORMAT.ALLOWANCE_INCLUDED", {
+    count: meter.includedQuantity,
+    quantity: meter.includedQuantity.toLocaleString(),
+    unit: meter.unitLabel,
+  });
 
   if (!meter.overageAllowed) {
-    return `${included}, then blocked`;
+    return tSubscription("SUBSCRIPTION_FORMAT.ALLOWANCE_THEN_BLOCKED", { included });
   }
 
   // Saying "then overage billed" with no rate table would promise revenue that is never
@@ -173,8 +196,8 @@ export const formatMeterAllowance = (meter: {
   // as a plain statement of what happens rather than "unlimited free", which read as a feature
   // being advertised instead of an allowance that caps nothing.
   return meter.rateTables?.length
-    ? `${included}, then overage billed`
-    : `${included}, then unlimited at no charge`;
+    ? tSubscription("SUBSCRIPTION_FORMAT.ALLOWANCE_THEN_BILLED", { included })
+    : tSubscription("SUBSCRIPTION_FORMAT.ALLOWANCE_THEN_FREE", { included });
 };
 
 /**
@@ -188,17 +211,26 @@ export const formatTrialAllowance = (
   meter: { displayName: string; unitLabel: string; includedQuantity: number },
   grant: { includedQuantity: number } | undefined,
 ): string => {
-  const unit = meter.unitLabel || "unit";
+  const unit = meter.unitLabel || tSubscription("SUBSCRIPTION_FORMAT.UNIT_FALLBACK");
   const plural = (count: number) =>
-    `${count.toLocaleString()} ${unit}${count === 1 ? "" : "s"}`;
+    tSubscription("SUBSCRIPTION_FORMAT.UNIT_COUNT", {
+      count,
+      quantity: count.toLocaleString(),
+      unit,
+    });
 
   if (!grant) {
-    return `${plural(meter.includedQuantity)} — the full monthly allowance, with no separate trial limit`;
+    return tSubscription("SUBSCRIPTION_FORMAT.TRIAL_ALLOWANCE_FULL", {
+      allowance: plural(meter.includedQuantity),
+    });
   }
 
   return grant.includedQuantity === meter.includedQuantity
     ? plural(grant.includedQuantity)
-    : `${plural(grant.includedQuantity)}, instead of the usual ${meter.includedQuantity.toLocaleString()}`;
+    : tSubscription("SUBSCRIPTION_FORMAT.TRIAL_ALLOWANCE_INSTEAD", {
+        allowance: plural(grant.includedQuantity),
+        usual: meter.includedQuantity.toLocaleString(),
+      });
 };
 
 export const formatEntitlementLimit = (entitlement: {
@@ -207,14 +239,16 @@ export const formatEntitlementLimit = (entitlement: {
   unitLabel: string | null;
 }): string => {
   if (entitlement.limitKind === "Unlimited") {
-    return "Unlimited";
+    return tSubscription("SUBSCRIPTION_FORMAT.LIMIT_UNLIMITED");
   }
 
   if (entitlement.limitKind === "Boolean") {
-    return "Granted";
+    return tSubscription("SUBSCRIPTION_FORMAT.LIMIT_GRANTED");
   }
 
-  const unit = entitlement.unitLabel ? ` ${entitlement.unitLabel}` : "";
+  const limit = (entitlement.limit ?? 0).toLocaleString();
 
-  return `Up to ${(entitlement.limit ?? 0).toLocaleString()}${unit}`;
+  return entitlement.unitLabel
+    ? tSubscription("SUBSCRIPTION_FORMAT.LIMIT_UP_TO_UNIT", { limit, unit: entitlement.unitLabel })
+    : tSubscription("SUBSCRIPTION_FORMAT.LIMIT_UP_TO", { limit });
 };

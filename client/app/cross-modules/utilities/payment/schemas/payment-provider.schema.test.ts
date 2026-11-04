@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   createRotatePaymentProviderSchema,
   parseCaptureDelayHours,
-  registerPaymentProviderSchema,
-  updatePaymentProviderSchema,
+  createRegisterPaymentProviderSchema,
+  createUpdatePaymentProviderSchema,
 } from "./payment-provider.schema";
 
 const hmac =
@@ -19,7 +19,7 @@ describe("payment provider schemas", () => {
     ["1.5", false],
     ["abc", false],
   ])("checks the capture delay %j on update (valid: %s)", (value, valid) => {
-    const result = updatePaymentProviderSchema.safeParse({
+    const result = createUpdatePaymentProviderSchema().safeParse({
       frontendResultUrl: "https://app.example/payment/result",
       countryCode: "CH",
       manualCapture: false,
@@ -40,7 +40,7 @@ describe("payment provider schemas", () => {
   });
 
   it("accepts an Adyen registration with correctly shaped HMAC keys", () => {
-    const result = registerPaymentProviderSchema.safeParse({
+    const result = createRegisterPaymentProviderSchema().safeParse({
       providerName: "ADYEN-ONLINE",
       merchantId: "merchant-1",
       frontendResultUrl: "https://app.example/payment/result",
@@ -58,7 +58,7 @@ describe("payment provider schemas", () => {
   });
 
   it("rejects malformed Adyen HMAC material before submission", () => {
-    const result = registerPaymentProviderSchema.safeParse({
+    const result = createRegisterPaymentProviderSchema().safeParse({
       providerName: "ADYEN-ONLINE",
       merchantId: "merchant-1",
       frontendResultUrl: "https://app.example/payment/result",
@@ -88,7 +88,7 @@ describe("payment provider schemas", () => {
   });
 
   it("rejects non-HTTPS frontend destinations on update", () => {
-    const result = updatePaymentProviderSchema.safeParse({
+    const result = createUpdatePaymentProviderSchema().safeParse({
       frontendResultUrl: "http://app.example/payment/result",
       countryCode: "CH",
       manualCapture: false,
@@ -124,7 +124,7 @@ describe("payment provider schemas", () => {
   };
 
   const messageFor = (
-    result: ReturnType<typeof registerPaymentProviderSchema.safeParse>,
+    result: ReturnType<ReturnType<typeof createRegisterPaymentProviderSchema>["safeParse"]>,
     field: string,
   ) =>
     result.success
@@ -132,7 +132,7 @@ describe("payment provider schemas", () => {
       : result.error.issues.find((issue) => issue.path[0] === field)?.message;
 
   it("requires Adyen to name its Checkout API base URL", () => {
-    const result = registerPaymentProviderSchema.safeParse({
+    const result = createRegisterPaymentProviderSchema().safeParse({
       ...adyenBase,
       apiBaseUrl: "",
     });
@@ -143,7 +143,7 @@ describe("payment provider schemas", () => {
   });
 
   it("requires the Adyen webhook HMAC to be 64 hex characters", () => {
-    const result = registerPaymentProviderSchema.safeParse({
+    const result = createRegisterPaymentProviderSchema().safeParse({
       ...adyenBase,
       webhookHmacKey: "too-short",
     });
@@ -154,7 +154,7 @@ describe("payment provider schemas", () => {
   });
 
   it("requires Adyen to supply a token webhook HMAC", () => {
-    const result = registerPaymentProviderSchema.safeParse({
+    const result = createRegisterPaymentProviderSchema().safeParse({
       ...adyenBase,
       tokenHmacKey: "",
     });
@@ -165,7 +165,7 @@ describe("payment provider schemas", () => {
   });
 
   it("accepts a Stripe registration with correctly prefixed secrets", () => {
-    expect(registerPaymentProviderSchema.safeParse(stripeBase).success).toBe(
+    expect(createRegisterPaymentProviderSchema().safeParse(stripeBase).success).toBe(
       true,
     );
   });
@@ -174,14 +174,14 @@ describe("payment provider schemas", () => {
     "accepts the Stripe key prefix %s",
     (apiKey) => {
       expect(
-        registerPaymentProviderSchema.safeParse({ ...stripeBase, apiKey })
+        createRegisterPaymentProviderSchema().safeParse({ ...stripeBase, apiKey })
           .success,
       ).toBe(true);
     },
   );
 
   it("rejects a Stripe API key without a recognised prefix", () => {
-    const result = registerPaymentProviderSchema.safeParse({
+    const result = createRegisterPaymentProviderSchema().safeParse({
       ...stripeBase,
       apiKey: "pk_test_123",
     });
@@ -192,7 +192,7 @@ describe("payment provider schemas", () => {
   });
 
   it("rejects a Stripe endpoint secret without the whsec prefix", () => {
-    const result = registerPaymentProviderSchema.safeParse({
+    const result = createRegisterPaymentProviderSchema().safeParse({
       ...stripeBase,
       webhookHmacKey: "secret",
     });
@@ -204,7 +204,7 @@ describe("payment provider schemas", () => {
 
   it("does not hold Stripe to the Adyen HMAC shape", () => {
     // The Adyen-only rules return early, so they must not leak onto Stripe.
-    const result = registerPaymentProviderSchema.safeParse({
+    const result = createRegisterPaymentProviderSchema().safeParse({
       ...stripeBase,
       tokenHmacKey: "not-hex",
     });
@@ -262,7 +262,7 @@ describe("payment provider schemas", () => {
    */
   describe("checkout payment methods", () => {
     it("accepts a Dashboard configuration id", () => {
-      const result = registerPaymentProviderSchema.safeParse({
+      const result = createRegisterPaymentProviderSchema().safeParse({
         ...stripeBase,
         paymentMethodConfigurationId: "pmc_123",
       });
@@ -271,7 +271,7 @@ describe("payment provider schemas", () => {
     });
 
     it("rejects a configuration id that is not one", () => {
-      const result = registerPaymentProviderSchema.safeParse({
+      const result = createRegisterPaymentProviderSchema().safeParse({
         ...stripeBase,
         paymentMethodConfigurationId: "card",
       });
@@ -283,7 +283,7 @@ describe("payment provider schemas", () => {
 
     /** Blank is how the form says "not set", the same as every other optional field here. */
     it("accepts a blank configuration id", () => {
-      const result = registerPaymentProviderSchema.safeParse({
+      const result = createRegisterPaymentProviderSchema().safeParse({
         ...stripeBase,
         paymentMethodConfigurationId: "",
       });
@@ -292,7 +292,7 @@ describe("payment provider schemas", () => {
     });
 
     it("defaults the method list to empty when it is absent", () => {
-      const result = registerPaymentProviderSchema.safeParse(stripeBase);
+      const result = createRegisterPaymentProviderSchema().safeParse(stripeBase);
 
       expect(result.success && result.data.checkoutPaymentMethodTypes).toEqual(
         [],
@@ -300,7 +300,7 @@ describe("payment provider schemas", () => {
     });
 
     it("keeps the methods it was given, in the order given", () => {
-      const result = registerPaymentProviderSchema.safeParse({
+      const result = createRegisterPaymentProviderSchema().safeParse({
         ...stripeBase,
         checkoutPaymentMethodTypes: ["card", "twint"],
       });
@@ -317,7 +317,7 @@ describe("payment provider schemas", () => {
      * operator did not choose here and cannot mistype here either.
      */
     it("accepts a method the form does not itself offer", () => {
-      const result = updatePaymentProviderSchema.safeParse({
+      const result = createUpdatePaymentProviderSchema().safeParse({
         frontendResultUrl: "https://app.example/payment/result",
         countryCode: "CH",
         manualCapture: false,
@@ -331,7 +331,7 @@ describe("payment provider schemas", () => {
     });
 
     it("rejects a blank method rather than sending one to Stripe", () => {
-      const result = registerPaymentProviderSchema.safeParse({
+      const result = createRegisterPaymentProviderSchema().safeParse({
         ...stripeBase,
         checkoutPaymentMethodTypes: [""],
       });
@@ -343,13 +343,13 @@ describe("payment provider schemas", () => {
   // The messages and behaviour zod 3 had, kept through the zod 4 upgrade.
   describe("as zod 3 reported it", () => {
     it("reports an emptied refund window, which the input sends as NaN", () => {
-      const result = registerPaymentProviderSchema.safeParse({ ...stripeBase, maxRefundDays: NaN });
+      const result = createRegisterPaymentProviderSchema().safeParse({ ...stripeBase, maxRefundDays: NaN });
 
       expect(messageFor(result, "maxRefundDays")).toBe("Expected number, received nan");
     });
 
     it("reports a fractional refund window and still runs the provider checks", () => {
-      const result = registerPaymentProviderSchema.safeParse({
+      const result = createRegisterPaymentProviderSchema().safeParse({
         ...stripeBase,
         maxRefundDays: 1.5,
         apiKey: "pk_test_123",
@@ -360,7 +360,7 @@ describe("payment provider schemas", () => {
     });
 
     it("reports too many organizations and still runs the provider checks", () => {
-      const result = registerPaymentProviderSchema.safeParse({
+      const result = createRegisterPaymentProviderSchema().safeParse({
         ...stripeBase,
         organizationIds: Array.from({ length: 51 }, (_, index) => `org-${index}`),
         apiKey: "pk_test_123",
@@ -373,7 +373,7 @@ describe("payment provider schemas", () => {
     });
 
     it("words a missing merchant id as zod 3 did", () => {
-      const result = registerPaymentProviderSchema.safeParse({ ...stripeBase, merchantId: " " });
+      const result = createRegisterPaymentProviderSchema().safeParse({ ...stripeBase, merchantId: " " });
 
       expect(messageFor(result, "merchantId")).toBe("String must contain at least 1 character(s)");
     });

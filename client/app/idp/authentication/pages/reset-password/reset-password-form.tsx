@@ -20,7 +20,8 @@ import { isErrorWithErrors } from "@/lib/error";
 import { useCaptcha } from "@blocks-idp/captcha/hooks/use-captcha";
 import { PasswordStrengthChecker } from "@blocks-idp/authentication/components/password-strength-checker/password-strength-checker";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { activationFormDefaultValue, activationFormSchema } from "../activation/utils";
+import { activationFormDefaultValue, createActivationFormSchema } from "../activation/utils";
+import { useT } from "@seliseblocks/genesis-os";
 
 type ResetPasswordFormProps = {
   code: string;
@@ -29,12 +30,13 @@ type ResetPasswordFormProps = {
 const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
 
 export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const navigate = useNavigate();
   const form = useForm({
     defaultValues: activationFormDefaultValue,
     mode: "all",
     reValidateMode: "onChange",
-    resolver: zodResolver(activationFormSchema),
+    resolver: zodResolver(createActivationFormSchema()),
   });
   const [requirementsMet, setRequirementsMet] = useState(false);
 
@@ -53,7 +55,7 @@ export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
     if (!isValid && !requirementsMet && captchaCode) resetCaptcha();
   }, [captchaCode, isValid, requirementsMet, resetCaptcha]);
 
-  const onSubmitHandler = async (values: z.infer<typeof activationFormSchema>) => {
+  const onSubmitHandler = async (values: z.infer<ReturnType<typeof createActivationFormSchema>>) => {
     try {
       const res = await mutateAsync({
         code: code,
@@ -65,13 +67,17 @@ export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
 
       if (!res.isSuccess) {
         resetCaptcha();
-        return showErrorToast({ errors: res.errors });
+        showErrorToast({ errors: res.errors });
+        return;
       }
       navigate("/reset-password-success");
     } catch (error: unknown) {
       resetCaptcha();
-      if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: "Something went wrong" });
+      if (isErrorWithErrors(error)) {
+        showErrorToast({ errors: error.errors });
+        return;
+      }
+      showErrorToast({ errors: t("RESET_PASSWORD_FORM.SOMETHING_WENT_WRONG") });
     }
   };
 
@@ -86,7 +92,7 @@ export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>{t("RESET_PASSWORD_FORM.PASSWORD")}</FormLabel>
               <FormControl>
                 <PasswordInput {...field} />
               </FormControl>
@@ -99,7 +105,7 @@ export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
           name="confirmPassword"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Confirm Password</FormLabel>
+              <FormLabel>{t("RESET_PASSWORD_FORM.CONFIRM_PASSWORD")}</FormLabel>
               <FormControl>
                 <PasswordInput {...field} />
               </FormControl>
@@ -121,7 +127,7 @@ export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
           className="w-full"
           disabled={isPending || !captchaCode || !isValid || !requirementsMet}
         >
-          Reset Password
+          {t("RESET_PASSWORD_FORM.RESET_PASSWORD")}
         </Button>
       </form>
     </Form>

@@ -11,11 +11,13 @@ import { SSOInitialRoles } from "@blocks-idp/authentication/components/sso-initi
 import { SSOInitialPermissions } from "@blocks-idp/authentication/components/sso-initial-permissions";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createCommonOAuthFields } from "../sso-provider-config-field-factory.util";
-import { ssoOAuthProviderSchema } from "../sso-provider-config.schema";
+import { createSsoOAuthProviderSchema } from "../sso-provider-config.schema";
+import { useT } from "@seliseblocks/genesis-os";
 
 const SSOXFormFields = createCommonOAuthFields();
 
 export const SSOProviderConfigXForm: React.FC<SsoConfigForms> = ({ save, configuration }) => {
+  const { t } = useT("utilities.idp.authentication");
   const values = configuration || {
     provider: SSO_PROVIDERS.x,
     audience: "",
@@ -25,12 +27,12 @@ export const SSOProviderConfigXForm: React.FC<SsoConfigForms> = ({ save, configu
     initialRoles: [],
     initialPermissions: [],
     // Hardcoded default role for now; will use API response later
-    userRoles: [{ name: "user", slug: "user", description: "default role", itemId: "1234" }],
+    userRoles: [{ name: "user", slug: "user", description: t("SSO_PROVIDER_CONFIG_X_FORM.DEFAULT_ROLE"), itemId: "1234" }],
     userPermissions: [],
   };
   const form = useForm({
     values,
-    resolver: zodResolver(ssoOAuthProviderSchema) as unknown as Resolver<typeof values>,
+    resolver: zodResolver(createSsoOAuthProviderSchema()) as unknown as Resolver<typeof values>,
   });
   return (
     <Form {...form}>
@@ -40,7 +42,7 @@ export const SSOProviderConfigXForm: React.FC<SsoConfigForms> = ({ save, configu
       >
         <Card>
           <CardHeader>
-            <CardTitle>General</CardTitle>
+            <CardTitle>{t("SSO_PROVIDER_CONFIG_X_FORM.GENERAL")}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <SSOProviderConfigFormField fields={SSOXFormFields} form={form} />
@@ -67,7 +69,7 @@ export const SSOProviderConfigXForm: React.FC<SsoConfigForms> = ({ save, configu
         </div>
 
         <div className="flex items-center justify-end gap-2">
-          <Button type="submit">Save</Button>
+          <Button type="submit">{t("common:SAVE")}</Button>
         </div>
       </form>
     </Form>

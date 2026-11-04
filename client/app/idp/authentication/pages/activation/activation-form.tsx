@@ -1,6 +1,6 @@
 import { useForm } from "react-hook-form";
 import { getRuntimeEnv } from "@/lib/runtime-env";
-import { activationFormDefaultValue, activationFormSchema } from "./utils";
+import { activationFormDefaultValue, createActivationFormSchema } from "./utils";
 import {
   Form,
   FormControl,
@@ -23,6 +23,7 @@ import { Captcha } from "@/components/captcha";
 import { useCaptcha } from "@blocks-idp/captcha/hooks/use-captcha";
 import { PasswordStrengthChecker } from "../../components/password-strength-checker/password-strength-checker";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useT } from "@seliseblocks/genesis-os";
 
 type ActivationFormProps = {
   code: string;
@@ -31,12 +32,13 @@ type ActivationFormProps = {
 const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
 
 export const ActivationForm = ({ code }: ActivationFormProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const navigate = useNavigate();
   const form = useForm({
     defaultValues: activationFormDefaultValue,
     mode: "all",
     reValidateMode: "onChange",
-    resolver: zodResolver(activationFormSchema),
+    resolver: zodResolver(createActivationFormSchema()),
   });
   const [requirementsMet, setRequirementsMet] = useState(false);
 
@@ -61,7 +63,7 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
     }
   }, [code, navigate]);
 
-  const onSubmitHandler = async (values: z.infer<typeof activationFormSchema>) => {
+  const onSubmitHandler = async (values: z.infer<ReturnType<typeof createActivationFormSchema>>) => {
     try {
       const res = await mutateAsync({
         code: code,
@@ -75,16 +77,17 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
       });
       if (!res.isSuccess) {
         resetCaptcha();
-        return showErrorToast({ errors: res.errors });
+        showErrorToast({ errors: res.errors });
+        return;
       }
-      return navigate("/activate-success");
+      navigate("/activate-success");
     } catch (error: unknown) {
       resetCaptcha();
       if (isErrorWithErrors(error)) {
         window.location.reload();
         showErrorToast({ errors: error.errors });
       } else {
-        showErrorToast({ errors: "Something went wrong" });
+        showErrorToast({ errors: t("ACTIVATION_FORM.SOMETHING_WENT_WRONG") });
       }
     }
   };
@@ -101,7 +104,7 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
           name="firstname"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>First Name</FormLabel>
+              <FormLabel>{t("ACTIVATION_FORM.FIRST_NAME")}</FormLabel>
               <FormControl>
                 <Input {...field} />
               </FormControl>
@@ -115,7 +118,7 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
           name="lastname"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Last Name</FormLabel>
+              <FormLabel>{t("ACTIVATION_FORM.LAST_NAME")}</FormLabel>
               <FormControl>
                 <Input {...field} />
               </FormControl>
@@ -130,7 +133,7 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel>{t("ACTIVATION_FORM.PASSWORD")}</FormLabel>
               <FormControl>
                 <PasswordInput {...field} />
               </FormControl>
@@ -144,7 +147,7 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
           name="confirmPassword"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Confirm Password</FormLabel>
+              <FormLabel>{t("ACTIVATION_FORM.CONFIRM_PASSWORD")}</FormLabel>
               <FormControl>
                 <PasswordInput {...field} />
               </FormControl>
@@ -165,7 +168,7 @@ export const ActivationForm = ({ code }: ActivationFormProps) => {
           className="w-full"
           disabled={isPending || !captchaCode || !requirementsMet || !isValid}
         >
-          Activate BTN
+          {t("ACTIVATION_FORM.ACTIVATE_BTN")}
         </Button>
       </form>
     </Form>

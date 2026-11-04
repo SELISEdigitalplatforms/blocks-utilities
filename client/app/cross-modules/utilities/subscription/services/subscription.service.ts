@@ -16,6 +16,7 @@ import type {
   UpdateSubscriptionPriceDiscountRequest,
   UpdateSubscriptionPriceTaxRequest,
 } from "../models/subscription-plan.model";
+import { tSubscription } from "../utilities/subscription-i18n";
 
 interface SubscriptionApiError {
   code: string;
@@ -70,7 +71,7 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "Subscription plans could not be loaded.",
+        response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.SUBSCRIPTION_PLANS_COULD_NOT_BE_LOADED"),
       );
     }
 
@@ -92,7 +93,7 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The plan could not be loaded.",
+        response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PLAN_COULD_NOT_BE_LOADED"),
       );
     }
 
@@ -109,7 +110,7 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The plan could not be created.",
+        response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PLAN_COULD_NOT_BE_CREATED"),
       );
     }
 
@@ -127,7 +128,7 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The plan could not be saved.",
+        response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PLAN_COULD_NOT_BE_SAVED"),
       );
     }
 
@@ -144,7 +145,7 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The price could not be created.",
+        response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PRICE_COULD_NOT_BE_CREATED"),
       );
     }
 
@@ -184,7 +185,7 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The plan could not be archived.",
+        response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PLAN_COULD_NOT_BE_ARCHIVED"),
       );
     }
 
@@ -208,7 +209,7 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The price could not be retired.",
+        response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PRICE_COULD_NOT_BE_RETIRED"),
       );
     }
 
@@ -224,7 +225,7 @@ class SubscriptionService {
     >(`${SUBSCRIPTION_PLAN_PRICES_ENDPOINT}/${encodeURIComponent(priceId)}/tax`, request);
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The price tax could not be saved.");
+      throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PRICE_TAX_COULD_NOT_BE_SAVED"));
     }
 
     return response.data;
@@ -248,7 +249,7 @@ class SubscriptionService {
     );
 
     if (!response.success || !response.data) {
-      throw new Error(response.error?.message || "The overage rates could not be saved.");
+      throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.OVERAGE_RATES_COULD_NOT_BE_SAVED"));
     }
 
     return response.data;
@@ -264,7 +265,7 @@ class SubscriptionService {
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || "The automatic discount could not be saved.",
+        response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.AUTOMATIC_DISCOUNT_COULD_NOT_BE_SAVED"),
       );
     }
 
@@ -276,7 +277,7 @@ class SubscriptionService {
     const response = await serviceInstances.utitlitiesService.get<SubscriptionApiResponse<SubscriptionDiscount[]>>(
       `/api/subscription-discounts${query}`,
     );
-    if (!response.success || !response.data) throw new Error(response.error?.message || "Discounts could not be loaded.");
+    if (!response.success || !response.data) throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.DISCOUNTS_COULD_NOT_BE_LOADED"));
     return response.data;
   }
 
@@ -284,7 +285,7 @@ class SubscriptionService {
     const response = await serviceInstances.utitlitiesService.post<SubscriptionApiResponse<SubscriptionDiscount>>(
       "/api/subscription-discounts", request,
     );
-    if (!response.success || !response.data) throw new Error(response.error?.message || "The discount could not be created.");
+    if (!response.success || !response.data) throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.DISCOUNT_COULD_NOT_BE_CREATED"));
     return response.data;
   }
 
@@ -298,7 +299,7 @@ class SubscriptionService {
       `/api/subscription-discounts/${encodeURIComponent(discountId)}${query}`,
       request,
     );
-    if (!response.success || !response.data) throw new Error(response.error?.message || "The discount could not be updated.");
+    if (!response.success || !response.data) throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.DISCOUNT_COULD_NOT_BE_UPDATED"));
     return response.data;
   }
 
@@ -307,7 +308,7 @@ class SubscriptionService {
     const response = await serviceInstances.utitlitiesService.put<SubscriptionApiResponse<SubscriptionDiscount>>(
       `/api/subscription-discounts/${encodeURIComponent(discountId)}/archive${query}`, {},
     );
-    if (!response.success || !response.data) throw new Error(response.error?.message || "The discount could not be retired.");
+    if (!response.success || !response.data) throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.DISCOUNT_COULD_NOT_BE_RETIRED"));
     return response.data;
   }
 }

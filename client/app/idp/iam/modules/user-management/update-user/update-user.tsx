@@ -26,25 +26,27 @@ import { Pen } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { inviteUserFormDefaultValue, inviteUserFormSchema } from "./utils";
+import { inviteUserFormDefaultValue, createInviteUserFormSchema } from "./utils";
+import { useT } from "@seliseblocks/genesis-os";
 type UpdateUserProps = {
   id: string;
   projectKey: string;
   own?: boolean;
 };
 export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => {
+  const { t } = useT("utilities.idp");
   const [open, setOpen] = useState<boolean>(false);
   const { data, isLoading, isFetching } = useGetMe();
   const { isPending, mutateAsync } = useUpdateUser({ id, projectKey, own });
   const form = useForm({
     defaultValues: inviteUserFormDefaultValue,
-    resolver: zodResolver(inviteUserFormSchema),
+    resolver: zodResolver(createInviteUserFormSchema()),
     values: data?.data,
   });
   const {
     formState: { isDirty },
   } = form;
-  const onSubmitHandler = async (values: z.infer<typeof inviteUserFormSchema>) => {
+  const onSubmitHandler = async (values: z.infer<ReturnType<typeof createInviteUserFormSchema>>) => {
     try {
       const res = await mutateAsync({
         ...data?.data,
@@ -52,13 +54,19 @@ export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => 
         itemId: id,
         projectKey,
       });
-      if (!res.isSuccess) return showErrorToast({ errors: res.errors });
-      showSuccessToast({ description: "User updated successfully" });
+      if (!res.isSuccess) {
+        showErrorToast({ errors: res.errors });
+        return;
+      }
+      showSuccessToast({ description: t("UPDATE_USER.USER_UPDATED_SUCCESSFULLY") });
       form.reset();
       setOpen(false);
     } catch (error) {
-      if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: "Something went wrong" });
+      if (isErrorWithErrors(error)) {
+        showErrorToast({ errors: error.errors });
+        return;
+      }
+      showErrorToast({ errors: t("UPDATE_USER.SOMETHING_WENT_WRONG") });
     }
   };
   return (
@@ -70,11 +78,11 @@ export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => 
       }}
     >
       <DialogTrigger asChild>
-        <PrimaryButton label="Edit User" Icon={Pen} />
+        <PrimaryButton label={t("UPDATE_USER.EDIT_USER")} Icon={Pen} />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit User</DialogTitle>
+          <DialogTitle>{t("UPDATE_USER.EDIT_USER")}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmitHandler)}>
@@ -84,9 +92,9 @@ export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => 
                 name="firstName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>First name</FormLabel>
+                    <FormLabel>{t("UPDATE_USER.FIRST_NAME")}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter first name" {...field} />
+                      <Input placeholder={t("UPDATE_USER.ENTER_FIRST_NAME")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -97,9 +105,9 @@ export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => 
                 name="lastName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Last name</FormLabel>
+                    <FormLabel>{t("UPDATE_USER.LAST_NAME")}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter last name" {...field} />
+                      <Input placeholder={t("UPDATE_USER.ENTER_LAST_NAME")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -109,10 +117,10 @@ export const UpdateUser = ({ id, projectKey, own = false }: UpdateUserProps) => 
             <DialogFooter className="mt-6">
               <DialogClose asChild>
                 <Button variant="secondary" disabled={isPending}>
-                  Cancel
+                  {t("common:CANCEL")}
                 </Button>
               </DialogClose>
-              <Button disabled={isPending || isLoading || isFetching || !isDirty}>Save</Button>
+              <Button disabled={isPending || isLoading || isFetching || !isDirty}>{t("common:SAVE")}</Button>
             </DialogFooter>
           </form>
         </Form>

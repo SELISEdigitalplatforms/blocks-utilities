@@ -1,3 +1,4 @@
+import { tSubscription } from "./subscription-i18n";
 import type { TrialDurationKindName } from "../models/subscription-plan.model";
 
 interface TrialDuration {
@@ -15,11 +16,15 @@ interface TrialDuration {
 export const describeTrialDuration = (plan: TrialDuration): string | null => {
   switch (plan.trialDurationKind) {
     case "Days":
-      return plan.trialDurationCount ? `${plan.trialDurationCount}-day trial` : null;
+      return plan.trialDurationCount
+        ? tSubscription("TRIAL_DURATION_LABEL.DAY_TRIAL", { count: plan.trialDurationCount })
+        : null;
     case "AnniversaryMonths":
-      return plan.trialDurationCount ? `${plan.trialDurationCount}-month trial` : null;
+      return plan.trialDurationCount
+        ? tSubscription("TRIAL_DURATION_LABEL.MONTH_TRIAL", { count: plan.trialDurationCount })
+        : null;
     case "EndOfCalendarMonth":
-      return "Trial until end of month";
+      return tSubscription("TRIAL_DURATION_LABEL.UNTIL_END_OF_MONTH");
     default:
       return null;
   }
@@ -32,20 +37,25 @@ export const describeTrialDuration = (plan: TrialDuration): string | null => {
 export const describeTrialSentence = (
   plan: TrialDuration & { trialRequiresPaymentMethod: boolean },
 ): string | null => {
-  const span =
-    plan.trialDurationKind === "Days" && plan.trialDurationCount
-      ? `${plan.trialDurationCount} days`
-      : plan.trialDurationKind === "AnniversaryMonths" && plan.trialDurationCount
-        ? `${plan.trialDurationCount} month${plan.trialDurationCount === 1 ? "" : "s"}`
-        : plan.trialDurationKind === "EndOfCalendarMonth"
-          ? "until the end of the calendar month"
-          : null;
+  const count = plan.trialDurationCount ?? 0;
+  let span: string | null = null;
+
+  if (plan.trialDurationKind === "Days" && count) {
+    span = tSubscription("TRIAL_DURATION_LABEL.SPAN_DAYS", { count });
+  } else if (plan.trialDurationKind === "AnniversaryMonths" && count) {
+    span = tSubscription("TRIAL_DURATION_LABEL.SPAN_MONTHS", { count });
+  } else if (plan.trialDurationKind === "EndOfCalendarMonth") {
+    span = tSubscription("TRIAL_DURATION_LABEL.SPAN_END_OF_MONTH");
+  }
 
   if (span === null) {
     return null;
   }
 
-  const freeSpan = plan.trialDurationKind === "EndOfCalendarMonth" ? span : `for ${span}`;
+  const freeSpan =
+    plan.trialDurationKind === "EndOfCalendarMonth"
+      ? span
+      : tSubscription("TRIAL_DURATION_LABEL.FOR_SPAN", { span });
 
   // Both branches describe a trial that is free until it ends -- a card being collected up front
   // is a condition of starting, not a charge. This read "Charged at signup" for the card-required
@@ -53,6 +63,6 @@ export const describeTrialSentence = (
   // was written independently of step-trial.tsx (#355) and trial-duration-label.ts's own
   // card-required branch, and the only one still saying so after #353 made it false.
   return plan.trialRequiresPaymentMethod
-    ? `A card is saved now, free ${freeSpan}, then the first charge is taken when the trial ends.`
-    : `Free ${freeSpan}, then the first charge is taken.`;
+    ? tSubscription("TRIAL_DURATION_LABEL.SENTENCE_CARD_REQUIRED", { span: freeSpan })
+    : tSubscription("TRIAL_DURATION_LABEL.SENTENCE_NO_CARD", { span: freeSpan });
 };

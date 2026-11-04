@@ -22,6 +22,9 @@ import type {
   SimulatedSubscription,
 } from "../models/subscription-simulation.model";
 import { SubscriptionOperationError } from "../services/subscription-simulation.service";
+import { useT, tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SUBSCRIPTION_SIMULATION_MODULE = "utilities.subscription-simulation";
 
 /**
  * Changing how many units a subscription has bought, without changing what it is on.
@@ -50,6 +53,7 @@ export const ChangeQuantityDialog = ({
   onOpenChange: (open: boolean) => void;
   onRefresh: () => void;
 }) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE);
   const preview = usePreviewQuantityChange();
   const apply = useChangeQuantity();
 
@@ -110,24 +114,20 @@ export const ChangeQuantityDialog = ({
       const quantity = Number(raw);
 
       if (!raw.trim() || !Number.isInteger(quantity)) {
-        return { valid: false, error: `Enter a whole number of ${item.unitLabel}s.` };
+        return { valid: false, error: t("CHANGE_QUANTITY_DIALOG.ENTER_A_WHOLE_NUMBER_OF", { unitLabel: item.unitLabel }) };
       }
 
       if (quantity < item.minQuantity) {
         return {
           valid: false,
-          error: `This plan needs at least ${item.minQuantity} ${item.unitLabel}${
-            item.minQuantity === 1 ? "" : "s"
-          }.`,
+          error: t("CHANGE_QUANTITY_DIALOG.THIS_PLAN_NEEDS_AT_LEAST", { count: item.minQuantity, unitLabel: item.unitLabel }),
         } as const;
       }
 
       if (item.maxQuantity !== null && quantity > item.maxQuantity) {
         return {
           valid: false,
-          error: `This plan allows at most ${item.maxQuantity} ${item.unitLabel}${
-            item.maxQuantity === 1 ? "" : "s"
-          }.`,
+          error: t("CHANGE_QUANTITY_DIALOG.THIS_PLAN_ALLOWS_AT_MOST", { count: item.maxQuantity, unitLabel: item.unitLabel }),
         } as const;
       }
 
@@ -135,7 +135,7 @@ export const ChangeQuantityDialog = ({
     }
 
     if (quantities.every((entry) => entry.quantity === items.find((item) => item.itemKey === entry.itemKey)?.held)) {
-      return { valid: false, error: "That is already the quantity in force." };
+      return { valid: false, error: t("CHANGE_QUANTITY_DIALOG.THAT_IS_ALREADY_THE_QUANTITY") };
     }
 
     return { valid: true, quantities };
@@ -179,11 +179,11 @@ export const ChangeQuantityDialog = ({
 
       toast({
         variant: "success",
-        title: applied.timing === "Immediate" ? "Quantity updated" : "Change scheduled",
+        title: applied.timing === "Immediate" ? t("CHANGE_QUANTITY_DIALOG.QUANTITY_UPDATED") : t("CHANGE_QUANTITY_DIALOG.CHANGE_SCHEDULED"),
         description:
           applied.timing === "Immediate"
             ? describeQuantities(applied)
-            : `${describeQuantities(applied)} from ${formatDate(applied.effectiveAtUtc)}.`,
+            : t("CHANGE_QUANTITY_DIALOG.FROM", { applied: describeQuantities(applied), effectiveAtUtc: formatDate(applied.effectiveAtUtc) }),
       });
 
       onOpenChange(false);
@@ -214,16 +214,15 @@ export const ChangeQuantityDialog = ({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Change quantity</DialogTitle>
+          <DialogTitle>{t("CHANGE_QUANTITY_DIALOG.CHANGE_QUANTITY")}</DialogTitle>
           <DialogDescription>
-            An increase is charged for the rest of the paid period and applies at once. A decrease
-            keeps the units until the period ends, then bills the smaller quantity.
+            {t("CHANGE_QUANTITY_DIALOG.AN_INCREASE_IS_CHARGED_FOR")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="rounded-md border p-3 text-sm">
-            <p className="font-medium">In force now</p>
+            <p className="font-medium">{t("CHANGE_QUANTITY_DIALOG.IN_FORCE_NOW")}</p>
             <p className="text-muted-foreground">
               {subscription.quantities
                 .map((held) => `${held.quantity} ${held.unitLabel ?? held.itemKey}`)
@@ -231,7 +230,7 @@ export const ChangeQuantityDialog = ({
               {subscription.currentTier ? ` · ${describeTier(subscription.currentTier)}` : ""}
             </p>
             <p className="text-muted-foreground">
-              {formatMoney(subscription.recurringAmountMinor, subscription.currencyCode)} per period
+              {t("CHANGE_QUANTITY_DIALOG.AMOUNT_PER_PERIOD", { amount: formatMoney(subscription.recurringAmountMinor, subscription.currencyCode) })}
             </p>
           </div>
 
@@ -239,12 +238,12 @@ export const ChangeQuantityDialog = ({
             <div className="flex items-start gap-2 rounded-md border border-warning-300 bg-warning-50 p-3 text-sm">
               <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-warning-800" />
               <p className="text-warning-900">
-                A reduction to{" "}
-                {subscription.pendingQuantityChange.quantities
-                  .map((entry) => `${entry.quantity} ${entry.unitLabel ?? entry.itemKey}`)
-                  .join(", ")}{" "}
-                is already scheduled for {formatDate(subscription.pendingQuantityChange.effectiveAtUtc)}.
-                Confirming again replaces it.
+                {t("CHANGE_QUANTITY_DIALOG.REDUCTION_ALREADY_SCHEDULED", {
+                  quantities: subscription.pendingQuantityChange.quantities
+                    .map((entry) => `${entry.quantity} ${entry.unitLabel ?? entry.itemKey}`)
+                    .join(", "),
+                  date: formatDate(subscription.pendingQuantityChange.effectiveAtUtc),
+                })}
               </p>
             </div>
           ) : null}
@@ -255,7 +254,7 @@ export const ChangeQuantityDialog = ({
                 {item.unitLabel}s
                 <span className="ml-2 text-xs text-muted-foreground">
                   {item.minQuantity}
-                  {item.maxQuantity === null ? " or more" : `–${item.maxQuantity}`}
+                  {item.maxQuantity === null ? t("CHANGE_QUANTITY_DIALOG.OR_MORE") : `–${item.maxQuantity}`}
                 </span>
               </Label>
               <Input
@@ -273,20 +272,20 @@ export const ChangeQuantityDialog = ({
             <div className="space-y-2 rounded-md border p-3 text-sm">
               <div className="flex items-center justify-between">
                 <p className="font-medium">
-                  {decrease ? "Scheduled for the period end" : "Applies immediately"}
+                  {decrease ? t("CHANGE_QUANTITY_DIALOG.SCHEDULED_FOR_THE_PERIOD_END") : t("CHANGE_QUANTITY_DIALOG.APPLIES_IMMEDIATELY")}
                 </p>
                 <Badge variant={decrease ? "secondary" : "default"}>
-                  {decrease ? formatDate(quote.effectiveAtUtc) : "Now"}
+                  {decrease ? formatDate(quote.effectiveAtUtc) : t("CHANGE_QUANTITY_DIALOG.NOW")}
                 </Badge>
               </div>
 
-              <Row label="New quantity" value={describeQuantities(quote)} />
+              <Row label={t("CHANGE_QUANTITY_DIALOG.NEW_QUANTITY")} value={describeQuantities(quote)} />
               <Row
-                label="Volume band"
+                label={t("CHANGE_QUANTITY_DIALOG.VOLUME_BAND")}
                 value={
                   quote.targetTier
                     ? describeTier(quote.targetTier)
-                    : "No band — one price at every quantity"
+                    : t("CHANGE_QUANTITY_DIALOG.NO_BAND")
                 }
               />
               {/* The server's figure, not one derived here: the band alone does not determine it,
@@ -294,36 +293,35 @@ export const ChangeQuantityDialog = ({
                   screen where somebody confirms a payment. Absent on a flat fee, where nothing is
                   sold by the unit — printing the plan's whole price as the cost of "each" of a
                   freely tracked item would be worse than printing nothing. */}
-              {quote.effectiveUnitAmountMinor !== null ? (
+              {quote.effectiveUnitAmountMinor === null ? null : (
                 <Row
-                  label="Effective unit price"
-                  value={`${formatMoney(
-                    quote.effectiveUnitAmountMinor,
-                    quote.currencyCode,
-                  )} each, before tax`}
+                  label={t("CHANGE_QUANTITY_DIALOG.EFFECTIVE_UNIT_PRICE")}
+                  value={t("CHANGE_QUANTITY_DIALOG.EACH_BEFORE_TAX", {
+                    amount: formatMoney(quote.effectiveUnitAmountMinor, quote.currencyCode),
+                  })}
                 />
-              ) : null}
+              )}
               {/* Worded to what is actually on screen. A flat fee has neither a unit price nor a
                   band, so explaining that "the unit price is below the band's own reduction" there
                   described two things the card never showed — while still being worth saying that a
                   discount is in these figures at all. */}
               {quote.promotionApplied ? (
                 <p className="text-xs text-muted-foreground">
-                  {quote.effectiveUnitAmountMinor !== null
-                    ? "Includes the discount on this subscription, so the unit price is below the band’s own reduction."
-                    : "Includes the promotional discount on this subscription."}
+                  {quote.effectiveUnitAmountMinor === null
+                    ? t("CHANGE_QUANTITY_DIALOG.INCLUDES_THE_PROMOTIONAL_DISCOUNT")
+                    : t("CHANGE_QUANTITY_DIALOG.INCLUDES_THE_DISCOUNT_ON_THIS")}
                 </p>
               ) : null}
               <Row
-                label={decrease ? "Charged now" : "Prorated charge"}
+                label={decrease ? t("CHANGE_QUANTITY_DIALOG.CHARGED_NOW") : t("CHANGE_QUANTITY_DIALOG.PRORATED_CHARGE")}
                 value={
                   quote.proratedChargeMinor > 0
                     ? formatMoney(quote.proratedChargeMinor, quote.currencyCode)
-                    : "Nothing"
+                    : t("CHANGE_QUANTITY_DIALOG.NOTHING")
                 }
               />
               <Row
-                label={quote.taxAmountMinor > 0 ? "Next renewal, incl. tax" : "Next renewal"}
+                label={quote.taxAmountMinor > 0 ? t("CHANGE_QUANTITY_DIALOG.NEXT_RENEWAL_INCL_TAX") : t("CHANGE_QUANTITY_DIALOG.NEXT_RENEWAL")}
                 value={formatMoney(quote.nextRenewalAmountMinor, quote.currencyCode)}
               />
               {/* Named rather than folded into the unit price: tax is a proportion of the whole
@@ -331,17 +329,14 @@ export const ChangeQuantityDialog = ({
                   that also said the band took 5% off. */}
               {quote.taxAmountMinor > 0 ? (
                 <Row
-                  label="of which tax"
+                  label={t("CHANGE_QUANTITY_DIALOG.OF_WHICH_TAX")}
                   value={formatMoney(quote.taxAmountMinor, quote.currencyCode)}
                 />
               ) : null}
 
               {decrease ? (
                 <p className="text-xs text-muted-foreground">
-                  Nothing is refunded: the units stay available until{" "}
-                  {formatDate(quote.effectiveAtUtc)}, and the renewal then bills the smaller
-                  quantity at its band.
-                </p>
+                  {t("CHANGE_QUANTITY_DIALOG.NOTHING_IS_REFUNDED_THE_UNITS", { effectiveAtUtc: formatDate(quote.effectiveAtUtc) })}</p>
               ) : null}
             </div>
           ) : null}
@@ -356,17 +351,17 @@ export const ChangeQuantityDialog = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
-            Close
+            {t("common:CLOSE")}
           </Button>
           <Button variant="outline" onClick={() => run("preview")} disabled={busy}>
             {preview.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Preview
+            {t("CHANGE_QUANTITY_DIALOG.PREVIEW")}
           </Button>
           {/* Nothing is charged without a quote on screen, and the quote is discarded the moment a
               quantity changes — so this button can only ever send the figures just shown. */}
           <Button onClick={() => run("apply")} disabled={busy || quote === null}>
             {apply.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {decrease ? "Schedule change" : "Confirm and pay"}
+            {decrease ? t("CHANGE_QUANTITY_DIALOG.SCHEDULE_CHANGE") : t("CHANGE_QUANTITY_DIALOG.CONFIRM_AND_PAY")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -395,8 +390,11 @@ const describeTier = (tier: QuantityDiscountTier) => {
       : `${tier.minimumQuantity}–${tier.maximumQuantity}`;
 
   return tier.discountBasisPoints > 0
-    ? `${range} · ${Number((tier.discountBasisPoints / 100).toFixed(2))}% off`
-    : `${range} · no discount`;
+    ? tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.TIER_PERCENT_OFF", {
+        range,
+        percent: Number((tier.discountBasisPoints / 100).toFixed(2)),
+      })
+    : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.TIER_NO_DISCOUNT", { range });
 };
 
 /**
@@ -409,40 +407,39 @@ const describeTier = (tier: QuantityDiscountTier) => {
 const explain = (code: string, error: unknown): string => {
   switch (code) {
     case "subscription_version_conflict":
-      return "This subscription changed while you were deciding. It has been reloaded — preview the new quantity again.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_CHANGED_WHILE");
     case "subscription_quantity_change_in_flight":
-      return "An earlier change is still being settled with the payment provider. Try again in a few minutes.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.AN_EARLIER_CHANGE_IS_STILL");
     case "subscription_quantity_charge_failed":
-      return "The saved card declined the charge. Nothing changed: the quantity is exactly as it was.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THE_SAVED_CARD_DECLINED_THE");
     // Not the card: the merchant's payment provider refused it. Another card fails the same way,
     // so the payer is told who has to act instead of being sent to change cards.
     case "subscription_quantity_charge_provider_misconfigured":
-      return "The payment provider is not set up to take this charge. Your card was not declined and was not charged. Nothing changed: contact support.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THE_PAYMENT_PROVIDER_IS_NOT");
     case "subscription_quantity_charge_unresolved":
-      return "The payment provider did not answer, so whether the charge went through is not yet known. Do not try again — reload in a few minutes and the outcome will be settled by then.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THE_PAYMENT_PROVIDER_DID_NOT");
     case "subscription_payment_method_missing":
-      return "An increase has to be charged, and there is no saved card to charge. Add a payment method first.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.AN_INCREASE_HAS_TO_BE");
     case "subscription_quantity_change_not_allowed":
-      return "This subscription cannot change quantity in its current state.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_CANNOT_CHANGE");
     case "subscription_cancellation_scheduled":
-      return "This subscription is scheduled to cancel. Undo the cancellation before changing " +
-        "quantity.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THIS_SUBSCRIPTION_IS_SCHEDULED_TO");
     case "subscription_quantity_item_unknown":
-      return "This plan does not sell that item.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THIS_PLAN_DOES_NOT_SELL");
     case "subscription_quantity_unchanged":
-      return "That is already the quantity in force.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THAT_IS_ALREADY_THE_QUANTITY");
     case "subscription_quantity_invalid":
-      return "That quantity is outside what this plan allows.";
+      return tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.THAT_QUANTITY_IS_OUTSIDE_WHAT");
     // Named apart from the generic conflict because the fix is a different action entirely:
     // release people from the members card, then come back. The server's own message carries
     // how many are in the way, so it is kept rather than replaced.
     case "subscription_member_seats_occupied":
       return error instanceof Error && error.message
         ? error.message
-        : "People are on places this change would remove. Take them off first.";
+        : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.SEATS_OCCUPIED");
     case "local_validation":
-      return error instanceof Error ? error.message : "Check the quantity and try again.";
+      return error instanceof Error ? error.message : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.CHECK_THE_QUANTITY");
     default:
-      return error instanceof Error ? error.message : "The quantity could not be changed.";
+      return error instanceof Error ? error.message : tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "CHANGE_QUANTITY_DIALOG.QUANTITY_NOT_CHANGED");
   }
 };

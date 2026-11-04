@@ -11,6 +11,7 @@ import { useCurrentUsage } from "../hooks/use-current-usage";
 import type { MeterUsage } from "../models/subscription-simulation.model";
 import { useMyUsage } from "../hooks/use-my-usage";
 import { UsageMeterRow } from "./usage-meter-row";
+import { useT } from "@seliseblocks/genesis-os";
 
 type UsageView = "organization" | "mine";
 
@@ -28,6 +29,7 @@ export const UsageSection = ({
   memberPlans?: SubscriptionPlan[];
   organizationId: string | undefined;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   // Organization first when there is one, since that is what this section has always shown.
   const [chosenView, setView] = useState<UsageView>("organization");
   const hasBothViews = Boolean(plan) && memberPlans.length > 0;
@@ -49,30 +51,24 @@ export const UsageSection = ({
     <Card className="rounded-xl p-0">
       <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
         <div>
-          <h2 className="font-semibold">Usage</h2>
+          <h2 className="font-semibold">{t("USAGE_SECTION.USAGE")}</h2>
           <p className="text-xs text-muted-foreground">
-            Each consume checks{" "}
-            <code className="mx-1 rounded bg-muted px-1">GET /api/entitlements/{"{key}"}</code>{" "}
-            first and decides from that answer, then records with{" "}
-            <code className="mx-1 rounded bg-muted px-1">POST /api/subscription-usage</code>,
-            which is the call that actually enforces. The figures below are read from{" "}
-            {view === "organization" ? (
-              <>
-                <code className="mx-1 rounded bg-muted px-1">GET /api/subscription-usage/current</code>
-                — the organization&apos;s subscription as a whole.
-              </>
-            ) : (
-              <>
-                <code className="mx-1 rounded bg-muted px-1">GET /api/subscription-usage/mine</code>
-                — what you are the one spending: your place where you hold one, the
-                organization&apos;s for everything else.
-              </>
-            )}
+            {view === "organization"
+              ? t("USAGE_SECTION.HOW_CONSUME_WORKS_ORGANIZATION", {
+                  entitlement: "GET /api/entitlements/{key}",
+                  usage: "POST /api/subscription-usage",
+                  source: "GET /api/subscription-usage/current",
+                })
+              : t("USAGE_SECTION.HOW_CONSUME_WORKS_MINE", {
+                  entitlement: "GET /api/entitlements/{key}",
+                  usage: "POST /api/subscription-usage",
+                  source: "GET /api/subscription-usage/mine",
+                })}
           </p>
         </div>
 
         {hasBothViews ? (
-          <div className="flex shrink-0 gap-1 rounded-md border p-0.5" role="group" aria-label="Whose usage">
+          <fieldset className="m-0 flex min-w-0 shrink-0 gap-1 rounded-md border p-0.5" aria-label={t("USAGE_SECTION.WHOSE_USAGE")}>
             {(["organization", "mine"] as const).map((option) => (
               <Button
                 key={option}
@@ -81,10 +77,10 @@ export const UsageSection = ({
                 aria-pressed={view === option}
                 onClick={() => setView(option)}
               >
-                {option === "organization" ? "Organization" : "Mine"}
+                {option === "organization" ? t("USAGE_SECTION.ORGANIZATION") : t("USAGE_SECTION.MINE")}
               </Button>
             ))}
-          </div>
+          </fieldset>
         ) : null}
       </div>
 
@@ -98,19 +94,19 @@ export const UsageSection = ({
           <div className="flex flex-col items-start gap-2">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-4 w-4" />
-              <span className="font-medium">Current usage could not be loaded</span>
+              <span className="font-medium">{t("USAGE_SECTION.CURRENT_USAGE_COULD_NOT_BE")}</span>
             </div>
             <p className="text-sm text-muted-foreground">
-              {error instanceof Error ? error.message : "Try again in a moment."}
+              {error instanceof Error ? error.message : t("USAGE_SECTION.TRY_AGAIN_IN_A_MOMENT")}
             </p>
             <Button size="sm" variant="outline" onClick={() => refetch()}>
-              Try again
+              {t("USAGE_SECTION.TRY_AGAIN")}
             </Button>
           </div>
         ) : !meters.length ? (
           <div className="flex min-h-32 flex-col items-center justify-center text-center text-sm text-muted-foreground">
             <Gauge className="mb-2 h-6 w-6" />
-            This plan has no metered usage to consume.
+            {t("USAGE_SECTION.THIS_PLAN_HAS_NO_METERED")}
           </div>
         ) : (
           <div>
@@ -145,19 +141,21 @@ export const UsageSection = ({
  * organization's own. They add up to the pool; nobody holds an allowance of their own.
  */
 const PeopleBreakdown = ({ rows }: { rows: MeterUsage[] }) =>
-  rows.length === 0 ? null : (
+  {
+  const { t } = useT("utilities.subscription-simulation");
+  return rows.length === 0 ? null : (
     <div className="mb-3 ml-1 border-l pl-3 text-xs text-muted-foreground">
-      <p className="mb-1 font-medium">By person</p>
+      <p className="mb-1 font-medium">{t("USAGE_SECTION.BY_PERSON")}</p>
       <ul className="space-y-0.5">
         {rows.map((row) => (
           <li key={row.userId}>
-            <span className="font-mono">{row.userId}</span> used {row.used.toLocaleString()}{" "}
-            {row.unitLabel}
+            {t("USAGE_SECTION.USED", { userId: (row.userId) ?? "", used: row.used.toLocaleString(), unitLabel: row.unitLabel })}
           </li>
         ))}
       </ul>
     </div>
   );
+};
 
 /**
  * The meters a view can show, each with the entitlement that gates it — found through the plan's

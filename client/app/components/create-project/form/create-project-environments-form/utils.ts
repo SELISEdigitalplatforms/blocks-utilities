@@ -1,66 +1,70 @@
 import { z } from "zod";
+import { tStatic } from "@seliseblocks/genesis-os";
+
+const UTILITIES_SHARED_MODULE = "utilities.shared";
 
 export const createProjectEnvironmentFormDefaultValue = {
   environments: [] as { value: string }[],
 };
 
-export const createProjectEnvironmentFormSchema = z.object({
+export const createProjectEnvironmentFormSchema = () =>
+  z.object({
   environments: z
     .array(
       z.object({
         value: z.string(),
       }),
     )
-    .min(1, "At least one environment is required"),
+    .min(1, tStatic(UTILITIES_SHARED_MODULE, "CREATE_PROJECT_ENVIRONMENTS_FORM.AT_LEAST_ONE_ENVIRONMENT")),
 });
 
-export const environmentOptions = [
+export const getEnvironmentOptions = () => [
   {
     index: 0,
-    label: "Development",
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.DEVELOPMENT"),
     value: "dev",
-    subtext: "For day-to-day development and testing unstable changes.",
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_DAY_TO_DAY_DEVELOPMENT"),
   },
   {
     index: 1,
-    label: "Testing",
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.TESTING"),
     value: "test",
-    subtext: "For QA testing and validation of new features.",
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_QA_TESTING_AND_VALIDATION"),
   },
   {
     index: 2,
-    label: "Staging",
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.STAGING"),
     value: "stg",
-    subtext: "For final pre-prod validation in a near-production replica.",
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_FINAL_PRE_PROD_VALIDATION"),
   },
   {
     index: 3,
     label: "IAT",
     value: "iat",
-    subtext: "For testing service integrations across modules/systems.",
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_TESTING_SERVICE_INTEGRATIONS"),
   },
   {
     index: 4,
     label: "UAT",
     value: "uat",
-    subtext: "For end-user or stakeholder validation of new features.",
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_END_USER_OR_STAKEHOLDER"),
   },
   {
     index: 5,
-    label: "Prod Shadow",
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.PROD_SHADOW"),
     value: "prod-shadow",
-    subtext: "For mirroring production data/traffic to validate changes invisibly.",
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_MIRRORING_PRODUCTION_DATA"),
   },
   {
     index: 6,
-    label: "Pre-Prod",
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.PRE_PROD"),
     value: "pre-prod",
-    subtext: "For load testing, security checks, or final sanity tests before production.",
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.FOR_LOAD_TESTING_SECURITY_CHECKS"),
   },
   {
     index: 7,
-    label: "Production",
+    label: tStatic(UTILITIES_SHARED_MODULE, "UTILS.PRODUCTION"),
     value: "prod",
-    subtext: "The live environment serving actual users.",
+    subtext: tStatic(UTILITIES_SHARED_MODULE, "UTILS.THE_LIVE_ENVIRONMENT_SERVING"),
   },
 ];

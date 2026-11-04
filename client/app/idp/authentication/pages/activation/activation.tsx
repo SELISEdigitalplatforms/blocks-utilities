@@ -18,6 +18,7 @@ import {
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ActivationForm } from "./activation-form";
+import { useT } from "@seliseblocks/genesis-os";
 
 type ActivationProps = {
   code?: string;
@@ -27,6 +28,7 @@ type ActivationProps = {
 const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
 
 export const Activation = ({ code }: ActivationProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const { isPending: isActivationPending, mutateAsync: activationCodeValidation } =
     useAccountActivationCodeExpiration();
   const { mutateAsync: resendActivationLink, isPending: isResendPending } =
@@ -102,15 +104,15 @@ export const Activation = ({ code }: ActivationProps) => {
 
       if (response?.isSuccess) {
         setResendSuccess(true);
-        setResendMessage("A new activation link has been sent to your email.");
+        setResendMessage(t("ACTIVATION.A_NEW_ACTIVATION_LINK_HAS"));
       } else {
         setResendSuccess(false);
-        setResendMessage("Failed to resend activation link. Please try again later.");
+        setResendMessage(t("ACTIVATION.FAILED_TO_RESEND_ACTIVATION_LINK"));
       }
     } catch (error) {
       setResendSuccess(false);
       setResendMessage(
-        error instanceof Error ? error.message : "Failed to resend activation link.",
+        error instanceof Error ? error.message : t("ACTIVATION.FAILED_TO_RESEND_ACTIVATION_LINK_2"),
       );
     }
   };
@@ -118,7 +120,7 @@ export const Activation = ({ code }: ActivationProps) => {
   if (isActivationPending || isValidCode === null) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p>Validating activation code...</p>
+        <p>{t("ACTIVATION.VALIDATING_ACTIVATION_CODE")}</p>
       </div>
     );
   }
@@ -132,9 +134,9 @@ export const Activation = ({ code }: ActivationProps) => {
         <>
           <Card className="mx-auto w-full rounded border-solid border-background shadow-none sm:max-w-md sm:border-[#95ADC4]">
             <CardHeader className="text-center">
-              <CardTitle className="text-3xl leading-9">Activate account</CardTitle>
+              <CardTitle className="text-3xl leading-9">{t("ACTIVATION.ACTIVATE_ACCOUNT")}</CardTitle>
               <CardDescription className="mt-2 text-xl text-foreground">
-                Complete your account setup
+                {t("ACTIVATION.COMPLETE_YOUR_ACCOUNT_SETUP")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -147,11 +149,10 @@ export const Activation = ({ code }: ActivationProps) => {
           <CardContent className="p-8">
             <AlertTriangle className="mx-auto flex h-10 w-10 items-center justify-center text-amber-600" />
 
-            <h1 className="text-xl font-semibold">Invalid Activation Link</h1>
+            <h1 className="text-xl font-semibold">{t("ACTIVATION.INVALID_ACTIVATION_LINK")}</h1>
 
             <p className="mt-2 text-sm">
-              The activation code is invalid. Please check the link or request a new activation
-              email from your administrator.
+              {t("ACTIVATION.THE_ACTIVATION_CODE_IS_INVALID")}
             </p>
           </CardContent>
         </Card>
@@ -162,11 +163,10 @@ export const Activation = ({ code }: ActivationProps) => {
             <AlertTriangle className="mx-auto flex h-10 w-10 items-center justify-center text-amber-600" />
             {/* </div> */}
 
-            <h1 className="text-xl font-semibold">Activation Link Expired</h1>
+            <h1 className="text-xl font-semibold">{t("ACTIVATION.ACTIVATION_LINK_EXPIRED")}</h1>
 
             <p className="mt-2 text-sm">
-              This activation link has expired and can&apos;t be used anymore. Please request a new
-              link to complete your account activation.
+              {t("ACTIVATION.THIS_ACTIVATION_LINK_HAS_EXPIRED")}
             </p>
 
             <div className="mt-4 flex flex-col items-center gap-2">
@@ -174,7 +174,7 @@ export const Activation = ({ code }: ActivationProps) => {
                 onClick={handleResendActivation}
                 disabled={!activationUserId || isResendPending || resendSuccess}
               >
-                Resend activation link
+                {t("ACTIVATION.RESEND_ACTIVATION_LINK")}
               </Button>
               {resendMessage ? (
                 <div className="flex items-center gap-2 text-sm">

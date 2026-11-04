@@ -5,6 +5,7 @@ import { Card } from "@/components/ui-kits/card/card";
 import { useSubscriptionLink } from "../../subscription/hooks/use-subscription-link";
 import type { BillingProfileGap } from "../../subscription/utilities/subscription-api-failure";
 import { describeMissingProfileFields } from "../../subscription/utilities/financial-document-format";
+import { useT } from "@seliseblocks/genesis-os";
 
 /**
  * A refusal the reader can act on: what is missing, and the screen that collects it.
@@ -37,6 +38,7 @@ export const BillingProfileIncompleteNotice = ({
    */
   message?: string;
 }) => {
+  const { t } = useT("utilities.subscription-simulation");
   const subscriptionLink = useSubscriptionLink();
 
   return (
@@ -47,10 +49,10 @@ export const BillingProfileIncompleteNotice = ({
       <div className="flex items-start gap-3">
         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
         <div className="space-y-1 text-sm">
-          <p className="font-medium">This organization cannot be invoiced yet.</p>
+          <p className="font-medium">{t("BILLING_PROFILE_INCOMPLETE_NOTICE.THIS_ORGANIZATION_CANNOT_BE")}</p>
           <p className="text-muted-foreground">
             {message ??
-              "A paid subscription is refused before anything is charged, because the invoice it would owe has to name who it is addressed to."}
+              t("BILLING_PROFILE_INCOMPLETE_NOTICE.A_PAID_SUBSCRIPTION_IS_REFUSED")}
           </p>
         </div>
       </div>
@@ -62,7 +64,7 @@ export const BillingProfileIncompleteNotice = ({
           </p>
           <Button asChild size="sm" variant="outline">
             <Link to={subscriptionLink("billing-profile", organizationId)}>
-              Complete the billing profile
+              {t("BILLING_PROFILE_INCOMPLETE_NOTICE.COMPLETE_THE_BILLING_PROFILE")}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
@@ -72,12 +74,11 @@ export const BillingProfileIncompleteNotice = ({
       {gap.merchantMissing && (
         <div className="space-y-2 pl-8 text-sm">
           <p className="text-muted-foreground" data-testid="merchant-profile-missing">
-            This tenant has not named itself as the seller, and an invoice has to state who issued
-            it. That is set once, for the whole tenant, and not per organization.
+            {t("BILLING_PROFILE_INCOMPLETE_NOTICE.THIS_TENANT_HAS_NOT_NAMED")}
           </p>
           <Button asChild size="sm" variant="outline">
             <Link to={subscriptionLink("merchant-profile", null)}>
-              Name the seller
+              {t("BILLING_PROFILE_INCOMPLETE_NOTICE.NAME_THE_SELLER")}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>

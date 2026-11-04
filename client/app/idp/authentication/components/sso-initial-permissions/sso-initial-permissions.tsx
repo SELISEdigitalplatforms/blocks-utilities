@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/c
 import { IPermission } from "@blocks-idp/iam/models/permission";
 import { AddSSOPermission } from "./add-sso-permission";
 import { SSOPermissionsList } from "./sso-permissions-list";
+import { useT } from "@seliseblocks/genesis-os";
 
 type SSOInitialPermissionsProps = {
   permissions: IPermission[];
@@ -11,6 +12,7 @@ type SSOInitialPermissionsProps = {
 };
 
 export function SSOInitialPermissions({ permissions, onChange }: SSOInitialPermissionsProps) {
+  const { t } = useT("utilities.idp.authentication");
   const onAddHandler = (newPermissions: IPermission[]) => {
     onChange([...permissions, ...newPermissions]);
   };
@@ -22,7 +24,7 @@ export function SSOInitialPermissions({ permissions, onChange }: SSOInitialPermi
       <div className="flex w-full flex-col">
         <Card>
           <CardHeader className="flex !flex-row items-center justify-between">
-            <CardTitle>Permissions</CardTitle>
+            <CardTitle>{t("SSO_INITIAL_PERMISSIONS.PERMISSIONS")}</CardTitle>
             <AddSSOPermission onAdd={onAddHandler} permissions={permissions} />
           </CardHeader>
           <CardContent>

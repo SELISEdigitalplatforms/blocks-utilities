@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOidcSchema, createOIDCFormDefaultValue } from "./utils";
+import { makeOidcSchema, createOIDCFormDefaultValue } from "./utils";
 
 const valid = {
   redirectUrlOidc: "https://app.example.com/callback",
@@ -15,11 +15,11 @@ describe("createOidcSchema", () => {
   });
 
   it("accepts https urls", () => {
-    expect(createOidcSchema.safeParse(valid).success).toBe(true);
+    expect(makeOidcSchema().safeParse(valid).success).toBe(true);
   });
 
   it("accepts http for localhost", () => {
-    const result = createOidcSchema.safeParse({
+    const result = makeOidcSchema().safeParse({
       ...valid,
       redirectUrlOidc: "http://localhost:3000/cb",
       audienceUrlOidc: "http://127.0.0.1:3000",
@@ -28,7 +28,7 @@ describe("createOidcSchema", () => {
   });
 
   it("rejects http for non-localhost", () => {
-    const result = createOidcSchema.safeParse({
+    const result = makeOidcSchema().safeParse({
       ...valid,
       redirectUrlOidc: "http://app.example.com/cb",
     });
@@ -36,7 +36,7 @@ describe("createOidcSchema", () => {
   });
 
   it("rejects an invalid url", () => {
-    const result = createOidcSchema.safeParse({
+    const result = makeOidcSchema().safeParse({
       ...valid,
       audienceUrlOidc: "nope",
     });
@@ -44,7 +44,7 @@ describe("createOidcSchema", () => {
   });
 
   it("requires a client display name", () => {
-    const result = createOidcSchema.safeParse({ ...valid, clientDisplayName: "" });
+    const result = makeOidcSchema().safeParse({ ...valid, clientDisplayName: "" });
     expect(result.success).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Check, X } from "lucide-react";
 import { usePasswordStrength } from "@blocks-idp/authentication/hooks/use-password-strength";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface PasswordStrengthCheckerProps {
   password: string;
@@ -17,6 +18,7 @@ export const PasswordStrengthChecker: React.FC<PasswordStrengthCheckerProps> = (
   excludePassword,
   excludePasswordLabel,
 }) => {
+  const { t } = useT("utilities.idp.authentication");
   const { checks, requirements } = usePasswordStrength(password);
   const [passwordsMatch, setPasswordsMatch] = useState(false);
   const [isDifferentFromExcluded, setIsDifferentFromExcluded] = useState(true);
@@ -73,7 +75,7 @@ export const PasswordStrengthChecker: React.FC<PasswordStrengthCheckerProps> = (
 
   return (
     <div className="border-primary-50 mx-auto w-full rounded-lg border px-6 py-4 shadow-sm">
-      <h2 className="mb-2 text-sm font-semibold text-high-emphasis">Password Requirements</h2>
+      <h2 className="mb-2 text-sm font-semibold text-high-emphasis">{t("PASSWORD_STRENGTH_CHECKER.PASSWORD_REQUIREMENTS")}</h2>
       <div className="bg-primary-50 mb-2 h-1 w-full rounded">
         <div
           className={`h-1 rounded-full ${getAdjustedStrengthColor()}`}
@@ -82,7 +84,7 @@ export const PasswordStrengthChecker: React.FC<PasswordStrengthCheckerProps> = (
       </div>
 
       <p className="mb-2 text-xs text-medium-emphasis">
-        Your password must meet these requirements:
+        {t("PASSWORD_STRENGTH_CHECKER.YOUR_PASSWORD_MUST_MEET_THESE")}
       </p>
 
       <ul className="space-y-1 text-xs text-medium-emphasis">
@@ -104,7 +106,7 @@ export const PasswordStrengthChecker: React.FC<PasswordStrengthCheckerProps> = (
             ) : (
               <X className="h-4 w-4 text-red-500" />
             )}
-            {excludePasswordLabel ?? "New password shouldn't match current password"}
+            {excludePasswordLabel ?? t("PASSWORD_STRENGTH_CHECKER.NEW_PASSWORD_SHOULDN_T_MATCH")}
           </li>
         )}
 
@@ -114,7 +116,7 @@ export const PasswordStrengthChecker: React.FC<PasswordStrengthCheckerProps> = (
           ) : (
             <X className="h-4 w-4 text-red-500" />
           )}
-          Passwords match
+          {t("PASSWORD_STRENGTH_CHECKER.PASSWORDS_MATCH")}
         </li>
       </ul>
     </div>

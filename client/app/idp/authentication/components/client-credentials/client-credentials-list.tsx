@@ -2,7 +2,7 @@
 import { ClientCredentialsCard } from "./client-credential-card";
 import { useGetAuthClientCredentials } from "@blocks-idp/authentication/hooks/use-auth-clients";
 import { useMemo } from "react";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { Card, CardContent, CardHeader } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
@@ -56,6 +56,7 @@ const LoadingSkeleton = () => (
 );
 
 export const ClientCredentialList = () => {
+  const { t } = useT("utilities.idp.authentication");
   const { tenantId } = useProjectStore().selectedProject || { tenantId: "" };
   const { isLoading, isFetching, data } = useGetAuthClientCredentials({
     projectKey: tenantId,
@@ -76,8 +77,7 @@ export const ClientCredentialList = () => {
   if (!sortedClientsData.length)
     return (
       <div className="flex min-h-[min(40vh,280px)] w-full flex-wrap items-center justify-center rounded-lg border border-dashed bg-card px-6 py-10 text-center text-sm text-muted-foreground">
-        No client credential found. Use <strong className="text-foreground">Add client</strong> in the header to create one.
-      </div>
+        {t("CLIENT_CREDENTIALS_LIST.NO_CLIENT_CREDENTIAL_FOUND_USE", { strong: "Add client" })}</div>
     );
 
   return (

@@ -14,6 +14,7 @@ import { Link } from "react-router";
 import { SSoProviderStatusToggle } from "../sso-provider-status-toggle";
 import { useMemo, useState } from "react";
 import { useTheme } from "@/hooks/use-theme";
+import { useT } from "@seliseblocks/genesis-os";
 
 type SSOProviderCardProps = {
   configuration: ISsoProviderConfigurationWithMeta;
@@ -37,6 +38,7 @@ export const SSOProviderCardSkelton = () => {
   );
 };
 export const SSOProviderCard = ({ configuration }: SSOProviderCardProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const [open, setOpen] = useState<boolean>(false);
   const { theme } = useTheme();
   const imageSrc = useMemo(() => {
@@ -60,17 +62,17 @@ export const SSOProviderCard = ({ configuration }: SSOProviderCardProps) => {
                     configuration.itemId &&
                     !configuration.isDisabled && (
                       <Badge variant="success" className="h-fit text-xs">
-                        Active
+                        {t("SSO_PROVIDER_CARD.ACTIVE")}
                       </Badge>
                     )}
 
                   {!configuration.isAvailable && (
                     <Badge variant="info" className="h-fit text-xs">
-                      Coming soon
+                      {t("SSO_PROVIDER_CARD.COMING_SOON")}
                     </Badge>
                   )}
                 </div>
-                <p className="text-sm font-normal text-low-emphasis">Social Connections</p>
+                <p className="text-sm font-normal text-low-emphasis">{t("SSO_PROVIDER_CARD.SOCIAL_CONNECTIONS")}</p>
               </div>
             </div>
             {configuration.isAvailable && (
@@ -84,7 +86,7 @@ export const SSOProviderCard = ({ configuration }: SSOProviderCardProps) => {
                   <Link
                     to={`/services/authentication/sso-configuration?provider=${configuration.provider}&id=${configuration.itemId || ""}`}
                   >
-                    <DropdownMenuItem>Configure</DropdownMenuItem>
+                    <DropdownMenuItem>{t("SSO_PROVIDER_CARD.CONFIGURE")}</DropdownMenuItem>
                   </Link>
                   {configuration.itemId && (
                     <DropdownMenuItem
@@ -92,7 +94,7 @@ export const SSOProviderCard = ({ configuration }: SSOProviderCardProps) => {
                         setOpen(true);
                       }}
                     >
-                      {configuration.isDisabled ? "Enable" : "Disable"}
+                      {configuration.isDisabled ? t("SSO_PROVIDER_CARD.ENABLE") : t("SSO_PROVIDER_CARD.DISABLE")}
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>

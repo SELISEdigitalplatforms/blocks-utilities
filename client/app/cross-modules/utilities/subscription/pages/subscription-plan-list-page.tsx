@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui-kits/button/button";
@@ -54,6 +54,7 @@ import {
 } from "../utilities/plan-catalogue-filters";
 
 export const SubscriptionPlanListPage = () => {
+  const { t } = useT("utilities.subscription.pages");
   const { itemId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -101,8 +102,10 @@ export const SubscriptionPlanListPage = () => {
     );
 
     return (organizationId: string | null) =>
-      organizationId ? (names.get(organizationId) ?? organizationId) : "Tenant-wide";
-  }, [organizationsData]);
+      organizationId
+        ? (names.get(organizationId) ?? organizationId)
+        : t("PLAN_LIST_PAGE.TENANT_WIDE");
+  }, [organizationsData, t]);
 
   const basePath = `/app/${itemId ?? ""}/subscription/plans`;
   const createPath = withOrganizationScope(`${basePath}/create`, organizationScope);
@@ -162,8 +165,8 @@ export const SubscriptionPlanListPage = () => {
 
     toast({
       variant: "success",
-      title: "Plan archived",
-      description: `${plan.displayName} is off the menu. Everyone already on it carries on unchanged.`,
+      title: t("PLAN_LIST_PAGE.ARCHIVED"),
+      description: t("PLAN_LIST_PAGE.ARCHIVED_DESCRIPTION", { name: plan.displayName }),
     });
   };
 
@@ -172,49 +175,60 @@ export const SubscriptionPlanListPage = () => {
   // reading the same fact. Plan families has no matching tab and stays a plain stat.
   const summaryCards = [
     {
-      label: "Active plans",
+      label: t("PLAN_LIST_PAGE.SUMMARY_ACTIVE"),
       value: summary.active,
       icon: CheckCircle2,
       status: "Active" as const,
     },
     {
-      label: "Archived plans",
+      label: t("PLAN_LIST_PAGE.SUMMARY_ARCHIVED"),
       value: summary.archived,
       icon: Archive,
       status: "Archived" as const,
     },
-    { label: "Plan families", value: summary.families, icon: Layers, status: null },
+    {
+      label: t("PLAN_LIST_PAGE.SUMMARY_FAMILIES"),
+      value: summary.families,
+      icon: Layers,
+      status: null,
+    },
   ];
 
   const emptyStateCopy = () => {
     if (plans?.length === 0) {
       return {
-        title: "No subscription plan yet",
-        body: "Create your first plan to start selling subscriptions.",
+        title: t("PLAN_LIST_PAGE.EMPTY_NONE_TITLE"),
+        body: t("PLAN_LIST_PAGE.EMPTY_NONE_BODY"),
       };
     }
 
     if (filters.status === "Archived") {
       return {
-        title: "No archived plans",
-        body: "Plans you take off the menu will be kept here, and stay readable.",
+        title: t("PLAN_LIST_PAGE.EMPTY_ARCHIVED_TITLE"),
+        body: t("PLAN_LIST_PAGE.EMPTY_ARCHIVED_BODY"),
       };
     }
 
     if (activeFilterCount > 0) {
       return {
-        title: "No plans match these filters",
-        body: "Try a different name or code, or clear the filters.",
+        title: t("PLAN_LIST_PAGE.EMPTY_FILTERED_TITLE"),
+        body: t("PLAN_LIST_PAGE.EMPTY_FILTERED_BODY"),
       };
     }
 
     return {
-      title: "No active plans",
-      body: "Every plan in this scope has been archived.",
+      title: t("PLAN_LIST_PAGE.EMPTY_ACTIVE_TITLE"),
+      body: t("PLAN_LIST_PAGE.EMPTY_ACTIVE_BODY"),
     };
   };
 
   const empty = emptyStateCopy();
+
+  const tabLabel: Record<PlanCatalogueFilterName, string> = {
+    Active: t("PLAN_LIST_PAGE.TAB_ACTIVE"),
+    Archived: t("PLAN_LIST_PAGE.TAB_ARCHIVED"),
+    All: t("common:ALL"),
+  };
 
   const tabCount: Record<PlanCatalogueFilterName, number> = {
     Active: summary.active,
@@ -225,8 +239,8 @@ export const SubscriptionPlanListPage = () => {
   return (
     <main className="min-w-0 space-y-5 p-4 sm:p-6 lg:p-8">
       <SubscriptionPlanPageHeader
-        title="Subscription plans"
-        description="What your tenant sells — configure once here, then subscribe organizations to it from your own product."
+        title={t("PLAN_LIST_PAGE.TITLE")}
+        description={t("PLAN_LIST_PAGE.DESCRIPTION")}
         actions={
           <>
             <Button
@@ -235,14 +249,14 @@ export const SubscriptionPlanListPage = () => {
               className="bg-background/80"
               onClick={() => refetch()}
               disabled={isFetching}
-              aria-label="Refresh plans"
+              aria-label={t("PLAN_LIST_PAGE.REFRESH")}
             >
               <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
             </Button>
             <Button asChild>
               <Link to={createPath}>
                 <Plus className="mr-2 h-4 w-4" />
-                Create plan
+                {t("PLAN_LIST_PAGE.CREATE")}
               </Link>
             </Button>
           </>
@@ -315,7 +329,7 @@ export const SubscriptionPlanListPage = () => {
               <TabsList>
                 {PLAN_STATUS_TABS.map((tab) => (
                   <TabsTrigger key={tab} value={tab}>
-                    {tab} ({tabCount[tab]})
+                    {tabLabel[tab]} ({tabCount[tab]})
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -339,11 +353,13 @@ export const SubscriptionPlanListPage = () => {
                   setSearchParams(next, { replace: true });
                 }}
               >
-                <SelectTrigger className="sm:w-52" aria-label="Organization">
+                <SelectTrigger className="sm:w-52" aria-label={t("PLAN_LIST_PAGE.ORGANIZATION")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={TENANT_WIDE_ORGANIZATION}>Tenant-wide only</SelectItem>
+                  <SelectItem value={TENANT_WIDE_ORGANIZATION}>
+                    {t("PLAN_LIST_PAGE.TENANT_WIDE_ONLY")}
+                  </SelectItem>
                   {organizations.map((organization) => (
                     <SelectItem key={organization.itemId} value={organization.itemId}>
                       {organization.name}
@@ -356,7 +372,7 @@ export const SubscriptionPlanListPage = () => {
                 value={filters.sort}
                 onValueChange={(value) => setFilters({ sort: value as PlanCatalogueSort })}
               >
-                <SelectTrigger className="sm:w-48" aria-label="Sort plans">
+                <SelectTrigger className="sm:w-48" aria-label={t("PLAN_LIST_PAGE.SORT")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -373,17 +389,17 @@ export const SubscriptionPlanListPage = () => {
                 <Input
                   value={filters.search}
                   onChange={(event) => setFilters({ search: event.target.value })}
-                  placeholder="Search name, code, family, or description"
+                  placeholder={t("PLAN_LIST_PAGE.SEARCH_PLACEHOLDER")}
                   className={`rounded-full transition-shadow focus-visible:shadow-md focus-visible:shadow-blocks-primary-100 ${
                     filters.search ? "px-9" : "pl-9"
                   }`}
-                  aria-label="Search subscription plans"
+                  aria-label={t("PLAN_LIST_PAGE.SEARCH")}
                 />
                 {filters.search ? (
                   <button
                     type="button"
                     onClick={() => setFilters({ search: "" })}
-                    aria-label="Clear search"
+                    aria-label={t("PLAN_LIST_PAGE.CLEAR_SEARCH")}
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -397,18 +413,21 @@ export const SubscriptionPlanListPage = () => {
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <p className="text-xs text-muted-foreground">
                 {organizationScope
-                  ? "Showing this organization's own plans alongside the tenant-wide ones."
-                  : "Showing tenant-wide plans. Choose an organization to see plans scoped to it."}
+                  ? t("PLAN_LIST_PAGE.SCOPE_ORGANIZATION")
+                  : t("PLAN_LIST_PAGE.SCOPE_TENANT")}
               </p>
               <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
-                Showing {filteredPlans.length} of {plans?.length ?? 0} plans
+                {t("PLAN_LIST_PAGE.SHOWING", {
+                  shown: filteredPlans.length,
+                  total: plans?.length ?? 0,
+                })}
               </p>
             </div>
 
             {activeFilterCount > 0 ? (
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-blocks-primary-200 bg-blocks-primary-50 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-blocks-primary-700">
-                  {activeFilterCount} filter{activeFilterCount === 1 ? "" : "s"} active
+                  {t("PLAN_LIST_PAGE.FILTERS_ACTIVE", { count: activeFilterCount })}
                 </span>
                 <Button
                   variant="ghost"
@@ -417,7 +436,7 @@ export const SubscriptionPlanListPage = () => {
                   onClick={() => setFilters(clearCatalogueFilters(filters))}
                 >
                   <X className="mr-1 h-3 w-3" />
-                  Clear filters
+                  {t("PLAN_LIST_PAGE.CLEAR_FILTERS")}
                 </Button>
               </div>
             ) : null}
@@ -437,7 +456,7 @@ export const SubscriptionPlanListPage = () => {
           {isLoading ? (
             <div
               className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-              aria-label="Loading plans"
+              aria-label={t("PLAN_LIST_PAGE.LOADING")}
             >
               {Array.from({ length: 6 }, (_, index) => (
                 <Skeleton
@@ -452,12 +471,12 @@ export const SubscriptionPlanListPage = () => {
               <span className="rounded-full bg-destructive/10 p-4 text-destructive">
                 <AlertCircle className="h-7 w-7" />
               </span>
-              <h3 className="mt-4 text-lg font-semibold">Plans could not be loaded</h3>
+              <h3 className="mt-4 text-lg font-semibold">{t("PLAN_LIST_PAGE.LOAD_FAILED")}</h3>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                {error instanceof Error ? error.message : "Try loading the plan list again."}
+                {error instanceof Error ? error.message : t("PLAN_LIST_PAGE.TRY_LOADING_AGAIN")}
               </p>
               <Button className="mt-5" variant="outline" onClick={() => refetch()}>
-                Try again
+                {t("PLAN_LIST_PAGE.TRY_AGAIN")}
               </Button>
             </div>
           ) : filteredPlans.length === 0 ? (
@@ -471,7 +490,7 @@ export const SubscriptionPlanListPage = () => {
                 <Button asChild className="mt-5">
                   <Link to={createPath}>
                     <Plus className="mr-2 h-4 w-4" />
-                    Create plan
+                    {t("PLAN_LIST_PAGE.CREATE")}
                   </Link>
                 </Button>
               ) : activeFilterCount > 0 ? (
@@ -480,7 +499,7 @@ export const SubscriptionPlanListPage = () => {
                   className="mt-5"
                   onClick={() => setFilters(clearCatalogueFilters(filters))}
                 >
-                  Clear filters
+                  {t("PLAN_LIST_PAGE.CLEAR_FILTERS")}
                 </Button>
               ) : null}
             </div>
@@ -505,7 +524,7 @@ export const SubscriptionPlanListPage = () => {
                           {group.familyCode}
                         </h3>
                         <p className="text-xs text-muted-foreground">
-                          {group.levels.length} level{group.levels.length === 1 ? "" : "s"}
+                          {t("PLAN_LIST_PAGE.LEVELS", { count: group.levels.length })}
                         </p>
                       </div>
                     </div>

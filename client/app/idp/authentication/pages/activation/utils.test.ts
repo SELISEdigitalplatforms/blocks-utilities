@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activationFormDefaultValue, activationFormSchema } from "./utils";
+import { activationFormDefaultValue, createActivationFormSchema } from "./utils";
 
 describe("activation form schema", () => {
   it("has empty defaults", () => {
@@ -7,7 +7,7 @@ describe("activation form schema", () => {
   });
 
   it("accepts a valid activation without whitespace", () => {
-    const result = activationFormSchema.safeParse({
+    const result = createActivationFormSchema().safeParse({
       firstname: "Jane",
       lastname: "Doe",
       password: "secret",
@@ -18,7 +18,7 @@ describe("activation form schema", () => {
   });
 
   it("rejects a password containing spaces", () => {
-    const result = activationFormSchema.safeParse({
+    const result = createActivationFormSchema().safeParse({
       firstname: "Jane",
       lastname: "Doe",
       password: "sec ret",
@@ -28,7 +28,7 @@ describe("activation form schema", () => {
   });
 
   it("requires first and last name", () => {
-    const result = activationFormSchema.safeParse({
+    const result = createActivationFormSchema().safeParse({
       firstname: "",
       lastname: "",
       password: "secret",

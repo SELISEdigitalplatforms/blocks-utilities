@@ -17,6 +17,7 @@ import { Calendar } from "@/components/ui-kits/calendar/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui-kits/popover/popover";
 import { CalendarIcon, Check } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { useT } from "@seliseblocks/genesis-os";
 
 interface ShortenUrlDialogProps {
   open?: boolean;
@@ -25,6 +26,7 @@ interface ShortenUrlDialogProps {
 }
 
 export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDialogProps) {
+  const { t } = useT("utilities.magic-url");
   const [url, setUrl] = useState("");
   const [urlType, setUrlType] = useState("auto");
   const [alias, setAlias] = useState("");
@@ -66,14 +68,14 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Short URL</DialogTitle>
-          <DialogDescription>Enter an URL you want to shorten.</DialogDescription>
+          <DialogTitle>{t("SHORTEN_URL_DIALOG.SHORT_URL")}</DialogTitle>
+          <DialogDescription>{t("SHORTEN_URL_DIALOG.ENTER_AN_URL_YOU_WANT")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-6 py-4">
           {/* Enter URL */}
           <div className="grid gap-2">
-            <Label htmlFor="url">Enter URL</Label>
+            <Label htmlFor="url">{t("SHORTEN_URL_DIALOG.ENTER_URL")}</Label>
             <Input
               id="url"
               type="url"
@@ -85,18 +87,18 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
 
           {/* Shortened URL Type */}
           <div className="grid gap-3">
-            <Label>Shortened URL type</Label>
+            <Label>{t("SHORTEN_URL_DIALOG.SHORTENED_URL_TYPE")}</Label>
             <RadioGroup value={urlType} onValueChange={setUrlType}>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="auto" id="auto" />
                 <Label htmlFor="auto" className="cursor-pointer font-normal">
-                  Auto Generated
+                  {t("SHORTEN_URL_DIALOG.AUTO_GENERATED")}
                 </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="alias" id="alias" />
                 <Label htmlFor="alias" className="cursor-pointer font-normal">
-                  Set Alias
+                  {t("SHORTEN_URL_DIALOG.SET_ALIAS")}
                 </Label>
               </div>
             </RadioGroup>
@@ -106,17 +108,17 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
               <div className="grid gap-2 pl-6">
                 <Input
                   type="text"
-                  placeholder="Enter alias"
+                  placeholder={t("SHORTEN_URL_DIALOG.ENTER_ALIAS")}
                   value={alias}
                   onChange={(e) => setAlias(e.target.value)}
                 />
                 {alias && (
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-medium-emphasis">min 5 characters</span>
+                    <span className="text-medium-emphasis">{t("SHORTEN_URL_DIALOG.MIN_5_CHARACTERS")}</span>
                     {isAliasValid && (
                       <>
                         <Check className="h-4 w-4 text-success" />
-                        <span className="text-success">Alias is available</span>
+                        <span className="text-success">{t("SHORTEN_URL_DIALOG.ALIAS_IS_AVAILABLE")}</span>
                       </>
                     )}
                   </div>
@@ -128,7 +130,7 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
           {/* Cache Switch */}
           <div className="flex items-center justify-between">
             <Label htmlFor="cache" className="font-normal">
-              Cache (for faster resolution)
+              {t("SHORTEN_URL_DIALOG.CACHE_FOR_FASTER_RESOLUTION")}
             </Label>
             <Switch id="cache" checked={cache} onCheckedChange={setCache} />
           </div>
@@ -137,14 +139,14 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
           <div className="grid gap-3">
             <div className="flex items-center justify-between">
               <Label htmlFor="usage-limit" className="font-normal">
-                Set Usage Limit
+                {t("SHORTEN_URL_DIALOG.SET_USAGE_LIMIT")}
               </Label>
               <Switch id="usage-limit" checked={usageLimit} onCheckedChange={setUsageLimit} />
             </div>
             {usageLimit && (
               <Input
                 type="number"
-                placeholder="Enter usage limit"
+                placeholder={t("SHORTEN_URL_DIALOG.ENTER_USAGE_LIMIT")}
                 value={usageLimitValue}
                 onChange={(e) => setUsageLimitValue(e.target.value)}
                 min="1"
@@ -156,7 +158,7 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
           <div className="grid gap-3">
             <div className="flex items-center justify-between">
               <Label htmlFor="auto-expiry" className="font-normal">
-                Set Auto Expiry Date
+                {t("SHORTEN_URL_DIALOG.SET_AUTO_EXPIRY_DATE")}
               </Label>
               <Switch id="auto-expiry" checked={autoExpiry} onCheckedChange={setAutoExpiry} />
             </div>
@@ -165,7 +167,7 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="justify-start text-left font-normal">
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {expiryDate ? formatDate(expiryDate, true) : "Pick a date"}
+                    {expiryDate ? formatDate(expiryDate, true) : t("SHORTEN_URL_DIALOG.PICK_A_DATE")}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -184,9 +186,9 @@ export function ShortenUrlDialog({ open, onOpenChange, trigger }: ShortenUrlDial
 
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel}>
-            Cancel
+            {t("common:CANCEL")}
           </Button>
-          <Button onClick={handleShorten}>Shorten</Button>
+          <Button onClick={handleShorten}>{t("SHORTEN_URL_DIALOG.SHORTEN")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

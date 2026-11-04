@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import {
   Collapsible,
   CollapsibleContent,
@@ -53,6 +53,7 @@ const ScopeOption = ({ value, label, detail }: { value: string; label: string; d
 );
 
 export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => {
+  const { t } = useT("utilities.subscription.plan-builder");
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
   const { data: organizationsData, isError: organizationsFailed } = useGetOrganizations({
@@ -65,9 +66,9 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
   return (
     <div className="space-y-6">
       <StepHeading
-        eyebrow="Identity"
-        title="Identity"
-        description="The basics: what this plan is called, and who it's for."
+        eyebrow={t("STEP_IDENTITY.TITLE")}
+        title={t("STEP_IDENTITY.TITLE")}
+        description={t("STEP_IDENTITY.DESCRIPTION")}
       />
 
       <div className="grid gap-5 sm:grid-cols-2">
@@ -76,11 +77,11 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
           name="displayName"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Display name</FormLabel>
+              <FormLabel>{t("STEP_IDENTITY.DISPLAY_NAME")}</FormLabel>
               <FormControl>
-                <Input {...field} placeholder="Pro plan" />
+                <Input {...field} placeholder={t("STEP_IDENTITY.DISPLAY_NAME_PLACEHOLDER")} />
               </FormControl>
-              <FormDescription>Shown to subscribers wherever the plan appears.</FormDescription>
+              <FormDescription>{t("STEP_IDENTITY.DISPLAY_NAME_HINT")}</FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -91,7 +92,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
           name="code"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Code</FormLabel>
+              <FormLabel>{t("STEP_IDENTITY.CODE")}</FormLabel>
               <FormControl>
                 <Input
                   {...field}
@@ -103,8 +104,8 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
               </FormControl>
               <FormDescription>
                 {isEditing
-                  ? "Fixed once the plan exists — this is what your own systems call it by."
-                  : "Shown to no one but your own systems — the stable id you'll call this plan by. Lowercase letters, digits, hyphens and underscores only."}
+                  ? t("STEP_IDENTITY.CODE_HINT_FIXED")
+                  : t("STEP_IDENTITY.CODE_HINT")}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -116,7 +117,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
           name="organizationId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Organization</FormLabel>
+              <FormLabel>{t("STEP_IDENTITY.ORGANIZATION")}</FormLabel>
               <Select
                 value={field.value}
                 onValueChange={field.onChange}
@@ -129,7 +130,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
                 </FormControl>
                 <SelectContent>
                   <SelectItem value={TENANT_WIDE_ORGANIZATION}>
-                    Tenant-wide — sold to every organization
+                    {t("STEP_IDENTITY.TENANT_WIDE")}
                   </SelectItem>
                   {organizations.map((organization) => (
                     <SelectItem key={organization.itemId} value={organization.itemId}>
@@ -140,10 +141,10 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
               </Select>
               <FormDescription>
                 {isEditing
-                  ? "Fixed once the plan exists — moving it would take the plan out from under whoever can see it."
+                  ? t("STEP_IDENTITY.ORGANIZATION_HINT_FIXED")
                   : organizationsFailed
-                    ? "Organizations could not be loaded; you can still create a tenant-wide plan."
-                    : "Which organization this plan belongs to. Scope it to one organization only when it shouldn't be offered to everyone."}
+                    ? t("STEP_IDENTITY.ORGANIZATION_HINT_FAILED")
+                    : t("STEP_IDENTITY.ORGANIZATION_HINT")}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -155,7 +156,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
           name="subscriberScope"
           render={({ field }) => (
             <FormItem className="sm:col-span-2">
-              <FormLabel>Who is this plan for?</FormLabel>
+              <FormLabel>{t("STEP_IDENTITY.SCOPE")}</FormLabel>
               <FormControl>
                 <RadioGroup
                   value={field.value}
@@ -165,20 +166,20 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
                 >
                   <ScopeOption
                     value="Organization"
-                    label="The organization"
-                    detail="One subscription everybody in the organization shares."
+                    label={t("STEP_IDENTITY.SCOPE_ORGANIZATION")}
+                    detail={t("STEP_IDENTITY.SCOPE_ORGANIZATION_DETAIL")}
                   />
                   <ScopeOption
                     value="User"
-                    label="Each person"
-                    detail="The organization buys places and gives one to each person; every place gets its own allowance."
+                    label={t("STEP_IDENTITY.SCOPE_USER")}
+                    detail={t("STEP_IDENTITY.SCOPE_USER_DETAIL")}
                   />
                 </RadioGroup>
               </FormControl>
               <FormDescription>
                 {isEditing
-                  ? "Fixed once the plan exists — the server keeps the scope it was created with."
-                  : "An organization can hold both kinds at once, e.g. shared capacity plus per-person AI usage."}
+                  ? t("STEP_IDENTITY.SCOPE_HINT_FIXED")
+                  : t("STEP_IDENTITY.SCOPE_HINT")}
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -190,9 +191,9 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
           name="description"
           render={({ field }) => (
             <FormItem className="sm:col-span-2">
-              <FormLabel>Description</FormLabel>
+              <FormLabel>{t("common:DESCRIPTION")}</FormLabel>
               <FormControl>
-                <Textarea {...field} placeholder="What this plan is for, in a sentence." rows={2} />
+                <Textarea {...field} placeholder={t("STEP_IDENTITY.DESCRIPTION_PLACEHOLDER")} rows={2} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -204,9 +205,9 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
           name="familyCode"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Family code (optional)</FormLabel>
+              <FormLabel>{t("STEP_IDENTITY.FAMILY_CODE")}</FormLabel>
               <FormControl><Input {...field} placeholder="claude-max" /></FormControl>
-              <FormDescription>Plans with the same family code are levels of one product.</FormDescription>
+              <FormDescription>{t("STEP_IDENTITY.FAMILY_CODE_HINT")}</FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -216,9 +217,9 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
           name="familyRank"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Family rank</FormLabel>
+              <FormLabel>{t("STEP_IDENTITY.FAMILY_RANK")}</FormLabel>
               <FormControl><Input {...field} type="number" min={0} placeholder="10" /></FormControl>
-              <FormDescription>Lower levels sort first; required when family code is set.</FormDescription>
+              <FormDescription>{t("STEP_IDENTITY.FAMILY_RANK_HINT")}</FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -228,7 +229,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
       <Collapsible>
         <CollapsibleTrigger className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ChevronDown className="h-4 w-4" />
-          Advanced: raw features JSON
+          {t("STEP_IDENTITY.FEATURES_TRIGGER")}
         </CollapsibleTrigger>
         <CollapsibleContent className="pt-3">
           <FormField
@@ -246,8 +247,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
                   />
                 </FormControl>
                 <FormDescription>
-                  Arbitrary feature flags, stored verbatim and handed back untouched — nothing here
-                  interprets it. Leave blank unless your own product reads this field.
+                  {t("STEP_IDENTITY.FEATURES_HINT")}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

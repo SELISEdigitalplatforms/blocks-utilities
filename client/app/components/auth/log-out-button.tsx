@@ -2,11 +2,12 @@ import { Button } from "@/components/ui-kits/button/button";
 import { useLanguageViewStore } from "@/cross-modules/localization/store/use-language-view-store";
 import { useLogout } from "@/idp/authentication/hooks/use-auth";
 import { getQueryClient } from "@/providers/query-provider";
-import { useAuthStore } from "@seliseblocks/genesis-os";
+import { useAuthStore, useT } from "@seliseblocks/genesis-os";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 
 
 export function LogOutButton() {
+  const { t } = useT("utilities.shared");
   const queryClient = getQueryClient();
   const { resetProjectStore } = useProjectStore();
   const { setUnAuthenticated, clearTokens } = useAuthStore();
@@ -35,7 +36,7 @@ export function LogOutButton() {
       disabled={isPending}
       onClick={handleLogout}
     >
-      Logout
+      {t("LOG_OUT_BUTTON.LOGOUT")}
     </Button>
   );
 }

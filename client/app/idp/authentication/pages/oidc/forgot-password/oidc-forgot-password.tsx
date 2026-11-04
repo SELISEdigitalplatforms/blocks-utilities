@@ -7,14 +7,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui-kits/card/card";
+import { useT } from "@seliseblocks/genesis-os";
 
 export const OidcForgotPassword = () => {
+  const { t } = useT("utilities.idp.authentication");
   return (
     <Card className="flex h-full flex-col rounded border-solid border-background py-6 shadow-none md:min-w-[448px] md:border-[#95ADC4] md:py-4 lg:max-w-md">
       <CardHeader className="text-center">
         <CardTitle className="text-3xl">Blocks Cloud</CardTitle>
         <CardDescription className="text-xl text-foreground">
-          We will email you a password reset link
+          {t("OIDC_FORGOT_PASSWORD.WE_WILL_EMAIL_YOU_A")}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col justify-between">

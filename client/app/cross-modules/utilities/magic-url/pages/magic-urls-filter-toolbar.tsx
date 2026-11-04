@@ -1,5 +1,6 @@
 import { FilterToolbar, useSortQueryParams } from "@/components/filter-toolbar";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
+import { useT } from "@seliseblocks/genesis-os";
 
 type MagicUrlFilter = {
   search: string;
@@ -27,6 +28,7 @@ export const useMagicUrlSortQueryParams = () =>
   useSortQueryParams({ initial: { property: "OperationName", isDescending: false } });
 
 export function MagicUrlsFilterToolBar() {
+  const { t } = useT("utilities.magic-url");
   const { queryParams, setQueryParams } = useMagicUrlsFilterQueryParams();
 
   const updateExpiryDate = (value: { from?: Date; to?: Date } | null) => {
@@ -60,19 +62,19 @@ export function MagicUrlsFilterToolBar() {
         {
           key: "status",
           type: "Radio",
-          label: "Status",
+          label: t("common:STATUS"),
           props: {
             options: [
-              { label: "Active", value: "Active" },
-              { label: "Usage Limit Exceeded", value: "UsageLimitExceeded" },
-              { label: "Time Expired", value: "TimeExpired" },
+              { label: t("MAGIC_URLS_FILTER_TOOLBAR.ACTIVE"), value: "Active" },
+              { label: t("MAGIC_URLS_FILTER_TOOLBAR.USAGE_LIMIT_EXCEEDED"), value: "UsageLimitExceeded" },
+              { label: t("MAGIC_URLS_FILTER_TOOLBAR.TIME_EXPIRED"), value: "TimeExpired" },
             ],
           },
         },
         {
           key: "requestMethod",
           type: "Radio",
-          label: "Request Method",
+          label: t("MAGIC_URLS_FILTER_TOOLBAR.REQUEST_METHOD"),
           props: {
             options: [
               { label: "GET", value: "GET" },
@@ -83,7 +85,7 @@ export function MagicUrlsFilterToolBar() {
         {
           key: "expiryDate",
           type: "DateRange",
-          label: "Scheduled Expiry Date",
+          label: t("MAGIC_URLS_FILTER_TOOLBAR.SCHEDULED_EXPIRY_DATE"),
           props: {},
         },
       ]}

@@ -1,3 +1,4 @@
+import { useT } from "@seliseblocks/genesis-os";
 import { Check } from "lucide-react";
 import { useStepper } from "@/components/stepper/stepper-provider";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ export interface PlanBuilderProgressProps {
 
 export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProps) => {
   const { completedSteps, currentStep, getSteps, goToStep, totalSteps } = useStepper();
+  const { t } = useT("utilities.subscription.plan-builder");
   const steps = getSteps();
 
   // The filled fraction of the rail behind the nodes. Driven by the current step rather than by
@@ -30,7 +32,7 @@ export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProp
 
   return (
     <section
-      aria-label="Plan creation progress"
+      aria-label={t("PLAN_BUILDER_PROGRESS.LABEL")}
       data-stuck={isStuck ? "true" : "false"}
       className={cn(
         "relative overflow-hidden rounded-2xl border bg-card/95 px-4 py-4 backdrop-blur-xl transition-[box-shadow,border-color] duration-300 supports-[backdrop-filter]:bg-card/80 sm:px-6 sm:py-5",
@@ -48,14 +50,14 @@ export const PlanBuilderProgress = ({ isStuck = false }: PlanBuilderProgressProp
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blocks-primary-600">
-            Plan setup
+            {t("PLAN_BUILDER_PROGRESS.EYEBROW")}
           </p>
           <p className="mt-1 text-sm font-medium text-foreground">
-            Step {currentStep} of {totalSteps}
+            {t("PLAN_BUILDER_PROGRESS.STEP_OF", { current: currentStep, total: totalSteps })}
           </p>
         </div>
         <p className="hidden text-sm text-muted-foreground sm:block">
-          Complete each section, then review your plan.
+          {t("PLAN_BUILDER_PROGRESS.HINT")}
         </p>
       </div>
 

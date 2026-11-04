@@ -5,7 +5,7 @@ import { SSOProviderConfigLinkedINForm } from "./sso-provider-config-linkedin-fo
 import { SSO_PROVIDERS } from "@blocks-idp/authentication/constants/sso-providers.constant";
 import { SSOProviderConfigMicrosoftForm } from "./sso-provider-config-microsoft-form";
 import { SSOProviderConfigXForm } from "./sso-provider-config-x-form";
-import { useProjectStore } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { useGetSsoCredentialById, useSaveSsoCredential } from "@blocks-idp/authentication/hooks/use-sso";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
@@ -24,6 +24,7 @@ export type SsoConfigForms = {
 };
 
 export const SsoProviderConfigForms = ({ provider, id }: SsoConfigFormsProps) => {
+  const { t } = useT("utilities.idp.authentication");
   const tenantId = useProjectStore().selectedProject?.tenantId || "";
   const navigate = useNavigate();
   const { data } = useGetSsoCredentialById({
@@ -48,10 +49,10 @@ export const SsoProviderConfigForms = ({ provider, id }: SsoConfigFormsProps) =>
       });
       if (!res.isSuccess) return showErrorToast({ errors: res.errors });
       if (!id) navigate(`/services/authentication/sso-configuration?provider=${provider}&id=${res.itemId}`);
-      showSuccessToast({ description: `${provider} is configured successfully` });
+      showSuccessToast({ description: t("SSO_PROVIDER_CONFIG_FORMS.IS_CONFIGURED_SUCCESSFULLY", { provider }) });
     } catch (error) {
       if (isErrorWithErrors(error)) return showErrorToast({ errors: error.errors });
-      showErrorToast({ errors: "Something went wrong" });
+      showErrorToast({ errors: t("SSO_PROVIDER_CONFIG_FORMS.SOMETHING_WENT_WRONG") });
     }
   };
   const CurrentForm = useMemo(() => {

@@ -12,6 +12,7 @@ import { ProfileDetails } from "@/idp/iam/components/profile-details/profile-det
 import { UserDevices } from "../user-devices/user-devices";
 import { UserHistories } from "../user-histories/user-histories";
 import { UserPats } from "../user-pat/user-pats";
+import { useT } from "@seliseblocks/genesis-os";
 
 const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "";
 
@@ -22,6 +23,7 @@ export const Profile = () => {
 };
 
 export const UserProfile = ({ id }: { id: string }) => {
+  const { t } = useT("utilities.idp");
   const [tabId, setTabId] = useQueryState("userDetails", {
     defaultValue: "details",
   });
@@ -39,19 +41,19 @@ export const UserProfile = ({ id }: { id: string }) => {
           <div className="mb-5 mt-6 flex items-center justify-between rounded text-base">
             <TabsList>
               <TabsTrigger onClick={() => setTabId("details")} value="details">
-                Details
+                {t("common:DETAILS")}
               </TabsTrigger>
               <TabsTrigger onClick={() => setTabId("devices")} value="devices">
-                Devices
+                {t("PROFILE.DEVICES")}
               </TabsTrigger>
               <TabsTrigger onClick={() => setTabId("history")} value="history">
-                History
+                {t("PROFILE.HISTORY")}
               </TabsTrigger>
               <TabsTrigger
                 onClick={() => setTabId("personalAccessTokens")}
                 value="personalAccessTokens"
               >
-                PATs
+                {t("PROFILE.PATS")}
               </TabsTrigger>
             </TabsList>
             {tabId === "details" && (

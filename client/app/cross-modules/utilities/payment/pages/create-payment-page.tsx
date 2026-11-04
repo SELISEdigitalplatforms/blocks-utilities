@@ -33,14 +33,16 @@ import {
 } from "@/components/ui-kits/select/select";
 import { Switch } from "@/components/ui-kits/switch/switch";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
-import { useProjectStore } from "@seliseblocks/genesis-os";
-import { PAYMENT_CURRENCY_OPTIONS } from "../constants/payment.constants";
+import { useProjectStore, useT, tStatic } from "@seliseblocks/genesis-os";
+import { getCurrencyName, PAYMENT_CURRENCY_OPTIONS } from "../constants/payment.constants";
 import { useCreatePayment } from "../hooks/use-create-payment";
 import type {
   CreatedPayment,
   CreatePaymentRequest,
 } from "../models/create-payment.model";
 import { createPaymentSchema } from "../schemas/create-payment.schema";
+
+const UTILITIES_PAYMENT_MODULE = "utilities.payment";
 
 const createDefaultOrderId = () => `TEST-ORDER-${Date.now()}`;
 
@@ -51,19 +53,20 @@ const ORGANIZATION_PAGE_SIZE = 200;
 
 const getSecureCheckoutUrl = (redirectUrl: string | null): string => {
   if (!redirectUrl) {
-    throw new Error("The payment provider did not return a checkout URL.");
+    throw new Error(tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_PAGE.THE_PAYMENT_PROVIDER_DID_NOT"));
   }
 
   const parsedUrl = new URL(redirectUrl);
 
   if (parsedUrl.protocol !== "https:") {
-    throw new Error("The payment provider returned an unsafe checkout URL.");
+    throw new Error(tStatic(UTILITIES_PAYMENT_MODULE, "CREATE_PAYMENT_PAGE.THE_PAYMENT_PROVIDER_RETURNED_AN"));
   }
 
   return parsedUrl.toString();
 };
 
 export const CreatePaymentPage = () => {
+  const { t } = useT(UTILITIES_PAYMENT_MODULE);
   const { itemId } = useParams();
   const { mutateAsync, isPending } = useCreatePayment();
   const [createdPayment, setCreatedPayment] =
@@ -75,7 +78,7 @@ export const CreatePaymentPage = () => {
   const [checkoutOpened, setCheckoutOpened] = useState(false);
 
   const form = useForm<CreatePaymentRequest>({
-    resolver: zodResolver(createPaymentSchema),
+    resolver: zodResolver(createPaymentSchema()),
     mode: "onBlur",
     defaultValues: {
       providerName: "ADYEN-ONLINE",
@@ -130,7 +133,7 @@ export const CreatePaymentPage = () => {
       setSubmissionError(
         error instanceof Error
           ? error.message
-          : "The payment could not be created. Try again.",
+          : t("CREATE_PAYMENT_PAGE.THE_PAYMENT_COULD_NOT_BE"),
       );
     }
   };
@@ -145,7 +148,7 @@ export const CreatePaymentPage = () => {
           <Button asChild variant="ghost" size="sm" className="-ml-3 mb-3">
             <Link to={paymentListPath}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to payments
+              {t("CREATE_PAYMENT_PAGE.BACK_TO_PAYMENTS")}
             </Link>
           </Button>
           <div className="flex items-start gap-4">
@@ -154,11 +157,10 @@ export const CreatePaymentPage = () => {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                Test hosted payment
+                {t("CREATE_PAYMENT_PAGE.TEST_HOSTED_PAYMENT")}
               </h1>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground sm:text-base">
-                Create a payment session and continue securely on the
-                provider’s hosted checkout page.
+                {t("CREATE_PAYMENT_PAGE.CREATE_A_PAYMENT_SESSION_AND")}
               </p>
             </div>
           </div>
@@ -174,9 +176,9 @@ export const CreatePaymentPage = () => {
               noValidate
             >
               <div>
-                <h2 className="text-lg font-semibold">Payment details</h2>
+                <h2 className="text-lg font-semibold">{t("CREATE_PAYMENT_PAGE.PAYMENT_DETAILS")}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  These values are sent to the tenant-scoped payment API.
+                  {t("CREATE_PAYMENT_PAGE.THESE_VALUES_ARE_SENT_TO")}
                 </p>
               </div>
 
@@ -186,14 +188,14 @@ export const CreatePaymentPage = () => {
                   name="providerName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Provider</FormLabel>
+                      <FormLabel>{t("CREATE_PAYMENT_PAGE.PROVIDER")}</FormLabel>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select a provider" />
+                            <SelectValue placeholder={t("CREATE_PAYMENT_PAGE.SELECT_A_PROVIDER")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -202,8 +204,7 @@ export const CreatePaymentPage = () => {
                         </SelectContent>
                       </Select>
                       <FormDescription>
-                        Select the configured payment provider for this
-                        checkout.
+                        {t("CREATE_PAYMENT_PAGE.SELECT_THE_CONFIGURED_PAYMENT")}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -215,7 +216,7 @@ export const CreatePaymentPage = () => {
                   name="organizationId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Organization</FormLabel>
+                      <FormLabel>{t("CREATE_PAYMENT_PAGE.ORGANIZATION")}</FormLabel>
                       <Select
                         value={field.value || CONTEXT_ORGANIZATION}
                         onValueChange={(value) =>
@@ -231,7 +232,7 @@ export const CreatePaymentPage = () => {
                         </FormControl>
                         <SelectContent>
                           <SelectItem value={CONTEXT_ORGANIZATION}>
-                            Use my current organization
+                            {t("CREATE_PAYMENT_PAGE.USE_MY_CURRENT_ORGANIZATION")}
                           </SelectItem>
                           {organizations.map((organization) => (
                             <SelectItem
@@ -245,8 +246,8 @@ export const CreatePaymentPage = () => {
                       </Select>
                       <FormDescription>
                         {organizationsFailed
-                          ? "Organizations could not be loaded; this payment will use your current organization."
-                          : "Decides which organization's merchant account takes the money. The payment is stamped with it, so it will not appear in another organization's payment list."}
+                          ? t("CREATE_PAYMENT_PAGE.ORGANIZATIONS_COULD_NOT_BE_LOADED")
+                          : t("CREATE_PAYMENT_PAGE.DECIDES_WHICH_ORGANIZATION_S")}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -258,7 +259,7 @@ export const CreatePaymentPage = () => {
                   name="orderId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Order ID</FormLabel>
+                      <FormLabel>{t("CREATE_PAYMENT_PAGE.ORDER_ID")}</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
@@ -268,7 +269,7 @@ export const CreatePaymentPage = () => {
                         />
                       </FormControl>
                       <FormDescription>
-                        A unique reference from the client application.
+                        {t("CREATE_PAYMENT_PAGE.A_UNIQUE_REFERENCE_FROM_THE")}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -280,7 +281,7 @@ export const CreatePaymentPage = () => {
                   name="amount"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Amount</FormLabel>
+                      <FormLabel>{t("CREATE_PAYMENT_PAGE.AMOUNT")}</FormLabel>
                       <FormControl>
                         <Input
                           name={field.name}
@@ -301,7 +302,7 @@ export const CreatePaymentPage = () => {
                         />
                       </FormControl>
                       <FormDescription>
-                        Enter the amount in the selected currency.
+                        {t("CREATE_PAYMENT_PAGE.ENTER_THE_AMOUNT_IN_THE")}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -313,14 +314,14 @@ export const CreatePaymentPage = () => {
                   name="currencyCode"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Currency</FormLabel>
+                      <FormLabel>{t("CREATE_PAYMENT_PAGE.CURRENCY")}</FormLabel>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select a currency" />
+                            <SelectValue placeholder={t("CREATE_PAYMENT_PAGE.SELECT_A_CURRENCY")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -329,13 +330,13 @@ export const CreatePaymentPage = () => {
                               key={currency.code}
                               value={currency.code}
                             >
-                              {currency.code} — {currency.name}
+                              {currency.code} — {getCurrencyName(currency.code, currency.name)}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                       <FormDescription>
-                        Select a currency supported by the payment service.
+                        {t("CREATE_PAYMENT_PAGE.SELECT_A_CURRENCY_SUPPORTED_BY")}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -345,7 +346,7 @@ export const CreatePaymentPage = () => {
 
               <div className="space-y-4 border-t pt-5">
                 <h2 className="text-base font-semibold">
-                  Checkout preferences
+                  {t("CREATE_PAYMENT_PAGE.CHECKOUT_PREFERENCES")}
                 </h2>
 
                 <FormField
@@ -354,10 +355,9 @@ export const CreatePaymentPage = () => {
                   render={({ field }) => (
                     <FormItem className="flex items-start justify-between gap-4 rounded-xl border p-4">
                       <div>
-                        <FormLabel>Offer to save payment method</FormLabel>
+                        <FormLabel>{t("CREATE_PAYMENT_PAGE.OFFER_TO_SAVE_PAYMENT_METHOD")}</FormLabel>
                         <FormDescription>
-                          The hosted checkout asks the shopper for explicit
-                          consent before storing the method.
+                          {t("CREATE_PAYMENT_PAGE.THE_HOSTED_CHECKOUT_ASKS_THE")}
                         </FormDescription>
                         <FormMessage />
                       </div>
@@ -365,7 +365,7 @@ export const CreatePaymentPage = () => {
                         <Switch
                           checked={field.value}
                           onCheckedChange={field.onChange}
-                          aria-label="Offer to save payment method"
+                          aria-label={t("CREATE_PAYMENT_PAGE.OFFER_TO_SAVE_PAYMENT_METHOD")}
                         />
                       </FormControl>
                     </FormItem>
@@ -378,10 +378,9 @@ export const CreatePaymentPage = () => {
                   render={({ field }) => (
                     <FormItem className="flex items-start justify-between gap-4 rounded-xl border bg-muted/30 p-4">
                       <div>
-                        <FormLabel>Recurring payment</FormLabel>
+                        <FormLabel>{t("CREATE_PAYMENT_PAGE.RECURRING_PAYMENT")}</FormLabel>
                         <FormDescription>
-                          This create-payment endpoint supports hosted
-                          shopper-present payments only.
+                          {t("CREATE_PAYMENT_PAGE.THIS_CREATE_PAYMENT_ENDPOINT")}
                         </FormDescription>
                         <FormMessage />
                       </div>
@@ -389,7 +388,7 @@ export const CreatePaymentPage = () => {
                         <Switch
                           checked={field.value}
                           disabled
-                          aria-label="Recurring payment is disabled"
+                          aria-label={t("CREATE_PAYMENT_PAGE.RECURRING_PAYMENT_IS_DISABLED")}
                         />
                       </FormControl>
                     </FormItem>
@@ -418,8 +417,8 @@ export const CreatePaymentPage = () => {
                   <ExternalLink className="mr-2 h-4 w-4" />
                 )}
                 {isPending
-                  ? "Creating secure checkout…"
-                  : "Create and open checkout"}
+                  ? t("CREATE_PAYMENT_PAGE.CREATING_SECURE_CHECKOUT")
+                  : t("CREATE_PAYMENT_PAGE.CREATE_AND_OPEN_CHECKOUT")}
               </Button>
             </form>
           </Form>
@@ -432,11 +431,9 @@ export const CreatePaymentPage = () => {
                 <LockKeyhole className="h-5 w-5" />
               </span>
               <div>
-                <h2 className="font-semibold">Secure redirect flow</h2>
+                <h2 className="font-semibold">{t("CREATE_PAYMENT_PAGE.SECURE_REDIRECT_FLOW")}</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Checkout opens in a new tab. Card details stay on the
-                  provider’s hosted page and are never entered in this
-                  application.
+                  {t("CREATE_PAYMENT_PAGE.CHECKOUT_OPENS_IN_A_NEW")}
                 </p>
               </div>
             </div>
@@ -448,11 +445,9 @@ export const CreatePaymentPage = () => {
                 <Info className="h-5 w-5" />
               </span>
               <div>
-                <h2 className="font-semibold">Before testing</h2>
+                <h2 className="font-semibold">{t("CREATE_PAYMENT_PAGE.BEFORE_TESTING")}</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Configure the provider’s frontend result URL to this
-                  client’s payment result route. The provider return flow
-                  appends the payment ID and result status.
+                  {t("CREATE_PAYMENT_PAGE.CONFIGURE_THE_PROVIDER_S_FRONTEND")}
                 </p>
               </div>
             </div>
@@ -467,15 +462,15 @@ export const CreatePaymentPage = () => {
                 <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-700" />
                 <div className="min-w-0">
                   <h2 className="font-semibold text-green-900">
-                    Payment session created
+                    {t("CREATE_PAYMENT_PAGE.PAYMENT_SESSION_CREATED")}
                   </h2>
                   <p className="mt-1 break-all font-mono text-xs text-green-800">
                     {createdPayment.paymentDetailId}
                   </p>
                   <p className="mt-2 text-sm text-green-800">
                     {checkoutOpened
-                      ? "Checkout opened in a new tab."
-                      : "Your browser blocked the automatic checkout tab."}
+                      ? t("CREATE_PAYMENT_PAGE.CHECKOUT_OPENED_IN_A_NEW")
+                      : t("CREATE_PAYMENT_PAGE.YOUR_BROWSER_BLOCKED_THE_AUTOMATIC")}
                   </p>
                   {manualCheckoutUrl && (
                     <Button asChild className="mt-4" size="sm">
@@ -484,7 +479,7 @@ export const CreatePaymentPage = () => {
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        Open checkout
+                        {t("CREATE_PAYMENT_PAGE.OPEN_CHECKOUT")}
                         <ExternalLink className="ml-2 h-4 w-4" />
                       </a>
                     </Button>

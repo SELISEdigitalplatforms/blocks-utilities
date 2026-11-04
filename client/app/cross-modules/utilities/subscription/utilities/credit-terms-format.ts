@@ -1,3 +1,4 @@
+import { joinList, tSubscription } from "./subscription-i18n";
 import { formatMoney } from "./subscription-format";
 
 /** A meter's purchasable credits, as the plan summary reads them. */
@@ -16,32 +17,42 @@ export interface CreditTermsSummary {
   taxMode?: string | null;
 }
 
-const UNIT: Record<string, string> = {
-  "0": "hour",
-  Hour: "hour",
-  "1": "day",
-  Day: "day",
-  "2": "week",
-  Week: "week",
-  "3": "month",
-  Month: "month",
-  "4": "year",
-  Year: "year",
+const lifetimeUnit = (unit: number | string, count: number): string => {
+  const values = { count, quantity: count.toLocaleString() };
+
+  switch (String(unit)) {
+    case "0":
+    case "Hour":
+      return tSubscription("CREDIT_TERMS_FORMAT.LIFETIME_HOURS", values);
+    case "2":
+    case "Week":
+      return tSubscription("CREDIT_TERMS_FORMAT.LIFETIME_WEEKS", values);
+    case "3":
+    case "Month":
+      return tSubscription("CREDIT_TERMS_FORMAT.LIFETIME_MONTHS", values);
+    case "4":
+    case "Year":
+      return tSubscription("CREDIT_TERMS_FORMAT.LIFETIME_YEARS", values);
+    default:
+      return tSubscription("CREDIT_TERMS_FORMAT.LIFETIME_DAYS", values);
+  }
 };
 
 /** "30 days", "1 month": a fixed credit lifetime as a reader would say it. */
-export const describeCreditLifetime = (lifetime: { count: number; unit: number | string }): string => {
-  const unit = UNIT[String(lifetime.unit)] ?? "day";
-  return `${lifetime.count.toLocaleString()} ${unit}${lifetime.count === 1 ? "" : "s"}`;
-};
+export const describeCreditLifetime = (lifetime: { count: number; unit: number | string }): string =>
+  lifetimeUnit(lifetime.unit, lifetime.count);
 
-const EXPIRY: Record<string, string> = {
-  "0": "expire with the usage window",
-  Periodic: "expire with the usage window",
-  "2": "carry forward until the plan changes",
-  CarryForward: "carry forward until the plan changes",
-  "1": "never expire",
-  Never: "never expire",
+const describeExpiryPolicy = (policy: number | string): string => {
+  switch (String(policy)) {
+    case "2":
+    case "CarryForward":
+      return tSubscription("CREDIT_TERMS_FORMAT.EXPIRY_CARRY_FORWARD");
+    case "1":
+    case "Never":
+      return tSubscription("CREDIT_TERMS_FORMAT.EXPIRY_NEVER");
+    default:
+      return tSubscription("CREDIT_TERMS_FORMAT.EXPIRY_PERIODIC");
+  }
 };
 
 /**
@@ -50,27 +61,39 @@ const EXPIRY: Record<string, string> = {
  */
 export const describeCreditTerms = (credit: CreditTermsSummary): string => {
   const prices = credit.unitPrices.length
-    ? credit.unitPrices
-        .map((price) => formatMoney(price.unitAmountMinor, price.currencyCode))
-        .join(" or ")
-    : "no price yet";
+    ? joinList(
+        credit.unitPrices.map((price) => formatMoney(price.unitAmountMinor, price.currencyCode)),
+        "disjunction",
+      )
+    : tSubscription("CREDIT_TERMS_FORMAT.NO_PRICE_YET");
 
   const bounds = credit.maxQuantity
-    ? `${credit.minQuantity.toLocaleString()}–${credit.maxQuantity.toLocaleString()} per purchase`
-    : `from ${credit.minQuantity.toLocaleString()} per purchase, no maximum set`;
+    ? tSubscription("CREDIT_TERMS_FORMAT.BOUNDS_RANGE", {
+        min: credit.minQuantity.toLocaleString(),
+        max: credit.maxQuantity.toLocaleString(),
+      })
+    : tSubscription("CREDIT_TERMS_FORMAT.BOUNDS_FROM", {
+        min: credit.minQuantity.toLocaleString(),
+      });
 
+  const taxKey =
+    credit.taxMode === "Inclusive" ? "CREDIT_TERMS_FORMAT.TAX_INCLUDED" : "CREDIT_TERMS_FORMAT.TAX_ADDED";
   const tax = credit.taxRateBasisPoints
-    ? `${credit.taxRateBasisPoints / 100}% tax ${credit.taxMode === "Inclusive" ? "included" : "added"}`
+    ? tSubscription(taxKey, { rate: credit.taxRateBasisPoints / 100 })
     : null;
 
   const parts = [
-    `${prices} per credit`,
+    tSubscription("CREDIT_TERMS_FORMAT.PRICE_PER_CREDIT", { prices }),
     bounds,
     credit.expiresAfter
-      ? `credits last ${describeCreditLifetime(credit.expiresAfter)} from purchase`
-      : `credits ${EXPIRY[String(credit.expiryPolicy)] ?? "expire with the usage window"}`,
+      ? tSubscription("CREDIT_TERMS_FORMAT.CREDITS_LAST", {
+          lifetime: describeCreditLifetime(credit.expiresAfter),
+        })
+      : describeExpiryPolicy(credit.expiryPolicy),
     ...(tax ? [tax] : []),
   ];
 
-  return `${credit.enabled ? "" : "Paused · "}${parts.join(" · ")}`;
+  const terms = parts.join(" · ");
+
+  return credit.enabled ? terms : tSubscription("CREDIT_TERMS_FORMAT.PAUSED", { terms });
 };
