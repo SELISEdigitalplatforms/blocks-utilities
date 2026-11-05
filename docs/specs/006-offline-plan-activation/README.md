@@ -70,9 +70,12 @@ transfer or, when the contract has no price in Utilities, a service statement.
 
 Rules:
 
-- **Contract** price is an amount and currency per billing interval of the chosen plan price,
-  frozen on the subscription. Catalogue price edits never touch it. Tax mode and rate come from
-  the plan price. Quantity changes prorate from it. Usage overage uses the plan's meter rates.
+- **Contract** price is one flat amount and currency per billing interval of the chosen plan
+  price, whatever the quantities, frozen on the subscription. Catalogue price edits never touch
+  it. Tax mode and rate come from the plan price. It is net: the price's automatic discount and
+  the plan's volume tiers do not apply to it; a discount code the admin applies does. A quantity
+  change does not change the amount and issues no document. Usage overage uses the plan's meter
+  rates. _(Clarified 2026-11-05 during implementation.)_
 - **Catalogue** pricing behaves exactly as a card subscription's frozen `PriceSnapshot`.
 - **None**: the recurring fee and usage overage are never invoiced. Each activation, renewal,
   trial conversion, plan change and quantity change issues a service statement listing plan,
@@ -92,8 +95,8 @@ Plan change pricing:
 | Org admin | catalogue | the new plan's catalogue price |
 | Org admin | none | none; a statement records the change |
 
-Priced plan and quantity changes prorate and issue a record invoice as card changes do, with no
-charge.
+Priced plan changes, and quantity changes on catalogue pricing, prorate and issue a record
+invoice as card changes do, with no charge.
 
 ### `SubscriptionFinancialDocument` (extended)
 
@@ -208,8 +211,9 @@ otherwise; amount greater than zero; currency one the `Payment` section knows th
   uses that contract price.
 - **AC-14** Given a no-price subscription, when the org admin changes plan or quantity, then it
   stays no-price and a statement records the change and its effective date.
-- **AC-15** Given a contract-priced subscription, when quantity rises mid-period, then a record
-  invoice prorated from the contract price is issued and nothing is charged.
+- **AC-15** Given a contract-priced subscription, when quantity rises mid-period, then the
+  quantity applies, nothing is charged, no document is issued, and the next renewal still
+  invoices the contract amount. Given catalogue pricing, a prorated record invoice is issued.
 - **AC-16** Given a catalogue- or contract-priced subscription with overage at period close,
   then a record usage invoice at the plan's meter rates is issued; given no-price, nothing is
   invoiced.
