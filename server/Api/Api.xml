@@ -1206,6 +1206,19 @@
             </para>
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ActivateOffline(Subscription.DomainService.Requests.ActivateOfflineSubscriptionRequest,System.Threading.CancellationToken)">
+            <summary>
+            Activates a paid plan for an organization that pays by bank transfer, with no card and no
+            checkout. Spec 006.
+            </summary>
+            <remarks>
+            Console only, and behind its own permission rather than <c>subscription::manage</c>, which
+            every organization admin holds: this is the one route that grants a paid plan without taking
+            money. The subscription is never charged; each period it renews on schedule and issues a
+            record invoice marked "Payable by bank transfer". The organization's billing profile must be
+            complete, because every one of those invoices is addressed to it.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.String,System.Threading.CancellationToken)">
             <summary>
             The caller's own subscription, or nothing if they have none.

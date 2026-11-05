@@ -115,7 +115,7 @@ organization acts on their own, which then fails the permission):
 
 | Verb | Route | Request | Response | Errors |
 |---|---|---|---|---|
-| POST | `/subscriptions/offline` | `organizationId`, `planCode`, `priceId`, `quantities`, `timeZoneId`, `discountCode?`, `pricing { mode, contractAmountMinor?, contractCurrencyCode? }` | 201 `SubscriptionResponse` | 400 `subscription_request_invalid`, 400 `subscription_billing_profile_incomplete`, 403, 404 plan or price, 409 `subscription_already_active`, 409 `subscription_trial_already_used` |
+| POST | `/subscriptions/offline` | `organizationId`, `planCode`, `priceId`, `quantities`, `timeZoneId`, `discountCode?`, `pricing { mode, contractAmountMinor?, contractCurrencyCode? }` | 201 `SubscriptionResponse` | 400 `subscription_request_invalid`, 400 `subscription_billing_profile_incomplete`, 400 `subscription_offline_console_only` (permission held but caller is not the console), 400 `subscription_offline_contract_calendar_unsupported`, 403, 404 plan or price, 409 `subscription_already_active`, 409 `subscription_trial_already_used` |
 | PUT | `/subscriptions/{id}/offline/pricing` | `pricing` | 200 `SubscriptionResponse` with `pendingOfflinePricing` | 400, 403, 404, 409 `subscription_not_offline`, 409 `subscription_not_live` |
 | PUT | `/subscriptions/{id}/offline/plan` | as the existing plan change, plus `pricing` | as the existing plan change | as the existing plan change, plus 409 `subscription_not_offline` |
 
@@ -241,6 +241,7 @@ otherwise; amount greater than zero; currency one the `Payment` section knows th
 | Paid-status tracking | none; reconciled outside Utilities | Klax wants reminders or a receivables view |
 | Contract start date other than now | activation starts the period | a contract starts on a fixed date |
 | Credit purchases by offline customers | refused (409 `subscription_offline_collection`) | Klax wants credits on contract, by card or as record invoices |
+| Contract price on a calendar-aligned yearly price (whose opening stub is priced from a separate monthly base) | refused (400 `subscription_offline_contract_calendar_unsupported`); catalogue pricing and anniversary prices work | a contract needs a calendar-yearly price and says what its opening stub costs |
 
 ## Open Questions
 

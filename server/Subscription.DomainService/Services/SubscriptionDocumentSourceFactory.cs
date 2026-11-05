@@ -115,6 +115,47 @@ public static class SubscriptionDocumentSourceFactory
         };
     }
 
+    /// <summary>
+    /// The obligation a charge leaves behind on an offline subscription, which records what was
+    /// owed instead of collecting it. See spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Freezes <see cref="SubscriptionDocumentSource.Amounts"/> for the reason
+    /// <see cref="ForOpeningDiscount"/> does: no payment will ever exist to read them from.
+    /// </remarks>
+    /// <param name="periodKey">The renewal's period key; null for the opening charge.</param>
+    public static SubscriptionDocumentSource ForOfflineCharge(
+        SubscriptionDetail subscription,
+        SubscriptionChargeKind chargeKind,
+        string? periodKey,
+        FinancialDocumentAmounts amounts,
+        FinancialDocumentPerson? initiatedBy,
+        DateTime occurredAtUtc,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(amounts);
+
+        var charge = new SubscriptionChargeReference(subscription.ItemId, chargeKind, periodKey);
+
+        return new SubscriptionDocumentSource
+        {
+            SourceKey = FinancialDocumentSourceKey.ForOfflineCharge(
+                subscription.ItemId, chargeKind, periodKey),
+            DocumentType = FinancialDocumentType.Invoice,
+            ChargeKind = chargeKind,
+            PeriodKey = periodKey,
+            CurrencyCode = subscription.CurrencyCode,
+            Subject = SubjectOf(subscription),
+            QuantityItems = Frozen(subscription.QuantityItems),
+            Period = PeriodFor(subscription, charge),
+            Amounts = amounts,
+            InitiatedBy = initiatedBy,
+            OccurredAtUtc = occurredAtUtc,
+            CorrelationId = correlationId
+        };
+    }
+
     /// <summary>The obligation a trial start leaves behind: a document stating terms, not a charge.</summary>
     public static SubscriptionDocumentSource? ForTrial(
         SubscriptionDetail subscription,
