@@ -249,6 +249,46 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
     }
 
     [Fact]
+    public async Task Captures_are_found_by_position_with_their_firms_and_listed_without_them()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var day = March.Date;
+
+        foreach (var offset in new[] { 0, 3, 6 })
+        {
+            var snapshot = RunRate(tenantId, day.AddDays(offset), 1_000 * (offset + 1));
+            snapshot.CapturedFirms = true;
+            snapshot.Firms =
+            [
+                new RecurringRevenueSnapshotFirm
+                {
+                    OrganizationId = "org-1",
+                    CurrencyCode = "CHF",
+                    NetMonthlyMinor = 1_000 * (offset + 1),
+                    SubscriptionCount = 1
+                }
+            ];
+
+            await _reports.SaveRecurringRevenueSnapshotAsync(snapshot, CancellationToken.None);
+        }
+
+        var latest = await _reports.FindRecurringRevenueSnapshotAsync(
+            tenantId, day, day.AddDays(5), latest: true, CancellationToken.None);
+        var earliest = await _reports.FindRecurringRevenueSnapshotAsync(
+            tenantId, day.AddDays(1), day.AddDays(7), latest: false, CancellationToken.None);
+        var listed = await _reports.ListRecurringRevenueSnapshotsAsync(
+            tenantId, day, day.AddDays(7), CancellationToken.None);
+
+        latest!.DayUtc.Should().Be(day.AddDays(3), "the window excludes its end");
+        latest.CapturedFirms.Should().BeTrue();
+        latest.Firms.Single().NetMonthlyMinor.Should().Be(4_000);
+        earliest!.DayUtc.Should().Be(day.AddDays(3));
+        listed.Should().HaveCount(3);
+        listed.Should().AllSatisfy(snapshot => snapshot.Firms.Should().BeEmpty(
+            "the trend reads only totals and must not pull every firm of every day"));
+    }
+
+    [Fact]
     public async Task A_second_capture_on_the_same_day_replaces_the_first_and_tenants_stay_apart()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
