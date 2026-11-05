@@ -57,8 +57,19 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         ISubscriptionRenewalService renewalService,
         ISubscriptionSimulatedOutcomeSource scriptedOutcomes,
         ISubscriptionUsageRatingProcessor usageRatingProcessor,
-        ISubscriptionOutboxProcessor outboxProcessor)
+        ISubscriptionOutboxProcessor outboxProcessor,
+        // Spec 005. Optional so a host or test without standalone credits keeps the old surface.
+        ISubscriptionCreditService? credits = null,
+        CreditLedger? creditLedger = null,
+        ISubscriptionCreditGrantRepository? creditGrants = null,
+        ISubscriptionCreditPurchaseRepository? creditPurchases = null,
+        IOptionsMonitor<SubscriptionOptions>? subscriptionOptions = null)
     {
+        _credits = credits;
+        _creditLedger = creditLedger;
+        _creditGrants = creditGrants;
+        _creditPurchases = creditPurchases;
+        _subscriptionOptions = subscriptionOptions;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
         _responseMapper = responseMapper;
@@ -179,6 +190,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             UsageInvoices = usageInvoices.Select(MapUsageInvoice).ToList(),
             BackgroundWork = includeBackgroundWork ? MapBackgroundWork(subscription) : null,
             AuditEvents = auditEvents.Select(MapAuditEvent).ToList(),
+            OrganizationCredits = await OrganizationCreditsAsync(context, cancellationToken),
             CorrelationId = correlationId
         };
 
@@ -404,8 +416,179 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         SimulationWorkType.Renewal,
         SimulationWorkType.UsagePeriodClosure,
         SimulationWorkType.UsageInvoiceCharge,
-        SimulationWorkType.OutboxPublication
+        SimulationWorkType.OutboxPublication,
+        SimulationWorkType.CreditPurchaseRecovery,
+        SimulationWorkType.CreditGrantMaintenance
     ];
+
+    private static readonly SimulationWorkType[] OrganizationWorkTypes =
+    [
+        SimulationWorkType.CreditPurchaseRecovery,
+        SimulationWorkType.CreditGrantMaintenance
+    ];
+
+    private readonly ISubscriptionCreditService? _credits;
+    private readonly CreditLedger? _creditLedger;
+    private readonly ISubscriptionCreditGrantRepository? _creditGrants;
+    private readonly ISubscriptionCreditPurchaseRepository? _creditPurchases;
+    private readonly IOptionsMonitor<SubscriptionOptions>? _subscriptionOptions;
+
+    public async Task<SubscriptionOperationResult<SubscriptionSimulationStateResponse>> GetOrganizationStateAsync(
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var caller = BlocksContext.GetContext();
+
+        if (!SubscriptionSimulationGuard.IsAuthorized(caller?.OrganizationId, _paymentOptions.CurrentValue))
+        {
+            return SubscriptionOperationResult<SubscriptionSimulationStateResponse>.Failure(
+                PaymentFailureKind.Unavailable,
+                "subscription_simulation_forbidden",
+                "This caller may not use the subscription simulation harness.",
+                correlationId);
+        }
+
+        var resolution = await _contextResolver.ResolveAsync(correlationId, organizationId, cancellationToken);
+
+        if (!resolution.IsSuccess || resolution.Context is null)
+        {
+            return resolution.ToFailure<SubscriptionSimulationStateResponse>(correlationId);
+        }
+
+        var context = resolution.Context;
+
+        var response = new SubscriptionSimulationStateResponse
+        {
+            TenantId = context.TenantId,
+            OrganizationId = context.OrganizationId,
+            OrganizationCredits = await OrganizationCreditsAsync(context, cancellationToken),
+            CorrelationId = correlationId
+        };
+
+        await RecordRunAsync(context, string.Empty, "InspectOrganizationState", correlationId, "Succeeded", null, cancellationToken);
+
+        return SubscriptionOperationResult<SubscriptionSimulationStateResponse>.Success(response, correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>> RunOrganizationDueJobsAsync(
+        RunDueJobsRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var startedAtUtc = DateTime.UtcNow;
+        var state = await GetOrganizationStateAsync(request.OrganizationId, correlationId, cancellationToken);
+
+        if (!state.IsSuccess || state.Value is null)
+        {
+            return state.ToFailure<SubscriptionSimulationJobRunResponse>();
+        }
+
+        var tenantId = state.Value.TenantId;
+        var workTypes = (request.WorkTypes.Count > 0 ? request.WorkTypes.Distinct() : OrganizationWorkTypes)
+            .Where(OrganizationWorkTypes.Contains);
+        var jobs = new List<SubscriptionSimulationJobResultResponse>();
+
+        foreach (var workType in workTypes)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var (status, detail) = await RunCreditJobAsync(workType, tenantId, cancellationToken);
+
+            jobs.Add(new SubscriptionSimulationJobResultResponse
+            {
+                WorkType = workType.ToString(),
+                Status = status,
+                Detail = detail,
+                DurationMs = stopwatch.ElapsedMilliseconds
+            });
+        }
+
+        var after = await GetOrganizationStateAsync(request.OrganizationId, correlationId, cancellationToken);
+
+        return SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>.Success(
+            new SubscriptionSimulationJobRunResponse
+            {
+                SimulationRunId = $"sim_{Guid.NewGuid():N}",
+                StartedAtUtc = startedAtUtc,
+                CompletedAtUtc = DateTime.UtcNow,
+                Claimed = jobs.Count,
+                Completed = jobs.Count(job => job.Status == "Completed"),
+                NotDue = jobs.Count(job => job.Status == "NotDue"),
+                Jobs = jobs,
+                State = after.IsSuccess && after.Value is not null ? after.Value : state.Value,
+                CorrelationId = correlationId
+            },
+            correlationId);
+    }
+
+    /// <summary>The tenant-wide credit sweeps, which cover subscription and standalone purchases alike.</summary>
+    private async Task<(string Status, string? Detail)> RunCreditJobAsync(
+        SimulationWorkType workType,
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        switch (workType)
+        {
+            case SimulationWorkType.CreditPurchaseRecovery when _credits is not null:
+            {
+                var settled = await _credits.RecoverStaleAsync(tenantId, cancellationToken);
+
+                return settled > 0
+                    ? ("Completed", $"{settled} credit purchase(s) settled.")
+                    : ("NotDue", "No credit purchase is waiting to be recovered.");
+            }
+
+            case SimulationWorkType.CreditGrantMaintenance when _creditLedger is not null:
+            {
+                var options = _subscriptionOptions?.CurrentValue ?? new SubscriptionOptions();
+                var closed = await _creditLedger.MaintainAsync(
+                    tenantId,
+                    DateTime.UtcNow,
+                    TimeSpan.FromHours(Math.Max(1, options.CreditGrantCheckIntervalHours)),
+                    options.CreditMaintenanceBatchSize,
+                    cancellationToken);
+
+                return closed > 0
+                    ? ("Completed", $"{closed} credit grant(s) closed.")
+                    : ("NotDue", "No credit grant has lapsed.");
+            }
+
+            default:
+                return ("NotApplicable", "Credit sweeps are not configured on this host.");
+        }
+    }
+
+    private async Task<SimulationOrganizationCreditsResponse?> OrganizationCreditsAsync(
+        SubscriptionContext context,
+        CancellationToken cancellationToken)
+    {
+        if (_creditGrants is null || _creditPurchases is null)
+        {
+            return null;
+        }
+
+        var now = DateTime.UtcNow;
+        var grants = await _creditGrants.ListForOrganizationAsync(
+            context.TenantId, context.OrganizationId, null, null, cancellationToken);
+        var purchases = await _creditPurchases.ListForOrganizationAsync(
+            context.TenantId, context.OrganizationId, null, cancellationToken);
+        var pending = await _creditPurchases.FindOpenCheckoutForOrganizationAsync(
+            context.TenantId, context.OrganizationId, cancellationToken);
+
+        return new SimulationOrganizationCreditsResponse
+        {
+            Grants = grants
+                .Select(grant => SubscriptionCreditService.GrantResponse(grant, CreditLedger.EffectiveStatus(grant, null, now)))
+                .ToList(),
+            // Never given the checkout URL: a diagnostic read, as the subscription state is.
+            Purchases = purchases
+                .Select(purchase => SubscriptionCreditService.PurchaseResponse(purchase, null, replayed: false, withCheckoutUrl: false))
+                .ToList(),
+            PendingCheckoutPurchaseId = pending?.ItemId
+        };
+    }
 
     public async Task<SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>> RunDueJobsAsync(
         string subscriptionId,
@@ -426,7 +609,11 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             return resolveFailure!;
         }
 
-        var workTypes = request.WorkTypes.Count > 0 ? request.WorkTypes.Distinct() : AllWorkTypes;
+        // The credit sweeps only where a host has standalone credits wired up: a host without
+        // them keeps the four jobs it always had, rather than two more that report NotApplicable.
+        var workTypes = request.WorkTypes.Count > 0
+            ? request.WorkTypes.Distinct()
+            : AllWorkTypes.Where(type => !OrganizationWorkTypes.Contains(type) || _credits is not null || _creditLedger is not null);
         var now = DateTime.UtcNow;
         var jobs = new List<SubscriptionSimulationJobResultResponse>();
 
@@ -444,6 +631,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
                     await RunUsageChargeJobAsync(context, subscription, now, cancellationToken),
                 SimulationWorkType.OutboxPublication =>
                     await RunOutboxJobAsync(subscription, cancellationToken),
+                SimulationWorkType.CreditPurchaseRecovery or SimulationWorkType.CreditGrantMaintenance =>
+                    await RunCreditJobAsync(workType, context.TenantId, cancellationToken),
                 _ => ("NotApplicable", "Unrecognized work type.")
             };
 

@@ -34,6 +34,19 @@ public interface ISubscriptionCreditPurchaseRepository
         CancellationToken cancellationToken);
 
     /// <summary>Purchases in one of <paramref name="statuses"/> last touched before <paramref name="olderThanUtc"/>.</summary>
+    /// <summary>The organization's standalone purchases — those with no subscription — newest first (spec 005).</summary>
+    Task<IReadOnlyList<SubscriptionCreditPurchase>> ListForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        CreditPurchaseStatus? status,
+        CancellationToken cancellationToken);
+
+    /// <summary>A standalone checkout purchase of this organization's still waiting to be paid.</summary>
+    Task<SubscriptionCreditPurchase?> FindOpenCheckoutForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<SubscriptionCreditPurchase>> ListStaleAsync(
         string tenantId,
         IReadOnlyCollection<CreditPurchaseStatus> statuses,

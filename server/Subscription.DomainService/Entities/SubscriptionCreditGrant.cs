@@ -13,7 +13,9 @@ namespace Subscription.DomainService.Entities;
 /// <para>
 /// Belongs to a bucket: the subscription's shared pool when <see cref="SeatNumber"/> is null, or
 /// one seat. A seat's grant stays with the seat when its holder changes, the same way the seat's
-/// own allowance does.
+/// own allowance does. A grant with no <see cref="SubscriptionId"/> at all is the organization's
+/// own (spec 005): bought from a credit offer rather than a plan, spendable with or without a
+/// subscription, and never forfeited by anything a subscription does.
 /// </para>
 /// <para>
 /// <see cref="Remaining"/> only moves through conditional updates on the repository, never by
@@ -31,9 +33,13 @@ public sealed class SubscriptionCreditGrant
 
     public string OrganizationId { get; set; } = string.Empty;
 
-    public string SubscriptionId { get; set; } = string.Empty;
+    /// <summary>Null for credits the organization holds outside any subscription.</summary>
+    public string? SubscriptionId { get; set; }
 
     public string MeterKey { get; set; } = string.Empty;
+
+    /// <summary>Whether these credits belong to the organization rather than to a subscription.</summary>
+    public bool IsOrganizationOwned => string.IsNullOrEmpty(SubscriptionId);
 
     /// <summary>Null for the subscription's shared pool; otherwise the seat these credits belong to.</summary>
     public int? SeatNumber { get; set; }

@@ -20,7 +20,24 @@ export type SimulationWorkType =
   | "Renewal"
   | "UsagePeriodClosure"
   | "UsageInvoiceCharge"
-  | "OutboxPublication";
+  | "OutboxPublication"
+  | "CreditPurchaseRecovery"
+  | "CreditGrantMaintenance";
+
+/** The standalone credits an organization holds outside any subscription (spec 005), as the state reports them. */
+export interface SimulationOrganizationCredits {
+  grants: import("./subscription-simulation.model").CreditGrant[];
+  purchases: import("./subscription-simulation.model").CreditPurchase[];
+  pendingCheckoutPurchaseId: string | null;
+}
+
+/** `GET /api/subscription-simulation/organizations/{id}/state`: only the credits part of a state is filled. */
+export interface SubscriptionSimulationOrganizationState {
+  tenantId: string;
+  organizationId: string;
+  organizationCredits: SimulationOrganizationCredits | null;
+  correlationId: string;
+}
 
 export interface MarkPaymentSucceededRequest {
   organizationId?: string;

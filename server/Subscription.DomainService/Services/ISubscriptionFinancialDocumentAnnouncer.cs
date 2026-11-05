@@ -67,6 +67,16 @@ public interface ISubscriptionFinancialDocumentAnnouncer
         FinancialDocumentPerson? initiatedBy = null);
 
     /// <summary>
+    /// Announces a settled standalone credit purchase (spec 005), which has no subscription to
+    /// record an obligation on: the purchase record itself is the frozen obligation, and the
+    /// queue entry names it.
+    /// </summary>
+    Task AnnounceOrganizationCreditPurchaseAsync(
+        SubscriptionCreditPurchase purchase,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Announces a trial that has begun, which owes a zero-total document stating its terms.
     /// </summary>
     /// <remarks>

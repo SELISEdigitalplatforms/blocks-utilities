@@ -123,7 +123,8 @@ public sealed class SubscriptionFinancialDocumentRepository :
         DateTime? issuedToUtc,
         int pageSize,
         FinancialDocumentCursor? after,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool standaloneCreditsOnly = false)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
 
@@ -137,6 +138,10 @@ public sealed class SubscriptionFinancialDocumentRepository :
         if (!string.IsNullOrWhiteSpace(subscriptionId))
         {
             filters.Add(builder.Eq(document => document.SubscriptionId, subscriptionId));
+        }
+        else if (standaloneCreditsOnly)
+        {
+            filters.Add(builder.Eq(document => document.SubscriptionId, string.Empty));
         }
 
         if (documentType is { } type)

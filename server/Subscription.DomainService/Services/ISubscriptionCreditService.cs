@@ -69,4 +69,37 @@ public interface ISubscriptionCreditService
         CreditPurchaseStatus? status,
         string correlationId,
         CancellationToken cancellationToken);
+
+    // ---- standalone credits an organization holds outside any subscription (spec 005) ----
+
+    /// <summary>What buying from the organization's offer would cost. Changes nothing.</summary>
+    Task<SubscriptionOperationResult<CreditQuoteResponse>> PreviewForOrganizationAsync(
+        OrganizationCreditPurchaseRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Buys standalone credits: charges the saved card or opens a checkout, then grants them to the organization.</summary>
+    Task<SubscriptionOperationResult<CreditPurchaseResponse>> PurchaseForOrganizationAsync(
+        OrganizationCreditPurchaseRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Gives standalone credits without a charge, with a reason, on the offer's expiry.</summary>
+    Task<SubscriptionOperationResult<CreditGrantResponse>> GrantToOrganizationAsync(
+        OrganizationGrantCreditsRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    Task<SubscriptionOperationResult<IReadOnlyList<CreditGrantResponse>>> ListOrganizationGrantsAsync(
+        string? organizationId,
+        string? meterKey,
+        CreditGrantStatus? status,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    Task<SubscriptionOperationResult<IReadOnlyList<CreditPurchaseResponse>>> ListOrganizationPurchasesAsync(
+        string? organizationId,
+        CreditPurchaseStatus? status,
+        string correlationId,
+        CancellationToken cancellationToken);
 }

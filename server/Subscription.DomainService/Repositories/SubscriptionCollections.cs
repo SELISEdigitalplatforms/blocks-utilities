@@ -83,6 +83,12 @@ internal static class SubscriptionCollections
     /// <summary>Credit purchases, recorded before charging. See <see cref="Entities.SubscriptionCreditPurchase"/>.</summary>
     public const string CreditPurchases = "SubscriptionCreditPurchases";
 
+    /// <summary>Tenant meter definitions with organization overrides. See <see cref="Entities.MeterCatalogueEntry"/>.</summary>
+    public const string MeterCatalogue = "SubscriptionMeterCatalogue";
+
+    /// <summary>Standalone credit offers, one per meter per scope. See <see cref="Entities.CreditOffer"/>.</summary>
+    public const string CreditOffers = "SubscriptionCreditOffers";
+
     public static IMongoCollection<TDocument> Of<TDocument>(
         IDbContextProvider dbContextProvider,
         string tenantId,

@@ -93,6 +93,27 @@ export const navigationMenus: Menu[] = [
         icon: BadgePercent,
       },
       {
+        id: "subscription-meters",
+        type: "menu",
+        name: "Meter catalogue",
+        path: "/app/subscription/meters",
+        icon: Settings2,
+      },
+      {
+        id: "subscription-credit-offers",
+        type: "menu",
+        name: "Credit offers",
+        path: "/app/subscription/credit-offers",
+        icon: CirclePlus,
+      },
+      {
+        id: "subscription-credits",
+        type: "menu",
+        name: "Organization credits",
+        path: "/app/subscription/credits",
+        icon: WalletCards,
+      },
+      {
         id: "subscription-invoices",
         type: "menu",
         name: "Invoices",

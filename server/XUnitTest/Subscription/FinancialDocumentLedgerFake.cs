@@ -85,11 +85,13 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         DateTime? issuedToUtc,
         int pageSize,
         FinancialDocumentCursor? after,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool standaloneCreditsOnly = false)
     {
         var matching = _documents
             .Where(item => item.TenantId == tenantId && item.OrganizationId == organizationId)
             .Where(item => subscriptionId is null || item.SubscriptionId == subscriptionId)
+            .Where(item => subscriptionId is not null || !standaloneCreditsOnly || item.SubscriptionId.Length == 0)
             .Where(item => documentType is null || item.DocumentType == documentType)
             .Where(item => status is null || item.Status == status)
             .Where(item => issuedFromUtc is null || item.IssuedAtUtc >= issuedFromUtc)

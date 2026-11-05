@@ -43,6 +43,7 @@ import { useStartPaymentMethodSetup } from "../hooks/use-start-payment-method-se
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
 import { OverageTermsSection } from "../components/overage-terms-section";
 import { CreditsCard } from "../components/credits-card";
+import { OrganizationCreditsCard } from "../components/organization-credits-card";
 import { PaymentOutcomeDialog } from "../components/payment-outcome-dialog";
 import { RunDueJobsDialog } from "../components/run-due-jobs-dialog";
 import { SimulatedPlanCard } from "../components/simulated-plan-card";
@@ -432,6 +433,9 @@ export const SubscriptionSimulationPage = () => {
       {currentSubscription && (
         <CreditsCard subscription={currentSubscription} organizationId={organizationScope} />
       )}
+
+      {/* With or without a subscription (spec 005): a credits-only organization has this and nothing else. */}
+      <OrganizationCreditsCard organizationId={organizationScope} showSweeps={!currentSubscription} />
 
       {(isEntitled || memberPlans.length > 0) && (
         <UsageSection

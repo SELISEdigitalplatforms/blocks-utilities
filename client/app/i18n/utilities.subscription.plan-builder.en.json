@@ -1,4 +1,6 @@
 {
+  "CATALOGUE_METER_PICKER.LABEL": "Pick from the meter catalogue",
+  "CATALOGUE_METER_PICKER.PLACEHOLDER": "Pick a catalogue meter, or type a new key below",
   "EXISTING_METER_RATES_FIELDS.ADD_BAND": "Add another band",
   "EXISTING_METER_RATES_FIELDS.ADD_CURRENCY": "Add another currency",
   "EXISTING_METER_RATES_FIELDS.AMOUNT_MIN": "Every band in {{currency}} needs a per-unit amount of zero or more.",

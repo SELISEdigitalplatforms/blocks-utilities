@@ -521,6 +521,7 @@
       <li><a href="#api-documents" class="sub">Invoices &amp; credit notes</a></li>
       <li><a href="#api-usage" class="sub">Usage</a></li>
       <li><a href="#api-credits" class="sub">Credits</a></li>
+      <li><a href="#api-org-credits" class="sub">Standalone credits</a></li>
       <li><a href="#api-ent" class="sub">Entitlements</a></li>
       <li><a href="#api-reports" class="sub">Reports</a></li>
       <li><a href="#envelope">Envelope &amp; status codes</a></li>
@@ -4222,6 +4223,12 @@ POST /api/subscriptions
             paid for this window; it is already part of <code>included</code>, so it is never overage.
             <code>purchasedRemaining</code> is what this recorder can still spend from credits, and is
             <code>null</code> for a meter that sells none. See <a href="#api-credits">Credits</a>.
+            <code>organizationCreditsConsumed</code> is the part of <code>purchasedConsumed</code>
+            that the organization&apos;s <a href="#api-org-credits">standalone credits</a> paid for,
+            and <code>organizationCreditsRemaining</code> what they could still cover, <code>null</code>
+            when no credit offer exists for the meter. With no subscription at all the call records
+            against those credits alone and answers <code>periodKey: "organization"</code>, or
+            <code>409 subscription_credits_exhausted</code> when they run out.
           </p>
           <h4>Returns</h4>
           <p><code>200</code> — including when <code>allowed</code> is <code>false</code> · <code>400</code> missing idempotency key, metadata too large, quantity finer than the meter's <code>quantityScale</code> · <code>404</code> no subscription, or the plan has no such meter.</p>
@@ -4255,8 +4262,13 @@ POST /api/subscriptions
             credits are bought, only as they are spent. With <code>readMode=projection</code>,
             <code>purchasedConsumed</code> reads <code>0</code>; <code>included</code> still counts it.
           </p>
+          <p class="prose">
+            An organization with no subscription but with standalone credits gets one row per meter
+            it holds credits for, with <code>organizationCreditsRemaining</code> set and the plan
+            figures at zero. With neither, <code>404</code> as before.
+          </p>
           <h4>Returns</h4>
-          <p><code>200</code> array of the same shape · <code>404</code> no subscription.</p>
+          <p><code>200</code> array of the same shape · <code>404</code> no subscription and no standalone credits.</p>
         </div>
       </div>
 
@@ -4739,6 +4751,359 @@ POST /api/subscriptions
         </table>
       </div>
 
+
+      <h3 id="api-org-credits">Standalone credits</h3>
+      <div class="callout">
+        <strong>Credits an organization holds outside any subscription.</strong> Since spec 005 an
+        organization can buy a meter&apos;s credits without subscribing to a plan at all. The meter
+        comes from the <a href="#api-meter-catalogue">meter catalogue</a>, the price from a
+        <a href="#api-credit-offers">credit offer</a>, and the credits belong to the organization:
+        they are spent with or without a subscription, survive subscribing later, and no plan change,
+        renewal or cancellation can forfeit them. They expire only on the offer&apos;s own terms &mdash;
+        a fixed time after purchase, or never &mdash; fixed when bought, so editing the offer later
+        changes nothing already held. Credits are never refunded.
+      </div>
+      <p class="prose">
+        <strong>Who authors what.</strong> The catalogue and the offers are authored under the plan
+        permissions (<code>blocks-utilities::subscription-plan::read</code> and
+        <code>::manage</code>), like plans. Buying, granting and listing standalone credits requires
+        <code>blocks-utilities::subscription::manage</code>, like a subscription&apos;s credits.
+        Catalogue entries and offers are tenant-wide with an optional per-organization override,
+        resolved the way plans are: an organization&apos;s own entry wins, otherwise the tenant&apos;s.
+        On these routes <code>organizationId</code> (console only) selects the override being read
+        or written; omitted, the console addresses the tenant-wide entry.
+      </p>
+      <p class="prose">
+        <strong>How they are spent.</strong> With no subscription, a recording draws on the
+        organization&apos;s credits alone and is <em>refused whole</em> when they run out
+        (<code>409 subscription_credits_exhausted</code>, &ldquo;No credits left for this meter. Buy
+        more to continue.&rdquo;) &mdash; there is no allowance to fall back on and nothing to bill
+        overage to, so <code>enforce</code> does not come into it. With a subscription that meters the
+        same key, the offer&apos;s <code>spendOrder</code> decides: <code>SubscriptionFirst</code>
+        spends the plan&apos;s allowance, then the subscription&apos;s own credits, then the
+        organization&apos;s, and only then records overage; <code>OrganizationCreditsFirst</code>
+        spends the organization&apos;s credits before the allowance is touched. The spend order is
+        read at usage time, so flipping it takes effect at once. Every usage response carries
+        <code>organizationCreditsConsumed</code> and <code>organizationCreditsRemaining</code>.
+      </p>
+
+      <h4 id="api-meter-catalogue">Meter catalogue</h4>
+      <p class="prose">
+        One entry per meter key per scope, holding identity and counting semantics only:
+        <code>meterKey</code>, <code>displayName</code>, <code>unitLabel</code>,
+        <code>aggregation</code>, <code>quantityScale</code>. No price, no expiry, no spend order
+        &mdash; plans and offers each price the meter their own way. A plan picks a meter from here and
+        still copies the fields onto its own snapshot; a meter authored inside a plan with a key the
+        plan&apos;s scope cannot resolve is added to the catalogue when the plan is saved. Plans saved
+        before the catalogue existed keep working without an entry. Entries are archived, never
+        deleted: an archived meter stays readable, its plans and offers keep working, and only new
+        offers on it are refused.
+      </p>
+      <div class="endpoint" id="api-meter-catalogue-list">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/meter-catalogue</span></div>
+        <div class="endpoint-body">
+          <h4>Query</h4>
+          <p><code>organizationId</code> &mdash; console only; tenant entries plus that organization&apos;s overrides.</p>
+          <h4>Sample response</h4>
+          <pre><code>[
+  {
+    "entryId": "3d1c…",
+    "organizationId": null,
+    "meterKey": "ai-credit",
+    "displayName": "AI credits",
+    "unitLabel": "credit",
+    "aggregation": "Sum",
+    "quantityScale": 0,
+    "status": "Active",
+    "createdAtUtc": "2026-11-05T09:00:00Z",
+    "lastUpdatedAtUtc": "2026-11-05T09:00:00Z",
+    "version": 0
+  }
+]</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> sorted by <code>meterKey</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-meter-catalogue-get">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/meter-catalogue/{meterKey}</span></div>
+        <div class="endpoint-body">
+          <p class="prose">The entry as seen from the named scope: its override when it has one, otherwise the tenant&apos;s.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>404</code> <code>subscription_meter_catalogue_not_found</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-meter-catalogue-create">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/meter-catalogue</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "organizationId": null,
+  "meterKey": "ai-credit",
+  "displayName": "AI credits",
+  "unitLabel": "credit",
+  "aggregation": "Sum",
+  "quantityScale": 0
+}</code></pre>
+          <p class="prose"><code>meterKey</code> up to 64 characters and immutable; <code>displayName</code> up to 200; <code>unitLabel</code> up to 64; <code>quantityScale</code> 0&ndash;6.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_meter_catalogue_invalid</code> &middot; <code>409</code> <code>subscription_meter_catalogue_exists</code> &mdash; the key already exists at this scope, archived or not.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-meter-catalogue-update">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/meter-catalogue/{meterKey}</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "displayName": "AI credits",
+  "unitLabel": "credit",
+  "aggregation": "Sum",
+  "quantityScale": 0,
+  "status": "Active"
+}</code></pre>
+          <p class="prose">
+            Edits exactly the entry at the named scope &mdash; never the tenant&apos;s entry through an
+            organization&apos;s view. <code>status: "Archived"</code> archives it;
+            <code>"Active"</code> un-archives it. Every edit raises <code>version</code>.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_meter_catalogue_invalid</code> &middot; <code>404</code> <code>subscription_meter_catalogue_not_found</code> &middot; <code>409</code> <code>subscription_meter_catalogue_archived</code> &mdash; already archived, <code>subscription_meter_catalogue_changed</code> &mdash; edited by somebody else meanwhile; reload.</p>
+        </div>
+      </div>
+
+      <h4 id="api-credit-offers">Credit offers</h4>
+      <p class="prose">
+        One offer per catalogue meter per scope. It is read live: a purchase is quoted from the offer
+        as it stands and records the <code>version</code> it was quoted from. The offer is where the
+        price per currency, the purchase bounds, tax terms, expiry and <code>spendOrder</code> live.
+        <code>enabled: false</code> pauses sales without losing the terms; free grants still work.
+      </p>
+      <div class="endpoint" id="api-credit-offers-list">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/credit-offers</span></div>
+        <div class="endpoint-body">
+          <h4>Query</h4>
+          <p><code>meterKey</code> &middot; <code>enabled</code> &middot; <code>organizationId</code> (console only).</p>
+          <h4>Sample response</h4>
+          <pre><code>[
+  {
+    "offerId": "7b2e…",
+    "organizationId": null,
+    "meterKey": "ai-credit",
+    "displayName": "AI credits",
+    "unitLabel": "credit",
+    "enabled": true,
+    "unitPrices": [ { "currencyCode": "USD", "unitAmountMinor": 10 }, { "currencyCode": "CHF", "unitAmountMinor": 9 } ],
+    "minQuantity": 10,
+    "maxQuantity": 10000,
+    "expiresAfter": { "count": 30, "unit": "Day" },
+    "taxRateBasisPoints": null,
+    "taxMode": null,
+    "spendOrder": "SubscriptionFirst",
+    "createdAtUtc": "2026-11-05T09:05:00Z",
+    "lastUpdatedAtUtc": "2026-11-05T09:05:00Z",
+    "version": 0
+  }
+]</code></pre>
+          <p class="prose"><code>displayName</code> and <code>unitLabel</code> come from the catalogue entry the offer resolves, for a buyer who has never seen the key. <code>expiresAfter: null</code> means the credits never expire.</p>
+          <h4>Returns</h4>
+          <p><code>200</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-credit-offers-get">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/credit-offers/{meterKey}</span></div>
+        <div class="endpoint-body">
+          <p class="prose">The offer the named scope is served: its override when it has one, otherwise the tenant&apos;s.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>404</code> <code>subscription_credit_offer_not_found</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-credit-offers-create">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/credit-offers</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td>organizationId</td><td class="type">string?</td><td class="prose">Console only: the organization this offer overrides for. Omit for the tenant-wide offer.</td></tr>
+                <tr><td>meterKey</td><td class="type">string</td><td class="prose">A catalogue meter resolvable at this scope. Immutable.</td></tr>
+                <tr><td>enabled</td><td class="type">bool</td><td class="prose">Credits are on sale. Default <code>true</code>.</td></tr>
+                <tr><td>unitPrices</td><td class="type">array</td><td class="prose">One <code>{ currencyCode, unitAmountMinor }</code> per currency, at least one, each positive. The buyer picks which to pay in.</td></tr>
+                <tr><td>minQuantity</td><td class="type">decimal</td><td class="prose">Whole credits, at least 1.</td></tr>
+                <tr><td>maxQuantity</td><td class="type">decimal</td><td class="prose">Whole credits, required: it bounds a single charge.</td></tr>
+                <tr><td>expiresAfter</td><td class="type">object?</td><td class="prose"><code>{ count, unit }</code> with <code>unit</code> one of <code>Hour</code>, <code>Day</code>, <code>Week</code>, <code>Month</code>, <code>Year</code>; a fixed lifetime from purchase. <code>null</code> never expires.</td></tr>
+                <tr><td>taxRateBasisPoints</td><td class="type">int?</td><td class="prose">0&ndash;10000. A rate above zero needs <code>taxMode</code>.</td></tr>
+                <tr><td>taxMode</td><td class="type">string?</td><td class="prose"><code>Exclusive</code> or <code>Inclusive</code>.</td></tr>
+                <tr><td>spendOrder</td><td class="type">string</td><td class="prose"><code>SubscriptionFirst</code> (default) or <code>OrganizationCreditsFirst</code>. See above.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credit_offer_invalid</code> &middot; <code>404</code> <code>subscription_meter_catalogue_not_found</code> &mdash; add the meter first &middot; <code>409</code> <code>subscription_credit_offer_exists</code> &mdash; edit it instead, <code>subscription_meter_catalogue_archived</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-credit-offers-update">
+        <div class="endpoint-head"><span class="method">PUT</span><span class="path">/api/credit-offers/{meterKey}</span></div>
+        <div class="endpoint-body">
+          <p class="prose">Same body as create; <code>meterKey</code> and <code>organizationId</code> in the body are ignored, the route and query decide. Replaces every term at exactly the named scope and raises <code>version</code>. Grants already held keep the expiry they were given; <code>spendOrder</code> applies to the next recording.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credit_offer_invalid</code> &middot; <code>404</code> <code>subscription_credit_offer_not_found</code> &middot; <code>409</code> <code>subscription_credit_offer_changed</code> &mdash; edited by somebody else meanwhile; reload.</p>
+        </div>
+      </div>
+
+      <h4 id="api-org-credits-endpoints">Organization credits</h4>
+      <p class="prose">
+        The same shapes as a subscription&apos;s credit endpoints, without a subscription in the route
+        and without seats. An organization that has never subscribed gets a billing account on its
+        first purchase, under the merchant profile&apos;s selected provider; with no saved card the
+        purchase opens a hosted checkout exactly as a subscription top-up does (spec 003), and the
+        card it saves becomes the account&apos;s default. Responses never carry an
+        <code>expiryPolicy</code> other than <code>Never</code>; the fixed lifetime is in
+        <code>expiresAtUtc</code>.
+      </p>
+      <div class="endpoint" id="api-org-credits-preview">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/organization-credits/preview</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "quantity": 100,
+  "currencyCode": "CHF",
+  "discountCode": "topup20"
+}</code></pre>
+          <p class="prose">
+            <code>currencyCode</code> is <strong>required</strong>: pick one of the offer&apos;s
+            <code>unitPrices</code>. Nothing ties an organization to one currency &mdash; a grant is
+            credits, not money &mdash; so each purchase names its own. Only a <code>CreditPurchase</code>
+            code with no plan restriction applies: there is no plan here for a plan-restricted code to
+            match.
+          </p>
+          <h4>Sample response</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "seatNumber": null,
+  "quantity": 100,
+  "currencyCode": "CHF",
+  "unitAmountMinor": 9,
+  "grossMinor": 900,
+  "discountMinor": 180,
+  "netMinor": 720,
+  "taxMinor": 0,
+  "totalMinor": 720,
+  "taxRateBasisPoints": null,
+  "taxMode": null,
+  "discountCode": "topup20",
+  "expiryPolicy": "Never",
+  "expiresAtUtc": "2026-12-05T09:12:41Z",
+  "paymentPath": "StoredCard"
+}</code></pre>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code> (missing or malformed currency, quantity not whole), <code>subscription_credits_quantity_out_of_range</code>, <code>subscription_credits_amount_too_large</code>, <code>subscription_credits_below_minimum_charge</code>, <code>subscription_payment_provider_not_ready</code>, <code>subscription_discount_not_applicable</code>, <code>subscription_discount_expired</code> &middot; <code>404</code> <code>subscription_credit_offer_not_found</code>, <code>subscription_discount_not_found</code> &middot; <code>409</code> <code>subscription_credits_not_for_sale</code> &mdash; the offer is disabled, <code>subscription_meter_catalogue_archived</code>, <code>subscription_credits_currency_not_priced</code>, <code>subscription_credits_no_payment_method</code>, <code>subscription_discount_already_redeemed</code> &middot; <code>503</code> <code>subscription_organization_credits_unavailable</code> &mdash; the host has no offers wired up.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-org-credits-purchase">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/organization-credits</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "quantity": 100,
+  "currencyCode": "CHF",
+  "discountCode": "topup20",
+  "idempotencyKey": "buy-9a4e11"
+}</code></pre>
+          <p class="prose">
+            <code>idempotencyKey</code> is required, one per attempt; the purchase id is
+            <code>{organizationId}:{idempotencyKey}</code>. The same key with the same body replays
+            the first result; the same key with a different <code>meterKey</code>,
+            <code>quantity</code>, <code>currencyCode</code> or <code>discountCode</code> is refused.
+            Statuses, retries, the checkout flow and the recovery sweep are exactly those of a
+            <a href="#api-credits-purchase">subscription purchase</a>; only one standalone checkout
+            can be open per organization at a time. The invoice is issued in the background once the
+            payment settles and appears under <code>GET /api/organization-credits/invoices</code>.
+          </p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; everything the preview returns &middot; <code>400</code> <code>subscription_credits_idempotency_key_required</code> &middot; <code>409</code> <code>subscription_credits_idempotency_conflict</code>, <code>subscription_credits_purchase_in_flight</code>, <code>subscription_credits_checkout_in_progress</code> &middot; <code>422</code> declined &middot; <code>502</code> <code>503</code> <code>504</code> <code>subscription_credits_charge_unresolved</code>, <code>subscription_credits_checkout_unresolved</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-org-credits-list">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/organization-credits</span></div>
+        <div class="endpoint-body">
+          <h4>Query</h4>
+          <p><code>meterKey</code> &middot; <code>status</code> &mdash; <code>Active</code>, <code>Exhausted</code> or <code>Expired</code> &middot; <code>organizationId</code>.</p>
+          <p class="prose">The organization&apos;s standalone grants, newest first, each with <code>seatNumber: null</code> and <code>expiryPolicy: "Never"</code>. <code>status</code> is as of now. A standalone grant is never <code>Forfeited</code>.</p>
+          <h4>Returns</h4>
+          <p><code>200</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-org-credits-grant">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/organization-credits/grants</span></div>
+        <div class="endpoint-body">
+          <h4>Body</h4>
+          <pre><code>{
+  "meterKey": "ai-credit",
+  "quantity": 20,
+  "reason": "Outage on 3 November"
+}</code></pre>
+          <p class="prose">Gives whole credits without a charge or an invoice. The grant takes the offer&apos;s expiry, so an offer must exist for the meter, though its sales may be paused and its meter archived.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> <code>subscription_credits_invalid</code> &middot; <code>404</code> <code>subscription_credit_offer_not_found</code> &middot; <code>503</code> <code>subscription_organization_credits_unavailable</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-org-credits-purchases">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/organization-credits/purchases</span></div>
+        <div class="endpoint-body">
+          <h4>Query</h4>
+          <p><code>status</code> &middot; <code>organizationId</code>.</p>
+          <p class="prose">Newest first, the same shape as a subscription&apos;s purchase list.</p>
+          <h4>Returns</h4>
+          <p><code>200</code>.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-org-credits-invoices">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/organization-credits/invoices</span></div>
+        <div class="endpoint-body">
+          <p class="prose">The invoices of the organization&apos;s standalone purchases, newest first. Same query and page shape as <a href="#api-documents"><code>GET /api/subscriptions/invoices</code></a>; <code>subscriptionId</code> is ignored and only documents with no subscription are returned. Each has an empty <code>subscriptionId</code>, no period, one line for the credits, and <code>subject.planName</code> naming the meter. PDF and resend work through the usual document routes.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>400</code> invalid page size, range or cursor.</p>
+        </div>
+      </div>
+
+      <h4 id="api-org-credits-simulation">Simulation harness</h4>
+      <p class="prose">
+        A subscription&apos;s simulation state (<code>GET /api/subscription-simulation/subscriptions/{id}/state</code>)
+        now carries <code>organizationCredits</code> &mdash; the organization&apos;s standalone grants
+        and purchases, plus <code>pendingCheckoutPurchaseId</code> &mdash; and its
+        <code>jobs/run-due</code> accepts two more work types, <code>CreditPurchaseRecovery</code> and
+        <code>CreditGrantMaintenance</code>. For an organization with no subscription, two routes
+        serve the same under the simulation permissions:
+      </p>
+      <div class="endpoint" id="api-org-credits-simulation-state">
+        <div class="endpoint-head"><span class="method">GET</span><span class="path">/api/subscription-simulation/organizations/{organizationId}/state</span></div>
+        <div class="endpoint-body">
+          <p class="prose">The state response with only <code>tenantId</code>, <code>organizationId</code> and <code>organizationCredits</code> filled. Never carries a checkout URL.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> &middot; <code>403</code> <code>subscription_simulation_forbidden</code> &middot; <code>404</code> harness disabled.</p>
+        </div>
+      </div>
+      <div class="endpoint" id="api-org-credits-simulation-run">
+        <div class="endpoint-head"><span class="method">POST</span><span class="path">/api/subscription-simulation/organizations/{organizationId}/jobs/run-due</span></div>
+        <div class="endpoint-body">
+          <p class="prose">Runs the tenant&apos;s credit purchase recovery and grant maintenance sweeps (<code>workTypes</code> may narrow to one), then reports the organization&apos;s credits as they stand. Other work types are ignored here.</p>
+          <h4>Returns</h4>
+          <p><code>200</code> the job run response &middot; <code>403</code> &middot; <code>404</code>.</p>
+        </div>
+      </div>
+
+      <h4 id="api-org-credits-events">Events</h4>
+      <p class="prose">
+        <code>OrganizationCreditsPurchased</code>, <code>OrganizationCreditsGranted</code> and
+        <code>OrganizationCreditsExhausted</code> go to the lifecycle topic with an empty
+        <code>subscriptionId</code>, carrying <code>organizationId</code>, <code>meterKey</code>,
+        <code>creditGrantId</code>, <code>creditQuantity</code> and <code>creditRemaining</code>.
+        Unlike a subscription&apos;s events they are sent directly rather than through an outbox, so
+        treat them as at-most-once and read the grant list for the truth.
+      </p>
+
       <h3 id="api-ent">Entitlements</h3>
 
       <div class="endpoint" id="api-entitlements">
@@ -5208,6 +5573,10 @@ POST /api/subscriptions
             <tr><td>subscription_not_found</td><td class="prose">The subscription this request names does not exist &mdash; raised by cancel, plan change, quantity change and usage recording. <strong>Not</strong> by <code>GET /subscriptions/current</code>, which answers <code>200</code> with <code>data: null</code> instead.</td></tr>
             <tr><td>subscription_time_zone_unknown</td><td class="prose">Not a valid IANA identifier. Refused here rather than at the first renewal.</td></tr>
             <tr><td>subscription_meter_not_found</td><td class="prose">The plan defines no such meter.</td></tr>
+            <tr><td>subscription_credits_exhausted</td><td class="prose">Recording usage with no subscription: the organization&apos;s standalone credits for this meter are used up. Nothing was recorded; buy more.</td></tr>
+            <tr><td>subscription_credit_offer_not_found</td><td class="prose">No credit offer sells this meter to this organization, at its own scope or the tenant&apos;s.</td></tr>
+            <tr><td>subscription_meter_catalogue_not_found</td><td class="prose">No catalogue meter has this key at this scope. Add the meter before an offer.</td></tr>
+            <tr><td>subscription_organization_credits_unavailable</td><td class="prose">Standalone credits are not configured on this host.</td></tr>
             <tr><td>subscription_usage_idempotency_key_required</td><td class="prose">Every usage call needs one.</td></tr>
             <tr><td>subscription_quantity_duplicated</td><td class="prose">The same <code>itemKey</code> appears twice.</td></tr>
             <tr><td>subscription_quantity_item_unknown</td><td class="prose">A quantity the plan does not define.</td></tr>

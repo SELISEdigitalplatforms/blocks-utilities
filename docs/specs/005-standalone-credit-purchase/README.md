@@ -92,19 +92,28 @@ existing plan whose meter key has no catalogue entry keeps working unchanged.
 | `SpendOrder` | `OrganizationCreditsFirst` or `SubscriptionFirst` |
 | `Version`, audit stamps | versioned like `Discount`: a purchase records the version it was quoted from |
 
-### `OrganizationCreditGrant` (new collection)
+### Organization grants (stored in the credit grant collection)
 
-As `SubscriptionCreditGrant` without `SubscriptionId`, `SeatNumber`, `PlanVersionAtGrant`,
-`ExpiryPolicy`. Keyed by `TenantId`, `OrganizationId`, `MeterKey`. `ExpiresAtUtc` is computed at
-grant time from the offer's `Expiry` and never changes after; null means never. `Source` is
-`Purchased` or `AdminGranted`. `Remaining` moves only through conditional updates, as today.
+*Amended at implementation (2026-11-05).* An organization grant is a `SubscriptionCreditGrant`
+whose `SubscriptionId` is null, in the same collection as subscription grants, rather than a
+separate entity. The conditional consume, restore, close and maintenance writes are then shared
+unchanged; a separate collection would have duplicated them. `SeatNumber` is null,
+`PlanVersionAtGrant` is zero and `ExpiryPolicy` is `Never`. Keyed by `TenantId`,
+`OrganizationId`, `MeterKey` through its own index. `ExpiresAtUtc` is computed at grant time from
+the offer's `ExpiresAfter` and never changes after; null means never. `Source` is `Purchased` or
+`AdminGranted`. `Remaining` moves only through conditional updates, as today. Nothing a
+subscription does, including a plan change, cancellation or a meter dropped from the plan, can
+forfeit one.
 
-### `OrganizationCreditPurchase` (new collection)
+### Organization purchases (stored in the credit purchase collection)
 
-As `SubscriptionCreditPurchase` with `OrganizationId` in place of `SubscriptionId`. Id is
-`{organizationId}:{idempotencyKey}`. Carries `OfferVersion`, the chosen `CurrencyCode`, and the
-same provider, checkout, payment, grant and failure fields, so the spec 002/003 recovery sweep
-logic applies unchanged.
+*Amended at implementation.* A `SubscriptionCreditPurchase` with a null `SubscriptionId`, id
+`{organizationId}:{idempotencyKey}` (ids are GUIDs, so the two forms cannot collide). Carries
+`OfferId`, `OfferVersion`, the chosen `CurrencyCode`, the meter's display name frozen for the
+invoice, the billing account charged, and the same provider, checkout, payment, grant and
+failure fields, so the spec 002/003 purchase flow, checkout settlement and recovery sweep run
+unchanged with no subscription in hand. Its order id uses the prefix `orgcredit:` so the
+subscription charge sweeps never read it as a subscription charge.
 
 ### `SubscriptionFinancialDocument` changes
 
@@ -222,8 +231,11 @@ only act on their own organization unless they are the platform console.
   purchases.
 - **Financial documents**: one invoice per purchase, same lines as spec 002, delivered through
   the existing mail path, listed under `organization-credits/invoices`.
-- **Outbox events**: `OrganizationCreditsPurchased`, `OrganizationCreditsGranted`,
-  `OrganizationCreditsExhausted`, carrying organization, meter, quantity and remaining.
+- **Events**: `OrganizationCreditsPurchased`, `OrganizationCreditsGranted`,
+  `OrganizationCreditsExhausted`, carrying organization, meter, quantity and remaining, on the
+  lifecycle topic. *Amended at implementation:* sent directly rather than through an outbox. A
+  subscription's outbox lives on its document; an organization's grants have none, and a second
+  outbox for three event types was not built. At-most-once; see Deferred Decisions.
 - **Usage projection**: republished after every organization grant mutation and after
   consumption, carrying the new fields.
 - **Audit trail**: catalogue and offer changes, purchase, grant and expiry as audit events.
@@ -302,6 +314,9 @@ only act on their own organization unless they are the platform console.
 | Purchase confirmation email beyond the invoice mail | invoice mail only, as spec 002 | the client asks for a separate confirmation |
 | Catalogue backfill from existing plans | none; populated on next plan save | an author needs offers for meters on untouched plans |
 | Packs (several offers per meter) | one offer per meter | the client asks for starter and bulk packs |
+| Outbox for organization credit events | direct publish, at-most-once | a lost organization credit event is reported |
+| Document re-issue sweep for a standalone purchase whose scheduling failed | none; the purchase record holds every figure and the operator re-announces | it is ever seen |
+| Usage against a meter with a catalogue entry but no offer, by an organization with no subscription | refused as unknown to this organization, the same answer as no catalogue entry (AC-10) | a credits-only organization needs catalogue-only meters |
 
 ## Open Questions
 

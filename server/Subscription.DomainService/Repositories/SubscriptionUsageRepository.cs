@@ -221,6 +221,22 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                     periodKey)))
             .ToListAsync(cancellationToken);
 
+    public async Task<SubscriptionUsageCounter?> AddOrganizationCreditsConsumedAsync(
+        string tenantId,
+        string counterId,
+        decimal delta,
+        CancellationToken cancellationToken) =>
+        await Counters(tenantId).FindOneAndUpdateAsync(
+            Builders<SubscriptionUsageCounter>.Filter.Eq(counter => counter.ItemId, counterId),
+            Builders<SubscriptionUsageCounter>.Update
+                .Inc(counter => counter.OrganizationCreditsConsumed, delta)
+                .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
+            new FindOneAndUpdateOptions<SubscriptionUsageCounter>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+
     public async Task<SubscriptionUsageCounter?> AddPurchasedConsumedAsync(
         string tenantId,
         string counterId,

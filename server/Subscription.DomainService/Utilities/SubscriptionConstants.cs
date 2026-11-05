@@ -225,6 +225,17 @@ public static class SubscriptionConstants
     public static string CreditPurchaseOrderIdFor(string subscriptionId, string token) =>
         $"{OrderIdPrefix}{subscriptionId}:{CreditPurchaseSegment}:{token}";
 
+    /// <summary>
+    /// The order id of a standalone credit purchase (spec 005). Its own prefix, so
+    /// <see cref="SubscriptionOrderId.Parse"/> reads it as no subscription charge at all and the
+    /// settled-charge sweep never goes looking for a subscription that does not exist. The token
+    /// sits last, where <c>GrantIdFor</c> reads it from either form.
+    /// </summary>
+    public const string OrganizationCreditOrderIdPrefix = "orgcredit:";
+
+    public static string OrganizationCreditPurchaseOrderIdFor(string organizationId, string token) =>
+        $"{OrganizationCreditOrderIdPrefix}{organizationId}:{CreditPurchaseSegment}:{token}";
+
     /// <summary>The idempotency key a credit purchase is charged under. One per purchase record.</summary>
     public static string CreditPurchaseChargeKeyFor(string purchaseId) =>
         DeterministicKey($"sub-credit:{purchaseId}");
@@ -233,6 +244,11 @@ public static class SubscriptionConstants
     public const string SubscriptionCreditsGranted = "SubscriptionCreditsGranted";
     public const string SubscriptionCreditsMoved = "SubscriptionCreditsMoved";
     public const string SubscriptionCreditsExhausted = "SubscriptionCreditsExhausted";
+
+    /// <summary>Standalone credits an organization holds outside any subscription (spec 005).</summary>
+    public const string OrganizationCreditsPurchased = "OrganizationCreditsPurchased";
+    public const string OrganizationCreditsGranted = "OrganizationCreditsGranted";
+    public const string OrganizationCreditsExhausted = "OrganizationCreditsExhausted";
 
     /// <summary>
     /// Spellings written before the settlement kinds were distinguished and before the ids were

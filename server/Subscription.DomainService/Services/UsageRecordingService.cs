@@ -149,11 +149,8 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         if (subscription is null)
         {
-            return Failure(
-                PaymentFailureKind.NotFound,
-                "subscription_not_found",
-                "This organization has no active subscription.",
-                correlationId);
+            // An organization with no subscription may still hold standalone credits (spec 005).
+            return await RecordAgainstOrganizationAsync(request, context, readAt, correlationId, cancellationToken);
         }
 
         var meter = FindMeter(subscription, request.MeterKey);
@@ -413,11 +410,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
 
         if (subscription is null)
         {
-            return SubscriptionOperationResult<UsageCurrentRead>.Failure(
-                PaymentFailureKind.NotFound,
-                "subscription_not_found",
-                "This organization has no active subscription.",
-                correlationId);
+            return await ReadOrganizationCreditsAsync(context, readMode, startedAt, now, correlationId, cancellationToken);
         }
 
         // Fetched once regardless of readMode: there is no authoritative per-user counter to choose
@@ -645,7 +638,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
                 allowed: true,
                 replayed: false,
                 purchasedConsumed: counter?.PurchasedConsumed ?? 0,
-                purchasedRemaining: await LiveCreditsAsync(subscription, meter, seat, cancellationToken)));
+                purchasedRemaining: await LiveCreditsAsync(subscription, meter, seat, cancellationToken),
+                organizationCreditsConsumed: counter?.OrganizationCreditsConsumed ?? 0,
+                organizationCreditsRemaining: await OrganizationCreditsAsync(context, meter.MeterKey, cancellationToken)));
         }
 
         return SubscriptionOperationResult<List<UsageResponse>>.Success(responses, correlationId);
@@ -695,6 +690,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
             var purchasedRemaining = FindMeter(subscription, document.MeterKey) is { } plannedMeter
                 ? await LiveCreditsAsync(subscription, plannedMeter, null, cancellationToken)
                 : null;
+            var organizationRemaining = await OrganizationCreditsAsync(context, document.MeterKey, cancellationToken);
 
             results.Add((
                 new UsageResponse
@@ -713,6 +709,7 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     Remaining = document.Remaining,
                     Overage = document.Overage,
                     PurchasedRemaining = purchasedRemaining,
+                    OrganizationCreditsRemaining = organizationRemaining,
                     Replayed = false
                 },
                 document.UpdatedAtUtc));
@@ -1098,18 +1095,20 @@ public sealed class UsageRecordingService : IUsageRecordingService
             }
 
             var liveCredits = await LiveCreditsAsync(subscription, meter, seat, write);
+            var organizationCredits = await OrganizationCreditsAsync(context, meter.MeterKey, write);
 
             await _thresholds.EvaluateAsync(
                 subscription,
                 counter,
                 correlationId,
                 write,
-                liveCredits ?? 0);
+                (liveCredits ?? 0) + (organizationCredits ?? 0));
 
             if (draw is not null && _credits is not null)
             {
-                await _credits.AnnounceExhaustedAsync(
-                    subscription, draw, _time.GetUtcNow().UtcDateTime, correlationId, write);
+                var announcedAt = _time.GetUtcNow().UtcDateTime;
+                await _credits.AnnounceExhaustedAsync(subscription, draw, announcedAt, correlationId, write);
+                await _credits.AnnounceOrganizationExhaustedAsync(draw, announcedAt, correlationId, write);
             }
 
             // Published from the final counter state, synchronously, before this call reports
@@ -1169,7 +1168,9 @@ public sealed class UsageRecordingService : IUsageRecordingService
                     subLimitExceeded: exceeded.Count > 0,
                     exceeded: exceeded,
                     purchasedConsumed: counter.PurchasedConsumed,
-                    purchasedRemaining: liveCredits),
+                    purchasedRemaining: liveCredits,
+                    organizationCreditsConsumed: counter.OrganizationCreditsConsumed,
+                    organizationCreditsRemaining: organizationCredits),
                 correlationId);
         }
         finally
@@ -1614,6 +1615,17 @@ public sealed class UsageRecordingService : IUsageRecordingService
     /// spent that rating then bills a second time as overage, with no record to repair it from.
     /// </para>
     /// </remarks>
+    /// <remarks>
+    /// Three sources, in the order the offer's spend order puts them (spec 005). Every credit drawn,
+    /// from whichever source, raises <c>PurchasedConsumed</c>, which is what lifts the window's
+    /// effective allowance; the organization's share is counted beside it for reporting.
+    /// <para>
+    /// <see cref="CreditSpendOrder.OrganizationCreditsFirst"/> spends the organization's credits for
+    /// this recording before the allowance is consulted at all, so the allowance is left for later;
+    /// <see cref="CreditSpendOrder.SubscriptionFirst"/> reaches them only after the allowance and
+    /// the subscription's own grants are exhausted, and before any overage would be recorded.
+    /// </para>
+    /// </remarks>
     private async Task<(SubscriptionUsageCounter Counter, CreditDraw? Draw)> DrawCreditsAsync(
         SubscriptionDetail subscription,
         PlanMeter meter,
@@ -1623,33 +1635,101 @@ public sealed class UsageRecordingService : IUsageRecordingService
         decimal quantity,
         CancellationToken cancellationToken)
     {
-        if (_credits is null || meter.TopUp is null || quantity <= 0)
+        if (_credits is null || quantity <= 0)
         {
             return (counter, null);
+        }
+
+        var spendOrder = await _credits.SpendOrderAsync(
+            subscription.TenantId, subscription.OrganizationId, meter.MeterKey, CancellationToken.None);
+
+        if (meter.TopUp is null && spendOrder is null)
+        {
+            return (counter, null);
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var draws = new List<CreditDraw>(3);
+
+        if (spendOrder == CreditSpendOrder.OrganizationCreditsFirst)
+        {
+            var first = await _credits.DrawFromOrganizationAsync(
+                subscription.TenantId, subscription.OrganizationId, meter.MeterKey, quantity, now, CancellationToken.None);
+
+            if (first.Drawn > 0)
+            {
+                counter = await RaiseConsumedAsync(subscription, counter, first.Drawn, organizationShare: first.Drawn);
+                draws.Add(first);
+            }
         }
 
         // This recording's own share of the excess, never more: the excess also contains whatever
-        // a concurrent recording past the boundary is drawing for itself.
-        var uncovered = Math.Min(quantity, counter.Balance - allowance);
+        // a concurrent recording past the boundary is drawing for itself. What the organization
+        // already paid for above is out of both figures.
+        var covered = draws.Sum(draw => draw.Drawn);
+        var uncovered = Math.Min(quantity - covered, counter.Balance - (allowance + covered));
 
-        if (uncovered <= 0)
+        if (uncovered > 0)
         {
-            return (counter, null);
+            counter = await RaiseConsumedAsync(subscription, counter, uncovered, organizationShare: 0);
+
+            var own = meter.TopUp is null
+                ? new CreditDraw(0, [])
+                : await _credits.DrawAsync(subscription, meter.MeterKey, seat, uncovered, now, CancellationToken.None);
+
+            if (own.Drawn > 0)
+            {
+                draws.Add(own);
+            }
+
+            var shortfall = uncovered - own.Drawn;
+
+            if (shortfall > 0 && spendOrder == CreditSpendOrder.SubscriptionFirst)
+            {
+                var last = await _credits.DrawFromOrganizationAsync(
+                    subscription.TenantId, subscription.OrganizationId, meter.MeterKey, shortfall, now, CancellationToken.None);
+
+                if (last.Drawn > 0)
+                {
+                    counter = await RaiseConsumedAsync(subscription, counter, 0, organizationShare: last.Drawn);
+                    draws.Add(last);
+                    shortfall -= last.Drawn;
+                }
+            }
+
+            if (shortfall > 0)
+            {
+                counter = await RaiseConsumedAsync(subscription, counter, -shortfall, organizationShare: 0);
+            }
         }
 
-        var raised = await _usage.AddPurchasedConsumedAsync(
-            subscription.TenantId, counter.ItemId, uncovered, CancellationToken.None);
+        return draws.Count == 0
+            ? (counter, null)
+            : (counter, new CreditDraw(draws.Sum(draw => draw.Drawn), [.. draws.SelectMany(draw => draw.Taken)]));
+    }
 
-        var draw = await _credits.DrawAsync(
-            subscription, meter.MeterKey, seat, uncovered, _time.GetUtcNow().UtcDateTime, CancellationToken.None);
+    /// <summary>
+    /// Moves the window's credit-paid figure, and the organization's share of it, and returns the
+    /// counter afterwards. Not stopped by the caller's cancellation: a use that is written has to
+    /// be settled, see ApplyAsync.
+    /// </summary>
+    private async Task<SubscriptionUsageCounter> RaiseConsumedAsync(
+        SubscriptionDetail subscription,
+        SubscriptionUsageCounter counter,
+        decimal total,
+        decimal organizationShare)
+    {
+        var after = total == 0
+            ? counter
+            : await _usage.AddPurchasedConsumedAsync(subscription.TenantId, counter.ItemId, total, CancellationToken.None) ?? counter;
 
-        var shortfall = uncovered - draw.Drawn;
-        var after = shortfall > 0
-            ? await _usage.AddPurchasedConsumedAsync(
-                subscription.TenantId, counter.ItemId, -shortfall, CancellationToken.None)
-            : raised;
+        if (organizationShare != 0)
+        {
+            after = await _usage.AddOrganizationCreditsConsumedAsync(
+                subscription.TenantId, counter.ItemId, organizationShare, CancellationToken.None) ?? after;
+        }
 
-        return (after ?? counter, draw.Drawn > 0 ? draw : null);
+        return after;
     }
 
     /// <summary>Puts back what <see cref="DrawCreditsAsync"/> took, for a recording that is refused.</summary>
@@ -1669,9 +1749,202 @@ public sealed class UsageRecordingService : IUsageRecordingService
         await _credits.RestoreAsync(
             subscription.TenantId, draw, _time.GetUtcNow().UtcDateTime, CancellationToken.None);
 
-        return await _usage.AddPurchasedConsumedAsync(
-            subscription.TenantId, counter.ItemId, -draw.Drawn, CancellationToken.None) ?? counter;
+        var organizationShare = draw.Taken
+            .Where(take => take.Grant.IsOrganizationOwned)
+            .Sum(take => take.Amount);
+
+        return await RaiseConsumedAsync(subscription, counter, -draw.Drawn, -organizationShare);
     }
+
+    /// <summary>
+    /// What the organization could still spend from its standalone credits for a meter, or null
+    /// when no offer sells any (spec 005).
+    /// </summary>
+    private async Task<decimal?> OrganizationCreditsAsync(
+        SubscriptionContext context,
+        string meterKey,
+        CancellationToken cancellationToken) =>
+        _credits is null ||
+        await _credits.SpendOrderAsync(context.TenantId, context.OrganizationId, meterKey, cancellationToken) is null
+            ? null
+            : await _credits.OrganizationRemainingAsync(
+                context.TenantId, context.OrganizationId, meterKey, _time.GetUtcNow().UtcDateTime, cancellationToken);
+
+    /// <summary>
+    /// A use by an organization with no subscription, paid for by its standalone credits alone
+    /// (spec 005). Refused outright when they run out: there is no allowance to fall back on and
+    /// nothing to bill overage to, so <c>Enforce</c> does not come into it.
+    /// </summary>
+    private async Task<SubscriptionOperationResult<UsageResponse>> RecordAgainstOrganizationAsync(
+        RecordUsageRequest request,
+        SubscriptionContext context,
+        DateTime now,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_credits is null ||
+            await _credits.SpendOrderAsync(context.TenantId, context.OrganizationId, request.MeterKey, cancellationToken) is null)
+        {
+            // Neither a plan nor an offer names this meter, which is the failure every caller before
+            // standalone credits received: nothing for the organization to record against.
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "This organization has no active subscription, and no credit offer defines this meter.",
+                correlationId);
+        }
+
+        if (request.Quantity <= 0 || !MeterQuantity.IsWithinMagnitude(request.Quantity))
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_usage_reduction_not_allowed",
+                "Without a subscription, only a positive use can be recorded against credits.",
+                correlationId);
+        }
+
+        var record = new SubscriptionUsageRecord
+        {
+            TenantId = context.TenantId,
+            OrganizationId = context.OrganizationId,
+            // No subscription: the empty id is its own idempotency namespace in the unique index.
+            SubscriptionId = string.Empty,
+            MeterKey = request.MeterKey,
+            PeriodKey = OrganizationPeriodKey,
+            EntryType = UsageEntryType.Consumption,
+            Delta = request.Quantity,
+            IdempotencyKey = request.IdempotencyKey,
+            OccurredAtUtc = request.OccurredAtUtc ?? now,
+            Metadata = request.Metadata,
+            RecordedByUserId = context.UserId,
+            CorrelationId = correlationId
+        };
+
+        var remaining = await _credits.OrganizationRemainingAsync(
+            context.TenantId, context.OrganizationId, request.MeterKey, now, cancellationToken);
+
+        if (!await _usage.TryAppendRecordAsync(record, cancellationToken))
+        {
+            return SubscriptionOperationResult<UsageResponse>.Success(
+                DescribeOrganizationUse(request.MeterKey, request.Quantity, remaining, allowed: true, replayed: true),
+                correlationId);
+        }
+
+        // Written, so settled one way or the other regardless of the caller going away.
+        var write = CancellationToken.None;
+        var draw = await _credits.DrawFromOrganizationAsync(
+            context.TenantId, context.OrganizationId, request.MeterKey, request.Quantity, now, write);
+
+        if (draw.Drawn < request.Quantity)
+        {
+            // Refused whole: partly paid for is still not allowed. The grants go back first, and
+            // the ledger keeps both entries so the refusal stays visible.
+            await _credits.RestoreAsync(context.TenantId, draw, now, write);
+            await _usage.TryAppendRecordAsync(
+                new SubscriptionUsageRecord
+                {
+                    TenantId = record.TenantId,
+                    OrganizationId = record.OrganizationId,
+                    SubscriptionId = record.SubscriptionId,
+                    MeterKey = record.MeterKey,
+                    PeriodKey = record.PeriodKey,
+                    EntryType = UsageEntryType.Reversal,
+                    Delta = -record.Delta,
+                    IdempotencyKey = $"{record.IdempotencyKey}:reversal",
+                    CompensatesRecordId = record.ItemId,
+                    OccurredAtUtc = record.OccurredAtUtc,
+                    CorrelationId = correlationId
+                },
+                write);
+
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_credits_exhausted",
+                "No credits left for this meter. Buy more to continue.",
+                correlationId);
+        }
+
+        await _credits.AnnounceOrganizationExhaustedAsync(draw, now, correlationId, write);
+
+        _logger.LogInformation(
+            "Usage recorded against standalone credits TenantId={TenantId} OrganizationHash={OrganizationHash} " +
+            "Meter={Meter} Drawn={Drawn} CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(context.TenantId),
+            PaymentLogValue.Hash(context.OrganizationId),
+            PaymentLogValue.Label(request.MeterKey),
+            draw.Drawn,
+            correlationId);
+
+        return SubscriptionOperationResult<UsageResponse>.Success(
+            DescribeOrganizationUse(
+                request.MeterKey, draw.Drawn, Math.Max(0, remaining - draw.Drawn), allowed: true, replayed: false),
+            correlationId);
+    }
+
+    /// <summary>
+    /// Current usage for an organization with no subscription: one row per meter it holds
+    /// standalone credits for, or the refusal every caller before spec 005 received when it holds none.
+    /// </summary>
+    private async Task<SubscriptionOperationResult<UsageCurrentRead>> ReadOrganizationCreditsAsync(
+        SubscriptionContext context,
+        UsageReadMode readMode,
+        long startedAt,
+        DateTime now,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var byMeter = _credits is null
+            ? new Dictionary<string, decimal>(StringComparer.Ordinal)
+            : await _credits.OrganizationRemainingByMeterAsync(context.TenantId, context.OrganizationId, now, cancellationToken);
+
+        if (byMeter.Count == 0)
+        {
+            return SubscriptionOperationResult<UsageCurrentRead>.Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "This organization has no active subscription.",
+                correlationId);
+        }
+
+        var items = byMeter
+            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+            .Select(entry => DescribeOrganizationUse(entry.Key, 0, entry.Value, allowed: entry.Value > 0, replayed: false))
+            .ToList();
+
+        return SubscriptionOperationResult<UsageCurrentRead>.Success(
+            new UsageCurrentRead
+            {
+                Items = items,
+                Diagnostics = new UsageReadDiagnostics
+                {
+                    RequestedMode = readMode,
+                    ActualMode = UsageReadMode.Authoritative,
+                    Fallback = UsageReadFallback.None,
+                    DurationMs = _time.GetElapsedTime(startedAt).TotalMilliseconds,
+                    DocumentCount = items.Count
+                }
+            },
+            correlationId);
+    }
+
+    /// <summary>The period key a subscription-less use is recorded under: there is no window.</summary>
+    private const string OrganizationPeriodKey = "organization";
+
+    private static UsageResponse DescribeOrganizationUse(
+        string meterKey,
+        decimal consumed,
+        decimal remaining,
+        bool allowed,
+        bool replayed) => new()
+    {
+        Allowed = allowed,
+        MeterKey = meterKey,
+        PeriodKey = OrganizationPeriodKey,
+        Used = consumed,
+        OrganizationCreditsConsumed = consumed,
+        OrganizationCreditsRemaining = remaining,
+        Replayed = replayed
+    };
 
     /// <summary>
     /// What this recorder could still spend from credits, or null for a meter whose credits are
@@ -1731,10 +2004,13 @@ public sealed class UsageRecordingService : IUsageRecordingService
         bool subLimitExceeded = false,
         IReadOnlyList<PlanMeterSubLimit>? exceeded = null,
         decimal purchasedConsumed = 0,
-        decimal? purchasedRemaining = null) =>
+        decimal? purchasedRemaining = null,
+        decimal organizationCreditsConsumed = 0,
+        decimal? organizationCreditsRemaining = null) =>
         Describe(
             meter, period, balance, allowance, allowed, replayed, ToState(projection),
-            subLimitExceeded, exceeded, purchasedConsumed, purchasedRemaining);
+            subLimitExceeded, exceeded, purchasedConsumed, purchasedRemaining,
+            organizationCreditsConsumed, organizationCreditsRemaining);
 
     private static UsageResponse Describe(
         PlanMeter meter,
@@ -1747,10 +2023,14 @@ public sealed class UsageRecordingService : IUsageRecordingService
         bool subLimitExceeded = false,
         IReadOnlyList<PlanMeterSubLimit>? exceeded = null,
         decimal purchasedConsumed = 0,
-        decimal? purchasedRemaining = null) => new()
+        decimal? purchasedRemaining = null,
+        decimal organizationCreditsConsumed = 0,
+        decimal? organizationCreditsRemaining = null) => new()
     {
         PurchasedConsumed = purchasedConsumed,
         PurchasedRemaining = purchasedRemaining,
+        OrganizationCreditsConsumed = organizationCreditsConsumed,
+        OrganizationCreditsRemaining = organizationCreditsRemaining,
         Allowed = allowed,
         SubLimitExceeded = subLimitExceeded,
         ExceededSubLimits = [.. (exceeded ?? []).Select(PlanResponseMapper.DescribeSubLimit)],

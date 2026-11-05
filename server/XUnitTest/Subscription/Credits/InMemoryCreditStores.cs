@@ -53,6 +53,7 @@ internal sealed class InMemoryCreditGrants : ISubscriptionCreditGrantRepository
         return Task.FromResult<IReadOnlyList<SubscriptionCreditGrant>>(
         [
             .. SubscriptionCreditGrant.InConsumptionOrder(All.Where(grant =>
+                grant.SubscriptionId == subscriptionId &&
                 grant.MeterKey == meterKey && grant.SeatNumber == seatNumber && grant.IsLiveAt(nowUtc)))
         ]);
     }
@@ -61,6 +62,31 @@ internal sealed class InMemoryCreditGrants : ISubscriptionCreditGrantRepository
         string tenantId, string subscriptionId, string? meterKey, int? seatNumber, bool poolOnly,
         CreditGrantStatus? status, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<SubscriptionCreditGrant>>([.. All]);
+
+    public Task<IReadOnlyList<SubscriptionCreditGrant>> ListLiveForOrganizationAsync(
+        string tenantId, string organizationId, string meterKey, DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        LiveReads++;
+
+        return Task.FromResult<IReadOnlyList<SubscriptionCreditGrant>>(
+        [
+            .. SubscriptionCreditGrant.InConsumptionOrder(All.Where(grant =>
+                grant.IsOrganizationOwned && grant.OrganizationId == organizationId &&
+                grant.MeterKey == meterKey && grant.IsLiveAt(nowUtc)))
+        ]);
+    }
+
+    public Task<IReadOnlyList<SubscriptionCreditGrant>> ListForOrganizationAsync(
+        string tenantId, string organizationId, string? meterKey, CreditGrantStatus? status,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SubscriptionCreditGrant>>(
+        [
+            .. All.Where(grant =>
+                    grant.IsOrganizationOwned && grant.OrganizationId == organizationId &&
+                    (meterKey is null || grant.MeterKey == meterKey) &&
+                    (status is null || grant.Status == status))
+                .OrderByDescending(grant => grant.GrantedAtUtc)
+        ]);
 
     public Task<SubscriptionCreditGrant?> TryConsumeAsync(
         string tenantId, string grantId, decimal quantity, DateTime nowUtc, CancellationToken cancellationToken)
@@ -166,6 +192,25 @@ internal sealed class InMemoryCreditPurchases : ISubscriptionCreditPurchaseRepos
     public Task<IReadOnlyList<SubscriptionCreditPurchase>> ListAsync(
         string tenantId, string subscriptionId, CreditPurchaseStatus? status, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<SubscriptionCreditPurchase>>([.. All]);
+
+    public Task<IReadOnlyList<SubscriptionCreditPurchase>> ListForOrganizationAsync(
+        string tenantId, string organizationId, CreditPurchaseStatus? status, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SubscriptionCreditPurchase>>(
+        [
+            .. All.Where(purchase =>
+                    purchase.IsOrganizationOwned && purchase.OrganizationId == organizationId &&
+                    (status is null || purchase.Status == status))
+                .OrderByDescending(purchase => purchase.CreatedAtUtc)
+        ]);
+
+    public Task<SubscriptionCreditPurchase?> FindOpenCheckoutForOrganizationAsync(
+        string tenantId, string organizationId, CancellationToken cancellationToken) =>
+        Task.FromResult(All
+            .Where(purchase => purchase.IsOrganizationOwned && purchase.OrganizationId == organizationId &&
+                               purchase.PaymentPath == CreditPaymentPath.Checkout &&
+                               purchase.Status is CreditPurchaseStatus.Pending or CreditPurchaseStatus.AwaitingPayment)
+            .OrderByDescending(purchase => purchase.CreatedAtUtc)
+            .FirstOrDefault());
 
     public Task<IReadOnlyList<SubscriptionCreditPurchase>> ListStaleAsync(
         string tenantId, IReadOnlyCollection<CreditPurchaseStatus> statuses, DateTime olderThanUtc, int limit,

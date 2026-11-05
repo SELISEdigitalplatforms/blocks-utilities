@@ -4,6 +4,23 @@
         <name>Api</name>
     </assembly>
     <members>
+        <member name="T:Api.Controllers.CreditOffersController">
+            <summary>
+            Standalone credit offers (spec 005): what an organization pays for a meter's credits bought
+            outside any plan, one offer per meter per scope.
+            </summary>
+            <remarks>
+            Authored under the plan permissions, like the catalogue. Buying from an offer is on
+            <see cref="T:Api.Controllers.OrganizationCreditsController"/>, under the subscription manage permission, because
+            that spends the organization's money.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.CreditOffersController.Get(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>The offer the named scope is served for one meter: its override when it has one, otherwise the tenant's.</summary>
+        </member>
+        <member name="M:Api.Controllers.CreditOffersController.Update(System.String,Subscription.DomainService.Requests.CreditOfferRequest,System.String,System.Threading.CancellationToken)">
+            <summary>Replaces the offer's terms at exactly the named scope and raises its version.</summary>
+        </member>
         <member name="T:Api.Controllers.DocumentConversionsController">
             <summary>
             Converting word-processing documents (.doc, .docx, .rtf, .odt, ...) into PDF.
@@ -395,6 +412,64 @@
             Get visitor's preferred language from Accept-Language header.
             </summary>
             <returns>The Accept-Language header value</returns>
+        </member>
+        <member name="T:Api.Controllers.MeterCatalogueController">
+            <summary>
+            The meter catalogue (spec 005): the meters a tenant counts, named once so plans and credit
+            offers refer to the same thing.
+            </summary>
+            <remarks>
+            Gated by the plan authoring permissions, because the same people author both and a meter is
+            half a plan. <c>organizationId</c> is honoured only for the platform console and selects the
+            organization override being read or written; omitted, the console addresses the tenant-wide
+            entry.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.MeterCatalogueController.List(System.String,System.Threading.CancellationToken)">
+            <summary>The tenant's meters plus the named organization's overrides.</summary>
+        </member>
+        <member name="M:Api.Controllers.MeterCatalogueController.Get(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>One meter as seen from the named scope: its override when it has one, otherwise the tenant's.</summary>
+        </member>
+        <member name="M:Api.Controllers.MeterCatalogueController.Update(System.String,Subscription.DomainService.Requests.UpdateMeterCatalogueEntryRequest,System.String,System.Threading.CancellationToken)">
+            <summary>Edits, or archives by setting <c>status</c> to Archived, the entry at exactly the named scope.</summary>
+        </member>
+        <member name="T:Api.Controllers.OrganizationCreditsController">
+            <summary>
+            Buying, granting and listing the standalone credits an organization holds outside any
+            subscription, and the invoices those purchases produced. See spec 005.
+            </summary>
+            <remarks>
+            Its own controller beside <see cref="T:Api.Controllers.SubscriptionCreditsController"/> rather than more routes
+            under a subscription, because there may be no subscription: that is the point. The same
+            permission as a subscription purchase, for the same reason — buying spends the organization's
+            money and granting gives credits away. <c>organizationId</c> is honoured only for the platform
+            console; everyone else acts on their own organization.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.Preview(Subscription.DomainService.Requests.OrganizationCreditPurchaseRequest,System.Threading.CancellationToken)">
+            <summary>What buying from the organization's offer would cost, in the currency named. Changes nothing.</summary>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.Purchase(Subscription.DomainService.Requests.OrganizationCreditPurchaseRequest,System.Threading.CancellationToken)">
+            <summary>
+            Buys standalone credits: charges the organization's saved card once, or opens a hosted
+            checkout when it has none, and grants the credits to the organization.
+            </summary>
+            <remarks>
+            <c>idempotencyKey</c> is required. Sending the same key and the same request again returns
+            the first result with <c>replayed</c> set, and never charges a second time; the same key
+            with a different request is refused. The invoice is issued in the background once the
+            payment settles, and appears under <c>organization-credits/invoices</c>.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.ListGrants(System.String,System.String,System.Nullable{Subscription.DomainService.Enums.CreditGrantStatus},System.Threading.CancellationToken)">
+            <summary>The organization's standalone grants, newest first, with their status as it is now.</summary>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.Grant(Subscription.DomainService.Requests.OrganizationGrantCreditsRequest,System.Threading.CancellationToken)">
+            <summary>Gives the organization standalone credits without a charge. The reason is required and kept.</summary>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.ListInvoices(Subscription.DomainService.Requests.GetFinancialDocumentsRequest,System.Threading.CancellationToken)">
+            <summary>The invoices for the organization's standalone credit purchases, newest first.</summary>
         </member>
         <member name="M:Api.Controllers.PaymentMethodsController.GetStoredPaymentMethods(System.String,System.Threading.CancellationToken)">
             <param name="organizationId">
@@ -1483,6 +1558,15 @@
             tenant-wide sweep, and never a scripted outcome: a renewal or a usage-invoice charge run
             here goes to the real payment gateway.
             </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.GetOrganizationState(System.String,System.Threading.CancellationToken)">
+            <summary>
+            The standalone credits an organization holds outside any subscription (spec 005), for an
+            organization that may hold no subscription at all.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.RunOrganizationDueJobs(System.String,Subscription.DomainService.Simulation.RunDueJobsRequest,System.Threading.CancellationToken)">
+            <summary>Runs the credit purchase recovery and grant maintenance sweeps, then reports the organization's credits.</summary>
         </member>
         <member name="M:Api.Controllers.SubscriptionSimulationController.GetDataPolicy">
             <summary>
