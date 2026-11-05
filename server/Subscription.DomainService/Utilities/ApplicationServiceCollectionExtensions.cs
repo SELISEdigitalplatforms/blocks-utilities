@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Reporting;
 using Subscription.DomainService.Repositories;
@@ -107,7 +108,8 @@ public static class ApplicationServiceCollectionExtensions
             ISubscriptionAssignmentRepository,
             SubscriptionAssignmentRepository>();
         services.AddScoped<ISubscriptionMemberService, SubscriptionMemberService>();
-        // Scoped: it forwards the caller's own token, read from the request's context.
+        // Scoped: it forwards the caller's own token, read off the request by ICallerToken.
+        services.TryAddScoped<ICallerToken, CallerToken>();
         services.AddScoped<IMemberDirectory, IamMemberDirectory>();
         services.AddScoped<
             ISubscriberSubscriptionResolver,

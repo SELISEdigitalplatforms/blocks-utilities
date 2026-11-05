@@ -486,10 +486,37 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
             Builders<RecurringRevenueSnapshot>.Filter.Gte(snapshot => snapshot.DayUtc, fromUtc),
             Builders<RecurringRevenueSnapshot>.Filter.Lt(snapshot => snapshot.DayUtc, toUtc));
 
+        // The per-firm rows are left behind: the trend reads only totals, and a year of daily
+        // captures each carrying every firm would move the whole book over the wire for a chart.
         return await Snapshots(tenantId)
             .Find(filter)
+            .Project<RecurringRevenueSnapshot>(
+                Builders<RecurringRevenueSnapshot>.Projection.Exclude(snapshot => snapshot.Firms))
             .SortBy(snapshot => snapshot.DayUtc)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<RecurringRevenueSnapshot?> FindRecurringRevenueSnapshotAsync(
+        string tenantId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        bool latest,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<RecurringRevenueSnapshot>.Filter.And(
+            Builders<RecurringRevenueSnapshot>.Filter.Eq(snapshot => snapshot.TenantId, tenantId),
+            Builders<RecurringRevenueSnapshot>.Filter.Gte(snapshot => snapshot.DayUtc, fromUtc),
+            Builders<RecurringRevenueSnapshot>.Filter.Lt(snapshot => snapshot.DayUtc, toUtc));
+
+        var sort = latest
+            ? Builders<RecurringRevenueSnapshot>.Sort.Descending(snapshot => snapshot.DayUtc)
+            : Builders<RecurringRevenueSnapshot>.Sort.Ascending(snapshot => snapshot.DayUtc);
+
+        return await Snapshots(tenantId)
+            .Find(filter)
+            .Sort(sort)
+            .Limit(1)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task SaveRecurringRevenueSnapshotAsync(

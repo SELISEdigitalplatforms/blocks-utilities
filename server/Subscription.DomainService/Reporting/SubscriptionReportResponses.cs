@@ -118,6 +118,81 @@ public sealed class RecurringRevenueTrendCurrencyResponse
     public long SubscriptionCount { get; init; }
 }
 
+/// <summary>
+/// How the recurring run-rate changed across a window, and why.
+/// </summary>
+/// <remarks>
+/// Opening is the capture in force when the window starts and closing is the latest capture
+/// before it ends. Where the window starts before the first capture, opening is the first capture
+/// inside it instead, and <see cref="CoversWholeWindow"/> says so, so a caller can label the
+/// figure "since" that day rather than present it as the whole window.
+/// <para>
+/// The split into new, expansion, contraction and churn needs both captures to have recorded
+/// their firms. Where either did not, <see cref="BreakdownAvailable"/> is false and those figures
+/// are null; opening, closing and the change are still given from the totals.
+/// </para>
+/// </remarks>
+public sealed class RecurringRevenueMovementResponse
+{
+    public DateTime FromUtc { get; init; }
+
+    public DateTime ToUtc { get; init; }
+
+    /// <summary>The day of the opening capture. Null when no capture exists at all.</summary>
+    public DateTime? OpeningDayUtc { get; init; }
+
+    /// <summary>The day of the closing capture. Null when no capture exists at all.</summary>
+    public DateTime? ClosingDayUtc { get; init; }
+
+    /// <summary>False when the opening capture falls inside the window rather than at its start.</summary>
+    public bool CoversWholeWindow { get; init; }
+
+    /// <summary>Whether new, expansion, contraction and churn could be computed.</summary>
+    public bool BreakdownAvailable { get; init; }
+
+    public IReadOnlyList<RecurringRevenueMovementCurrencyResponse> Currencies { get; init; } = [];
+}
+
+/// <summary>
+/// One currency's movement, in net monthly minor units.
+/// </summary>
+/// <remarks>
+/// Reconciles exactly when the breakdown is available: opening plus new plus expansion, minus
+/// contraction and churned, is closing. Contraction and churned are positive amounts. A firm is
+/// one organization in one currency, so several subscriptions of one firm move together and a
+/// firm that changed currency shows as churned in one and new in the other.
+/// </remarks>
+public sealed class RecurringRevenueMovementCurrencyResponse
+{
+    public string CurrencyCode { get; init; } = string.Empty;
+
+    public long OpeningNetMonthlyMinor { get; init; }
+
+    public long ClosingNetMonthlyMinor { get; init; }
+
+    public long ChangeNetMonthlyMinor { get; init; }
+
+    /// <summary>Firms absent at opening: what they pay at closing.</summary>
+    public long? NewNetMonthlyMinor { get; init; }
+
+    public long? NewFirmCount { get; init; }
+
+    /// <summary>Firms present at both that pay more: the increase.</summary>
+    public long? ExpansionNetMonthlyMinor { get; init; }
+
+    public long? ExpansionFirmCount { get; init; }
+
+    /// <summary>Firms present at both that pay less: the decrease, as a positive amount.</summary>
+    public long? ContractionNetMonthlyMinor { get; init; }
+
+    public long? ContractionFirmCount { get; init; }
+
+    /// <summary>Firms absent at closing: what they paid at opening, as a positive amount.</summary>
+    public long? ChurnedNetMonthlyMinor { get; init; }
+
+    public long? ChurnedFirmCount { get; init; }
+}
+
 public sealed class RecurringRevenueCurrencyResponse
 {
     public string CurrencyCode { get; init; } = string.Empty;
