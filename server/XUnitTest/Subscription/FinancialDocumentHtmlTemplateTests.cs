@@ -447,6 +447,19 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
+    public void An_offline_invoice_says_it_is_payable_by_bank_transfer_and_never_that_it_was_paid()
+    {
+        var html = Render(document =>
+            document.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice);
+
+        html.Should().Contain(
+            "<tr><th>Status</th><td>Payable by bank transfer</td></tr>",
+            because: "spec 006: Utilities never learns whether a bank-transfer contract was paid, " +
+                "so an invoice saying 'Paid' would tell the customer they owe nothing");
+        html.Should().NotContain("<td>Paid</td>");
+    }
+
+    [Fact]
     public void The_total_and_its_status_are_facts_in_the_right_column_rather_than_a_headline()
     {
         var html = Render();

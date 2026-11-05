@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using FluentValidation;
+using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -58,8 +59,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // constructs this service unaware the usage projection exists must keep compiling and
         // keep behaving as before.
         IUsageProjectionReconciler? usageProjections = null,
-        ITrialUsageRepository? trialUsages = null)
+        ITrialUsageRepository? trialUsages = null,
+        IValidator<ActivateOfflineSubscriptionRequest>? offlineValidator = null)
     {
+        _offlineValidator = offlineValidator;
         _trialUsages = trialUsages;
         _creation = creation;
         _subscriptions = subscriptions;
@@ -86,6 +89,96 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
     /// <summary>Optional so existing callers compile unchanged. See <see cref="TrialUsage"/>.</summary>
     private readonly ITrialUsageRepository? _trialUsages;
+
+    /// <summary>
+    /// Optional so existing callers compile unchanged. Absent, offline activation is refused rather
+    /// than run unvalidated: it is the one path that grants a paid plan without taking money.
+    /// </summary>
+    private readonly IValidator<ActivateOfflineSubscriptionRequest>? _offlineValidator;
+
+    public async Task<SubscriptionOperationResult<SubscriptionResponse>> ActivateOfflineAsync(
+        ActivateOfflineSubscriptionRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (_offlineValidator is null)
+        {
+            return Failure(
+                PaymentFailureKind.Unavailable,
+                "subscription_offline_unavailable",
+                "Offline activation is not available on this host.",
+                correlationId);
+        }
+
+        var invalid = await SubscriptionValidation
+            .CheckAsync<ActivateOfflineSubscriptionRequest, SubscriptionResponse>(
+                _offlineValidator,
+                request,
+                "subscription_request_invalid",
+                "The offline activation request is invalid.",
+                correlationId,
+                cancellationToken);
+
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+
+        // ponytail: no-price contracts need the service statement document type, which lands with
+        // the statements work in this same spec; refused until then rather than issuing nothing.
+        if (request.Pricing.Mode == OfflinePricingMode.None)
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_offline_pricing_unsupported",
+                "Offline subscriptions without a price are not available yet.",
+                correlationId);
+        }
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+
+        if (!context.CallerIsConsole)
+        {
+            // Anyone else's named organization was already replaced by their own, so going on would
+            // let an organization activate a paid plan for itself without paying.
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_offline_console_only",
+                "Only the platform console can activate an offline subscription for an organization.",
+                correlationId);
+        }
+
+        var created = await _creation.CreateOfflineAsync(
+            request.ToCreateRequest(),
+            new OfflinePricing
+            {
+                Mode = request.Pricing.Mode,
+                ContractAmountMinor = request.Pricing.ContractAmountMinor,
+                ContractCurrencyCode = request.Pricing.ContractCurrencyCode
+            },
+            context,
+            correlationId,
+            cancellationToken);
+
+        if (!created.IsSuccess)
+        {
+            return created.ToFailure<SubscriptionResponse>();
+        }
+
+        return await StartWithoutPaymentAsync(created.Value!, context, correlationId, cancellationToken);
+    }
 
     /// <summary>
     /// Optional for the same reason. Missing it means a free or card-free-trial subscription
@@ -675,6 +768,17 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
+        if (subscription.IsOffline)
+        {
+            // Spec 006: paid by bank transfer under a contract. A card added here would never be
+            // charged, and offering to take one tells the customer something untrue.
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_offline_collection",
+                "This subscription is billed by invoice, so it does not take a payment method.",
+                correlationId);
+        }
+
         // Unpaid is deliberately allowed through to the same session a trial uses to add a card.
         // The confirmation this session produces goes through SubscriptionActivationProcessor,
         // which charges the overdue period the moment the card is adopted and only then restores
@@ -1088,13 +1192,19 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             ? SubscriptionConstants.SubscriptionTrialStarted
             : SubscriptionConstants.SubscriptionActivated;
 
+        var openingInvoice = target == SubscriptionStatus.Active
+            ? OfflineOpeningInvoice(subscription, correlationId)
+            : null;
+
         var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
             new SubscriptionTransition(SubscriptionStatus.Incomplete, target)
             {
                 ActivatedAtUtc = DateTime.UtcNow,
-                Event = _events.Create(subscription, eventType, correlationId)
+                Event = _events.Create(subscription, eventType, correlationId),
+                // In the activating write: nothing else would ever rediscover it.
+                DocumentSource = openingInvoice
             },
             cancellationToken);
 
@@ -1128,6 +1238,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                     context.UserId,
                     context.UserName,
                     context.UserEmail));
+        }
+
+        if (openingInvoice is not null && _documents is not null)
+        {
+            await _documents.RequestPendingAsync(subscription, correlationId, cancellationToken);
         }
 
         if (_usageProjections is not null)
@@ -1170,6 +1285,35 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
             await _mapper.ToResponseAsync(
                 _billingAccounts, subscription, null, null, cancellationToken),
+            correlationId);
+    }
+
+    /// <summary>
+    /// The record invoice an offline subscription's opening period owes, or null. See spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Owed when a card subscriber would have been charged at checkout — a positive opening figure —
+    /// for the reason a renewal follows the same rule: an invoice is a record of a charge, and an
+    /// offline customer is never handed one a card customer would not have been.
+    /// </remarks>
+    private SubscriptionDocumentSource? OfflineOpeningInvoice(
+        SubscriptionDetail subscription,
+        string correlationId)
+    {
+        if (!subscription.IsOffline ||
+            SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription) <= 0 ||
+            SubscriptionFinancialDocumentIssuer.RecomposeInitialCharge(subscription) is not { } amounts)
+        {
+            return null;
+        }
+
+        return SubscriptionDocumentSourceFactory.ForOfflineCharge(
+            subscription,
+            SubscriptionChargeKind.Initial,
+            periodKey: null,
+            amounts,
+            subscription.ActivatedBy,
+            _time.GetUtcNow().UtcDateTime,
             correlationId);
     }
 

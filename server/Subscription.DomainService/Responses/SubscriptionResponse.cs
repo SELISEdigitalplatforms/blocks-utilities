@@ -16,6 +16,27 @@ public sealed class SubscriptionResponse
     /// <summary>The buyer's name as their identity provider gave it at signup. See <see cref="PurchasedByUserId"/>.</summary>
     public string? PurchasedByName { get; init; }
 
+    /// <summary>
+    /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for a subscription paid by bank transfer
+    /// under a contract (spec 006). An offline subscription is never charged and takes no card, so a
+    /// client hides every payment-method prompt for it.
+    /// </summary>
+    public string CollectionMethod { get; init; } = string.Empty;
+
+    /// <summary>
+    /// For an offline subscription: <c>Catalogue</c>, <c>Contract</c> or <c>None</c>. Null otherwise.
+    /// </summary>
+    public string? OfflinePricingMode { get; init; }
+
+    /// <summary>The flat net contract amount per interval, for <c>Contract</c> pricing only.</summary>
+    public long? ContractAmountMinor { get; init; }
+
+    /// <summary>The operator who activated an offline subscription. Null for every other one.</summary>
+    public string? ActivatedByUserId { get; init; }
+
+    /// <summary>See <see cref="ActivatedByUserId"/>.</summary>
+    public string? ActivatedByName { get; init; }
+
     public string Status { get; init; } = string.Empty;
 
     public string PlanCode { get; init; } = string.Empty;

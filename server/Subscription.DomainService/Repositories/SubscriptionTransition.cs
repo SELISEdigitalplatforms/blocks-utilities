@@ -217,4 +217,15 @@ public sealed record SubscriptionTransition(
     /// to close.
     /// </remarks>
     public IReadOnlyList<SubscriptionOutboxEvent> AdditionalEvents { get; init; } = [];
+
+    /// <summary>
+    /// A document this transition owes, recorded in the same write.
+    /// </summary>
+    /// <remarks>
+    /// For an offline subscription (spec 006), whose renewal collects nothing: there is no payment
+    /// left behind for the settled-payment sweep to rediscover the invoice from, so the obligation
+    /// is as atomic as the period it describes or it can be lost — the reason a banked downgrade
+    /// credit records its own inside its compare-and-set.
+    /// </remarks>
+    public SubscriptionDocumentSource? DocumentSource { get; init; }
 }

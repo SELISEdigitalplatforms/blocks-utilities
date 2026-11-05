@@ -786,6 +786,10 @@ public static class FinancialDocumentHtmlTemplate
         {
             FinancialDocumentType.TrialInvoice => "No payment due",
             FinancialDocumentType.CreditNote => "Credited",
+            // Spec 006: a record of what a bank-transfer contract owes. Utilities never learns
+            // whether it was paid, so it must not say it was.
+            _ when document.CollectionMethod == SubscriptionCollectionMethod.OfflineInvoice =>
+                "Payable by bank transfer",
             _ => document.Status switch
             {
                 FinancialDocumentStatus.Refunded => "Paid, since refunded in full",

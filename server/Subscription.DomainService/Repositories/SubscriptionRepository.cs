@@ -1532,6 +1532,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 nextUsageBilling);
         }
 
+        if (transition.DocumentSource is { } documentSource)
+        {
+            update = update.Push(
+                subscription => subscription.PendingDocumentSources,
+                documentSource);
+        }
+
         List<SubscriptionOutboxEvent> events = transition.Event is null
             ? [.. transition.AdditionalEvents]
             : [transition.Event, .. transition.AdditionalEvents];

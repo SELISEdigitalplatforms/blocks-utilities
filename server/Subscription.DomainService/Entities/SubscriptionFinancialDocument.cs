@@ -146,6 +146,17 @@ public sealed class SubscriptionFinancialDocument
     /// </remarks>
     public FinancialDocumentPaymentCard? PaymentCard { get; set; }
 
+    /// <summary>
+    /// How the subscription behind this document collects its money, as it was when issued.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SubscriptionCollectionMethod.OfflineInvoice"/> marks a record of what is owed under
+    /// a bank-transfer contract (spec 006): it renders "Payable by bank transfer" beside the
+    /// merchant's payment instructions and never claims to have been paid. Absent on every document
+    /// issued before this existed, which deserializes to the card behaviour they were issued under.
+    /// </remarks>
+    public SubscriptionCollectionMethod CollectionMethod { get; set; }
+
     public FinancialDocumentDelivery Delivery { get; set; } = new();
 
     public string CorrelationId { get; set; } = string.Empty;

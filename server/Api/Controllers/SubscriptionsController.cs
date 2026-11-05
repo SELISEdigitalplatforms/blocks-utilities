@@ -139,6 +139,45 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
+    /// Activates a paid plan for an organization that pays by bank transfer, with no card and no
+    /// checkout. Spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Console only, and behind its own permission rather than <c>subscription::manage</c>, which
+    /// every organization admin holds: this is the one route that grants a paid plan without taking
+    /// money. The subscription is never charged; each period it renews on schedule and issues a
+    /// record invoice marked "Payable by bank transfer". The organization's billing profile must be
+    /// complete, because every one of those invoices is addressed to it.
+    /// </remarks>
+    [HttpPost("offline")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProtectedEndPoint("blocks-utilities::subscription-offline::manage")]
+    public async Task<IActionResult> ActivateOffline(
+        [FromBody] ActivateOfflineSubscriptionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _checkout.ActivateOfflineAsync(
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("ActivateOffline", request.OrganizationId, result.Value?.SubscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
     /// The caller's own subscription, or nothing if they have none.
     /// </summary>
     /// <remarks>

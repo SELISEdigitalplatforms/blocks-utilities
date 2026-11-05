@@ -134,21 +134,29 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await AuditAsync(subscription, "Started", "InProgress", null, null, null,
             subscription.DunningAttemptCount + 1, cancellationToken);
 
-        var account = await _billingAccounts.GetAsync(
-            subscription.TenantId,
-            subscription.BillingAccountId,
-            cancellationToken);
+        // An offline subscription (spec 006) is paid under a contract outside Utilities. It has no
+        // card to look for, and must never be moved to Unpaid for lacking one: the period simply
+        // opens, and what it would have cost is recorded instead of collected.
+        BillingAccount? account = null;
 
-        if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+        if (!subscription.IsOffline)
         {
-            // Retrying without a card to charge is pointless — including a trial that never
-            // took one, which reaches this exact path at its end.
-            await MoveToUnpaidAsync(subscription, "no_payment_method", cancellationToken);
-            await AuditAsync(subscription, "PaymentMethodChecked", "Failed",
-                "no_payment_method", null, null, subscription.DunningAttemptCount + 1,
+            account = await _billingAccounts.GetAsync(
+                subscription.TenantId,
+                subscription.BillingAccountId,
                 cancellationToken);
 
-            return;
+            if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+            {
+                // Retrying without a card to charge is pointless — including a trial that never
+                // took one, which reaches this exact path at its end.
+                await MoveToUnpaidAsync(subscription, "no_payment_method", cancellationToken);
+                await AuditAsync(subscription, "PaymentMethodChecked", "Failed",
+                    "no_payment_method", null, null, subscription.DunningAttemptCount + 1,
+                    cancellationToken);
+
+                return;
+            }
         }
 
         // Which instant the period being charged belongs to. Normally now — but a trial converting
@@ -377,7 +385,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             };
         }
 
-        var outcome = charge.AmountMinor <= 0
+        // Nothing is collected for an offline subscription, whatever the amount: the gateway is
+        // never called, so a card that happens to be on the billing account can never be charged.
+        var outcome = subscription.IsOffline || charge.AmountMinor <= 0
             ? SubscriptionOperationResult<string>.Success(string.Empty, subscription.CorrelationId)
             : await _gateway.ChargeAsync(
                 new SubscriptionChargeRequest
@@ -387,10 +397,12 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     // provider and every organization is charged through it. Falls back for
                     // accounts predating the field, which used the subscriber's.
                     OrganizationId =
-                        account.ProviderOrganizationId ?? subscription.OrganizationId,
+                        account!.ProviderOrganizationId ?? subscription.OrganizationId,
                     SubscriberOrganizationId = subscription.OrganizationId,
                     ProviderName = account.ProviderName,
-                    StoredPaymentMethodId = account.DefaultPaymentMethodId,
+                    // Checked non-blank above for every subscription that reaches the gateway; the
+                    // offline branch around that check hides it from flow analysis.
+                    StoredPaymentMethodId = account.DefaultPaymentMethodId!,
                     ProviderCustomerId = account.ProviderCustomerId,
                     AmountMinor = charge.AmountMinor,
                     // The split as it was calculated, so a renewal invoice can show a subtotal and
@@ -690,6 +702,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         PendingPlanChange? appliedPlanChange = null,
         PendingUsagePeriod? outgoingUsagePeriod = null)
     {
+        var offlineInvoice = OfflineRenewalInvoice(subscription, period, charge);
+
         var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
@@ -755,7 +769,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // hear of one that waited for the period end. In this same write, so the change and
                 // its announcement cannot come apart.
                 AdditionalEvents = AppliedChangeEvents(
-                    subscription, origin, appliedQuantities, appliedPlanChange)
+                    subscription, origin, appliedQuantities, appliedPlanChange),
+                // Spec 006: the record of what this offline period would have cost, in the write
+                // that opens the period — there is no payment for any sweep to find it from later.
+                DocumentSource = offlineInvoice
             },
             cancellationToken);
 
@@ -813,6 +830,15 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 cancellationToken);
         }
 
+        if (_documents is not null && offlineInvoice is not null)
+        {
+            // Only makes the recorded obligation prompt; the repair sweep issues it regardless.
+            await _documents.RequestPendingAsync(
+                subscription,
+                subscription.CorrelationId,
+                cancellationToken);
+        }
+
         _logger.LogInformation(
             "Subscription renewed AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
             attemptNumber,
@@ -821,6 +847,51 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await ScheduleNextRenewalAsync(subscription, period, cancellationToken);
         await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
             paymentDetailId, attemptNumber, cancellationToken);
+    }
+
+    /// <summary>
+    /// The record invoice an offline renewal owes, or null when it owes none. See spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Owed exactly when a card renewal would have raised a charge — a positive amount. A period
+    /// discounted to nothing, or a year already invoiced with the opening charge, is invoiced by a
+    /// card subscription never, and by an offline one the same, so the customer is never handed a
+    /// second invoice for money the first one already asked for.
+    /// <para>
+    /// <paramref name="subscription"/> already carries any plan or quantity change this boundary
+    /// applies, so the invoice describes the terms the period was priced on. The period itself is
+    /// the one actually opened rather than one re-derived from its key, so a converting trial's
+    /// stub is stated as the stub it was.
+    /// </para>
+    /// </remarks>
+    private SubscriptionDocumentSource? OfflineRenewalInvoice(
+        SubscriptionDetail subscription,
+        BillingPeriod period,
+        PeriodCharge charge)
+    {
+        if (!subscription.IsOffline || charge.AmountMinor <= 0)
+        {
+            return null;
+        }
+
+        var source = SubscriptionDocumentSourceFactory.ForOfflineCharge(
+            subscription,
+            SubscriptionChargeKind.Renewal,
+            period.Key,
+            SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedCharge(subscription, charge),
+            initiatedBy: null,
+            _time.GetUtcNow().UtcDateTime,
+            subscription.CorrelationId);
+
+        source.Period = new FinancialDocumentPeriod
+        {
+            StartUtc = period.StartUtc,
+            EndUtc = period.EndUtc,
+            TimeZoneId = subscription.FeeSchedule.TimeZoneId,
+            PeriodKey = period.Key
+        };
+
+        return source;
     }
 
     /// <summary>The change events a renewal owes for whatever scheduled change it carries out.</summary>

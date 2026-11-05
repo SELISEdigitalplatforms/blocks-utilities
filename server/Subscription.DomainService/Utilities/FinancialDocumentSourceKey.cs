@@ -67,6 +67,26 @@ public static class FinancialDocumentSourceKey
         $"downgrade:{Require(subscriptionId, nameof(subscriptionId))}:" +
         Require(reference, nameof(reference));
 
+    /// <summary>
+    /// A charge an offline subscription would have raised, recorded instead of collected. See spec 006.
+    /// </summary>
+    /// <remarks>
+    /// There is no payment to key on, so the key is what a payment's order id is built from: the
+    /// subscription, the kind of charge, and the period it was for. A renewal of one period is
+    /// raised once however many times the sweep retries it, which is the same guarantee the
+    /// renewal order id relies on.
+    /// </remarks>
+    /// <param name="reference">
+    /// The period key for a renewal; null for the opening charge, which a subscription has once.
+    /// </param>
+    public static string ForOfflineCharge(
+        string subscriptionId,
+        Enums.SubscriptionChargeKind kind,
+        string? reference) =>
+        $"offline:{Require(subscriptionId, nameof(subscriptionId))}:" +
+        kind.ToString() +
+        (string.IsNullOrWhiteSpace(reference) ? string.Empty : $":{reference}");
+
     private static string Require(string value, string parameterName) =>
         !string.IsNullOrWhiteSpace(value)
             ? value

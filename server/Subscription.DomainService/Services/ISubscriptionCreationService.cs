@@ -1,4 +1,5 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 
@@ -16,6 +17,24 @@ public interface ISubscriptionCreationService
     /// </remarks>
     Task<SubscriptionOperationResult<SubscriptionDetail>> CreateAsync(
         CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Builds and stores an offline subscription in its initial state. See spec 006.
+    /// </summary>
+    /// <remarks>
+    /// The same build as <see cref="CreateAsync"/>, so the terms, the schedule and the frozen opening
+    /// figure are decided by the code that decides them for a card subscriber — with three
+    /// differences. No payment provider has to be ready, because none is ever called. The billing
+    /// profile is always required, because every offline document is addressed to it. And a
+    /// <see cref="OfflinePricingMode.Contract"/> amount replaces the catalogue figure before the
+    /// opening charge is frozen, so everything downstream reads the contract without knowing it is one.
+    /// </remarks>
+    Task<SubscriptionOperationResult<SubscriptionDetail>> CreateOfflineAsync(
+        CreateSubscriptionRequest request,
+        OfflinePricing pricing,
         SubscriptionContext context,
         string correlationId,
         CancellationToken cancellationToken);
