@@ -36,8 +36,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         IValidator<CreatePriceRequest> priceValidator,
         IPlanResponseMapper mapper,
         ISubscriptionAuditTrail auditTrail,
-        ILogger<PlanCatalogueService> logger)
+        ILogger<PlanCatalogueService> logger,
+        IMeterCatalogueService? meterCatalogue = null)
     {
+        _meterCatalogue = meterCatalogue;
         _catalogue = catalogue;
         _subscriptions = subscriptions;
         _contextResolver = contextResolver;
@@ -48,6 +50,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         _auditTrail = auditTrail;
         _logger = logger;
     }
+
+    /// <summary>Optional so hosts and tests without a catalogue still author plans; see spec 005.</summary>
+    private readonly IMeterCatalogueService? _meterCatalogue;
 
     public async Task<SubscriptionOperationResult<PlanResponse>> CreatePlanAsync(
         CreatePlanRequest request,
@@ -134,6 +139,14 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(plan.Code),
             correlationId);
+
+        // A meter authored inside a plan joins the catalogue, so a later plan or a credit offer
+        // can pick it (spec 005). After the save: the plan is the product, the catalogue follows it.
+        if (_meterCatalogue is not null)
+        {
+            await _meterCatalogue.EnsureEntriesAsync(
+                context.TenantId, plan.OrganizationId, plan.Meters, cancellationToken);
+        }
 
         return SubscriptionOperationResult<PlanResponse>.Success(
             _mapper.ToResponse(plan, [], predecessorDisplayName: predecessorDisplayName),
@@ -227,6 +240,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             correlationId);
 
         await AdoptNewCreditTermsAsync(context.TenantId, plan.ItemId, edited, correlationId, cancellationToken);
+
+        if (_meterCatalogue is not null)
+        {
+            await _meterCatalogue.EnsureEntriesAsync(
+                context.TenantId, edited.OrganizationId, edited.Meters, cancellationToken);
+        }
 
         return await GetPlanAsync(
             plan.ItemId,

@@ -18,6 +18,9 @@ import SubscriptionBillingProfileRoute from "./routes/dashboard/subscription-bil
 import SubscriptionMerchantProfileRoute from "./routes/dashboard/subscription-merchant-profile";
 import SubscriptionInvoicesRoute from "./routes/dashboard/subscription-invoices";
 import SubscriptionSimulationRoute from "./routes/dashboard/subscription-simulation";
+import MeterCatalogueRoute from "./routes/dashboard/meter-catalogue";
+import CreditOffersRoute from "./routes/dashboard/credit-offers";
+import OrganizationCreditsRoute from "./routes/dashboard/organization-credits";
 import {
   AuthResolver,
   PublicGuard,
@@ -166,6 +169,18 @@ export const router = createBrowserRouter([
                   {
                     path: "subscription/simulation",
                     element: <SubscriptionSimulationRoute />,
+                  },
+                  {
+                    path: "subscription/meters",
+                    element: <MeterCatalogueRoute />,
+                  },
+                  {
+                    path: "subscription/credit-offers",
+                    element: <CreditOffersRoute />,
+                  },
+                  {
+                    path: "subscription/credits",
+                    element: <OrganizationCreditsRoute />,
                   },
                   { path: "magic-url", element: <MagicUrlPage /> },
                   {

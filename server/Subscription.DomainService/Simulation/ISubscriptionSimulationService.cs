@@ -65,6 +65,20 @@ public interface ISubscriptionSimulationService
     /// the real processors and — for a renewal or a usage-invoice charge — the real payment
     /// gateway, with no outcome scripted. Never a tenant-wide sweep.
     /// </summary>
+    /// <summary>
+    /// The standalone credits of an organization that may hold no subscription at all (spec 005).
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationStateResponse>> GetOrganizationStateAsync(
+        string? organizationId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Runs the credit sweeps for the organization's tenant and returns its standalone credits afterwards.</summary>
+    Task<SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>> RunOrganizationDueJobsAsync(
+        RunDueJobsRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionOperationResult<SubscriptionSimulationJobRunResponse>> RunDueJobsAsync(
         string subscriptionId,
         RunDueJobsRequest request,

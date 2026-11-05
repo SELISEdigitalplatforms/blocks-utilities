@@ -51,6 +51,25 @@ public interface ISubscriptionCreditGrantRepository
     /// A grant taken to zero is marked exhausted by a second conditional write. Between the two it
     /// reads as active with nothing remaining, which every reader already treats as not live.
     /// </remarks>
+    /// <summary>
+    /// The organization's own live grants for one meter — those with no subscription — in
+    /// consumption order. See spec 005.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionCreditGrant>> ListLiveForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string meterKey,
+        DateTime nowUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>The organization's own grants, newest first, optionally one meter or one status.</summary>
+    Task<IReadOnlyList<SubscriptionCreditGrant>> ListForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string? meterKey,
+        CreditGrantStatus? status,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionCreditGrant?> TryConsumeAsync(
         string tenantId,
         string grantId,

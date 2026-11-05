@@ -61,6 +61,18 @@ public sealed class UsageResponse
     /// </summary>
     public decimal? PurchasedRemaining { get; init; }
 
+    /// <summary>
+    /// What the organization's standalone credits (spec 005) paid for in this window. Zero when
+    /// the organization holds none.
+    /// </summary>
+    public decimal OrganizationCreditsConsumed { get; init; }
+
+    /// <summary>
+    /// What the organization could still spend from its standalone credits for this meter, or
+    /// null when no credit offer exists for it.
+    /// </summary>
+    public decimal? OrganizationCreditsRemaining { get; init; }
+
     /// <summary>True when this call repeated one already recorded and changed nothing.</summary>
     public bool Replayed { get; init; }
 

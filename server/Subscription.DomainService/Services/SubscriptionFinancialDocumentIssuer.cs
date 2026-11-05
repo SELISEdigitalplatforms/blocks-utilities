@@ -36,7 +36,7 @@ namespace Subscription.DomainService.Services;
 /// missing document, which the sweep fixes.
 /// </para>
 /// </remarks>
-public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancialDocumentIssuer
+public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancialDocumentIssuer
 {
     /// <summary>
     /// The sweep marks, named so two passes cannot share one and drag it around.
@@ -99,8 +99,10 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         ISubscriptionUsageInvoiceRepository? usageInvoices = null,
         TimeProvider? time = null,
         IBillingAccountRepository? billingAccounts = null,
-        IStoredPaymentMethodRepository? storedMethods = null)
+        IStoredPaymentMethodRepository? storedMethods = null,
+        ISubscriptionCreditPurchaseRepository? creditPurchases = null)
     {
+        _creditPurchases = creditPurchases;
         _documents = documents;
         _numbers = numbers;
         _profiles = profiles;
@@ -284,9 +286,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// A first checkout whose token has not been confirmed yet is the ordinary case of that.
     /// </para>
     /// </remarks>
-    private async Task<FinancialDocumentPaymentCard?> PaymentCardAsync(
+    private Task<FinancialDocumentPaymentCard?> PaymentCardAsync(
         PaymentDetail payment,
         SubscriptionDetail subscription,
+        CancellationToken cancellationToken) =>
+        PaymentCardAsync(payment, subscription.TenantId, subscription.BillingAccountId, cancellationToken);
+
+    private async Task<FinancialDocumentPaymentCard?> PaymentCardAsync(
+        PaymentDetail payment,
+        string tenantId,
+        string? billingAccountId,
         CancellationToken cancellationToken)
     {
         // The card the provider reported on the charge itself is the card that paid, whatever
@@ -314,11 +323,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
             if (string.IsNullOrWhiteSpace(methodId) &&
                 _billingAccounts is not null &&
-                !string.IsNullOrWhiteSpace(subscription.BillingAccountId))
+                !string.IsNullOrWhiteSpace(billingAccountId))
             {
                 var account = await _billingAccounts.GetAsync(
-                    subscription.TenantId,
-                    subscription.BillingAccountId,
+                    tenantId,
+                    billingAccountId,
                     cancellationToken).ConfigureAwait(false);
 
                 methodId = account?.DefaultPaymentMethodId;
@@ -330,7 +339,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             }
 
             var method = await _storedMethods.GetAsync(
-                subscription.TenantId,
+                tenantId,
                 methodId,
                 cancellationToken).ConfigureAwait(false);
 

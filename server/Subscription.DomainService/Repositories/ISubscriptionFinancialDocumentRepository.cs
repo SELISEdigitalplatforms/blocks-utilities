@@ -63,6 +63,7 @@ public interface ISubscriptionFinancialDocumentRepository
     /// </summary>
     /// <param name="subscriptionId">Narrow to one subscription, or null for all of them.</param>
     /// <param name="documentType">Narrow to one kind, or null for all of them.</param>
+    /// <param name="standaloneCreditsOnly">Only documents with no subscription: standalone credit invoices (spec 005).</param>
     Task<FinancialDocumentPage> ListAsync(
         string tenantId,
         string organizationId,
@@ -73,7 +74,8 @@ public interface ISubscriptionFinancialDocumentRepository
         DateTime? issuedToUtc,
         int pageSize,
         FinancialDocumentCursor? after,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool standaloneCreditsOnly = false);
 
     /// <summary>
     /// Documents whose PDF or email is still outstanding, oldest first.

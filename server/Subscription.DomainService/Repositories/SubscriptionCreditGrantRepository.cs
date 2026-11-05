@@ -105,6 +105,62 @@ public sealed class SubscriptionCreditGrantRepository : ISubscriptionCreditGrant
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<SubscriptionCreditGrant>> ListLiveForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string meterKey,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditGrant>.Filter;
+
+        var grants = await Collection(tenantId)
+            .Find(filter.And(
+                filter.Eq(grant => grant.TenantId, tenantId),
+                filter.Eq(grant => grant.OrganizationId, organizationId),
+                filter.Eq(grant => grant.SubscriptionId, null),
+                filter.Eq(grant => grant.MeterKey, meterKey),
+                filter.Eq(grant => grant.Status, CreditGrantStatus.Active),
+                filter.Gt(grant => grant.Remaining, 0m),
+                filter.Or(
+                    filter.Eq(grant => grant.ExpiresAtUtc, null),
+                    filter.Gt(grant => grant.ExpiresAtUtc, nowUtc))))
+            .ToListAsync(cancellationToken);
+
+        return [.. SubscriptionCreditGrant.InConsumptionOrder(grants)];
+    }
+
+    public async Task<IReadOnlyList<SubscriptionCreditGrant>> ListForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string? meterKey,
+        CreditGrantStatus? status,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditGrant>.Filter;
+        var clauses = new List<FilterDefinition<SubscriptionCreditGrant>>
+        {
+            filter.Eq(grant => grant.TenantId, tenantId),
+            filter.Eq(grant => grant.OrganizationId, organizationId),
+            filter.Eq(grant => grant.SubscriptionId, null)
+        };
+
+        if (meterKey is not null)
+        {
+            clauses.Add(filter.Eq(grant => grant.MeterKey, meterKey));
+        }
+
+        if (status is { } wanted)
+        {
+            clauses.Add(filter.Eq(grant => grant.Status, wanted));
+        }
+
+        return await Collection(tenantId)
+            .Find(filter.And(clauses))
+            .SortByDescending(grant => grant.GrantedAtUtc)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<SubscriptionCreditGrant?> TryConsumeAsync(
         string tenantId,
         string grantId,

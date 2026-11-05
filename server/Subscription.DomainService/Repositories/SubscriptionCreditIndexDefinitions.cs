@@ -11,6 +11,10 @@ public static class SubscriptionCreditIndexDefinitions
     public const string PurchaseStaleIndexName = "credit_purchase_stale";
     public const string PurchaseBySubscriptionIndexName = "credit_purchase_by_subscription";
     public const string PurchaseByPaymentIndexName = "credit_purchase_by_payment";
+    public const string GrantOrganizationIndexName = "credit_grant_by_organization";
+    public const string PurchaseByOrganizationIndexName = "credit_purchase_by_organization";
+    public const string MeterCatalogueKeyIndexName = "ux_meter_catalogue_tenant_org_key";
+    public const string CreditOfferMeterIndexName = "ux_credit_offer_tenant_org_meter";
 
     /// <remarks>
     /// One index serves both reads the ledger has: the gate's search for live grants in one bucket,
@@ -36,7 +40,18 @@ public static class SubscriptionCreditIndexDefinitions
                 .Ascending(grant => grant.Status)
                 .Ascending(grant => grant.LastCheckedAtUtc)
                 .Ascending(grant => grant.ExpiresAtUtc),
-            new CreateIndexOptions<SubscriptionCreditGrant> { Name = GrantMaintenanceIndexName })
+            new CreateIndexOptions<SubscriptionCreditGrant> { Name = GrantMaintenanceIndexName }),
+        // Backs the organization's own bucket (spec 005): grants with no subscription, read by
+        // the usage gate for one meter and by the history list for all of them.
+        new(
+            Builders<SubscriptionCreditGrant>.IndexKeys
+                .Ascending(grant => grant.TenantId)
+                .Ascending(grant => grant.OrganizationId)
+                .Ascending(grant => grant.SubscriptionId)
+                .Ascending(grant => grant.MeterKey)
+                .Ascending(grant => grant.Status)
+                .Ascending(grant => grant.ExpiresAtUtc),
+            new CreateIndexOptions<SubscriptionCreditGrant> { Name = GrantOrganizationIndexName })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<SubscriptionCreditPurchase>> CreatePurchaseIndexes() =>
@@ -60,6 +75,35 @@ public static class SubscriptionCreditIndexDefinitions
             Builders<SubscriptionCreditPurchase>.IndexKeys
                 .Ascending(purchase => purchase.TenantId)
                 .Ascending(purchase => purchase.PaymentId),
-            new CreateIndexOptions<SubscriptionCreditPurchase> { Name = PurchaseByPaymentIndexName })
+            new CreateIndexOptions<SubscriptionCreditPurchase> { Name = PurchaseByPaymentIndexName }),
+        new(
+            Builders<SubscriptionCreditPurchase>.IndexKeys
+                .Ascending(purchase => purchase.TenantId)
+                .Ascending(purchase => purchase.OrganizationId)
+                .Ascending(purchase => purchase.SubscriptionId)
+                .Descending(purchase => purchase.CreatedAtUtc),
+            new CreateIndexOptions<SubscriptionCreditPurchase> { Name = PurchaseByOrganizationIndexName })
+    ];
+
+    /// <summary>One key per scope: the tenant's, or one organization's override (spec 005).</summary>
+    public static IReadOnlyCollection<CreateIndexModel<MeterCatalogueEntry>> CreateMeterCatalogueIndexes() =>
+    [
+        new(
+            Builders<MeterCatalogueEntry>.IndexKeys
+                .Ascending(entry => entry.TenantId)
+                .Ascending(entry => entry.OrganizationId)
+                .Ascending(entry => entry.MeterKey),
+            new CreateIndexOptions { Unique = true, Name = MeterCatalogueKeyIndexName })
+    ];
+
+    /// <summary>One offer per meter per scope (spec 005).</summary>
+    public static IReadOnlyCollection<CreateIndexModel<CreditOffer>> CreateCreditOfferIndexes() =>
+    [
+        new(
+            Builders<CreditOffer>.IndexKeys
+                .Ascending(offer => offer.TenantId)
+                .Ascending(offer => offer.OrganizationId)
+                .Ascending(offer => offer.MeterKey),
+            new CreateIndexOptions { Unique = true, Name = CreditOfferMeterIndexName })
     ];
 }

@@ -92,6 +92,48 @@ public sealed class SubscriptionCreditPurchaseRepository : ISubscriptionCreditPu
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<SubscriptionCreditPurchase>> ListForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        CreditPurchaseStatus? status,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditPurchase>.Filter;
+        var clauses = filter.And(
+            filter.Eq(purchase => purchase.TenantId, tenantId),
+            filter.Eq(purchase => purchase.OrganizationId, organizationId),
+            filter.Eq(purchase => purchase.SubscriptionId, null));
+
+        if (status is { } wanted)
+        {
+            clauses &= filter.Eq(purchase => purchase.Status, wanted);
+        }
+
+        return await Collection(tenantId)
+            .Find(clauses)
+            .SortByDescending(purchase => purchase.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<SubscriptionCreditPurchase?> FindOpenCheckoutForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditPurchase>.Filter;
+
+        return await Collection(tenantId)
+            .Find(filter.And(
+                filter.Eq(purchase => purchase.TenantId, tenantId),
+                filter.Eq(purchase => purchase.OrganizationId, organizationId),
+                filter.Eq(purchase => purchase.SubscriptionId, null),
+                filter.Eq(purchase => purchase.PaymentPath, CreditPaymentPath.Checkout),
+                filter.In(purchase => purchase.Status,
+                    [CreditPurchaseStatus.Pending, CreditPurchaseStatus.AwaitingPayment])))
+            .SortByDescending(purchase => purchase.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<SubscriptionCreditPurchase>> ListStaleAsync(
         string tenantId,
         IReadOnlyCollection<CreditPurchaseStatus> statuses,

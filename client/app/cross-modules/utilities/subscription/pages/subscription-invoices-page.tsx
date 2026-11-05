@@ -59,7 +59,7 @@ const badgeVariant = (document: SubscriptionFinancialDocument) => {
  * shows every discount source separately, the settlement's two sides where there is one, and the
  * parties as the document itself states them rather than as the profile stands now.
  */
-const DocumentRow = ({
+export const DocumentRow = ({
   document,
   organizationId,
 }: {
