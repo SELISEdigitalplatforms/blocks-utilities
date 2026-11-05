@@ -2,7 +2,7 @@
 
 **Status:** Approved (2026-11-05)
 **Date:** 2026-11-05
-**Tracks:** _(issue to be linked)_
+**Tracks:** [#745](https://github.com/SELISEdigitalplatforms/blocks-utilities/issues/745)
 **Builds on:** subscription lifecycle (`docs/subscription/lifecycle`), financial documents,
 plan change and quantity change flows
 
