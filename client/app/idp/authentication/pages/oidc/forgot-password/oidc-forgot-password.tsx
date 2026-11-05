@@ -14,6 +14,7 @@ export const OidcForgotPassword = () => {
   return (
     <Card className="flex h-full flex-col rounded border-solid border-background py-6 shadow-none md:min-w-[448px] md:border-[#95ADC4] md:py-4 lg:max-w-md">
       <CardHeader className="text-center">
+        {/* eslint-disable-next-line no-restricted-syntax -- product name */}
         <CardTitle className="text-3xl">Blocks Cloud</CardTitle>
         <CardDescription className="text-xl text-foreground">
           {t("OIDC_FORGOT_PASSWORD.WE_WILL_EMAIL_YOU_A")}

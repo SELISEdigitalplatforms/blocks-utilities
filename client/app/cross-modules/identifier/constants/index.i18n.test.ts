@@ -11,12 +11,12 @@ describe("index.i18n language", () => {
     expect(getRegisterServiceEnvironments()[0].label).toBe("Production");
   });
 
-  it("returns German when a German dictionary is registered", () => {
-    useI18nStore.getState().setRemote("de", "utilities.console", {
-      "CONSTANTS.PRODUCTION": "Produktion",
+  it("returns the project language when its dictionary is registered", () => {
+    useI18nStore.getState().setRemote("xx", "utilities.console", {
+      "CONSTANTS.PRODUCTION": "[xx] Production",
     });
-    useAppSettingsStore.getState().setSettings({ language: "de" });
+    useAppSettingsStore.getState().setSettings({ language: "xx" });
 
-    expect(getRegisterServiceEnvironments()[0].label).toBe("Produktion");
+    expect(getRegisterServiceEnvironments()[0].label).toBe("[xx] Production");
   });
 });

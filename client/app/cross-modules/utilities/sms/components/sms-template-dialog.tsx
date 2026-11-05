@@ -93,6 +93,7 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
                 <FormItem>
                   <FormLabel>{t("common:NAME")}</FormLabel>
                   <FormControl>
+                    {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                     <Input {...field} placeholder="otp-login" />
                   </FormControl>
                   <FormMessage />
@@ -106,6 +107,7 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
                 <FormItem>
                   <FormLabel>{t("SMS_TEMPLATE_DIALOG.LANGUAGE")}</FormLabel>
                   <FormControl>
+                    {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                     <Input {...field} placeholder="en-US" />
                   </FormControl>
                   <FormMessage />

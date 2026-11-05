@@ -23,6 +23,7 @@
   "AUDIT_TRAIL_DIALOG.LAST": "Last {{option}}",
   "AUDIT_TRAIL_DIALOG.NO_AUDIT_EVENTS_RECORDED_FOR": "No audit events recorded for this subscription yet.",
   "AUDIT_TRAIL_DIALOG.NUMBER_OF_EVENTS": "Number of events",
+  "AUDIT_TRAIL_DIALOG.OPERATION_SHORT": "op {{id}}",
   "AUDIT_TRAIL_DIALOG.OPERATION_STAGE": "Operation / stage",
   "AUDIT_TRAIL_DIALOG.OUTCOME": "Outcome",
   "AUDIT_TRAIL_DIALOG.SENDS_THE_IMMUTABLE_LIFECYCLE": "Sends {{endpoint}}. The immutable lifecycle trail for this subscription, newest first — it never carries who performed an action or a payment identifier, and it is scoped to this subscription only, not a tenant-wide audit search.",

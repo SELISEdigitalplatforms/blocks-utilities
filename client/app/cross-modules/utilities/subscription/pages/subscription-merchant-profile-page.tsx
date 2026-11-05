@@ -388,6 +388,7 @@ export const SubscriptionMerchantProfilePage = () => {
               id="merchantLegalName"
               value={form.legalName}
               onChange={(event) => set("legalName")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="Northwind Software GmbH"
             />
             <p className="text-xs text-muted-foreground">
@@ -401,6 +402,7 @@ export const SubscriptionMerchantProfilePage = () => {
               id="merchantDisplayName"
               value={form.displayName}
               onChange={(event) => set("displayName")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="Northwind"
             />
             <p className="text-xs text-muted-foreground">
@@ -414,6 +416,7 @@ export const SubscriptionMerchantProfilePage = () => {
               id="merchantLine1"
               value={form.line1}
               onChange={(event) => set("line1")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="1 Bahnhofstrasse"
             />
             <Input
@@ -483,6 +486,7 @@ export const SubscriptionMerchantProfilePage = () => {
               type="email"
               value={form.supportEmail}
               onChange={(event) => set("supportEmail")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="billing@northwind.example"
             />
             <p className="text-xs text-muted-foreground">

@@ -89,6 +89,7 @@ export const StepUsageLimits = () => {
                   <FormItem>
                     <FormLabel className="text-xs">{t("STEP_USAGE_LIMITS.KEY")}</FormLabel>
                     <FormControl>
+                      {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                       <Input {...inputField} placeholder="advanced-reports" />
                     </FormControl>
                     <FormMessage />

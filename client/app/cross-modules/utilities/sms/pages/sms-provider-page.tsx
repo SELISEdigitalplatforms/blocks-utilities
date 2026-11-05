@@ -375,6 +375,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                     control={form.control}
                     name="statusCallbackBaseUrl"
                     label={t("SMS_PROVIDER_PAGE.CALLBACK_BASE_URL")}
+                    // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                     placeholder="https://utilities.example.com"
                     className="sm:col-span-2"
                     description={t("SMS_PROVIDER_PAGE.PUBLIC_HTTPS_ADDRESS_OF_THIS")}

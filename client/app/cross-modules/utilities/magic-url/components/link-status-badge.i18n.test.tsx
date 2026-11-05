@@ -8,14 +8,14 @@ describe("LinkStatusBadge language", () => {
     useAppSettingsStore.getState().setSettings({ language: "en" });
   });
 
-  it("shows German text when a German dictionary is registered", () => {
-    useI18nStore.getState().setRemote("de", "utilities.magic-url", {
-      "LINK_STATUS_BADGE.ACTIVE": "Aktiv",
+  it("shows the project language when its dictionary is registered", () => {
+    useI18nStore.getState().setRemote("xx", "utilities.magic-url", {
+      "LINK_STATUS_BADGE.ACTIVE": "[xx] Active",
     });
-    useAppSettingsStore.getState().setSettings({ language: "de" });
+    useAppSettingsStore.getState().setSettings({ language: "xx" });
 
     render(<LinkStatusBadge status="Active" />);
 
-    expect(screen.getByText("Aktiv")).toBeInTheDocument();
+    expect(screen.getByText("[xx] Active")).toBeInTheDocument();
   });
 });

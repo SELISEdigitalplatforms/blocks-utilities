@@ -293,6 +293,7 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
                   <FormItem>
                     <FormLabel>{t("CREATE_OIDC.REDIRECT_URL")}</FormLabel>
                     <FormControl>
+                      {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                       <Input placeholder="https://example.com/oidc" {...field} />
                     </FormControl>
 
@@ -308,6 +309,7 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
                   <FormItem>
                     <FormLabel>{t("CREATE_OIDC.AUDIENCE")}</FormLabel>
                     <FormControl>
+                      {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                       <Input placeholder="https://example.com" {...field} />
                     </FormControl>
 
