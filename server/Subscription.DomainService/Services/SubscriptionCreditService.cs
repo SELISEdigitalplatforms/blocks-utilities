@@ -398,6 +398,14 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
             LastUpdatedAtUtc = Now()
         };
 
+        if (subscription is null)
+        {
+            // Written with the grant, not after it: a crash between the two would leave credits
+            // nobody was told about (spec 005). The purchase gives the mail its figures.
+            grant.OutboxEvents.Add(CreditLedger.OrganizationEvent(
+                grant, SubscriptionConstants.OrganizationCreditsPurchased, correlationId, purchase, Now()));
+        }
+
         if (!await _grants.TryInsertAsync(grant, cancellationToken))
         {
             grant = await _grants.GetAsync(purchase.TenantId, grant.ItemId, cancellationToken) ?? grant;
@@ -413,7 +421,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         {
             await _documents.AnnounceOrganizationCreditPurchaseAsync(purchase, correlationId, cancellationToken);
             await _ledger.PublishOrganizationAsync(
-                grant, SubscriptionConstants.OrganizationCreditsPurchased, correlationId, cancellationToken);
+                grant, SubscriptionConstants.OrganizationCreditsPurchased, correlationId, cancellationToken, purchase);
         }
         else
         {
@@ -1669,7 +1677,8 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         DiscountCode = purchase.DiscountCode,
         ExpiryPolicy = purchase.ExpiryPolicy.ToString(),
         ExpiresAtUtc = purchase.ExpiresAtUtc,
-        PaymentPath = purchase.PaymentPath.ToString()
+        PaymentPath = purchase.PaymentPath.ToString(),
+        PackCode = purchase.PackCode
     };
 
     /// <param name="withCheckoutUrl">False for a diagnostic read, which never hands out a live checkout URL.</param>

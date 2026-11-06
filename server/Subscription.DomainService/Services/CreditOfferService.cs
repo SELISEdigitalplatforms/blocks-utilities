@@ -198,6 +198,21 @@ public sealed class CreditOfferService : ICreditOfferService
         offer.TaxRateBasisPoints = request.TaxRateBasisPoints;
         offer.TaxMode = request.TaxMode;
         offer.SpendOrder = request.SpendOrder;
+        offer.Packs = request.Packs
+            .Select(pack => new CreditPack
+            {
+                Code = pack.Code.Trim(),
+                DisplayName = pack.DisplayName.Trim(),
+                Quantity = pack.Quantity,
+                UnitPrices = pack.UnitPrices
+                    .Select(price => new MeterTopUpPrice
+                    {
+                        CurrencyCode = price.CurrencyCode.Trim().ToUpperInvariant(),
+                        UnitAmountMinor = price.UnitAmountMinor
+                    })
+                    .ToList()
+            })
+            .ToList();
         offer.LastUpdatedAtUtc = now;
     }
 
@@ -253,6 +268,21 @@ public sealed class CreditOfferService : ICreditOfferService
         TaxRateBasisPoints = offer.TaxRateBasisPoints,
         TaxMode = offer.TaxMode?.ToString(),
         SpendOrder = offer.SpendOrder.ToString(),
+        Packs = offer.Packs
+            .Select(pack => new CreditPackResponse
+            {
+                Code = pack.Code,
+                DisplayName = pack.DisplayName,
+                Quantity = pack.Quantity,
+                UnitPrices = pack.UnitPrices
+                    .Select(price => new PlanMeterTopUpPriceResponse
+                    {
+                        CurrencyCode = price.CurrencyCode,
+                        UnitAmountMinor = price.UnitAmountMinor
+                    })
+                    .ToList()
+            })
+            .ToList(),
         CreatedAtUtc = offer.CreatedAtUtc,
         LastUpdatedAtUtc = offer.LastUpdatedAtUtc,
         Version = offer.Version

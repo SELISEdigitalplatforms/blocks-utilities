@@ -236,4 +236,48 @@ public sealed class MeterCatalogueAndOfferTests
         MaxQuantity = 1_000,
         ExpiresAfter = new CreditExpiryDurationRequest { Count = 30, Unit = CreditExpiryUnit.Day }
     };
+
+    // ---- packs (spec 005 follow-up) ---------------------------------------------------------
+
+    [Fact]
+    public void An_offer_may_carry_packs_but_not_two_under_one_code_nor_one_with_no_price()
+    {
+        var validator = new CreditOfferRequestValidator();
+        var pack = () => new CreditPackRequest
+        {
+            Code = "starter",
+            DisplayName = "Starter",
+            Quantity = 500,
+            UnitPrices = [new MeterTopUpPriceRequest { CurrencyCode = "USD", UnitAmountMinor = 8 }]
+        };
+        var valid = new CreditOfferRequest
+        {
+            MeterKey = "ai",
+            UnitPrices = [new MeterTopUpPriceRequest { CurrencyCode = "USD", UnitAmountMinor = 10 }],
+            MaxQuantity = 1_000,
+            Packs = [pack()]
+        };
+        var twice = new CreditOfferRequest
+        {
+            MeterKey = "ai",
+            UnitPrices = valid.UnitPrices,
+            MaxQuantity = 1_000,
+            Packs = [pack(), pack()]
+        };
+        var unpriced = pack();
+        unpriced.UnitPrices = [];
+        var free = new CreditOfferRequest
+        {
+            MeterKey = "ai",
+            UnitPrices = valid.UnitPrices,
+            MaxQuantity = 1_000,
+            Packs = [unpriced]
+        };
+
+        validator.Validate(valid).IsValid.Should().BeTrue();
+        validator.Validate(twice).Errors.Should().Contain(error => error.ErrorMessage.Contains("once", StringComparison.Ordinal),
+            "a buyer names a pack by code, so a code must name one pack");
+        validator.Validate(free).Errors.Should().Contain(error => error.ErrorMessage.Contains("price", StringComparison.Ordinal),
+            "a pack nobody can pay for is not for sale");
+    }
 }

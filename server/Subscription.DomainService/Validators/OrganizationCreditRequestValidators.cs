@@ -15,7 +15,9 @@ public sealed class OrganizationCreditPurchaseRequestValidator : AbstractValidat
         RuleFor(request => request.Quantity)
             .GreaterThan(0)
             .Must(CreditQuantities.BeWhole)
-            .WithMessage("Credits are bought in whole numbers.");
+            .WithMessage("Credits are bought in whole numbers.")
+            .When(request => string.IsNullOrWhiteSpace(request.PackCode));
+        RuleFor(request => request.PackCode).MaximumLength(32);
         RuleFor(request => request.CurrencyCode)
             .NotEmpty()
             .Length(3)

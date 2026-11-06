@@ -113,4 +113,48 @@ public interface ISubscriptionCreditGrantRepository
         decimal quantity,
         DateTime nowUtc,
         CancellationToken cancellationToken);
+
+    // ---- the organization's outbox (spec 005), the subscription outbox's contract on a grant ----
+
+    /// <summary>Appends one event, unless one with its deduplication key is already there.</summary>
+    Task<bool> TryAppendEventAsync(
+        string tenantId,
+        string grantId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<SubscriptionCreditGrant>> ListWithDueEventsAsync(
+        string tenantId,
+        DateTime dueAtUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>Takes a lease on one pending event so two workers cannot publish it twice.</summary>
+    Task<SubscriptionOutboxEvent?> TryClaimEventAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        DateTime leaseExpiresAtUtc,
+        CancellationToken cancellationToken);
+
+    Task MarkEventPublishedAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        DateTime publishedAtUtc,
+        bool clearPayload,
+        CancellationToken cancellationToken);
+
+    Task MarkEventFailedAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        SubscriptionOutboxStatus status,
+        int attemptCount,
+        DateTime nextAttemptAtUtc,
+        string failureReason,
+        CancellationToken cancellationToken);
 }

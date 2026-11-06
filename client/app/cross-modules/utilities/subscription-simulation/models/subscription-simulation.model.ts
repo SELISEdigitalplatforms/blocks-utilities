@@ -864,6 +864,8 @@ export interface CreditQuote {
   expiresAtUtc: string | null;
   /** "Checkout" when there is no saved card and the buyer pays at the provider's page (spec 003). */
   paymentPath?: "StoredCard" | "Checkout";
+  /** The offer pack this quote is for, when one was named (spec 005). */
+  packCode?: string | null;
 }
 
 export interface CreditGrant {
@@ -909,7 +911,10 @@ export interface GrantCreditsRequest {
 export interface OrganizationCreditPurchaseRequest {
   organizationId?: string;
   meterKey: string;
+  /** Ignored when `packCode` is given: a pack's quantity is the pack's. */
   quantity: number;
+  /** One of the offer's packs to buy instead of a free quantity. */
+  packCode?: string;
   /** Which of the offer's prices to pay: an organization with no subscription has no currency of its own. */
   currencyCode: string;
   discountCode?: string;

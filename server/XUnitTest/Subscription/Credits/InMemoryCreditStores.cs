@@ -44,6 +44,93 @@ internal sealed class InMemoryCreditGrants : ISubscriptionCreditGrantRepository
     public Task<SubscriptionCreditGrant?> GetAsync(string tenantId, string grantId, CancellationToken cancellationToken) =>
         Task.FromResult(All.Find(grant => grant.ItemId == grantId));
 
+    // ---- the organization's outbox (spec 005) -------------------------------------------------
+
+    public Task<bool> TryAppendEventAsync(
+        string tenantId, string grantId, SubscriptionOutboxEvent outboxEvent, CancellationToken cancellationToken)
+    {
+        var grant = All.Find(candidate => candidate.TenantId == tenantId && candidate.ItemId == grantId);
+
+        if (grant is null || grant.OutboxEvents.Exists(existing => existing.DeduplicationKey == outboxEvent.DeduplicationKey))
+        {
+            return Task.FromResult(false);
+        }
+
+        grant.OutboxEvents.Add(outboxEvent);
+        return Task.FromResult(true);
+    }
+
+    public Task<IReadOnlyList<SubscriptionCreditGrant>> ListWithDueEventsAsync(
+        string tenantId, DateTime dueAtUtc, int limit, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SubscriptionCreditGrant>>(
+        [
+            .. All.Where(grant => grant.TenantId == tenantId && grant.OutboxEvents.Exists(outboxEvent =>
+                outboxEvent.Status is not SubscriptionOutboxStatus.Published and not SubscriptionOutboxStatus.Abandoned &&
+                (outboxEvent.NextAttemptAtUtc is null || outboxEvent.NextAttemptAtUtc <= dueAtUtc))).Take(limit)
+        ]);
+
+    public Task<SubscriptionOutboxEvent?> TryClaimEventAsync(
+        string tenantId, string grantId, string eventId, string leaseId, DateTime leaseExpiresAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var outboxEvent = All.Find(grant => grant.TenantId == tenantId && grant.ItemId == grantId)?
+            .OutboxEvents.Find(candidate =>
+                candidate.EventId == eventId &&
+                candidate.Status is not SubscriptionOutboxStatus.Published and not SubscriptionOutboxStatus.Abandoned &&
+                (candidate.LeaseExpiresAtUtc is null || candidate.LeaseExpiresAtUtc <= DateTime.UtcNow));
+
+        if (outboxEvent is null)
+        {
+            return Task.FromResult<SubscriptionOutboxEvent?>(null);
+        }
+
+        outboxEvent.Status = SubscriptionOutboxStatus.Processing;
+        outboxEvent.LeaseId = leaseId;
+        outboxEvent.LeaseExpiresAtUtc = leaseExpiresAtUtc;
+        return Task.FromResult<SubscriptionOutboxEvent?>(outboxEvent);
+    }
+
+    public Task MarkEventPublishedAsync(
+        string tenantId, string grantId, string eventId, string leaseId, DateTime publishedAtUtc, bool clearPayload,
+        CancellationToken cancellationToken)
+    {
+        if (Leased(tenantId, grantId, eventId, leaseId) is { } outboxEvent)
+        {
+            outboxEvent.Status = SubscriptionOutboxStatus.Published;
+            outboxEvent.PublishedAtUtc = publishedAtUtc;
+            outboxEvent.LeaseId = null;
+            outboxEvent.LeaseExpiresAtUtc = null;
+
+            if (clearPayload)
+            {
+                outboxEvent.Payload = string.Empty;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task MarkEventFailedAsync(
+        string tenantId, string grantId, string eventId, string leaseId, SubscriptionOutboxStatus status,
+        int attemptCount, DateTime nextAttemptAtUtc, string failureReason, CancellationToken cancellationToken)
+    {
+        if (Leased(tenantId, grantId, eventId, leaseId) is { } outboxEvent)
+        {
+            outboxEvent.Status = status;
+            outboxEvent.AttemptCount = attemptCount;
+            outboxEvent.NextAttemptAtUtc = nextAttemptAtUtc;
+            outboxEvent.LastError = failureReason;
+            outboxEvent.LeaseId = null;
+            outboxEvent.LeaseExpiresAtUtc = null;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private SubscriptionOutboxEvent? Leased(string tenantId, string grantId, string eventId, string leaseId) =>
+        All.Find(grant => grant.TenantId == tenantId && grant.ItemId == grantId)?
+            .OutboxEvents.Find(candidate => candidate.EventId == eventId && candidate.LeaseId == leaseId);
+
     public Task<IReadOnlyList<SubscriptionCreditGrant>> ListLiveAsync(
         string tenantId, string subscriptionId, string meterKey, int? seatNumber, DateTime nowUtc,
         CancellationToken cancellationToken)

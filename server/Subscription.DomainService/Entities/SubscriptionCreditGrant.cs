@@ -98,6 +98,13 @@ public sealed class SubscriptionCreditGrant
     public long Version { get; set; }
 
     /// <summary>
+    /// The organization's outbox (spec 005): the events this grant's own transitions produced,
+    /// written in the same insert or update as the transition. Empty on a subscription's grant,
+    /// whose events live on the subscription document.
+    /// </summary>
+    public List<SubscriptionOutboxEvent> OutboxEvents { get; set; } = [];
+
+    /// <summary>
     /// The order grants in one bucket are spent in: whichever would be lost soonest goes first.
     /// </summary>
     /// <remarks>

@@ -592,8 +592,19 @@ public sealed class FinancialDocumentDeliveryWorkHandler : ISubscriptionWorkHand
 public sealed class OutboxPublicationWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionOutboxProcessor _outbox;
+    private readonly IOrganizationCreditOutboxProcessor? _organizationCredits;
 
-    public OutboxPublicationWorkHandler(ISubscriptionOutboxProcessor outbox) => _outbox = outbox;
+    /// <param name="organizationCredits">
+    /// Spec 005. The organization's events live on its grants rather than a subscription, so the
+    /// one sweep drains both outboxes. Optional for a host without standalone credits.
+    /// </param>
+    public OutboxPublicationWorkHandler(
+        ISubscriptionOutboxProcessor outbox,
+        IOrganizationCreditOutboxProcessor? organizationCredits = null)
+    {
+        _outbox = outbox;
+        _organizationCredits = organizationCredits;
+    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.OutboxPublication;
 
@@ -602,6 +613,11 @@ public sealed class OutboxPublicationWorkHandler : ISubscriptionWorkHandler
         CancellationToken cancellationToken)
     {
         await _outbox.PublishDueAsync(work.TenantId, cancellationToken);
+
+        if (_organizationCredits is not null)
+        {
+            await _organizationCredits.PublishDueAsync(work.TenantId, cancellationToken);
+        }
 
         return SubscriptionWorkOutcome.Completed();
     }

@@ -77,6 +77,44 @@ public sealed class CreditOfferRequestValidator : AbstractValidator<CreditOfferR
             .When(request => request.ExpiresAfter is not null)
             .WithMessage("A fixed credit lifetime is at least one hour, day, week, month or year.");
 
+        RuleForEach(request => request.Packs)
+            .ChildRules(pack =>
+            {
+                pack.RuleFor(entry => entry.Code)
+                    .NotEmpty()
+                    .MaximumLength(32)
+                    .Matches("^[A-Za-z0-9_-]+$")
+                    .WithMessage("A pack code is letters, digits, dashes and underscores, up to 32 of them.");
+                pack.RuleFor(entry => entry.DisplayName).NotEmpty().MaximumLength(100);
+                pack.RuleFor(entry => entry.Quantity)
+                    .GreaterThan(0)
+                    .Must(BeWhole)
+                    .WithMessage("A pack holds a whole number of credits.");
+                pack.RuleFor(entry => entry.UnitPrices)
+                    .NotEmpty()
+                    .WithMessage("A pack needs a price in at least one currency.")
+                    .Must(prices => prices
+                        .Select(price => price.CurrencyCode.Trim().ToUpperInvariant())
+                        .Distinct(StringComparer.Ordinal)
+                        .Count() == prices.Count)
+                    .WithMessage("Each currency may have only one price per pack.");
+                pack.RuleForEach(entry => entry.UnitPrices)
+                    .ChildRules(price =>
+                    {
+                        price.RuleFor(entry => entry.CurrencyCode).NotEmpty().Length(3);
+                        price.RuleFor(entry => entry.UnitAmountMinor)
+                            .GreaterThan(0)
+                            .WithMessage("A pack's credits must cost something.");
+                    });
+            });
+
+        RuleFor(request => request.Packs)
+            .Must(packs => packs
+                .Select(pack => pack.Code.Trim().ToUpperInvariant())
+                .Distinct(StringComparer.Ordinal)
+                .Count() == packs.Count)
+            .WithMessage("Each pack code may appear once in an offer.");
+
         RuleFor(request => request.ExpiresAfter!.Unit)
             .IsInEnum()
             .When(request => request.ExpiresAfter is not null);

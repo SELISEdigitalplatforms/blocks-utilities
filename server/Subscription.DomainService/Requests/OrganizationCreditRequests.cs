@@ -8,8 +8,14 @@ public sealed class OrganizationCreditPurchaseRequest
 
     public string MeterKey { get; set; } = string.Empty;
 
-    /// <summary>Whole credits, within the offer's minimum and maximum purchase.</summary>
+    /// <summary>
+    /// Whole credits, within the offer's minimum and maximum purchase. Ignored when
+    /// <see cref="PackCode"/> is given: a pack's quantity is the pack's.
+    /// </summary>
     public decimal Quantity { get; set; }
+
+    /// <summary>One of the offer's packs to buy instead of a free quantity. Optional.</summary>
+    public string? PackCode { get; set; }
 
     /// <summary>
     /// Which of the offer's prices to pay. Required: an organization with no subscription has no

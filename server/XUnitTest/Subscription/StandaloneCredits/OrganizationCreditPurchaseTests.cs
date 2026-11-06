@@ -221,6 +221,62 @@ public sealed class OrganizationCreditPurchaseTests
         result.Value!.UnitAmountMinor.Should().Be(8, "AC-25: an organization override wins over the tenant's offer");
     }
 
+    // ---- packs (spec 005 follow-up) ---------------------------------------------------------
+
+    [Fact]
+    public async Task A_pack_is_quoted_at_its_own_price_and_its_own_size_outside_the_offers_bounds()
+    {
+        _offers.All[0].MaxQuantity = 200;
+        _offers.All[0].Packs = [Starter()];
+
+        var result = await Service().PreviewForOrganizationAsync(Buy(quantity: 1, pack: "STARTER"), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.Quantity.Should().Be(500, "a pack's size is the pack's, not the buyer's, and the offer's maximum does not apply");
+        result.Value.UnitAmountMinor.Should().Be(8, "the pack's own price, cheaper per credit than the offer's 10");
+        result.Value.TotalMinor.Should().Be(4_000);
+        result.Value.PackCode.Should().Be("starter", "matched without regard to case, answered as authored");
+        result.Value.ExpiresAtUtc.Should().Be(Now.UtcDateTime.AddDays(30), "expiry is the offer's");
+    }
+
+    [Fact]
+    public async Task A_pack_the_offer_lacks_or_does_not_price_in_that_currency_is_refused()
+    {
+        _offers.All[0].Packs = [Starter()];
+
+        var unknown = await Service().PreviewForOrganizationAsync(Buy(pack: "bulk"), "corr-1", CancellationToken.None);
+        var unpriced = await Service().PreviewForOrganizationAsync(Buy(currency: "CHF", pack: "starter"), "corr-2", CancellationToken.None);
+
+        unknown.ErrorCode.Should().Be("subscription_credit_pack_not_found");
+        unknown.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+        unpriced.ErrorCode.Should().Be("subscription_credits_currency_not_priced",
+            "a pack priced in USD only cannot be bought in CHF, whatever the offer itself sells in");
+    }
+
+    [Fact]
+    public async Task A_bought_pack_is_recorded_on_the_purchase_and_a_retry_without_it_is_a_different_purchase()
+    {
+        _offers.All[0].Packs = [Starter()];
+
+        var bought = await Service().PurchaseForOrganizationAsync(Buy(key: "k1", pack: "starter"), "corr-1", CancellationToken.None);
+        var retried = await Service().PurchaseForOrganizationAsync(Buy(key: "k1"), "corr-2", CancellationToken.None);
+
+        bought.IsSuccess.Should().BeTrue(bought.ErrorMessage);
+        _purchases.All.Should().ContainSingle().Which.PackCode.Should().Be("starter");
+        _purchases.All[0].Quantity.Should().Be(500);
+        _grants.All.Should().ContainSingle().Which.Quantity.Should().Be(500);
+        retried.ErrorCode.Should().Be("subscription_credits_idempotency_conflict",
+            "the same key for a pack and for a free quantity is two different purchases");
+    }
+
+    private static CreditPack Starter() => new()
+    {
+        Code = "starter",
+        DisplayName = "Starter pack",
+        Quantity = 500,
+        UnitPrices = [new MeterTopUpPrice { CurrencyCode = "USD", UnitAmountMinor = 8 }]
+    };
+
     // ---- stored card purchase ---------------------------------------------------------------
 
     [Fact]
@@ -424,7 +480,7 @@ public sealed class OrganizationCreditPurchaseTests
         _documents.Object,
         new CreditLedger(
             _grants, Mock.Of<ISubscriptionUsageRepository>(), _subscriptions.Object, Mock.Of<ISubscriptionOutboxEventFactory>(),
-            Mock.Of<ISubscriptionWorkScheduler>(), _offers, _messages.Object),
+            Mock.Of<ISubscriptionWorkScheduler>(), _offers, OrganizationOutbox()),
         _payments.Object,
         new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
         _audit.Object,
@@ -448,13 +504,15 @@ public sealed class OrganizationCreditPurchaseTests
         string currency = "USD",
         string meterKey = "ai",
         string? code = null,
-        string? key = null) => new()
+        string? key = null,
+        string? pack = null) => new()
     {
         MeterKey = meterKey,
         Quantity = quantity,
         CurrencyCode = currency,
         DiscountCode = code,
-        IdempotencyKey = key
+        IdempotencyKey = key,
+        PackCode = pack
     };
 
     private static CreditOffer Offer(string? organizationId = null, long usdUnitAmountMinor = 10) => new()
@@ -474,4 +532,8 @@ public sealed class OrganizationCreditPurchaseTests
         ExpiresAfter = new CreditExpiryDuration { Count = 30, Unit = CreditExpiryUnit.Day },
         Version = 3
     };
+
+    private OrganizationCreditOutboxProcessor OrganizationOutbox() => new(
+        _grants, _messages.Object, new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
+        NullLogger<OrganizationCreditOutboxProcessor>.Instance);
 }

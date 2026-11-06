@@ -29,9 +29,13 @@ subscription at all.
 - **Credit offer**: one per catalogue meter per scope (tenant, or one organization's override),
   versioned like discounts: price per currency, min and
   max quantity, tax terms, expiry rule (fixed duration from purchase, or never), spend-order
-  switch, enabled flag.
+  switch, enabled flag. *Added 2026-11-06:* **packs** — fixed-size bundles under the offer, each
+  with its own code, name, quantity and price per currency; expiry, tax and spend order stay the
+  offer's, and the offer's min/max do not apply to a pack.
 - **Organization credit purchase**: preview, idempotent purchase, discount code, stored-card
-  charge or hosted checkout (spec 003 path), invoice, recovery sweep.
+  charge or hosted checkout (spec 003 path), invoice, recovery sweep. *Added 2026-11-06:* a
+  purchase may name a pack; and a **confirmation email** to the charged account's billing contact
+  once the credits are granted, on top of the invoice mail.
 - **Organization credit grants**: ledger with per-grant remaining and expiry, admin free grants
   with a reason, grant history, maintenance sweep.
 - **Usage gate**: consumes organization credits with or without a subscription, in the order the
@@ -41,15 +45,16 @@ subscription at all.
 - **Simulation harness**: subscription state lists the organization's standalone grants and
   purchases; run-due-jobs runs the organization-credit sweeps; a new organization-scoped
   simulation route serves organizations with no subscription.
-- Outbox events, audit trail, usage projection, OpenAPI docs.
+- Outbox events, audit trail, usage projection, OpenAPI docs. *Amended 2026-11-06:* organization
+  credit events go through an **outbox on the grant** (see Integrations), at-least-once.
 
 ### Out
 
 - Refunding unused credits (non-refundable, as spec 002 decided).
 - Moving credits between organizations, or between the organization pool and a subscription
   seat or pool.
-- Multiple offers (packs) per meter.
-- Tiered or bulk pricing.
+- Several offers per meter. Packs (above) cover starter and bulk sizes within the one offer.
+- Tiered pricing within a free quantity.
 - Backfilling the catalogue from existing plan meters: the catalogue starts empty and existing
   plans keep working without an entry.
 - Changing spec 002 plan-level top-up terms: they stay as they are, a separate price source.
@@ -90,6 +95,7 @@ existing plan whose meter key has no catalogue entry keeps working unchanged.
 | `TaxRateBasisPoints`, `TaxMode` | as `MeterTopUpTerms` |
 | `Expiry` | `Never`, or `FixedDuration` with a `CreditExpiryDuration` |
 | `SpendOrder` | `OrganizationCreditsFirst` or `SubscriptionFirst` |
+| `Packs` | *added 2026-11-06*: `[{ Code, DisplayName, Quantity, UnitPrices }]`, codes unique within the offer (case-insensitive); a purchase that names a pack takes the pack's quantity and price and skips the offer's min/max |
 | `Version`, audit stamps | versioned like `Discount`: a purchase records the version it was quoted from |
 
 ### Organization grants (stored in the credit grant collection)
@@ -161,7 +167,7 @@ Payloads wrapped in `ApiResponse<T>`; failures use the existing result-to-status
 | GET | `credit-offers/{meterKey}` | | offer | 403; 404 |
 | POST | `credit-offers` | `organizationId?` + offer fields | offer | 400; 403; 404 no catalogue entry; 409 offer exists in scope or meter archived |
 | PUT | `credit-offers/{meterKey}` | offer fields | offer, version raised | 400; 403; 404 |
-| POST | `organization-credits/preview` | `{ organizationId?, meterKey, quantity, currencyCode, discountCode? }` | quote: unit price, gross, discount, net, tax, total, currency, `expiresAtUtc?` | 400; 404 offer; 409 offer disabled, meter archived, currency not priced, quantity out of bounds; 422 discount not applicable |
+| POST | `organization-credits/preview` | `{ organizationId?, meterKey, quantity, packCode?, currencyCode, discountCode? }` | quote: unit price, gross, discount, net, tax, total, currency, `expiresAtUtc?`, `packCode?` | 400; 404 offer or pack; 409 offer disabled, meter archived, currency not priced (for the offer or the pack), quantity out of bounds; 422 discount not applicable |
 | POST | `organization-credits` | preview fields + `idempotencyKey` | `{ grant?, purchase, documentId?, checkoutUrl? }` | as preview; 402 card declined; 409 key reused with different payload |
 | GET | `organization-credits` | `?organizationId&meterKey&status` | grants | 403 |
 | POST | `organization-credits/grants` | `{ organizationId?, meterKey, quantity, reason }` | grant | 400 reason missing; 403; 404 catalogue entry |
@@ -233,9 +239,18 @@ only act on their own organization unless they are the platform console.
   the existing mail path, listed under `organization-credits/invoices`.
 - **Events**: `OrganizationCreditsPurchased`, `OrganizationCreditsGranted`,
   `OrganizationCreditsExhausted`, carrying organization, meter, quantity and remaining, on the
-  lifecycle topic. *Amended at implementation:* sent directly rather than through an outbox. A
-  subscription's outbox lives on its document; an organization's grants have none, and a second
-  outbox for three event types was not built. At-most-once; see Deferred Decisions.
+  lifecycle topic. *Amended 2026-11-06:* **the grant is the outbox.** A purchase or free grant is
+  inserted with its event already on the grant document; an exhaustion is appended under a key of
+  grant id and event type, so a retried draw adds nothing. The same lease, backoff and
+  abandonment rules as the subscription outbox, run by the `OutboxPublication` sweep, by the
+  payment-webhook tick, and by the simulation harness's `OrganizationCreditOutbox` job. The
+  purchase event also carries the purchase id, total, currency, expiry, pack and billing account
+  so the confirmation mail needs no second read; that payload is cleared once published.
+- **Confirmation email** (*added 2026-11-06*): `OrganizationCreditsPurchased` is a notification
+  purpose, `organization_credits_purchased`, sent to the billing contact of the account charged,
+  in the profile's or account's language, with keys `DisplayName`, `MeterName`, `MeterKey`,
+  `Quantity`, `PackCode`, `Amount` (major units, where the currency is known), `AmountMinor`,
+  `Currency`, `ExpiresOn` (UTC date, empty for never). No recipient is reported, not retried.
 - **Usage projection**: republished after every organization grant mutation and after
   consumption, carrying the new fields.
 - **Audit trail**: catalogue and offer changes, purchase, grant and expiry as audit events.
@@ -311,10 +326,10 @@ only act on their own organization unless they are the platform console.
 
 | Decision | Fallback chosen now | Revisit when |
 |---|---|---|
-| Purchase confirmation email beyond the invoice mail | invoice mail only, as spec 002 | the client asks for a separate confirmation |
+| ~~Purchase confirmation email beyond the invoice mail~~ | *done 2026-11-06*, see Integrations | — |
 | Catalogue backfill from existing plans | none; populated on next plan save | an author needs offers for meters on untouched plans |
-| Packs (several offers per meter) | one offer per meter | the client asks for starter and bulk packs |
-| Outbox for organization credit events | direct publish, at-most-once | a lost organization credit event is reported |
+| ~~Packs (several offers per meter)~~ | *done 2026-11-06* as packs within the one offer | several independent offers per meter are ever needed |
+| ~~Outbox for organization credit events~~ | *done 2026-11-06*, the grant is the outbox | — |
 | Document re-issue sweep for a standalone purchase whose scheduling failed | none; the purchase record holds every figure and the operator re-announces | it is ever seen |
 | Usage against a meter with a catalogue entry but no offer, by an organization with no subscription | refused as unknown to this organization, the same answer as no catalogue entry (AC-10) | a credits-only organization needs catalogue-only meters |
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Blocks.Genesis;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -315,6 +316,155 @@ public sealed class SubscriptionCreditGrantRepository : ISubscriptionCreditGrant
 
         return result.ModifiedCount > 0;
     }
+
+    // ---- the organization's outbox (spec 005) -------------------------------------------------
+
+    public async Task<bool> TryAppendEventAsync(
+        string tenantId,
+        string grantId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        var filter = Builders<SubscriptionCreditGrant>.Filter;
+        var result = await Collection(tenantId).UpdateOneAsync(
+            filter.And(
+                filter.Eq(grant => grant.TenantId, tenantId),
+                filter.Eq(grant => grant.ItemId, grantId),
+                filter.Not(filter.ElemMatch(
+                    grant => grant.OutboxEvents,
+                    existing => existing.DeduplicationKey == outboxEvent.DeduplicationKey))),
+            Builders<SubscriptionCreditGrant>.Update.Push(grant => grant.OutboxEvents, outboxEvent),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<IReadOnlyList<SubscriptionCreditGrant>> ListWithDueEventsAsync(
+        string tenantId,
+        DateTime dueAtUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditGrant>.Filter;
+
+        return await Collection(tenantId)
+            .Find(filter.And(
+                filter.Eq(grant => grant.TenantId, tenantId),
+                filter.ElemMatch(
+                    grant => grant.OutboxEvents,
+                    outboxEvent =>
+                        outboxEvent.Status != SubscriptionOutboxStatus.Published &&
+                        outboxEvent.Status != SubscriptionOutboxStatus.Abandoned &&
+                        (outboxEvent.NextAttemptAtUtc == null || outboxEvent.NextAttemptAtUtc <= dueAtUtc))))
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<SubscriptionOutboxEvent?> TryClaimEventAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        DateTime leaseExpiresAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionCreditGrant>.Filter;
+        var updated = await Collection(tenantId).FindOneAndUpdateAsync(
+            filter.And(
+                filter.Eq(grant => grant.TenantId, tenantId),
+                filter.Eq(grant => grant.ItemId, grantId),
+                filter.ElemMatch(
+                    grant => grant.OutboxEvents,
+                    outboxEvent =>
+                        outboxEvent.EventId == eventId &&
+                        outboxEvent.Status != SubscriptionOutboxStatus.Published &&
+                        outboxEvent.Status != SubscriptionOutboxStatus.Abandoned &&
+                        (outboxEvent.LeaseExpiresAtUtc == null || outboxEvent.LeaseExpiresAtUtc <= DateTime.UtcNow))),
+            Builders<SubscriptionCreditGrant>.Update
+                .Set("OutboxEvents.$[evt].Status", SubscriptionOutboxStatus.Processing)
+                .Set("OutboxEvents.$[evt].LeaseId", leaseId)
+                .Set("OutboxEvents.$[evt].LeaseExpiresAtUtc", leaseExpiresAtUtc),
+            new FindOneAndUpdateOptions<SubscriptionCreditGrant>
+            {
+                ArrayFilters = EventArrayFilter(eventId),
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken);
+
+        return updated?.OutboxEvents.Find(outboxEvent => outboxEvent.EventId == eventId);
+    }
+
+    public async Task MarkEventPublishedAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        DateTime publishedAtUtc,
+        bool clearPayload,
+        CancellationToken cancellationToken)
+    {
+        var update = Builders<SubscriptionCreditGrant>.Update
+            .Set("OutboxEvents.$[evt].Status", SubscriptionOutboxStatus.Published)
+            .Set("OutboxEvents.$[evt].PublishedAtUtc", publishedAtUtc)
+            .Set("OutboxEvents.$[evt].LeaseId", (string?)null)
+            .Set("OutboxEvents.$[evt].LeaseExpiresAtUtc", (DateTime?)null);
+
+        if (clearPayload)
+        {
+            update = update.Set("OutboxEvents.$[evt].Payload", string.Empty);
+        }
+
+        await Collection(tenantId).UpdateOneAsync(
+            LeasedEventFilter(tenantId, grantId, eventId, leaseId),
+            update,
+            new UpdateOptions { ArrayFilters = EventArrayFilter(eventId) },
+            cancellationToken);
+    }
+
+    public async Task MarkEventFailedAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        SubscriptionOutboxStatus status,
+        int attemptCount,
+        DateTime nextAttemptAtUtc,
+        string failureReason,
+        CancellationToken cancellationToken) =>
+        await Collection(tenantId).UpdateOneAsync(
+            LeasedEventFilter(tenantId, grantId, eventId, leaseId),
+            Builders<SubscriptionCreditGrant>.Update
+                .Set("OutboxEvents.$[evt].Status", status)
+                .Set("OutboxEvents.$[evt].AttemptCount", attemptCount)
+                .Set("OutboxEvents.$[evt].NextAttemptAtUtc", nextAttemptAtUtc)
+                .Set("OutboxEvents.$[evt].LastError", failureReason.Length <= 500 ? failureReason : failureReason[..500])
+                .Set("OutboxEvents.$[evt].LeaseId", (string?)null)
+                .Set("OutboxEvents.$[evt].LeaseExpiresAtUtc", (DateTime?)null),
+            new UpdateOptions { ArrayFilters = EventArrayFilter(eventId) },
+            cancellationToken);
+
+    private static FilterDefinition<SubscriptionCreditGrant> LeasedEventFilter(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId)
+    {
+        var filter = Builders<SubscriptionCreditGrant>.Filter;
+
+        return filter.And(
+            filter.Eq(grant => grant.TenantId, tenantId),
+            filter.Eq(grant => grant.ItemId, grantId),
+            filter.ElemMatch(
+                grant => grant.OutboxEvents,
+                outboxEvent => outboxEvent.EventId == eventId && outboxEvent.LeaseId == leaseId));
+    }
+
+    private static List<ArrayFilterDefinition> EventArrayFilter(string eventId) =>
+    [
+        new BsonDocumentArrayFilterDefinition<SubscriptionOutboxEvent>(new BsonDocument("evt.EventId", eventId))
+    ];
 
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {

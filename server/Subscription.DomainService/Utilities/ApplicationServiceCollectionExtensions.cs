@@ -385,6 +385,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionOutboxProcessor,
             SubscriptionOutboxProcessor>();
+        services.AddScoped<
+            IOrganizationCreditOutboxProcessor,
+            OrganizationCreditOutboxProcessor>();
         // Registered as themselves — SubscriptionBillingGatewayResolver picks between them by
         // provider name, so neither is the ISubscriptionBillingGateway DI entry on its own.
         services.AddScoped<RecurringChargeBillingGateway>();

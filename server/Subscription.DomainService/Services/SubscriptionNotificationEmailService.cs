@@ -1,6 +1,7 @@
 using System.Globalization;
 using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -30,6 +31,7 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
     private readonly IMailDeliveryReporter? _mailReports;
     private readonly ISubscriptionAssignmentRepository? _assignments;
     private readonly ISubscriptionBillingProfileRepository? _profiles;
+    private readonly ICurrencyMinorUnitResolver? _currency;
 
     public SubscriptionNotificationEmailService(
         ISubscriptionRepository subscriptions,
@@ -41,8 +43,11 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         // seat could not be checked, and an unchecked one may be a seat that was never written.
         ISubscriptionAssignmentRepository? assignments = null,
         // Optional: absent, the billing contact is mailed in the account's language, else en-US.
-        ISubscriptionBillingProfileRepository? profiles = null)
+        ISubscriptionBillingProfileRepository? profiles = null,
+        // Optional: absent, a credit purchase confirmation carries the amount in minor units only.
+        ICurrencyMinorUnitResolver? currency = null)
     {
+        _currency = currency;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
         _messageClient = messageClient;
@@ -69,6 +74,12 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             or SubscriptionConstants.SubscriptionMemberReleased)
         {
             await SendToMemberAsync(lifecycleEvent, purpose, cancellationToken);
+            return;
+        }
+
+        if (lifecycleEvent.EventType == SubscriptionConstants.OrganizationCreditsPurchased)
+        {
+            await SendCreditPurchaseConfirmationAsync(lifecycleEvent, purpose, cancellationToken);
             return;
         }
 
@@ -196,6 +207,73 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             lifecycleEvent.MemberEmail,
             purpose,
             MailLanguage.FirstOf(lifecycleEvent.MemberLanguage),
+            new Dictionary<string, string>(context),
+            context,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The confirmation an organization gets for credits it bought outright (spec 005): to the
+    /// billing contact of the account that was charged, since there is no subscription to ask.
+    /// </summary>
+    /// <remarks>
+    /// Every figure comes from the event, which the purchase record filled in when the grant was
+    /// written, so the mail says what was paid even if the offer has since been repriced. The
+    /// amount is given in major units where the currency is known to this host and in minor units
+    /// always, so a template can show one or the other without a missing key.
+    /// </remarks>
+    private async Task SendCreditPurchaseConfirmationAsync(
+        SubscriptionLifecycleEvent lifecycleEvent,
+        string purpose,
+        CancellationToken cancellationToken)
+    {
+        var account = string.IsNullOrWhiteSpace(lifecycleEvent.BillingAccountId)
+            ? null
+            : await _billingAccounts.GetAsync(lifecycleEvent.TenantId, lifecycleEvent.BillingAccountId, cancellationToken);
+
+        if (account is null || string.IsNullOrWhiteSpace(account.BillingEmail))
+        {
+            _logger.LogWarning(
+                "Credit purchase confirmation skipped because the billing account has no recipient " +
+                "TenantId={TenantId} OrganizationId={OrganizationId} PurchaseId={PurchaseId} EventId={EventId}",
+                PaymentLogValue.Id(lifecycleEvent.TenantId),
+                PaymentLogValue.Id(lifecycleEvent.OrganizationId),
+                PaymentLogValue.Label(lifecycleEvent.CreditPurchaseId),
+                lifecycleEvent.EventId);
+            await ReportNotAttemptedAsync(lifecycleEvent, "billing_email_missing", cancellationToken);
+            return;
+        }
+
+        var amount = _currency is not null &&
+            lifecycleEvent.CreditTotalMinor is { } total &&
+            lifecycleEvent.CurrencyCode is { Length: > 0 } currencyCode &&
+            MinorUnitMajorAmountFormatter.TryFormat(_currency, total, currencyCode, out var major)
+                ? major
+                : string.Empty;
+
+        var context = new Dictionary<string, string>
+        {
+            ["DisplayName"] = string.IsNullOrWhiteSpace(account.BillingName) ? account.BillingEmail : account.BillingName,
+            ["MeterName"] = lifecycleEvent.MeterDisplayName is { Length: > 0 } name ? name : lifecycleEvent.MeterKey ?? string.Empty,
+            ["MeterKey"] = lifecycleEvent.MeterKey ?? string.Empty,
+            ["Quantity"] = lifecycleEvent.CreditQuantity?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty,
+            ["PackCode"] = lifecycleEvent.PackCode ?? string.Empty,
+            ["Amount"] = amount,
+            ["AmountMinor"] = lifecycleEvent.CreditTotalMinor?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+            ["Currency"] = lifecycleEvent.CurrencyCode ?? string.Empty,
+            // An organization has no billing timezone of its own; the UTC date is the honest one.
+            ["ExpiresOn"] = EffectiveDate(lifecycleEvent.CreditExpiresAtUtc, null)
+        };
+
+        var profile = _profiles is null
+            ? null
+            : await _profiles.GetAsync(lifecycleEvent.TenantId, lifecycleEvent.OrganizationId, cancellationToken);
+
+        await QueueAsync(
+            lifecycleEvent,
+            account.BillingEmail,
+            purpose,
+            MailLanguage.FirstOf(profile?.BillingContactLanguage, account.Language),
             new Dictionary<string, string>(context),
             context,
             cancellationToken);
@@ -344,7 +422,10 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         OrganizationId = lifecycleEvent.OrganizationId,
         Source = MailDeliveryReportSource.SubscriptionNotification,
         Outcome = outcome,
-        SubjectId = lifecycleEvent.SubscriptionId,
+        // An organization credit purchase has no subscription; the purchase is its subject.
+        SubjectId = string.IsNullOrEmpty(lifecycleEvent.SubscriptionId)
+            ? lifecycleEvent.CreditPurchaseId ?? string.Empty
+            : lifecycleEvent.SubscriptionId,
         SubjectReference = lifecycleEvent.EventId,
         // Not claimed: a redelivered event may send again, which the spec accepts.
         MailMessageId = null,

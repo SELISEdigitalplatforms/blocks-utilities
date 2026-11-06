@@ -349,7 +349,11 @@ public sealed class OrganizationCreditConsumptionTests
         credits: Ledger());
 
     private CreditLedger Ledger() =>
-        new(_grants, _usage.Object, _subscriptions.Object, _events.Object, _scheduler.Object, _offers, _messages.Object);
+        new(_grants, _usage.Object, _subscriptions.Object, _events.Object, _scheduler.Object, _offers, OrganizationOutbox());
+
+    private OrganizationCreditOutboxProcessor OrganizationOutbox() => new(
+        _grants, _messages.Object, new SubscriptionOptionsMonitorStub(new SubscriptionOptions()),
+        NullLogger<OrganizationCreditOutboxProcessor>.Instance);
 
     /// <summary>A plan allowing ten, with a window already open at <paramref name="allowanceUsed"/>.</summary>
     private void Subscribed(decimal allowanceUsed, bool overageAllowed = true)

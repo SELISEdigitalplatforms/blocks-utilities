@@ -53,6 +53,13 @@ public sealed class CreditOffer
 
     public CreditSpendOrder SpendOrder { get; set; } = CreditSpendOrder.SubscriptionFirst;
 
+    /// <summary>
+    /// Fixed-size bundles sold under this offer — a starter pack, a bulk pack — each with its own
+    /// price per currency. Everything else about a pack purchase (expiry, tax, spend order) is the
+    /// offer's. Empty for an offer that sells by the credit only.
+    /// </summary>
+    public List<CreditPack> Packs { get; set; } = [];
+
     public DateTime CreatedAtUtc { get; set; }
 
     public DateTime LastUpdatedAtUtc { get; set; }
@@ -63,6 +70,9 @@ public sealed class CreditOffer
     public MeterTopUpPrice? PriceIn(string currencyCode) =>
         UnitPrices.Find(price =>
             string.Equals(price.CurrencyCode, currencyCode, StringComparison.OrdinalIgnoreCase));
+
+    public CreditPack? PackByCode(string code) =>
+        Packs.Find(pack => string.Equals(pack.Code, code.Trim(), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// The same terms in the shape the credit quote calculator prices, so an offer and a plan
@@ -79,4 +89,28 @@ public sealed class CreditOffer
         TaxRateBasisPoints = TaxRateBasisPoints,
         TaxMode = TaxMode
     };
+}
+
+/// <summary>
+/// A fixed quantity of an offer's credits at its own unit price: how a seller makes a bigger
+/// purchase cheaper per credit without a discount code. Bought by code; the quantity is the
+/// pack's, not the buyer's, and the offer's purchase bounds do not apply to it.
+/// </summary>
+[BsonIgnoreExtraElements]
+public sealed class CreditPack
+{
+    /// <summary>Unique within the offer, case-insensitive. What a purchase names.</summary>
+    public string Code { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>Whole credits.</summary>
+    public decimal Quantity { get; set; }
+
+    /// <summary>One price per currency, as the offer's. A currency the pack lacks cannot buy it.</summary>
+    public List<MeterTopUpPrice> UnitPrices { get; set; } = [];
+
+    public MeterTopUpPrice? PriceIn(string currencyCode) =>
+        UnitPrices.Find(price =>
+            string.Equals(price.CurrencyCode, currencyCode, StringComparison.OrdinalIgnoreCase));
 }
