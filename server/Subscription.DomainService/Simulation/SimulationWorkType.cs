@@ -16,5 +16,14 @@ public enum SimulationWorkType
     Renewal,
     UsagePeriodClosure,
     UsageInvoiceCharge,
-    OutboxPublication
+    OutboxPublication,
+
+    /// <summary>Finish or fail credit purchases a crash left part way, subscription and standalone alike (spec 005).</summary>
+    CreditPurchaseRecovery,
+
+    /// <summary>Close credit grants that have expired or run out.</summary>
+    CreditGrantMaintenance,
+
+    /// <summary>The organization credit outbox sweep (spec 005): events still owed by a grant.</summary>
+    OrganizationCreditOutbox
 }

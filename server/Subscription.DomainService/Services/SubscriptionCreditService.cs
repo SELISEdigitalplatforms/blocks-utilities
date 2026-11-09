@@ -86,8 +86,20 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         ICurrencyMinorUnitResolver? currency = null,
         BillingAccountCardAdopter? cardAdopter = null,
         // Stripe only; absent for a provider it cannot observe. See ISubscriptionPaymentReconciler.
-        ISubscriptionPaymentReconciler? reconciler = null)
+        ISubscriptionPaymentReconciler? reconciler = null,
+        // Spec 005, standalone credits. Optional so a host or test without offers keeps the
+        // subscription-only behaviour; a standalone request is then refused as unavailable.
+        ICreditOfferRepository? offers = null,
+        IMeterCatalogueRepository? catalogue = null,
+        OrganizationBillingAccountResolver? organizationAccounts = null,
+        IValidator<OrganizationCreditPurchaseRequest>? organizationPurchaseValidator = null,
+        IValidator<OrganizationGrantCreditsRequest>? organizationGrantValidator = null)
     {
+        _offers = offers;
+        _catalogue = catalogue;
+        _organizationAccounts = organizationAccounts;
+        _organizationPurchaseValidator = organizationPurchaseValidator;
+        _organizationGrantValidator = organizationGrantValidator;
         _contextResolver = contextResolver;
         _subscriptions = subscriptions;
         _billingAccounts = billingAccounts;
@@ -175,29 +187,52 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
 
         var (purchase, meter, account, discount) = priced.Value!;
 
+        return await ExecutePurchaseAsync(
+            subscription, context, purchase, account, discount, purchaseId, request.IdempotencyKey, fingerprint,
+            CreditLabel(meter), correlationId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Everything from the recorded intent to the answer, for a subscription's purchase and an
+    /// organization's alike (spec 005): the record, the code reservation, the charge or the
+    /// checkout, and the grant. <paramref name="subscription"/> is null for a standalone purchase.
+    /// </summary>
+    private async Task<SubscriptionOperationResult<CreditPurchaseResponse>> ExecutePurchaseAsync(
+        SubscriptionDetail? subscription,
+        SubscriptionContext context,
+        SubscriptionCreditPurchase purchase,
+        BillingAccount account,
+        Discount? discount,
+        string purchaseId,
+        string idempotencyKey,
+        string fingerprint,
+        string creditLabel,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+
         // ponytail: read-then-insert, so two keys racing past this can each open a session. Both
         // would settle correctly; only the one-session promise breaks. A unique index on the open
         // checkout is the upgrade if that is ever seen.
         if (purchase.PaymentPath == CreditPaymentPath.Checkout &&
-            await _purchases.FindOpenCheckoutAsync(context.TenantId, subscription.ItemId, cancellationToken) is { } open)
+            await FindOpenCheckoutAsync(context.TenantId, subscription, purchase.OrganizationId, cancellationToken) is { } open)
         {
             return CheckoutInProgress(open, correlationId);
         }
 
         purchase.ItemId = purchaseId;
-        purchase.IdempotencyKey = request.IdempotencyKey;
+        purchase.IdempotencyKey = idempotencyKey;
         purchase.RequestFingerprint = fingerprint;
-        purchase.OrderId = SubscriptionConstants.CreditPurchaseOrderIdFor(
-            subscription.ItemId,
-            Guid.NewGuid().ToString("N"));
+        purchase.OrderId = OrderIdFor(subscription, purchase.OrganizationId);
         purchase.ProviderName = account.ProviderName;
         // The merchant's scope, which holds the card, exactly as a renewal charges. A checkout opens
         // under the scope a signup checkout does, which is the one the card it saves will live in.
         purchase.ProviderOrganizationId = purchase.PaymentPath == CreditPaymentPath.Checkout
-            ? CheckoutProviderOrganizationId(account, subscription)
-            : account.ProviderOrganizationId ?? subscription.OrganizationId;
+            ? CheckoutProviderOrganizationId(account, purchase.OrganizationId)
+            : account.ProviderOrganizationId ?? purchase.OrganizationId;
         purchase.ProviderCustomerId = account.ProviderCustomerId;
         purchase.StoredPaymentMethodId = account.DefaultPaymentMethodId;
+        purchase.BillingAccountId = account.ItemId;
 
         if (!await _purchases.TryCreateAsync(purchase, cancellationToken))
         {
@@ -226,7 +261,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
                 new CampaignRedemption
                 {
                     TenantId = context.TenantId,
-                    OrganizationId = subscription.OrganizationId,
+                    OrganizationId = purchase.OrganizationId,
                     DiscountId = discount.ItemId,
                     CampaignVersion = discount.Version,
                     SubscriptionId = purchase.ItemId,
@@ -254,10 +289,10 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         if (purchase.PaymentPath == CreditPaymentPath.Checkout)
         {
             return await StartCheckoutAsync(
-                subscription, meter, purchase, account, reserved ? discount!.ItemId : null, correlationId, cancellationToken);
+                purchase, account, creditLabel, reserved ? discount!.ItemId : null, correlationId, cancellationToken);
         }
 
-        var charged = await ChargeAsync(subscription, meter, purchase, correlationId, cancellationToken);
+        var charged = await ChargeAsync(purchase, creditLabel, correlationId, cancellationToken);
 
         if (!charged.IsSuccess && !SettledFailureKinds.Contains(charged.FailureKind))
         {
@@ -335,7 +370,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
     /// record marked finished. Each step is safe to repeat.
     /// </summary>
     private async Task<SubscriptionCreditGrant> FinalizeAsync(
-        SubscriptionDetail subscription,
+        SubscriptionDetail? subscription,
         SubscriptionCreditPurchase purchase,
         string? reservedDiscountId,
         SubscriptionContext context,
@@ -347,8 +382,8 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
             // From the purchase, so finishing it twice finds the grant already there.
             ItemId = GrantIdFor(purchase),
             TenantId = purchase.TenantId,
-            OrganizationId = subscription.OrganizationId,
-            SubscriptionId = subscription.ItemId,
+            OrganizationId = purchase.OrganizationId,
+            SubscriptionId = subscription?.ItemId,
             MeterKey = purchase.MeterKey,
             SeatNumber = purchase.SeatNumber,
             Source = CreditGrantSource.Purchased,
@@ -359,9 +394,17 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
             GrantedAtUtc = Now(),
             GrantedByUserId = purchase.BuyerUserId,
             PurchaseId = purchase.ItemId,
-            PlanVersionAtGrant = subscription.Plan.PlanVersion,
+            PlanVersionAtGrant = subscription?.Plan.PlanVersion ?? 0,
             LastUpdatedAtUtc = Now()
         };
+
+        if (subscription is null)
+        {
+            // Written with the grant, not after it: a crash between the two would leave credits
+            // nobody was told about (spec 005). The purchase gives the mail its figures.
+            grant.OutboxEvents.Add(CreditLedger.OrganizationEvent(
+                grant, SubscriptionConstants.OrganizationCreditsPurchased, correlationId, purchase, Now()));
+        }
 
         if (!await _grants.TryInsertAsync(grant, cancellationToken))
         {
@@ -374,23 +417,32 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
                 purchase.TenantId, reservedDiscountId, purchase.ItemId, Now(), cancellationToken);
         }
 
-        if (purchase.PaymentId is { } paymentId)
+        if (subscription is null)
         {
-            await _documents.AnnounceCreditPurchaseAsync(
-                subscription,
-                paymentId,
-                InvoiceLineFor(subscription, purchase),
-                purchase.DiscountCode,
-                correlationId,
-                cancellationToken,
-                SubscriptionDocumentSourceFactory.ActorOf(context.UserId, context.UserName, context.UserEmail));
+            await _documents.AnnounceOrganizationCreditPurchaseAsync(purchase, correlationId, cancellationToken);
+            await _ledger.PublishOrganizationAsync(
+                grant, SubscriptionConstants.OrganizationCreditsPurchased, correlationId, cancellationToken, purchase);
         }
-
-        await _ledger.PublishAsync(subscription, SubscriptionConstants.SubscriptionCreditsPurchased, grant, correlationId, cancellationToken);
-
-        if (FindMeter(subscription, purchase.MeterKey) is { } meter)
+        else
         {
-            await _ledger.RearmThresholdsAsync(subscription, meter, purchase.SeatNumber, Now(), cancellationToken);
+            if (purchase.PaymentId is { } paymentId)
+            {
+                await _documents.AnnounceCreditPurchaseAsync(
+                    subscription,
+                    paymentId,
+                    InvoiceLineFor(subscription, purchase),
+                    purchase.DiscountCode,
+                    correlationId,
+                    cancellationToken,
+                    SubscriptionDocumentSourceFactory.ActorOf(context.UserId, context.UserName, context.UserEmail));
+            }
+
+            await _ledger.PublishAsync(subscription, SubscriptionConstants.SubscriptionCreditsPurchased, grant, correlationId, cancellationToken);
+
+            if (FindMeter(subscription, purchase.MeterKey) is { } meter)
+            {
+                await _ledger.RearmThresholdsAsync(subscription, meter, purchase.SeatNumber, Now(), cancellationToken);
+            }
         }
 
         purchase.GrantId = grant.ItemId;
@@ -410,9 +462,8 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
     /// sweep's replay reaches the same provider customer and card the first attempt did.
     /// </remarks>
     private async Task<SubscriptionOperationResult<string>> ChargeAsync(
-        SubscriptionDetail subscription,
-        PlanMeter? meter,
         SubscriptionCreditPurchase purchase,
+        string creditLabel,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -426,9 +477,9 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         return await _gateway.ChargeAsync(
             new SubscriptionChargeRequest
             {
-                TenantId = subscription.TenantId,
-                OrganizationId = purchase.ProviderOrganizationId ?? subscription.OrganizationId,
-                SubscriberOrganizationId = subscription.OrganizationId,
+                TenantId = purchase.TenantId,
+                OrganizationId = purchase.ProviderOrganizationId ?? purchase.OrganizationId,
+                SubscriberOrganizationId = purchase.OrganizationId,
                 ProviderName = purchase.ProviderName,
                 StoredPaymentMethodId = purchase.StoredPaymentMethodId!,
                 ProviderCustomerId = purchase.ProviderCustomerId,
@@ -441,7 +492,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
                 PromotionalDiscountMinor = purchase.DiscountMinor,
                 CurrencyCode = purchase.CurrencyCode,
                 OrderId = purchase.OrderId,
-                Description = $"{Format(purchase.Quantity)} {(meter is null ? $"{purchase.MeterKey} credits" : CreditLabel(meter))}"
+                Description = $"{Format(purchase.Quantity)} {creditLabel}"
             },
             SubscriptionConstants.CreditPurchaseChargeKeyFor(purchase.ItemId),
             correlationId,
@@ -610,7 +661,8 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         if (!string.IsNullOrWhiteSpace(request.DiscountCode))
         {
             var resolved = await ResolveDiscountAsync(
-                context, subscription, meter, request.DiscountCode, now, correlationId, cancellationToken);
+                context, subscription.Plan.Code, subscription.CurrencyCode, meter.MeterKey,
+                request.DiscountCode, now, correlationId, cancellationToken);
 
             if (!resolved.IsSuccess)
             {
@@ -707,10 +759,12 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
     /// <summary>
     /// The code, checked the way signup checks one, against a credit purchase instead of a plan.
     /// </summary>
+    /// <param name="planCode">The plan the purchase sits under, or empty for a standalone purchase (spec 005), which only a code unrestricted by plan applies to.</param>
     private async Task<SubscriptionOperationResult<(Discount, DiscountTerms)>> ResolveDiscountAsync(
         SubscriptionContext context,
-        SubscriptionDetail subscription,
-        PlanMeter meter,
+        string planCode,
+        string currencyCode,
+        string meterKey,
         string code,
         DateTime now,
         string correlationId,
@@ -746,7 +800,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
                 correlationId);
         }
 
-        if (!SubscriptionDiscountApplicability.PermitsCreditPurchase(discount, subscription.Plan.Code, meter.MeterKey))
+        if (!SubscriptionDiscountApplicability.PermitsCreditPurchase(discount, planCode, meterKey))
         {
             return Failure<(Discount, DiscountTerms)>(
                 PaymentFailureKind.Validation,
@@ -756,7 +810,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         }
 
         if (discount.Terms.Kind == DiscountKind.FixedAmount &&
-            !string.Equals(discount.CurrencyCode, subscription.CurrencyCode, StringComparison.OrdinalIgnoreCase))
+            !string.Equals(discount.CurrencyCode, currencyCode, StringComparison.OrdinalIgnoreCase))
         {
             return Failure<(Discount, DiscountTerms)>(
                 PaymentFailureKind.Validation,
@@ -767,7 +821,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
 
         if (discount.Campaign.OneUsePerOrganization &&
             await _redemptions.FindActiveForOrganizationAsync(
-                context.TenantId, subscription.OrganizationId, discount.ItemId, cancellationToken) is not null)
+                context.TenantId, context.OrganizationId, discount.ItemId, cancellationToken) is not null)
         {
             return Failure<(Discount, DiscountTerms)>(
                 PaymentFailureKind.Conflict,
@@ -1223,12 +1277,14 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
     {
         var correlationId = $"credit-recovery-{Guid.NewGuid():N}";
         var overdue = now - purchase.CreatedAtUtc > TimeSpan.FromHours(Math.Max(1, options.CreditPurchaseAlertAfterHours));
-        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
+        var subscription = await SubscriptionOfAsync(purchase, cancellationToken);
 
         // Credits granted into an ended subscription are forfeited the moment they land, so it must
         // neither be charged again nor granted into. Whatever money may have moved goes to an operator.
-        var ended = subscription is null ||
-                    subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired;
+        // A standalone purchase (spec 005) has no subscription to end, so it is never held for that.
+        var ended = !purchase.IsOrganizationOwned &&
+                    (subscription is null ||
+                     subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired);
 
         if (purchase.Status == CreditPurchaseStatus.Pending)
         {
@@ -1245,7 +1301,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
                     return await HoldAsync(purchase, now, overdue: true, cancellationToken);
                 }
 
-                var replayed = await ReplayChargeAsync(purchase, subscription!, correlationId, cancellationToken);
+                var replayed = await ReplayChargeAsync(purchase, subscription, correlationId, cancellationToken);
 
                 if (replayed is null)
                 {
@@ -1312,7 +1368,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         }
 
         await FinalizeAsync(
-            subscription!,
+            subscription,
             purchase,
             purchase.DiscountId,
             new SubscriptionContext(purchase.TenantId, purchase.OrganizationId, "credit-purchase-recovery", purchase.BuyerUserId),
@@ -1359,7 +1415,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
     /// </summary>
     private async Task<SubscriptionOperationResult<string>?> ReplayChargeAsync(
         SubscriptionCreditPurchase purchase,
-        SubscriptionDetail subscription,
+        SubscriptionDetail? subscription,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -1368,8 +1424,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
             return null;
         }
 
-        var charged = await ChargeAsync(
-            subscription, FindMeter(subscription, purchase.MeterKey), purchase, correlationId, cancellationToken);
+        var charged = await ChargeAsync(purchase, LabelOf(purchase, subscription), correlationId, cancellationToken);
 
         return charged.IsSuccess || SettledFailureKinds.Contains(charged.FailureKind) ? charged : null;
     }
@@ -1539,7 +1594,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
 
     private Task AuditAsync(
         SubscriptionContext context,
-        SubscriptionDetail subscription,
+        SubscriptionDetail? subscription,
         string operation,
         string stage,
         string outcome,
@@ -1555,9 +1610,9 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         _audit.RecordAsync(
             new SubscriptionAuditEvent
             {
-                TenantId = subscription.TenantId,
-                OrganizationId = subscription.OrganizationId,
-                SubscriptionId = subscription.ItemId,
+                TenantId = context.TenantId,
+                OrganizationId = context.OrganizationId,
+                SubscriptionId = subscription?.ItemId,
                 AggregateType = "SubscriptionCredit",
                 AggregateId = aggregateId,
                 OperationId = $"{operation}:{aggregateId}:{stage}",
@@ -1634,19 +1689,22 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         DiscountCode = purchase.DiscountCode,
         ExpiryPolicy = purchase.ExpiryPolicy.ToString(),
         ExpiresAtUtc = purchase.ExpiresAtUtc,
-        PaymentPath = purchase.PaymentPath.ToString()
+        PaymentPath = purchase.PaymentPath.ToString(),
+        PackCode = purchase.PackCode
     };
 
-    private static CreditPurchaseResponse PurchaseResponse(
+    /// <param name="withCheckoutUrl">False for a diagnostic read, which never hands out a live checkout URL.</param>
+    internal static CreditPurchaseResponse PurchaseResponse(
         SubscriptionCreditPurchase purchase,
         SubscriptionCreditGrant? grant,
-        bool replayed) => new()
+        bool replayed,
+        bool withCheckoutUrl = true) => new()
     {
         PurchaseId = purchase.ItemId,
         Status = purchase.Status.ToString(),
         Quote = QuoteResponse(purchase),
         PaymentId = purchase.PaymentId,
-        CheckoutUrl = purchase.Status == CreditPurchaseStatus.AwaitingPayment ? purchase.CheckoutUrl : null,
+        CheckoutUrl = withCheckoutUrl && purchase.Status == CreditPurchaseStatus.AwaitingPayment ? purchase.CheckoutUrl : null,
         Grant = grant is null ? null : GrantResponse(grant),
         FailureCode = purchase.FailureCode,
         FailureReason = purchase.FailureReason,
@@ -1657,7 +1715,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
     private static CreditGrantResponse GrantResponse(SubscriptionCreditGrant grant) =>
         GrantResponse(grant, grant.Status);
 
-    private static CreditGrantResponse GrantResponse(SubscriptionCreditGrant grant, CreditGrantStatus status) => new()
+    internal static CreditGrantResponse GrantResponse(SubscriptionCreditGrant grant, CreditGrantStatus status) => new()
     {
         GrantId = grant.ItemId,
         MeterKey = grant.MeterKey,

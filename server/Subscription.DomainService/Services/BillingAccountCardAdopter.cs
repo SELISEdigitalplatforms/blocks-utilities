@@ -75,12 +75,40 @@ public sealed class BillingAccountCardAdopter
     /// </param>
     /// <returns>Null once the card is recorded (or, with <paramref name="onlyIfNoDefault"/>, one
     /// already was); otherwise why it was not, as an audit error code.</returns>
-    public async Task<string?> AdoptAsync(
+    public Task<string?> AdoptAsync(
         SubscriptionDetail subscription,
         PaymentDetail payment,
         bool onlyIfNoDefault,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        return AdoptAsync(
+            subscription.TenantId,
+            subscription.OrganizationId,
+            subscription.BillingAccountId,
+            subscription.ItemId,
+            payment,
+            onlyIfNoDefault,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The same adoption for a billing account named directly: a standalone credit checkout
+    /// (spec 005) saves a card for an organization that may hold no subscription at all.
+    /// </summary>
+    /// <param name="subscriptionId">For the log lines only; null when there is none.</param>
+    public async Task<string?> AdoptAsync(
+        string tenantId,
+        string organizationId,
+        string billingAccountId,
+        string? subscriptionId,
+        PaymentDetail payment,
+        bool onlyIfNoDefault,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(payment);
+
         if (string.IsNullOrWhiteSpace(payment.ShopperReference))
         {
             _logger.LogWarning(
@@ -108,10 +136,10 @@ public sealed class BillingAccountCardAdopter
         // one organization's cards away from another's; passing the merchant here handed it the
         // wrong half of that pair.
         var methods = await _storedMethods.ListActiveAsync(
-            subscription.TenantId,
+            tenantId,
             [new StoredPaymentMethodLookupScope(
                 payment.ShopperReference,
-                subscription.OrganizationId)],
+                organizationId)],
             cancellationToken);
 
         // The card this charge saved, newest first: a shopper who paid twice has more than one,
@@ -134,8 +162,8 @@ public sealed class BillingAccountCardAdopter
             // be repaired by retrying, and an existing card is the outcome wanted, so neither is
             // reported as a failure to retry.
             var adopted = await _billingAccounts.TrySetDefaultPaymentMethodIfNoneAsync(
-                subscription.TenantId,
-                subscription.BillingAccountId,
+                tenantId,
+                billingAccountId,
                 method.ProviderPayerReference,
                 method.ItemId,
                 payment.OrganizationId,
@@ -144,15 +172,15 @@ public sealed class BillingAccountCardAdopter
             _logger.LogInformation(
                 "Card saved by a credit top-up checkout {Outcome} TenantId={TenantId} SubscriptionId={SubscriptionId}",
                 adopted ? "adopted as the default" : "not adopted; the account already had a default",
-                PaymentLogValue.Id(subscription.TenantId),
-                PaymentLogValue.Id(subscription.ItemId));
+                PaymentLogValue.Id(tenantId),
+                PaymentLogValue.Id(subscriptionId ?? string.Empty));
 
             return null;
         }
 
         var outcome = await _billingAccounts.TrySetProviderCustomerAsync(
-            subscription.TenantId,
-            subscription.BillingAccountId,
+            tenantId,
+            billingAccountId,
             // Null for a provider with no separate payer (Adyen): the card is still recorded as
             // the account's default, which is what the renewal reads.
             method.ProviderPayerReference,
@@ -172,8 +200,8 @@ public sealed class BillingAccountCardAdopter
                     "A subscription's billing account moved to a different provider customer; " +
                     "cards saved against the previous one are no longer reachable " +
                     "TenantId={TenantId} SubscriptionId={SubscriptionId}",
-                    PaymentLogValue.Id(subscription.TenantId),
-                    PaymentLogValue.Id(subscription.ItemId));
+                    PaymentLogValue.Id(tenantId),
+                    PaymentLogValue.Id(subscriptionId ?? string.Empty));
                 break;
 
             case SetProviderCustomerOutcome.AccountMissing:
@@ -181,8 +209,8 @@ public sealed class BillingAccountCardAdopter
                     "A paid subscription has no billing account to record its card against; " +
                     "renewals will find no payment method " +
                     "TenantId={TenantId} SubscriptionId={SubscriptionId}",
-                    PaymentLogValue.Id(subscription.TenantId),
-                    PaymentLogValue.Id(subscription.ItemId));
+                    PaymentLogValue.Id(tenantId),
+                    PaymentLogValue.Id(subscriptionId ?? string.Empty));
                 break;
         }
 

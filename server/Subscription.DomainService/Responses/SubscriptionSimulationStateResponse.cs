@@ -37,7 +37,25 @@ public sealed class SubscriptionSimulationStateResponse
 
     public List<SubscriptionAuditEventResponse> AuditEvents { get; init; } = [];
 
+    /// <summary>
+    /// The standalone credits the organization holds outside any subscription (spec 005). Present
+    /// on a subscription's state and on an organization's own, so a credits-only organization has
+    /// something to inspect.
+    /// </summary>
+    public SimulationOrganizationCreditsResponse? OrganizationCredits { get; init; }
+
     public string CorrelationId { get; init; } = string.Empty;
+}
+
+/// <summary>An organization's standalone grants and purchases, with their status as it is now.</summary>
+public sealed class SimulationOrganizationCreditsResponse
+{
+    public List<CreditGrantResponse> Grants { get; init; } = [];
+
+    public List<CreditPurchaseResponse> Purchases { get; init; } = [];
+
+    /// <summary>A checkout purchase still waiting to be paid, if any. Never carries its checkout URL.</summary>
+    public string? PendingCheckoutPurchaseId { get; init; }
 }
 
 /// <summary>

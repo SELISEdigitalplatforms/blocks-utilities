@@ -51,3 +51,33 @@ screenings; another sells workspaces and meters envelopes. Both are configuratio
 
 So if you are waiting for someone to add "screening support" to the module — nobody will, and
 nobody needs to. You author it.
+
+## Credits without a plan
+
+Since [spec 005](../specs/005-standalone-credit-purchase/README.md) an organization can buy a
+meter's credits without subscribing to anything. Three pieces, all authored under the plan
+permissions:
+
+| Piece | What it holds | Scope |
+| --- | --- | --- |
+| **Meter catalogue** | A meter's identity: key, name, unit, aggregation, scale. No money. | Tenant-wide, with an optional per-organization override that wins for that organization. |
+| **Credit offer** | One per meter per scope: price per currency, min/max purchase, tax, expiry (fixed time after purchase, or never), the *spend order*, and optional **packs** (fixed sizes at their own price per credit). | Same resolution as plans: the organization's own offer, otherwise the tenant's. |
+| **Organization credits** | What was bought or granted. Belongs to the organization, not a subscription. | Spent with or without a subscription; nothing a subscription does can forfeit them. |
+
+Plans pick meters from the catalogue, and a meter you author inside a plan is added to the
+catalogue on save, so it starts empty and fills itself. The plan still prices and expires credits
+its own way (`topUp` terms); the offer is a second, independent price for the same meter.
+
+A paid purchase grants the credits, raises an invoice, publishes `OrganizationCreditsPurchased`
+from an outbox on the grant itself (at-least-once, drained by the same sweep as subscription
+events), and mails the charged account's billing contact a confirmation under the
+`organization_credits_purchased` purpose.
+
+**Spend order.** When an organization holds standalone credits *and* a subscription that meters
+the same key, the offer's `spendOrder` decides: `SubscriptionFirst` uses the plan allowance, then
+the subscription's own credits, then the organization's, then overage; `OrganizationCreditsFirst`
+spends the organization's credits before the allowance is touched.
+
+**No subscription at all.** Usage draws on the organization's credits alone, and is refused outright
+when they run out — there is no allowance to fall back on and nothing to bill overage to. The
+response says `subscription_credits_exhausted`; the fix is to buy more.

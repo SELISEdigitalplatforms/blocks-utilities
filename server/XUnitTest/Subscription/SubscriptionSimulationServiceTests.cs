@@ -14,6 +14,7 @@ using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Simulation;
+using XUnitTest.Subscription.Credits;
 
 namespace XUnitTest.Subscription;
 
@@ -277,7 +278,10 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
             SubscriptionId, organizationId, auditLimit, paymentLimit,
             includeBackgroundWork: false, CorrelationId, CancellationToken.None);
 
-    private SubscriptionSimulationService CreateService() => new(
+    private SubscriptionSimulationService CreateService(
+        InMemoryCreditGrants? creditGrants = null,
+        InMemoryCreditPurchases? creditPurchases = null,
+        ISubscriptionCreditService? credits = null) => new(
         _contextResolver.Object,
         _subscriptions.Object,
         _responseMapper.Object,
@@ -295,7 +299,95 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
         _renewalService.Object,
         _scriptedOutcomes.Object,
         _usageRatingProcessor.Object,
-        _outboxProcessor.Object);
+        _outboxProcessor.Object,
+        credits: credits,
+        creditGrants: creditGrants,
+        creditPurchases: creditPurchases);
+
+    // ---- standalone credits (spec 005) ----------------------------------------------------
+
+    [Fact]
+    public async Task An_organizations_state_lists_its_standalone_credits_without_any_subscription()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("credits-only-org");
+        var grants = new InMemoryCreditGrants();
+        var purchases = new InMemoryCreditPurchases();
+        grants.All.Add(new SubscriptionCreditGrant
+        {
+            ItemId = "g1", TenantId = TenantId, OrganizationId = "credits-only-org", SubscriptionId = null,
+            MeterKey = "ai", Quantity = 100, Remaining = 60, GrantedAtUtc = DateTime.UtcNow
+        });
+        purchases.All.Add(new SubscriptionCreditPurchase
+        {
+            ItemId = "credits-only-org:k1", TenantId = TenantId, OrganizationId = "credits-only-org", SubscriptionId = null,
+            MeterKey = "ai", Status = CreditPurchaseStatus.AwaitingPayment, PaymentPath = CreditPaymentPath.Checkout,
+            CheckoutUrl = "https://checkout.example/s", CreatedAtUtc = DateTime.UtcNow
+        });
+
+        var result = await CreateService(grants, purchases).GetOrganizationStateAsync(
+            "credits-only-org", CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.OrganizationCredits.Should().NotBeNull("AC-22");
+        var credits = result.Value.OrganizationCredits!;
+        credits.Grants.Should().ContainSingle().Which.Remaining.Should().Be(60);
+        credits.Purchases.Should().ContainSingle().Which.CheckoutUrl.Should().BeNull(
+            "a diagnostic read never hands out a live checkout URL");
+        credits.PendingCheckoutPurchaseId.Should().Be("credits-only-org:k1");
+    }
+
+    [Fact]
+    public async Task Running_an_organizations_due_jobs_runs_the_credit_sweeps_and_reports_its_credits()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("credits-only-org");
+        var credits = new Mock<ISubscriptionCreditService>();
+        credits
+            .Setup(service => service.RecoverStaleAsync(TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(2);
+
+        var result = await CreateService(new InMemoryCreditGrants(), new InMemoryCreditPurchases(), credits.Object)
+            .RunOrganizationDueJobsAsync(
+                new RunDueJobsRequest { OrganizationId = "credits-only-org" }, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.Jobs.Should().Contain(job => job.WorkType == "CreditPurchaseRecovery" && job.Status == "Completed",
+            "AC-22: the purchase recovery sweep ran");
+        result.Value.Jobs.Should().Contain(job => job.WorkType == "CreditGrantMaintenance" && job.Status == "NotApplicable",
+            "no ledger was wired up, which is reported rather than hidden");
+        result.Value.Jobs.Should().NotContain(job => job.WorkType == "Renewal",
+            "an organization with no subscription has no renewal to run");
+        result.Value.State.OrganizationCredits.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_subscriptions_state_carries_its_organizations_standalone_credits()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+        var grants = new InMemoryCreditGrants();
+        grants.All.Add(new SubscriptionCreditGrant
+        {
+            ItemId = "g1", TenantId = TenantId, OrganizationId = "target-org", SubscriptionId = null,
+            MeterKey = "ai", Quantity = 10, Remaining = 10, GrantedAtUtc = DateTime.UtcNow
+        });
+
+        var result = await CreateService(grants, new InMemoryCreditPurchases()).GetStateAsync(
+            SubscriptionId, "target-org", 100, 100, includeBackgroundWork: false, CorrelationId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.OrganizationCredits!.Grants.Should().ContainSingle("AC-21");
+    }
 
     /// <summary>Wires the read-only GetStateAsync collaborators to return an empty-but-valid state, so mark-payment tests can reuse it without re-asserting PR 1's own coverage.</summary>
     private void StubEmptyState(SubscriptionDetail subscription, string organizationId)

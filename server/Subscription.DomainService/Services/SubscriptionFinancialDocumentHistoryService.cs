@@ -232,7 +232,8 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
             request.IssuedToUtc?.ToUniversalTime(),
             request.PageSize,
             after,
-            cancellationToken);
+            cancellationToken,
+            request.StandaloneCreditsOnly);
 
         var last = page.Items.LastOrDefault();
 

@@ -104,6 +104,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionCreditPurchaseRepository,
             SubscriptionCreditPurchaseRepository>();
+        services.AddSingleton<IMeterCatalogueRepository, MeterCatalogueRepository>();
+        services.AddSingleton<ICreditOfferRepository, CreditOfferRepository>();
         services.AddSingleton<
             ISubscriptionAssignmentRepository,
             SubscriptionAssignmentRepository>();
@@ -262,6 +264,11 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<PreviewUsageOverageRequest>,
             PreviewUsageOverageRequestValidator>();
         services.AddTransient<IValidator<CreditPurchaseRequest>, CreditPurchaseRequestValidator>();
+        services.AddTransient<IValidator<CreateMeterCatalogueEntryRequest>, CreateMeterCatalogueEntryRequestValidator>();
+        services.AddTransient<IValidator<UpdateMeterCatalogueEntryRequest>, UpdateMeterCatalogueEntryRequestValidator>();
+        services.AddTransient<IValidator<CreditOfferRequest>, CreditOfferRequestValidator>();
+        services.AddTransient<IValidator<OrganizationCreditPurchaseRequest>, OrganizationCreditPurchaseRequestValidator>();
+        services.AddTransient<IValidator<OrganizationGrantCreditsRequest>, OrganizationGrantCreditsRequestValidator>();
         services.AddTransient<IValidator<GrantCreditsRequest>, GrantCreditsRequestValidator>();
         services.AddTransient<IValidator<MoveCreditsRequest>, MoveCreditsRequestValidator>();
 
@@ -271,8 +278,11 @@ public static class ApplicationServiceCollectionExtensions
             SubscriptionContextResolver>();
         services.AddScoped<IPlanCatalogueService, PlanCatalogueService>();
         services.AddScoped<IDiscountCatalogueService, DiscountCatalogueService>();
+        services.AddScoped<IMeterCatalogueService, MeterCatalogueService>();
+        services.AddScoped<ICreditOfferService, CreditOfferService>();
         services.AddScoped<ISubscriptionCreditService, SubscriptionCreditService>();
         services.AddScoped<CreditLedger>();
+        services.AddScoped<OrganizationBillingAccountResolver>();
         services.AddScoped<BillingAccountCardAdopter>();
         services.AddScoped<
             ISubscriptionBillingProfileService,
@@ -379,6 +389,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionOutboxProcessor,
             SubscriptionOutboxProcessor>();
+        services.AddScoped<
+            IOrganizationCreditOutboxProcessor,
+            OrganizationCreditOutboxProcessor>();
         // Registered as themselves — SubscriptionBillingGatewayResolver picks between them by
         // provider name, so neither is the ISubscriptionBillingGateway DI entry on its own.
         services.AddScoped<RecurringChargeBillingGateway>();

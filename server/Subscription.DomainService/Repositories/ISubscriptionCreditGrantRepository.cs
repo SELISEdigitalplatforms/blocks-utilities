@@ -51,6 +51,25 @@ public interface ISubscriptionCreditGrantRepository
     /// A grant taken to zero is marked exhausted by a second conditional write. Between the two it
     /// reads as active with nothing remaining, which every reader already treats as not live.
     /// </remarks>
+    /// <summary>
+    /// The organization's own live grants for one meter — those with no subscription — in
+    /// consumption order. See spec 005.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionCreditGrant>> ListLiveForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string meterKey,
+        DateTime nowUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>The organization's own grants, newest first, optionally one meter or one status.</summary>
+    Task<IReadOnlyList<SubscriptionCreditGrant>> ListForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string? meterKey,
+        CreditGrantStatus? status,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionCreditGrant?> TryConsumeAsync(
         string tenantId,
         string grantId,
@@ -93,5 +112,49 @@ public interface ISubscriptionCreditGrantRepository
         string grantId,
         decimal quantity,
         DateTime nowUtc,
+        CancellationToken cancellationToken);
+
+    // ---- the organization's outbox (spec 005), the subscription outbox's contract on a grant ----
+
+    /// <summary>Appends one event, unless one with its deduplication key is already there.</summary>
+    Task<bool> TryAppendEventAsync(
+        string tenantId,
+        string grantId,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<SubscriptionCreditGrant>> ListWithDueEventsAsync(
+        string tenantId,
+        DateTime dueAtUtc,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>Takes a lease on one pending event so two workers cannot publish it twice.</summary>
+    Task<SubscriptionOutboxEvent?> TryClaimEventAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        DateTime leaseExpiresAtUtc,
+        CancellationToken cancellationToken);
+
+    Task MarkEventPublishedAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        DateTime publishedAtUtc,
+        bool clearPayload,
+        CancellationToken cancellationToken);
+
+    Task MarkEventFailedAsync(
+        string tenantId,
+        string grantId,
+        string eventId,
+        string leaseId,
+        SubscriptionOutboxStatus status,
+        int attemptCount,
+        DateTime nextAttemptAtUtc,
+        string failureReason,
         CancellationToken cancellationToken);
 }

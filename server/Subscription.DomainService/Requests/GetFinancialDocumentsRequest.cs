@@ -31,4 +31,10 @@ public sealed class GetFinancialDocumentsRequest
     /// resolution policy.
     /// </summary>
     public string? OrganizationId { get; set; }
+
+    /// <summary>
+    /// Only the invoices of standalone credit purchases (spec 005), which belong to the
+    /// organization and to no subscription. Ignored when a subscription is named.
+    /// </summary>
+    public bool StandaloneCreditsOnly { get; set; }
 }

@@ -436,6 +436,13 @@ public sealed class BillingAccountRepository : IBillingAccountRepository
         return result.ModifiedCount > 0;
     }
 
+    public Task<BillingAccount?> FindByOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string providerName,
+        CancellationToken cancellationToken) =>
+        FindAsync(tenantId, organizationId, providerName, cancellationToken);
+
     private async Task<BillingAccount?> FindAsync(
         string tenantId,
         string organizationId,

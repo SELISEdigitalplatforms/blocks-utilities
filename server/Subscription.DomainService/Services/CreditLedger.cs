@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
@@ -24,19 +26,40 @@ public sealed class CreditLedger
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly ISubscriptionWorkScheduler _scheduler;
+    private readonly ICreditOfferRepository? _offers;
+    private readonly IOrganizationCreditOutboxProcessor? _organizationOutbox;
+    private readonly ILogger? _logger;
 
+    private static readonly JsonSerializerOptions PayloadOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    /// <param name="offers">
+    /// Spec 005. Without them an organization holds no standalone credits and the gate reads none.
+    /// </param>
+    /// <param name="organizationOutbox">
+    /// Publishes an organization's credit events as soon as they are written. Absent, they stay on
+    /// the grant for the sweep, which is where a failed publish goes anyway.
+    /// </param>
     public CreditLedger(
         ISubscriptionCreditGrantRepository grants,
         ISubscriptionUsageRepository usage,
         ISubscriptionRepository subscriptions,
         ISubscriptionOutboxEventFactory events,
-        ISubscriptionWorkScheduler scheduler)
+        ISubscriptionWorkScheduler scheduler,
+        ICreditOfferRepository? offers = null,
+        IOrganizationCreditOutboxProcessor? organizationOutbox = null,
+        ILogger<CreditLedger>? logger = null)
     {
         _grants = grants;
         _usage = usage;
         _subscriptions = subscriptions;
         _events = events;
         _scheduler = scheduler;
+        _offers = offers;
+        _organizationOutbox = organizationOutbox;
+        _logger = logger;
     }
 
     /// <summary>
@@ -142,7 +165,7 @@ public sealed class CreditLedger
         ArgumentNullException.ThrowIfNull(draw);
 
         foreach (var emptied in draw.Taken
-                     .Where(take => take.Grant.Status == CreditGrantStatus.Exhausted)
+                     .Where(take => take.Grant.Status == CreditGrantStatus.Exhausted && !take.Grant.IsOrganizationOwned)
                      .GroupBy(take => take.Grant.SeatNumber))
         {
             var last = emptied.Last().Grant;
@@ -277,6 +300,13 @@ public sealed class CreditLedger
             return CreditGrantStatus.Expired;
         }
 
+        // An organization's own credits (spec 005) answer to no subscription: nothing a plan
+        // change, a cancellation or a meter dropped from a plan does can forfeit them.
+        if (grant.IsOrganizationOwned)
+        {
+            return CreditGrantStatus.Active;
+        }
+
         if (subscription is null ||
             subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired ||
             !subscription.Plan.Meters.Exists(meter =>
@@ -305,9 +335,11 @@ public sealed class CreditLedger
             tenantId, nowUtc, nowUtc - checkInterval, Math.Max(1, batchSize), cancellationToken);
         var closed = 0;
 
-        foreach (var bySubscription in due.GroupBy(grant => grant.SubscriptionId, StringComparer.Ordinal))
+        foreach (var bySubscription in due.GroupBy(grant => grant.SubscriptionId ?? string.Empty, StringComparer.Ordinal))
         {
-            var subscription = await _subscriptions.GetByIdAsync(tenantId, bySubscription.Key, cancellationToken);
+            var subscription = bySubscription.Key.Length == 0
+                ? null
+                : await _subscriptions.GetByIdAsync(tenantId, bySubscription.Key, cancellationToken);
             var stillLive = new List<string>();
 
             foreach (var grant in bySubscription)
@@ -332,6 +364,223 @@ public sealed class CreditLedger
 
     private static int?[] BucketsFor(int? seatNumber) =>
         seatNumber is null ? [null] : [seatNumber, null];
+
+    // ---- an organization's own credits (spec 005) -----------------------------------------
+
+    /// <summary>
+    /// How an organization's standalone credits for a meter rank against what a subscription
+    /// provides, or null when there is no offer and so no such credits to rank.
+    /// </summary>
+    public async Task<CreditSpendOrder?> SpendOrderAsync(
+        string tenantId,
+        string organizationId,
+        string meterKey,
+        CancellationToken cancellationToken) =>
+        _offers is null
+            ? null
+            : (await _offers.ResolveAsync(tenantId, organizationId, meterKey, cancellationToken))?.SpendOrder;
+
+    /// <summary>The organization's live standalone grants for one meter, in the order they are spent.</summary>
+    public async Task<IReadOnlyList<SubscriptionCreditGrant>> SpendableForOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string meterKey,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var live = await _grants.ListLiveForOrganizationAsync(tenantId, organizationId, meterKey, nowUtc, cancellationToken);
+
+        return [.. live.Where(grant => EffectiveStatus(grant, null, nowUtc) == CreditGrantStatus.Active)];
+    }
+
+    /// <summary>Takes up to <paramref name="quantity"/> from the organization's own grants, soonest-lost first.</summary>
+    public async Task<CreditDraw> DrawFromOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string meterKey,
+        decimal quantity,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var taken = new List<CreditTake>();
+        var left = quantity;
+
+        foreach (var grant in await SpendableForOrganizationAsync(tenantId, organizationId, meterKey, nowUtc, cancellationToken))
+        {
+            if (left <= 0)
+            {
+                break;
+            }
+
+            var amount = Math.Min(grant.Remaining, left);
+
+            if (await _grants.TryConsumeAsync(tenantId, grant.ItemId, amount, nowUtc, cancellationToken) is { } after)
+            {
+                taken.Add(new CreditTake(after, amount));
+                left -= amount;
+            }
+        }
+
+        return new CreditDraw(quantity - left, taken);
+    }
+
+    /// <summary>What the organization could still spend from its standalone credits, per meter.</summary>
+    public async Task<IReadOnlyDictionary<string, decimal>> OrganizationRemainingByMeterAsync(
+        string tenantId,
+        string organizationId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var grants = await _grants.ListForOrganizationAsync(
+            tenantId, organizationId, null, CreditGrantStatus.Active, cancellationToken);
+
+        return grants
+            .Where(grant => EffectiveStatus(grant, null, nowUtc) == CreditGrantStatus.Active && grant.Remaining > 0)
+            .GroupBy(grant => grant.MeterKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Sum(grant => grant.Remaining), StringComparer.Ordinal);
+    }
+
+    public async Task<decimal> OrganizationRemainingAsync(
+        string tenantId,
+        string organizationId,
+        string meterKey,
+        DateTime nowUtc,
+        CancellationToken cancellationToken) =>
+        (await SpendableForOrganizationAsync(tenantId, organizationId, meterKey, nowUtc, cancellationToken))
+            .Sum(grant => grant.Remaining);
+
+    /// <summary>Announces that a draw emptied the organization's credits for a meter, once.</summary>
+    public async Task AnnounceOrganizationExhaustedAsync(
+        CreditDraw draw,
+        DateTime nowUtc,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(draw);
+
+        var last = draw.Taken.LastOrDefault(take => take.Grant.Status == CreditGrantStatus.Exhausted)?.Grant;
+
+        if (last is null || !last.IsOrganizationOwned)
+        {
+            return;
+        }
+
+        var left = await SpendableForOrganizationAsync(
+            last.TenantId, last.OrganizationId, last.MeterKey, nowUtc, cancellationToken);
+
+        if (left.Count == 0)
+        {
+            await PublishOrganizationAsync(
+                last, Utilities.SubscriptionConstants.OrganizationCreditsExhausted, correlationId, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// The outbox entry an organization credit event is stored as (spec 005): on the grant it is
+    /// about, under one deduplication key per grant and event type, since a grant is bought or
+    /// given exactly once and used up at most once.
+    /// </summary>
+    /// <param name="purchase">
+    /// For a purchase, what the confirmation mail needs: the figures, the meter's name, and the
+    /// billing account whose contact is written to.
+    /// </param>
+    public static SubscriptionOutboxEvent OrganizationEvent(
+        SubscriptionCreditGrant grant,
+        string eventType,
+        string correlationId,
+        SubscriptionCreditPurchase? purchase = null,
+        DateTime? nowUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(grant);
+
+        var occurredAt = nowUtc ?? DateTime.UtcNow;
+        var payload = new SubscriptionLifecycleEvent
+        {
+            EventId = Guid.NewGuid().ToString(),
+            EventType = eventType,
+            TenantId = grant.TenantId,
+            OrganizationId = grant.OrganizationId,
+            MeterKey = grant.MeterKey,
+            CreditGrantId = grant.ItemId,
+            CreditQuantity = grant.Quantity,
+            CreditRemaining = grant.Remaining,
+            CreditExpiresAtUtc = grant.ExpiresAtUtc,
+            CreditPurchaseId = purchase?.ItemId,
+            MeterDisplayName = purchase?.MeterDisplayName,
+            CreditTotalMinor = purchase?.TotalMinor,
+            CurrencyCode = purchase?.CurrencyCode,
+            BillingAccountId = purchase?.BillingAccountId,
+            PackCode = purchase?.PackCode,
+            CorrelationId = correlationId,
+            OccurredAtUtc = occurredAt
+        };
+
+        return new SubscriptionOutboxEvent
+        {
+            EventId = payload.EventId,
+            EventType = eventType,
+            DeduplicationKey = OrganizationEventKey(grant, eventType),
+            Payload = JsonSerializer.Serialize(payload, PayloadOptions),
+            CorrelationId = correlationId,
+            CreatedAtUtc = occurredAt
+        };
+    }
+
+    private static string OrganizationEventKey(SubscriptionCreditGrant grant, string eventType) =>
+        $"{grant.ItemId}:{eventType}";
+
+    /// <summary>
+    /// Makes sure an organization credit event is on its grant, then publishes what the grant is
+    /// still owed.
+    /// </summary>
+    /// <remarks>
+    /// A caller that already wrote the event into the grant's insert finds it here and skips the
+    /// append; one announcing a transition after the fact, such as exhaustion, appends it under its
+    /// key, so a retried draw adds nothing. Publishing is attempted at once for a consumer's sake
+    /// and left to the sweep if it fails: the event is already durable, and the caller's own
+    /// operation — a purchase, a usage recording — must not fail for a broker that is down.
+    /// </remarks>
+    public async Task PublishOrganizationAsync(
+        SubscriptionCreditGrant grant,
+        string eventType,
+        string correlationId,
+        CancellationToken cancellationToken,
+        SubscriptionCreditPurchase? purchase = null)
+    {
+        ArgumentNullException.ThrowIfNull(grant);
+
+        var key = OrganizationEventKey(grant, eventType);
+
+        if (!grant.OutboxEvents.Exists(outboxEvent => outboxEvent.DeduplicationKey == key))
+        {
+            var outboxEvent = OrganizationEvent(grant, eventType, correlationId, purchase);
+
+            if (await _grants.TryAppendEventAsync(grant.TenantId, grant.ItemId, outboxEvent, cancellationToken) &&
+                !grant.OutboxEvents.Exists(existing => existing.DeduplicationKey == key))
+            {
+                // Mirrored onto the copy in hand so the publish below sees it without a re-read.
+                grant.OutboxEvents.Add(outboxEvent);
+            }
+        }
+
+        if (_organizationOutbox is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _organizationOutbox.PublishDueForGrantAsync(grant, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger?.LogWarning(
+                exception,
+                "An organization credit event was left for the sweep EventType={EventType} GrantId={GrantId}",
+                eventType,
+                grant.ItemId);
+        }
+    }
 }
 
 /// <summary>What one draw took: the total, and each grant as it stood after its take.</summary>
