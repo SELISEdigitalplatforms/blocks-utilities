@@ -768,6 +768,31 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task A_no_price_trial_is_stated_without_taking_an_invoice_number()
+    {
+        var subscription = Subscribed(item =>
+        {
+            item.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+            item.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
+            item.Trial = new TrialTerms
+            {
+                StartsAtUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+                EndsAtUtc = new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc)
+            };
+        });
+
+        Owing(subscription, SubscriptionDocumentSourceFactory.ForTrial(subscription, null, "corr-1")!);
+
+        await Issuer().IssueForSubscriptionAsync(TenantId, SubscriptionId, "corr-1", CancellationToken.None);
+
+        var document = _documents.Documents.Single();
+        document.DocumentType.Should().Be(
+            FinancialDocumentType.ServiceStatement,
+            because: "spec 006 AC-3: a no-price subscription never consumes an invoice number");
+        document.Trial.Should().NotBeNull(because: "the statement still states the trial's terms");
+    }
+
+    [Fact]
     public async Task A_subscription_with_no_trial_gets_no_trial_invoice()
     {
         var subscription = Subscribed();
@@ -885,6 +910,45 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
             because: "the customer's own invoice is written from this figure, tax included");
         document.SourceKey.Should().Be(FinancialDocumentSourceKey.ForOfflineCharge(
             SubscriptionId, SubscriptionChargeKind.Renewal, "2026-09"));
+    }
+
+    [Fact]
+    public async Task A_no_price_renewal_is_issued_as_a_service_statement_with_no_amounts()
+    {
+        var subscription = Subscribed();
+        subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
+
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForOfflineCharge(
+                subscription,
+                SubscriptionChargeKind.Renewal,
+                "2026-09",
+                new FinancialDocumentAmounts(),
+                null,
+                SettledAt,
+                "corr-1"));
+
+        (await Issuer().IssueForSubscriptionAsync(
+            TenantId, SubscriptionId, "corr-1", CancellationToken.None))
+            .Should().Be(1);
+
+        var document = _documents.Documents.Single();
+        document.DocumentType.Should().Be(
+            FinancialDocumentType.ServiceStatement,
+            because: "spec 006: a contract priced outside Utilities is recorded, never invoiced");
+        document.Amounts.TotalMinor.Should().Be(0);
+        document.Lines.Should().OnlyContain(
+            line => line.AmountMinor == 0 && line.UnitAmountMinor == null,
+            because: "a statement must carry no figure Utilities could have invented");
+        document.Lines[0].Description.Should().EndWith("renewed");
+        _numbers.Verify(
+            numbers => numbers.AllocateAsync(
+                TenantId, FinancialDocumentType.ServiceStatement, It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the statement is numbered from its own sequence, never taking an invoice number");
+        _consumed.Should().BeEmpty(because: "an issued statement settles its obligation");
     }
 
     [Fact]

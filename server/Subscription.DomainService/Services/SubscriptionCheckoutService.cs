@@ -126,17 +126,6 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             return invalid;
         }
 
-        // ponytail: no-price contracts need the service statement document type, which lands with
-        // the statements work in this same spec; refused until then rather than issuing nothing.
-        if (request.Pricing.Mode == OfflinePricingMode.None)
-        {
-            return Failure(
-                PaymentFailureKind.Validation,
-                "subscription_offline_pricing_unsupported",
-                "Offline subscriptions without a price are not available yet.",
-                correlationId);
-        }
-
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
             request.OrganizationId,
@@ -1294,14 +1283,15 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// <remarks>
     /// Owed when a card subscriber would have been charged at checkout — a positive opening figure —
     /// for the reason a renewal follows the same rule: an invoice is a record of a charge, and an
-    /// offline customer is never handed one a card customer would not have been.
+    /// offline customer is never handed one a card customer would not have been. A no-price
+    /// subscription is owed a service statement whatever the figure, which is always zero.
     /// </remarks>
     private SubscriptionDocumentSource? OfflineOpeningInvoice(
         SubscriptionDetail subscription,
         string correlationId)
     {
         if (!subscription.IsOffline ||
-            SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription) <= 0 ||
+            (SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription) <= 0 && !subscription.IsNoPrice) ||
             SubscriptionFinancialDocumentIssuer.RecomposeInitialCharge(subscription) is not { } amounts)
         {
             return null;

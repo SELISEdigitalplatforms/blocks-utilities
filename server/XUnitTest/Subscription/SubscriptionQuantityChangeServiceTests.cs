@@ -1201,4 +1201,23 @@ public sealed class SubscriptionQuantityChangeServiceTests
             because: "spec 006 AC-15: a contract is one flat amount whatever the seats, so adding " +
                 "one changes nothing anybody owes");
     }
+
+    [Fact]
+    public async Task A_no_price_increase_grants_the_seats_and_records_a_service_statement()
+    {
+        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        _subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
+        OfflineSubscriptionTerms.ApplyNoPrice(_subscription.Price, _subscription.QuantityItems);
+        CaptureOfflineInvoice();
+
+        var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        VerifyNeverCharged();
+        _offlineInvoice!.DocumentType.Should().Be(
+            FinancialDocumentType.ServiceStatement,
+            because: "spec 006 AC-14: the price is agreed outside Utilities, so the change is " +
+                "recorded as terms rather than skipped as a zero invoice would be");
+        _offlineInvoice.QuantityItems.Single().Quantity.Should().Be(5);
+    }
 }

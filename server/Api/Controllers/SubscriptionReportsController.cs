@@ -3,6 +3,7 @@ using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Reporting;
 
 namespace Api.Controllers;
@@ -92,16 +93,25 @@ public sealed class SubscriptionReportsController : ControllerBase
     [HttpGet("recurring-revenue")]
     [ProducesResponseType(
         typeof(ApiResponse<RecurringRevenueReportResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(
         typeof(ApiResponse<RecurringRevenueReportResponse>),
         StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
-    public async Task<IActionResult> GetRecurringRevenue(CancellationToken cancellationToken)
+    /// <param name="collectionMethod">
+    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c> to isolate card-collected or bank-transfer
+    /// subscriptions (spec 006); omit for both.
+    /// </param>
+    /// <param name="cancellationToken">Aborts the read.</param>
+    public async Task<IActionResult> GetRecurringRevenue(
+        [FromQuery] SubscriptionCollectionMethod? collectionMethod,
+        CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _reports.GetRecurringRevenueAsync(correlationId, cancellationToken);
+        var result = await _reports.GetRecurringRevenueAsync(
+            collectionMethod, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

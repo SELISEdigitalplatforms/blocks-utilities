@@ -79,7 +79,13 @@ Rules:
 - **Catalogue** pricing behaves exactly as a card subscription's frozen `PriceSnapshot`.
 - **None**: the recurring fee and usage overage are never invoiced. Each activation, renewal,
   trial conversion, plan change and quantity change issues a service statement listing plan,
-  period, quantities and effective date, with no amounts.
+  period, quantities and effective date, with no amounts. The price is stored as zero, so
+  previews, proration and MRR read 0 with no special case. Every plan change on a no-price
+  subscription applies immediately (nothing is paid, so there is no paid period to wait out),
+  quantity decreases still wait for the renewal whose statement records them, and a trial's
+  opening document is a statement too, so no invoice number is ever consumed. Overage is rated
+  and kept as `NoCharge`. No-price works on a calendar-aligned yearly price, unlike a contract.
+  _(Clarified 2026-11-09 during implementation.)_
 - **Trial**: a plan with a trial starts `Trialing`; conversion is a renewal like any other.
 - **Discount and campaign codes** apply at activation as for card subscriptions.
 - **Billing profile** must be complete before activation, as for a paid card subscription.
@@ -132,6 +138,18 @@ Existing routes:
   `pendingOfflinePricing`.
 - Invoice list and PDF routes return statements with `type: ServiceStatement`.
 - Revenue reports accept a `collectionMethod` filter.
+  _(Clarified 2026-11-09 during implementation.)_ `GET /reports/revenue` and
+  `GET /reports/recurring-revenue` take `collectionMethod=AutomaticCharge|OfflineInvoice`; the
+  trend refuses it with 400 `subscription_report_query_invalid`, because its daily captures keep
+  no per-method split. Overage revenue counts `RecordedOffline` usage invoices beside `Charged`
+  ones. Service statements are neither revenue nor billed documents. Roster rows carry
+  `collectionMethod` and `offlinePricingMode`. Lifecycle events carry `collectionMethod`;
+  `SubscriptionOfflinePricingChanged` is pushed in the same write that schedules an operator's
+  pricing, keyed per version so a second re-pricing is announced too.
+- Simulation harness: `run-due` and `advance-renewal` renew an offline subscription without
+  calling the gateway; a scripted `paymentOutcome` is refused with 409
+  `subscription_simulation_offline_no_payment`, since it would otherwise stay queued for the
+  next unrelated charge.
 
 Validation: `contractAmountMinor` and `contractCurrencyCode` required for `Contract` and forbidden
 otherwise; amount greater than zero; currency one the `Payment` section knows the minor units of.

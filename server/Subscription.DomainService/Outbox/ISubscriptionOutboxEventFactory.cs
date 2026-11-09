@@ -43,6 +43,17 @@ public interface ISubscriptionOutboxEventFactory
     /// A plan change. <paramref name="subscription"/>'s own <c>Plan.Code</c> must already be the
     /// new one — this only needs told what it changed <em>from</em>.
     /// </summary>
+    /// <summary>
+    /// An operator's offline pricing held for the next renewal (spec 006). Built from the
+    /// subscription before the write, so its plan is the one in force and
+    /// <paramref name="pending"/> is what replaces it.
+    /// </summary>
+    SubscriptionOutboxEvent CreateOfflinePricingChanged(
+        SubscriptionDetail subscription,
+        PendingPlanChange pending,
+        string? actorName,
+        string correlationId);
+
     SubscriptionOutboxEvent CreatePlanChanged(
         SubscriptionDetail subscription,
         string previousPlanCode,

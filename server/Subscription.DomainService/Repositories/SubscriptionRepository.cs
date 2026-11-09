@@ -836,9 +836,20 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         string subscriptionId,
         int expectedVersion,
         PendingPlanChange pending,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SubscriptionOutboxEvent? outboxEvent = null)
     {
         ArgumentNullException.ThrowIfNull(pending);
+
+        var update = Builders<SubscriptionDetail>.Update
+            .Set(subscription => subscription.PendingPlanChange, pending)
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow);
+
+        if (outboxEvent is not null)
+        {
+            update = update.Push(subscription => subscription.OutboxEvents, outboxEvent);
+        }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
             Builders<SubscriptionDetail>.Filter.And(
@@ -850,10 +861,7 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 // callers pass that check at the same instant.
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.PendingQuantityChange, null)),
-            Builders<SubscriptionDetail>.Update
-                .Set(subscription => subscription.PendingPlanChange, pending)
-                .Inc(subscription => subscription.Version, 1)
-                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow),
+            update,
             cancellationToken: cancellationToken);
 
         return result.ModifiedCount == 1;

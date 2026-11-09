@@ -703,6 +703,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         var total = charge.TotalMinor;
         var now = _time.GetUtcNow().UtcDateTime;
 
+        // Spec 006: a no-price subscription's overage is priced under a contract Utilities never
+        // sees. The usage is still rated and kept, but nothing here is owed, so nothing is invoiced.
+        var owed = total > 0 && !subscription.IsNoPrice;
+
         await _usageInvoices.TryCreateAsync(
             new SubscriptionUsageInvoice
             {
@@ -720,10 +724,10 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
                     SubscriptionDiscountPresentation.RateOf(subscription.Price),
                 DiscountAmountMinor = charge.AutomaticDiscountMinor,
                 Lines = lines,
-                State = total > 0
+                State = owed
                     ? SubscriptionUsageInvoiceState.Pending
                     : SubscriptionUsageInvoiceState.NoCharge,
-                NextAttemptAtUtc = total > 0 ? now : null,
+                NextAttemptAtUtc = owed ? now : null,
                 CorrelationId = subscription.CorrelationId
             },
             cancellationToken);

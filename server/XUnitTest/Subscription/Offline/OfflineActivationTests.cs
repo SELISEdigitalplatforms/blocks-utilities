@@ -150,16 +150,24 @@ public sealed class OfflineActivationTests
     }
 
     [Fact]
-    public async Task No_price_pricing_is_refused_until_service_statements_exist()
+    public async Task A_no_price_activation_records_a_service_statement_rather_than_an_invoice()
     {
+        _subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
+        OfflineSubscriptionTerms.ApplyNoPrice(_subscription.Price, _subscription.QuantityItems);
+        _subscription.InitialChargeAmountMinor = 0;
         var request = Request();
         request.Pricing = new OfflinePricingRequest { Mode = OfflinePricingMode.None };
 
         var result = await Service().ActivateOfflineAsync(request, "corr-1", CancellationToken.None);
 
-        result.ErrorCode.Should().Be(
-            "subscription_offline_pricing_unsupported",
-            because: "a no-price subscription would otherwise renew issuing nothing at all");
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+        _transition.DocumentSource!.DocumentType.Should().Be(
+            FinancialDocumentType.ServiceStatement,
+            because: "the price was agreed outside Utilities, so an invoice would state a figure " +
+                "nobody agreed, and a zero figure is not owed at all, yet the customer still needs " +
+                "a record that the plan started");
+        _transition.DocumentSource.ChargeKind.Should().Be(SubscriptionChargeKind.Initial);
     }
 
     [Fact]

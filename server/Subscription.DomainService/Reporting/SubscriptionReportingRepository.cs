@@ -145,6 +145,7 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
@@ -156,6 +157,17 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
                 document => document.IssuedAtUtc, fromUtc),
             Builders<SubscriptionFinancialDocument>.Filter.Lt(
                 document => document.IssuedAtUtc, toUtc));
+
+        // Card documents are matched as "not offline" rather than "AutomaticCharge": every document
+        // issued before spec 006 has no such field, and is a card document all the same.
+        if (collectionMethod is { } method)
+        {
+            filter &= method == SubscriptionCollectionMethod.OfflineInvoice
+                ? Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.CollectionMethod, SubscriptionCollectionMethod.OfflineInvoice)
+                : Builders<SubscriptionFinancialDocument>.Filter.Ne(
+                    document => document.CollectionMethod, SubscriptionCollectionMethod.OfflineInvoice);
+        }
 
         var grouped = await Documents(tenantId)
             .Aggregate()
@@ -189,6 +201,7 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
@@ -196,10 +209,19 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         // Dated by when the invoice was last written rather than when it was created: a usage
         // invoice is created pending and becomes revenue only when it settles, which can be a
         // retry cycle later and belongs in the window it settled in.
+        //
+        // The settled state already says how it was collected: a usage invoice is charged only on
+        // a card subscription and recorded only on an offline one, so the filter is a state.
+        SubscriptionUsageInvoiceState[] settled = collectionMethod switch
+        {
+            SubscriptionCollectionMethod.AutomaticCharge => [SubscriptionUsageInvoiceState.Charged],
+            SubscriptionCollectionMethod.OfflineInvoice => [SubscriptionUsageInvoiceState.RecordedOffline],
+            _ => [SubscriptionUsageInvoiceState.Charged, SubscriptionUsageInvoiceState.RecordedOffline]
+        };
+
         var filter = Builders<SubscriptionUsageInvoice>.Filter.And(
             Builders<SubscriptionUsageInvoice>.Filter.Eq(invoice => invoice.TenantId, tenantId),
-            Builders<SubscriptionUsageInvoice>.Filter.Eq(
-                invoice => invoice.State, SubscriptionUsageInvoiceState.Charged),
+            Builders<SubscriptionUsageInvoice>.Filter.In(invoice => invoice.State, settled),
             Builders<SubscriptionUsageInvoice>.Filter.Gte(
                 invoice => invoice.LastUpdatedDateUtc, fromUtc),
             Builders<SubscriptionUsageInvoice>.Filter.Lt(

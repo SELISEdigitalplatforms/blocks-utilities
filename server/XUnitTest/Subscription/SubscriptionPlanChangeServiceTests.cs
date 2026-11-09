@@ -38,6 +38,7 @@ public sealed class SubscriptionPlanChangeServiceTests
 
     /// <summary>What a change classified as NextRenewal booked, when one was.</summary>
     private PendingPlanChange? _scheduled;
+    private SubscriptionOutboxEvent? _scheduledEvent;
     private BillingAccount? _account = new()
     {
         ItemId = "acct-1",
@@ -66,9 +67,14 @@ public sealed class SubscriptionPlanChangeServiceTests
         _subscriptions
             .Setup(repository => repository.TrySetPendingPlanChangeAsync(
                 TenantId, "sub-1", It.IsAny<int>(),
-                It.IsAny<PendingPlanChange>(), It.IsAny<CancellationToken>()))
-            .Callback((string _, string _, int _, PendingPlanChange pending, CancellationToken _) =>
-                _scheduled = pending)
+                It.IsAny<PendingPlanChange>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionOutboxEvent?>()))
+            .Callback((string _, string _, int _, PendingPlanChange pending, CancellationToken _,
+                    SubscriptionOutboxEvent? outboxEvent) =>
+            {
+                _scheduled = pending;
+                _scheduledEvent = outboxEvent;
+            })
             .ReturnsAsync(true);
 
         _subscriptions
@@ -2472,6 +2478,26 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task An_organizations_own_change_keeps_a_no_price_subscription_no_price_and_records_a_statement()
+    {
+        Offline(OfflineSubscriptionTerms.NoPricing());
+        OfflineSubscriptionTerms.ApplyNoPrice(_subscription.Price, _subscription.QuantityItems);
+
+        var result = await OfflineService().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _writtenPricing!.Mode.Should().Be(
+            OfflinePricingMode.None,
+            because: "only an operator can put a price on a contract agreed outside Utilities");
+        _offlineInvoice!.DocumentType.Should().Be(
+            FinancialDocumentType.ServiceStatement,
+            because: "spec 006 AC-14: the change applies now and a statement is its only record");
+        _offlineInvoice.ChargeKind.Should().Be(SubscriptionChargeKind.PlanChange);
+        VerifyNeverCharged();
+    }
+
+    [Fact]
     public async Task An_offline_preview_does_not_ask_for_a_card()
     {
         Offline();
@@ -2616,5 +2642,9 @@ public sealed class SubscriptionPlanChangeServiceTests
         _scheduled.EffectiveAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc);
         result.Value!.PendingContractAmountMinor.Should().Be(1_200);
         VerifyNeverCharged();
+        _scheduledEvent!.EventType.Should().Be(
+            SubscriptionConstants.SubscriptionOfflinePricingChanged,
+            because: "spec 006: a re-pricing is announced in the same write that holds it, so a " +
+                "consumer billing the contract learns the new figure before the renewal uses it");
     }
 }

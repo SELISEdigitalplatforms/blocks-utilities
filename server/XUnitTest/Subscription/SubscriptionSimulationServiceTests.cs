@@ -763,6 +763,71 @@ public sealed class SubscriptionSimulationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task An_offline_subscription_advances_its_renewal_without_a_payment_outcome()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+            CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId,
+            new AdvanceRenewalRequest { OrganizationId = "target-org" },
+            CorrelationId,
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _renewalService.Verify(
+            service => service.RenewAsync(subscription, It.IsAny<CancellationToken>()), Times.Once);
+        result.Value!.Before.CollectionMethod.Should().Be(nameof(SubscriptionCollectionMethod.OfflineInvoice));
+    }
+
+    [Fact]
+    public async Task A_scripted_outcome_is_refused_for_an_offline_subscription_rather_than_left_queued()
+    {
+        SetAuthorizedCaller();
+        ResolvesContext("target-org");
+        var subscription = new SubscriptionDetail
+        {
+            ItemId = SubscriptionId, TenantId = TenantId, OrganizationId = "target-org",
+            Status = SubscriptionStatus.Active,
+            CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice,
+        };
+        _subscriptions
+            .Setup(repo => repo.GetAsync(TenantId, "target-org", SubscriptionId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        StubEmptyState(subscription, "target-org");
+
+        var result = await CreateService().AdvanceRenewalAsync(
+            SubscriptionId,
+            new AdvanceRenewalRequest
+            {
+                OrganizationId = "target-org",
+                PaymentOutcome = SimulatedRenewalOutcome.Declined,
+            },
+            CorrelationId,
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_simulation_offline_no_payment");
+        _scriptedOutcomes.Verify(
+            source => source.ScriptNext(It.IsAny<ScriptedChargeOutcome>()),
+            Times.Never,
+            "an offline renewal never calls the gateway, so a scripted decline would wait in the " +
+                "queue and fail the next unrelated charge the harness runs");
+        _renewalService.Verify(
+            service => service.RenewAsync(It.IsAny<SubscriptionDetail>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task Refuses_to_advance_more_than_one_period()
     {
         SetAuthorizedCaller();

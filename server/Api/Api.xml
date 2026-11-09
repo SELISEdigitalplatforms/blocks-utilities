@@ -1142,7 +1142,7 @@
             </para>
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionReportsController.GetRecurringRevenue(System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionReportsController.GetRecurringRevenue(System.Nullable{Subscription.DomainService.Enums.SubscriptionCollectionMethod},System.Threading.CancellationToken)">
             <summary>
             Monthly and annual run-rate, by currency and seat tier.
             </summary>

@@ -259,6 +259,13 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             subscription.QuantityItems = pendingPlan.QuantityItems;
             subscription.FeeSchedule = pendingPlan.FeeSchedule;
             subscription.UsageSchedule = pendingPlan.UsageSchedule;
+
+            // Spec 006: a re-pricing takes effect at this boundary, so the document this renewal
+            // owes is the one the new pricing calls for — a statement once it has no price.
+            if (pendingPlan.OfflinePricing is { } offlinePricing)
+            {
+                subscription.OfflinePricing = offlinePricing;
+            }
         }
 
         // A card-free trial that ends mid-month buys the rest of that month, not all of it. This
@@ -872,7 +879,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         BillingPeriod period,
         PeriodCharge charge)
     {
-        if (!subscription.IsOffline || charge.AmountMinor <= 0)
+        // A no-price subscription is owed a statement for every renewal, at a figure always zero.
+        if (!subscription.IsOffline || (charge.AmountMinor <= 0 && !subscription.IsNoPrice))
         {
             return null;
         }

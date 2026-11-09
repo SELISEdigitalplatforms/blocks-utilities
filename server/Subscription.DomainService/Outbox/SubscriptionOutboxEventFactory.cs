@@ -173,6 +173,37 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreateOfflinePricingChanged(
+        SubscriptionDetail subscription,
+        PendingPlanChange pending,
+        string? actorName,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(pending);
+
+        const string eventType = Utilities.SubscriptionConstants.SubscriptionOfflinePricingChanged;
+        var payload = NewPayload(subscription, eventType);
+        payload.PlanCode = pending.Plan.Code;
+        payload.PlanName = pending.Plan.DisplayName;
+        payload.PreviousPlanCode = subscription.Plan.Code;
+        payload.PreviousPlanName = subscription.Plan.DisplayName;
+        payload.OfflinePricingMode = pending.OfflinePricing?.Mode.ToString();
+        payload.ContractAmountMinor = pending.OfflinePricing?.ContractAmountMinor;
+        payload.EffectiveAtUtc = pending.EffectiveAtUtc;
+        payload.ActorName = actorName;
+
+        return Build(
+            subscription,
+            eventType,
+            // The version being written over: unique per scheduling, so a second re-pricing before
+            // the renewal is announced too rather than deduplicated into the first.
+            $"{subscription.ItemId}:{eventType}:{subscription.Version}",
+            payload,
+            correlationId,
+            null);
+    }
+
     public SubscriptionOutboxEvent CreateMemberChanged(
         SubscriptionDetail subscription,
         string eventType,
@@ -287,6 +318,7 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
         PlanCode = subscription.Plan.Code,
         PlanName = subscription.Plan.DisplayName,
         Status = subscription.Status.ToString(),
+        CollectionMethod = subscription.CollectionMethod.ToString(),
         // Read off the subscription, which is right for every event whose payload is built from a
         // subscription already carrying the change it describes. A cancellation's is not — see
         // CreateCancellation, which overrides both.

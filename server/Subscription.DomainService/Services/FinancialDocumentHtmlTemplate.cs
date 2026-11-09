@@ -72,13 +72,18 @@ public static class FinancialDocumentHtmlTemplate
 
         AppendLines(html, document, money);
 
-        if (document.Settlement is { } settlement)
+        // A service statement (spec 006) states terms whose price was agreed outside Utilities:
+        // no settlement, totals or card, because every figure there would be one Utilities invented.
+        if (!IsStatement(document))
         {
-            AppendSettlement(html, settlement, money);
-        }
+            if (document.Settlement is { } settlement)
+            {
+                AppendSettlement(html, settlement, money);
+            }
 
-        AppendTotals(html, document, money);
-        AppendPaymentCard(html, document);
+            AppendTotals(html, document, money);
+            AppendPaymentCard(html, document);
+        }
 
         html.Append("</td></tr></tbody></table>");
         AppendFooter(html, document);
@@ -215,8 +220,12 @@ public static class FinancialDocumentHtmlTemplate
 
         // No organization row: the bill-to block already names the customer, and the organization
         // beside it read as a second, conflicting customer reference.
-        AppendMetaRow(html, "Currency", document.CurrencyCode);
-        AppendMetaRow(html, $"{title} total", money.Format(document.Amounts.TotalMinor), strong: true);
+        if (!IsStatement(document))
+        {
+            AppendMetaRow(html, "Currency", document.CurrencyCode);
+            AppendMetaRow(html, $"{title} total", money.Format(document.Amounts.TotalMinor), strong: true);
+        }
+
         AppendMetaRow(html, $"{title} number", document.DocumentNumber);
         AppendMetaRow(html, $"{title} date", Date(document.IssuedAtUtc));
 
@@ -285,11 +294,20 @@ public static class FinancialDocumentHtmlTemplate
             return;
         }
 
+        var statement = IsStatement(document);
+
         html.Append("<div class=\"section\">Details</div>");
         html.Append("<table class=\"lines\"><thead><tr>");
         html.Append("<th>Item</th><th>Description</th><th>Period</th>");
-        html.Append("<th class=\"num\">Qty</th><th class=\"num\">Discount</th>");
-        html.Append("<th class=\"num\">Price</th><th class=\"num\">Value</th></tr></thead><tbody>");
+        html.Append("<th class=\"num\">Qty</th>");
+
+        if (!statement)
+        {
+            html.Append("<th class=\"num\">Discount</th>");
+            html.Append("<th class=\"num\">Price</th><th class=\"num\">Value</th>");
+        }
+
+        html.Append("</tr></thead><tbody>");
 
         // The document's period on every line, unless a line covers a period of its own — the year
         // bought alongside a calendar-aligned stub.
@@ -319,7 +337,15 @@ public static class FinancialDocumentHtmlTemplate
                 .Append(line.Quantity is { } quantity
                     ? Escape(MeterQuantity.Describe(quantity))
                     : "&mdash;")
-                .Append("</td><td class=\"num\"></td>");
+                .Append("</td>");
+
+            if (statement)
+            {
+                html.Append("</tr>");
+                continue;
+            }
+
+            html.Append("<td class=\"num\"></td>");
             html.Append("<td class=\"num\">")
                 .Append(line.UnitAmountMinor is { } unit ? Escape(money.FormatFigure(unit)) : "&mdash;")
                 .Append("</td>");
@@ -786,6 +812,7 @@ public static class FinancialDocumentHtmlTemplate
         {
             FinancialDocumentType.TrialInvoice => "No payment due",
             FinancialDocumentType.CreditNote => "Credited",
+            FinancialDocumentType.ServiceStatement => "Priced under your contract",
             // Spec 006: a record of what a bank-transfer contract owes. Utilities never learns
             // whether it was paid, so it must not say it was.
             _ when document.CollectionMethod == SubscriptionCollectionMethod.OfflineInvoice =>
@@ -803,8 +830,12 @@ public static class FinancialDocumentHtmlTemplate
         {
             FinancialDocumentType.TrialInvoice => "Trial invoice",
             FinancialDocumentType.CreditNote => "Credit note",
+            FinancialDocumentType.ServiceStatement => "Service statement",
             _ => "Invoice"
         };
+
+    private static bool IsStatement(SubscriptionFinancialDocument document) =>
+        document.DocumentType == FinancialDocumentType.ServiceStatement;
 
     /// <summary>
     /// A date as the reference writes it: "26.08.2026".

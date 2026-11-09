@@ -54,6 +54,14 @@ public static class PlanChangeClassifier
             return PlanChangeTiming.Immediate;
         }
 
+        // Spec 006: a no-price subscription is priced outside Utilities, so every change settles to
+        // zero here and there is no paid period to protect. Waiting would hold an upgrade until a
+        // renewal possibly a year away for no reason; it applies now and its statement records it.
+        if (subscription.IsNoPrice)
+        {
+            return PlanChangeTiming.Immediate;
+        }
+
         // A paid-for annual term is a commitment settled in full. Re-cadencing it — moving to a
         // monthly price, or to a differently-aligned one — cannot be priced against that term
         // without unpicking a charge that already cleared, so it waits for the term to end

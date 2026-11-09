@@ -121,7 +121,9 @@ public static class SubscriptionDocumentSourceFactory
     /// </summary>
     /// <remarks>
     /// Freezes <see cref="SubscriptionDocumentSource.Amounts"/> for the reason
-    /// <see cref="ForOpeningDiscount"/> does: no payment will ever exist to read them from.
+    /// <see cref="ForOpeningDiscount"/> does: no payment will ever exist to read them from. For a
+    /// no-price subscription the source owes a <see cref="FinancialDocumentType.ServiceStatement"/>,
+    /// whose amounts are zero by construction and never printed.
     /// </remarks>
     /// <param name="periodKey">The renewal's period key; null for the opening charge.</param>
     public static SubscriptionDocumentSource ForOfflineCharge(
@@ -138,11 +140,15 @@ public static class SubscriptionDocumentSourceFactory
 
         var charge = new SubscriptionChargeReference(subscription.ItemId, chargeKind, periodKey);
 
+        // Decided here, from the subscription's pricing at the event, so no caller can issue a
+        // no-price customer an invoice. The key stays the same either way: one event, one document.
+        var statement = subscription.IsNoPrice;
+
         return new SubscriptionDocumentSource
         {
             SourceKey = FinancialDocumentSourceKey.ForOfflineCharge(
                 subscription.ItemId, chargeKind, periodKey),
-            DocumentType = FinancialDocumentType.Invoice,
+            DocumentType = statement ? FinancialDocumentType.ServiceStatement : FinancialDocumentType.Invoice,
             ChargeKind = chargeKind,
             PeriodKey = periodKey,
             CurrencyCode = subscription.CurrencyCode,
