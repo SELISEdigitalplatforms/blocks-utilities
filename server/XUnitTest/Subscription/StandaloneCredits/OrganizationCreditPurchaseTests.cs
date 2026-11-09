@@ -448,6 +448,41 @@ public sealed class OrganizationCreditPurchaseTests
     }
 
     [Fact]
+    public async Task An_organization_on_a_bank_transfer_contract_cannot_buy_credits_but_can_still_be_granted_them()
+    {
+        _subscriptions
+            .Setup(repository => repository.GetLiveAsync(
+                TenantId, OrganizationId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SubscriptionDetail
+            {
+                TenantId = TenantId,
+                OrganizationId = OrganizationId,
+                Status = SubscriptionStatus.Active,
+                CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice
+            });
+        var service = Service();
+
+        var preview = await service.PreviewForOrganizationAsync(Buy(), "corr-1", CancellationToken.None);
+        var purchase = await service.PurchaseForOrganizationAsync(Buy(key: "k1"), "corr-2", CancellationToken.None);
+        var grant = await service.GrantToOrganizationAsync(
+            new OrganizationGrantCreditsRequest { MeterKey = "ai", Quantity = 25, Reason = "Contract allowance" },
+            "corr-3", CancellationToken.None);
+
+        preview.ErrorCode.Should().Be("subscription_offline_collection", "spec 006 AC-23");
+        purchase.ErrorCode.Should().Be(
+            "subscription_offline_collection",
+            "a bank-transfer customer's card on file must never be charged for credits");
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _purchases.All.Should().BeEmpty(because: "nothing was sold, so nothing is recorded as bought");
+        grant.IsSuccess.Should().BeTrue(
+            because: "AC-23: a tenant admin's free grant prices nothing and is still allowed");
+    }
+
+    [Fact]
     public async Task Listing_shows_only_the_organizations_own_grants_and_purchases()
     {
         _grants.All.Add(new SubscriptionCreditGrant
