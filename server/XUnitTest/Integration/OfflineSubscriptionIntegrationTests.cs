@@ -46,7 +46,7 @@ public sealed class OfflineSubscriptionIntegrationTests
         // Inserted directly rather than through TryCreateAsync, which builds the collection's unique
         // index across the whole shared fixture database — and the reporting tests deliberately
         // leave rows there that such a build refuses. This test is about settling, not creating.
-        await _fixture.Collection<SubscriptionUsageInvoice>(SubscriptionCollections.UsageInvoices)
+        await _fixture.Collection<SubscriptionUsageInvoice>("SubscriptionUsageInvoices")
             .InsertOneAsync(invoice, cancellationToken: CancellationToken.None);
 
         (await _usageInvoices.TryMarkRecordedOfflineAsync(tenantId, invoice.ItemId, CancellationToken.None))
