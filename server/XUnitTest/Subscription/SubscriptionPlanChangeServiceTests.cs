@@ -38,6 +38,7 @@ public sealed class SubscriptionPlanChangeServiceTests
 
     /// <summary>What a change classified as NextRenewal booked, when one was.</summary>
     private PendingPlanChange? _scheduled;
+    private SubscriptionOutboxEvent? _scheduledEvent;
     private BillingAccount? _account = new()
     {
         ItemId = "acct-1",
@@ -66,9 +67,14 @@ public sealed class SubscriptionPlanChangeServiceTests
         _subscriptions
             .Setup(repository => repository.TrySetPendingPlanChangeAsync(
                 TenantId, "sub-1", It.IsAny<int>(),
-                It.IsAny<PendingPlanChange>(), It.IsAny<CancellationToken>()))
-            .Callback((string _, string _, int _, PendingPlanChange pending, CancellationToken _) =>
-                _scheduled = pending)
+                It.IsAny<PendingPlanChange>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionOutboxEvent?>()))
+            .Callback((string _, string _, int _, PendingPlanChange pending, CancellationToken _,
+                    SubscriptionOutboxEvent? outboxEvent) =>
+            {
+                _scheduled = pending;
+                _scheduledEvent = outboxEvent;
+            })
             .ReturnsAsync(true);
 
         _subscriptions
@@ -2636,5 +2642,9 @@ public sealed class SubscriptionPlanChangeServiceTests
         _scheduled.EffectiveAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc);
         result.Value!.PendingContractAmountMinor.Should().Be(1_200);
         VerifyNeverCharged();
+        _scheduledEvent!.EventType.Should().Be(
+            SubscriptionConstants.SubscriptionOfflinePricingChanged,
+            because: "spec 006: a re-pricing is announced in the same write that holds it, so a " +
+                "consumer billing the contract learns the new figure before the renewal uses it");
     }
 }

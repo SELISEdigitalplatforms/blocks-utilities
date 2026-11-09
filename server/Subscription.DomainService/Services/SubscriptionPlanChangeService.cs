@@ -1486,12 +1486,19 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             OfflinePricing = TargetPricingOf(subscription, targetPricing)
         };
 
+        // Spec 006: only an operator names offline pricing, and what they set is announced in the
+        // same write that holds it. An organization's own scheduled change announces nothing new.
+        var pricingChanged = targetPricing is null
+            ? null
+            : _events.CreateOfflinePricingChanged(subscription, pending, requestedByName, correlationId);
+
         if (!await _subscriptions.TrySetPendingPlanChangeAsync(
                 subscription.TenantId,
                 subscription.ItemId,
                 subscription.Version,
                 pending,
-                cancellationToken))
+                cancellationToken,
+                pricingChanged))
         {
             return Failure(
                 PaymentFailureKind.Conflict,

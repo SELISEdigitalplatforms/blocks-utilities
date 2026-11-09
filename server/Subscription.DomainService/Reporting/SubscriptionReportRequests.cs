@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Reporting;
 
@@ -75,6 +76,18 @@ public sealed class GetBucketedReportRequest
         "Bucket size: 'day', 'week' (Monday-start) or 'month'. Defaults to 'month'. Any other " +
         "value is refused rather than guessed at.")]
     public string? Granularity { get; set; }
+
+    /// <summary>
+    /// Narrows the revenue report to card-collected or bank-transfer (spec 006) subscriptions.
+    /// </summary>
+    /// <remarks>
+    /// Revenue only. The trend reads daily captures that keep no such split, so it refuses the
+    /// filter rather than answering a narrower question with the whole tenant's figures.
+    /// </remarks>
+    [Description(
+        "Revenue report only: 'AutomaticCharge' or 'OfflineInvoice' to isolate card-collected or " +
+        "bank-transfer subscriptions. Omit for both. The trend refuses it.")]
+    public SubscriptionCollectionMethod? CollectionMethod { get; set; }
 }
 
 /// <summary>

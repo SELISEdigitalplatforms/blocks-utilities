@@ -69,6 +69,9 @@ public static class SubscriptionConstants
     public const string SubscriptionUnpaid = "SubscriptionUnpaid";
     public const string SubscriptionPlanChanged = "SubscriptionPlanChanged";
 
+    /// <summary>An operator set an offline subscription's pricing for its next renewal (spec 006).</summary>
+    public const string SubscriptionOfflinePricingChanged = "SubscriptionOfflinePricingChanged";
+
     public const string SubscriptionQuantityChanged = "SubscriptionQuantityChanged";
 
     /// <summary>A person was given, or lost, a seat on a user-wise subscription.</summary>

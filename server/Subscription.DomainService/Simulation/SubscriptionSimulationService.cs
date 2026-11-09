@@ -379,6 +379,12 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
 
         var (succeeded, failureKind) = SplitRenewalOutcome(request.PaymentOutcome);
 
+        if (OfflineScriptRefusal<SubscriptionSimulationActionResponse>(subscription, succeeded, correlationId)
+            is { } offlineRefusal)
+        {
+            return (offlineRefusal, string.Empty);
+        }
+
         if (succeeded is { } isSucceeded)
         {
             _scriptedOutcomes.ScriptNext(new ScriptedChargeOutcome(
@@ -388,6 +394,13 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         }
 
         await _usageRatingProcessor.ChargeInvoiceAsync(invoice, cancellationToken);
+
+        if (subscription.IsOffline)
+        {
+            return (null,
+                $"{periodsClosed} usage period(s) closed; the overage was recorded as an invoice " +
+                "payable by bank transfer (spec 006). Nothing was charged.");
+        }
 
         return (null, succeeded switch
         {
@@ -501,7 +514,9 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
 
         await _renewalService.RenewAsync(subscription, cancellationToken);
 
-        return ("Completed", "The real renewal service ran against the real payment gateway.");
+        return ("Completed", subscription.IsOffline
+            ? OfflineRenewalNote
+            : "The real renewal service ran against the real payment gateway.");
     }
 
     private async Task<(string Status, string? Detail)> RunUsageClosureJobAsync(
@@ -558,6 +573,30 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             ? ("Completed", $"{published} outbox event(s) published.")
             : ("NotDue", "No outbox event is due for publication.");
     }
+
+    private const string OfflineRenewalNote =
+        "Offline subscription (spec 006): the renewal ran without calling the payment gateway and " +
+        "recorded its invoice or service statement. Check state for the document.";
+
+    /// <summary>
+    /// Refuses a scripted payment outcome for an offline subscription (spec 006).
+    /// </summary>
+    /// <remarks>
+    /// An offline renewal or overage never calls the gateway, so an outcome scripted for it would
+    /// stay queued and be handed to whichever charge the harness runs next, on any subscription.
+    /// </remarks>
+    private static SubscriptionOperationResult<T>? OfflineScriptRefusal<T>(
+        SubscriptionDetail subscription,
+        bool? scriptedSucceeded,
+        string correlationId) =>
+        subscription.IsOffline && scriptedSucceeded is not null
+            ? Fail<T>(
+                PaymentFailureKind.Conflict,
+                "subscription_simulation_offline_no_payment",
+                "This subscription is billed by bank transfer and is never charged, so there is no " +
+                    "payment outcome to script. Omit paymentOutcome.",
+                correlationId)
+            : null;
 
     /// <summary>Null in, null out: nothing to script, the real payment gateway decides.</summary>
     private static (bool? Succeeded, SimulatedPaymentFailureKind? FailureKind) SplitRenewalOutcome(
@@ -916,6 +955,12 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
                 "without actually running it, so nothing was charged.");
         }
 
+        if (OfflineScriptRefusal<SubscriptionSimulationActionResponse>(subscription, succeeded, correlationId)
+            is { } offlineRefusal)
+        {
+            return (offlineRefusal, string.Empty);
+        }
+
         if (succeeded is { } isSucceeded)
         {
             _scriptedOutcomes.ScriptNext(new ScriptedChargeOutcome(
@@ -925,6 +970,11 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         }
 
         await _renewalService.RenewAsync(subscription, cancellationToken);
+
+        if (subscription.IsOffline)
+        {
+            return (null, OfflineRenewalNote);
+        }
 
         return (null, succeeded switch
         {
@@ -965,6 +1015,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     private static SubscriptionSimulationSummary Summarize(SubscriptionDetail subscription) => new()
     {
         SubscriptionStatus = subscription.Status.ToString(),
+        CollectionMethod = subscription.CollectionMethod.ToString(),
         CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
         NextFeeBillingAtUtc = subscription.NextFeeBillingAtUtc,
         DunningAttemptCount = subscription.DunningAttemptCount,

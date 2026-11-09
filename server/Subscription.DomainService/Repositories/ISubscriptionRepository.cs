@@ -273,12 +273,17 @@ public interface ISubscriptionRepository
     /// not silently discard the other. The service checks the same thing first for a named error;
     /// this is the guarantee that holds when two callers race that check.
     /// </remarks>
+    /// <param name="outboxEvent">
+    /// Published with the change when it has something to announce now (an offline re-pricing,
+    /// spec 006), so the announcement and the change are one write.
+    /// </param>
     Task<bool> TrySetPendingPlanChangeAsync(
         string tenantId,
         string subscriptionId,
         int expectedVersion,
         PendingPlanChange pending,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        SubscriptionOutboxEvent? outboxEvent = null);
 
     /// <summary>Withdraws a scheduled plan change.</summary>
     Task<bool> TryClearPendingPlanChangeAsync(

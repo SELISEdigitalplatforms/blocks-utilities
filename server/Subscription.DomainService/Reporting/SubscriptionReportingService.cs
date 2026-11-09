@@ -131,6 +131,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
 
     public async Task<SubscriptionOperationResult<RecurringRevenueReportResponse>>
         GetRecurringRevenueAsync(
+            SubscriptionCollectionMethod? collectionMethod,
             string correlationId,
             CancellationToken cancellationToken)
     {
@@ -141,7 +142,8 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             return resolution.ToFailure<RecurringRevenueReportResponse>(correlationId);
         }
 
-        var (summary, _) = await SummarizeRecurringRevenueAsync(context.TenantId, cancellationToken);
+        var (summary, _) = await SummarizeRecurringRevenueAsync(
+            context.TenantId, collectionMethod, cancellationToken);
 
         return SubscriptionOperationResult<RecurringRevenueReportResponse>.Success(
             summary, correlationId);
@@ -162,6 +164,17 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
                 out var granularityFailure))
         {
             return granularityFailure!.ToFailure<RecurringRevenueTrendResponse>();
+        }
+
+        if (request.CollectionMethod is not null)
+        {
+            // The captures keep no per-method split; answering with the whole tenant would be a
+            // wrong answer presented as a filtered one.
+            return Invalid<RecurringRevenueTrendResponse>(
+                correlationId,
+                nameof(request.CollectionMethod),
+                "The trend cannot be filtered by collection method. Use the live recurring " +
+                    "revenue report or the revenue report.");
         }
 
         if (!TryResolveWindow(
@@ -248,7 +261,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             return false;
         }
 
-        var (summary, runRates) = await SummarizeRecurringRevenueAsync(tenantId, cancellationToken);
+        var (summary, runRates) = await SummarizeRecurringRevenueAsync(tenantId, null, cancellationToken);
 
         await _reports.SaveRecurringRevenueSnapshotAsync(
             new RecurringRevenueSnapshot
@@ -453,13 +466,21 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
     /// The live run-rate, shared by the report and the daily capture so the trend and today's
     /// figure come from one calculation and cannot drift apart.
     /// </summary>
+    /// <remarks>
+    /// Offline subscriptions (spec 006) count at the price frozen on them — a contract's flat
+    /// amount, or zero for a no-price one — because that is what their invoices state.
+    /// </remarks>
     private async Task<(RecurringRevenueReportResponse Summary, List<SubscriptionRunRateEntry> RunRates)>
         SummarizeRecurringRevenueAsync(
         string tenantId,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken)
     {
-        var subscriptions = await _reports.ListByStatusAsync(
-            tenantId, LiveStatuses, cancellationToken);
+        var subscriptions = (await _reports.ListByStatusAsync(
+                tenantId, LiveStatuses, cancellationToken))
+            .Where(subscription => collectionMethod is not { } method ||
+                subscription.CollectionMethod == method)
+            .ToList();
 
         var nowUtc = _time.GetUtcNow().UtcDateTime;
 
@@ -528,10 +549,10 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
         }
 
         var documents = await _reports.AggregateDocumentRevenueAsync(
-            context.TenantId, window.FromUtc, window.ToUtc, cancellationToken);
+            context.TenantId, window.FromUtc, window.ToUtc, request.CollectionMethod, cancellationToken);
 
         var overage = await _reports.AggregateOverageRevenueAsync(
-            context.TenantId, window.FromUtc, window.ToUtc, cancellationToken);
+            context.TenantId, window.FromUtc, window.ToUtc, request.CollectionMethod, cancellationToken);
 
         // Both sources arrive per day, so each bucket is the same summary over a subset. Folding
         // here instead of in the query keeps one pipeline per source for all three sizes.
@@ -579,9 +600,12 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
 
         foreach (var currencyCode in currencyCodes)
         {
+            // A service statement (spec 006) records terms and bills nothing, so it is neither
+            // revenue nor a billed document.
             var forCurrency = documents
                 .Where(bucket => string.Equals(
                     bucket.CurrencyCode, currencyCode, StringComparison.Ordinal))
+                .Where(bucket => bucket.DocumentType != FinancialDocumentType.ServiceStatement)
                 .ToList();
 
             var subscriptionRevenue = forCurrency
@@ -967,6 +991,8 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             SeatTier = SubscriptionRunRate.TierFor(runRate.Seats).Name,
             SeatCount = runRate.Seats,
             CurrencyCode = subscription.CurrencyCode,
+            CollectionMethod = subscription.CollectionMethod.ToString(),
+            OfflinePricingMode = subscription.OfflinePricing?.Mode.ToString(),
             GrossMonthlyMinor = runRate.GrossMonthlyMinor,
             NetMonthlyMinor = runRate.NetMonthlyMinor,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
