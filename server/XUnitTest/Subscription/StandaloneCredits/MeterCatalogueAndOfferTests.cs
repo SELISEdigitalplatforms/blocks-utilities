@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -279,5 +280,17 @@ public sealed class MeterCatalogueAndOfferTests
             "a buyer names a pack by code, so a code must name one pack");
         validator.Validate(free).Errors.Should().Contain(error => error.ErrorMessage.Contains("price", StringComparison.Ordinal),
             "a pack nobody can pay for is not for sale");
+    }
+
+    [Fact]
+    public void An_offer_expiry_unit_binds_from_its_name_as_the_console_sends_it_and_from_its_number_as_the_plan_builder_does()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+        var byName = JsonSerializer.Deserialize<CreditExpiryDurationRequest>("""{"count":5,"unit":"Hour"}""", options);
+        var byNumber = JsonSerializer.Deserialize<CreditExpiryDurationRequest>("""{"count":5,"unit":0}""", options);
+
+        byName!.Unit.Should().Be(CreditExpiryUnit.Hour, "the credit offers page posts the unit by name and got 400 when only numbers bound");
+        byNumber!.Unit.Should().Be(CreditExpiryUnit.Hour, "the plan builder still posts the number");
     }
 }

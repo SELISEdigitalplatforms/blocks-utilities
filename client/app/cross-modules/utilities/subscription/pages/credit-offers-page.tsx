@@ -407,6 +407,7 @@ export const CreditOffersPage = () => {
                         placeholder={t("CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT")}
                         type="number"
                         min={1}
+                        step={1}
                         value={pack.unitAmountMinor}
                         onChange={(event) => set({ unitAmountMinor: event.target.value })}
                       />
