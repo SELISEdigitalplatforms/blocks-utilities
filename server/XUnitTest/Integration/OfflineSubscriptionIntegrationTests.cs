@@ -16,11 +16,13 @@ namespace XUnitTest.Integration;
 [Collection(MongoIntegrationCollection.Name)]
 public sealed class OfflineSubscriptionIntegrationTests
 {
+    private readonly MongoIntegrationFixture _fixture;
     private readonly SubscriptionUsageInvoiceRepository _usageInvoices;
     private readonly SubscriptionRepository _subscriptions;
 
     public OfflineSubscriptionIntegrationTests(MongoIntegrationFixture fixture)
     {
+        _fixture = fixture;
         _usageInvoices = new SubscriptionUsageInvoiceRepository(fixture.DbContextProvider);
         _subscriptions = new SubscriptionRepository(fixture.DbContextProvider);
     }
@@ -41,7 +43,11 @@ public sealed class OfflineSubscriptionIntegrationTests
             NextAttemptAtUtc = DateTime.UtcNow
         };
 
-        (await _usageInvoices.TryCreateAsync(invoice, CancellationToken.None)).Should().BeTrue();
+        // Inserted directly rather than through TryCreateAsync, which builds the collection's unique
+        // index across the whole shared fixture database — and the reporting tests deliberately
+        // leave rows there that such a build refuses. This test is about settling, not creating.
+        await _fixture.Collection<SubscriptionUsageInvoice>(SubscriptionCollections.UsageInvoices)
+            .InsertOneAsync(invoice, cancellationToken: CancellationToken.None);
 
         (await _usageInvoices.TryMarkRecordedOfflineAsync(tenantId, invoice.ItemId, CancellationToken.None))
             .Should().BeTrue();
