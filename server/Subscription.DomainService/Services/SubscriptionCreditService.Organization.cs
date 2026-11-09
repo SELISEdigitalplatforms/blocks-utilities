@@ -154,6 +154,9 @@ public sealed partial class SubscriptionCreditService
             LastUpdatedAtUtc = now
         };
 
+        // The event rides in the insert, so the grant and its announcement are one write (spec 005).
+        grant.OutboxEvents.Add(CreditLedger.OrganizationEvent(
+            grant, SubscriptionConstants.OrganizationCreditsGranted, correlationId, nowUtc: now));
         await _grants.TryInsertAsync(grant, cancellationToken);
         await _ledger.PublishOrganizationAsync(grant, SubscriptionConstants.OrganizationCreditsGranted, correlationId, cancellationToken);
         await AuditAsync(context, null, GrantOperation, "StateApplied", "Succeeded",
@@ -263,17 +266,37 @@ public sealed partial class SubscriptionCreditService
 
         var (offer, meter) = resolved.Value!;
         var currency = request.CurrencyCode.Trim().ToUpperInvariant();
+        CreditPack? pack = null;
 
-        if (offer.PriceIn(currency) is not { } price)
+        if (!string.IsNullOrWhiteSpace(request.PackCode))
+        {
+            pack = offer.PackByCode(request.PackCode);
+
+            if (pack is null)
+            {
+                return Failure<OrganizationPriced>(
+                    PaymentFailureKind.NotFound,
+                    "subscription_credit_pack_not_found",
+                    "This offer has no pack with that code.",
+                    correlationId);
+            }
+        }
+
+        // A pack is priced on its own terms and sized by itself; everything else is the offer's.
+        var quantity = pack?.Quantity ?? request.Quantity;
+
+        if ((pack is null ? offer.PriceIn(currency) : pack.PriceIn(currency)) is not { } price)
         {
             return Failure<OrganizationPriced>(
                 PaymentFailureKind.Conflict,
                 "subscription_credits_currency_not_priced",
-                $"Credits for this meter are not sold in {currency}.",
+                pack is null
+                    ? $"Credits for this meter are not sold in {currency}."
+                    : $"The {pack.DisplayName} pack is not sold in {currency}.",
                 correlationId);
         }
 
-        if (request.Quantity < offer.MinQuantity || request.Quantity > offer.MaxQuantity)
+        if (pack is null && (quantity < offer.MinQuantity || quantity > offer.MaxQuantity))
         {
             return Failure<OrganizationPriced>(
                 PaymentFailureKind.Validation,
@@ -312,7 +335,7 @@ public sealed partial class SubscriptionCreditService
 
         try
         {
-            quote = CreditQuoteCalculator.Quote(price, terms, request.Quantity, discountTerms, now);
+            quote = CreditQuoteCalculator.Quote(price, terms, quantity, discountTerms, now);
         }
         catch (OverflowException)
         {
@@ -357,9 +380,10 @@ public sealed partial class SubscriptionCreditService
             SubscriptionId = null,
             OfferId = offer.ItemId,
             OfferVersion = offer.Version,
+            PackCode = pack?.Code,
             MeterKey = offer.MeterKey,
             MeterDisplayName = meter?.DisplayName,
-            Quantity = request.Quantity,
+            Quantity = quantity,
             BuyerUserId = context.UserId ?? string.Empty,
             CurrencyCode = currency,
             UnitAmountMinor = quote.UnitAmountMinor,
@@ -438,7 +462,8 @@ public sealed partial class SubscriptionCreditService
             request.MeterKey,
             Format(request.Quantity),
             request.CurrencyCode.Trim().ToUpperInvariant(),
-            request.DiscountCode?.Trim().ToLowerInvariant() ?? string.Empty);
+            request.DiscountCode?.Trim().ToLowerInvariant() ?? string.Empty,
+            request.PackCode?.Trim().ToUpperInvariant() ?? string.Empty);
 
     /// <summary>What the charge and the invoice call the credits, with or without a plan to ask.</summary>
     private static string LabelOf(SubscriptionCreditPurchase purchase, SubscriptionDetail? subscription) =>

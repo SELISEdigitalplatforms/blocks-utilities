@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Blocks.Genesis;
 using Microsoft.Extensions.Logging;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -28,15 +27,20 @@ public sealed class CreditLedger
     private readonly ISubscriptionOutboxEventFactory _events;
     private readonly ISubscriptionWorkScheduler _scheduler;
     private readonly ICreditOfferRepository? _offers;
-    private readonly IMessageClient? _messages;
+    private readonly IOrganizationCreditOutboxProcessor? _organizationOutbox;
     private readonly ILogger? _logger;
+
+    private static readonly JsonSerializerOptions PayloadOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     /// <param name="offers">
     /// Spec 005. Without them an organization holds no standalone credits and the gate reads none.
     /// </param>
-    /// <param name="messages">
-    /// Where an organization's credit events go. A subscription's events sit in its outbox; an
-    /// organization has no document to hold one, so its events are sent directly.
+    /// <param name="organizationOutbox">
+    /// Publishes an organization's credit events as soon as they are written. Absent, they stay on
+    /// the grant for the sweep, which is where a failed publish goes anyway.
     /// </param>
     public CreditLedger(
         ISubscriptionCreditGrantRepository grants,
@@ -45,7 +49,7 @@ public sealed class CreditLedger
         ISubscriptionOutboxEventFactory events,
         ISubscriptionWorkScheduler scheduler,
         ICreditOfferRepository? offers = null,
-        IMessageClient? messages = null,
+        IOrganizationCreditOutboxProcessor? organizationOutbox = null,
         ILogger<CreditLedger>? logger = null)
     {
         _grants = grants;
@@ -54,7 +58,7 @@ public sealed class CreditLedger
         _events = events;
         _scheduler = scheduler;
         _offers = offers;
-        _messages = messages;
+        _organizationOutbox = organizationOutbox;
         _logger = logger;
     }
 
@@ -472,53 +476,107 @@ public sealed class CreditLedger
     }
 
     /// <summary>
-    /// Sends an organization credit event straight to the lifecycle topic.
+    /// The outbox entry an organization credit event is stored as (spec 005): on the grant it is
+    /// about, under one deduplication key per grant and event type, since a grant is bought or
+    /// given exactly once and used up at most once.
+    /// </summary>
+    /// <param name="purchase">
+    /// For a purchase, what the confirmation mail needs: the figures, the meter's name, and the
+    /// billing account whose contact is written to.
+    /// </param>
+    public static SubscriptionOutboxEvent OrganizationEvent(
+        SubscriptionCreditGrant grant,
+        string eventType,
+        string correlationId,
+        SubscriptionCreditPurchase? purchase = null,
+        DateTime? nowUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(grant);
+
+        var occurredAt = nowUtc ?? DateTime.UtcNow;
+        var payload = new SubscriptionLifecycleEvent
+        {
+            EventId = Guid.NewGuid().ToString(),
+            EventType = eventType,
+            TenantId = grant.TenantId,
+            OrganizationId = grant.OrganizationId,
+            MeterKey = grant.MeterKey,
+            CreditGrantId = grant.ItemId,
+            CreditQuantity = grant.Quantity,
+            CreditRemaining = grant.Remaining,
+            CreditExpiresAtUtc = grant.ExpiresAtUtc,
+            CreditPurchaseId = purchase?.ItemId,
+            MeterDisplayName = purchase?.MeterDisplayName,
+            CreditTotalMinor = purchase?.TotalMinor,
+            CurrencyCode = purchase?.CurrencyCode,
+            BillingAccountId = purchase?.BillingAccountId,
+            PackCode = purchase?.PackCode,
+            CorrelationId = correlationId,
+            OccurredAtUtc = occurredAt
+        };
+
+        return new SubscriptionOutboxEvent
+        {
+            EventId = payload.EventId,
+            EventType = eventType,
+            DeduplicationKey = OrganizationEventKey(grant, eventType),
+            Payload = JsonSerializer.Serialize(payload, PayloadOptions),
+            CorrelationId = correlationId,
+            CreatedAtUtc = occurredAt
+        };
+    }
+
+    private static string OrganizationEventKey(SubscriptionCreditGrant grant, string eventType) =>
+        $"{grant.ItemId}:{eventType}";
+
+    /// <summary>
+    /// Makes sure an organization credit event is on its grant, then publishes what the grant is
+    /// still owed.
     /// </summary>
     /// <remarks>
-    /// ponytail: at-most-once. A subscription's events go through its outbox because the
-    /// subscription document is where a transition and its event can be written together; an
-    /// organization's grants have no such document, and a second outbox for three event types
-    /// was not worth building. Add an organization outbox if a lost event is ever reported.
+    /// A caller that already wrote the event into the grant's insert finds it here and skips the
+    /// append; one announcing a transition after the fact, such as exhaustion, appends it under its
+    /// key, so a retried draw adds nothing. Publishing is attempted at once for a consumer's sake
+    /// and left to the sweep if it fails: the event is already durable, and the caller's own
+    /// operation — a purchase, a usage recording — must not fail for a broker that is down.
     /// </remarks>
     public async Task PublishOrganizationAsync(
         SubscriptionCreditGrant grant,
         string eventType,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SubscriptionCreditPurchase? purchase = null)
     {
         ArgumentNullException.ThrowIfNull(grant);
 
-        if (_messages is null)
+        var key = OrganizationEventKey(grant, eventType);
+
+        if (!grant.OutboxEvents.Exists(outboxEvent => outboxEvent.DeduplicationKey == key))
+        {
+            var outboxEvent = OrganizationEvent(grant, eventType, correlationId, purchase);
+
+            if (await _grants.TryAppendEventAsync(grant.TenantId, grant.ItemId, outboxEvent, cancellationToken) &&
+                !grant.OutboxEvents.Exists(existing => existing.DeduplicationKey == key))
+            {
+                // Mirrored onto the copy in hand so the publish below sees it without a re-read.
+                grant.OutboxEvents.Add(outboxEvent);
+            }
+        }
+
+        if (_organizationOutbox is null)
         {
             return;
         }
 
         try
         {
-            await _messages.SendToMassConsumerAsync(
-                new ConsumerMessage<SubscriptionLifecycleEvent>
-                {
-                    ConsumerName = Utilities.SubscriptionConstants.LifecycleTopic,
-                    Payload = new SubscriptionLifecycleEvent
-                    {
-                        EventId = Guid.NewGuid().ToString(),
-                        EventType = eventType,
-                        TenantId = grant.TenantId,
-                        OrganizationId = grant.OrganizationId,
-                        MeterKey = grant.MeterKey,
-                        CreditGrantId = grant.ItemId,
-                        CreditQuantity = grant.Quantity,
-                        CreditRemaining = grant.Remaining,
-                        CorrelationId = correlationId,
-                        OccurredAtUtc = DateTime.UtcNow
-                    }
-                });
+            await _organizationOutbox.PublishDueForGrantAsync(grant, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger?.LogWarning(
                 exception,
-                "An organization credit event could not be published EventType={EventType} GrantId={GrantId}",
+                "An organization credit event was left for the sweep EventType={EventType} GrantId={GrantId}",
                 eventType,
                 grant.ItemId);
         }

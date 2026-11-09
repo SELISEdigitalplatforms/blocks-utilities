@@ -12,6 +12,7 @@ public static class SubscriptionCreditIndexDefinitions
     public const string PurchaseBySubscriptionIndexName = "credit_purchase_by_subscription";
     public const string PurchaseByPaymentIndexName = "credit_purchase_by_payment";
     public const string GrantOrganizationIndexName = "credit_grant_by_organization";
+    public const string GrantOutboxIndexName = "credit_grant_outbox";
     public const string PurchaseByOrganizationIndexName = "credit_purchase_by_organization";
     public const string MeterCatalogueKeyIndexName = "ux_meter_catalogue_tenant_org_key";
     public const string CreditOfferMeterIndexName = "ux_credit_offer_tenant_org_meter";
@@ -51,7 +52,14 @@ public static class SubscriptionCreditIndexDefinitions
                 .Ascending(grant => grant.MeterKey)
                 .Ascending(grant => grant.Status)
                 .Ascending(grant => grant.ExpiresAtUtc),
-            new CreateIndexOptions<SubscriptionCreditGrant> { Name = GrantOrganizationIndexName })
+            new CreateIndexOptions<SubscriptionCreditGrant> { Name = GrantOrganizationIndexName }),
+        // Backs the organization outbox sweep (spec 005): a multikey index on the event status, so
+        // the tenant-wide search for a grant still owing an event does not read every grant.
+        new(
+            Builders<SubscriptionCreditGrant>.IndexKeys
+                .Ascending(grant => grant.TenantId)
+                .Ascending("OutboxEvents.Status"),
+            new CreateIndexOptions<SubscriptionCreditGrant> { Name = GrantOutboxIndexName })
     ];
 
     public static IReadOnlyCollection<CreateIndexModel<SubscriptionCreditPurchase>> CreatePurchaseIndexes() =>

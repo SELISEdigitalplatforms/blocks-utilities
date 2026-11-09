@@ -63,8 +63,10 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         CreditLedger? creditLedger = null,
         ISubscriptionCreditGrantRepository? creditGrants = null,
         ISubscriptionCreditPurchaseRepository? creditPurchases = null,
-        IOptionsMonitor<SubscriptionOptions>? subscriptionOptions = null)
+        IOptionsMonitor<SubscriptionOptions>? subscriptionOptions = null,
+        IOrganizationCreditOutboxProcessor? organizationCreditOutbox = null)
     {
+        _organizationCreditOutbox = organizationCreditOutbox;
         _credits = credits;
         _creditLedger = creditLedger;
         _creditGrants = creditGrants;
@@ -424,7 +426,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     private static readonly SimulationWorkType[] OrganizationWorkTypes =
     [
         SimulationWorkType.CreditPurchaseRecovery,
-        SimulationWorkType.CreditGrantMaintenance
+        SimulationWorkType.CreditGrantMaintenance,
+        SimulationWorkType.OrganizationCreditOutbox
     ];
 
     private readonly ISubscriptionCreditService? _credits;
@@ -432,6 +435,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     private readonly ISubscriptionCreditGrantRepository? _creditGrants;
     private readonly ISubscriptionCreditPurchaseRepository? _creditPurchases;
     private readonly IOptionsMonitor<SubscriptionOptions>? _subscriptionOptions;
+    private readonly IOrganizationCreditOutboxProcessor? _organizationCreditOutbox;
 
     public async Task<SubscriptionOperationResult<SubscriptionSimulationStateResponse>> GetOrganizationStateAsync(
         string? organizationId,
@@ -553,6 +557,15 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
                 return closed > 0
                     ? ("Completed", $"{closed} credit grant(s) closed.")
                     : ("NotDue", "No credit grant has lapsed.");
+            }
+
+            case SimulationWorkType.OrganizationCreditOutbox when _organizationCreditOutbox is not null:
+            {
+                var published = await _organizationCreditOutbox.PublishDueAsync(tenantId, cancellationToken);
+
+                return published > 0
+                    ? ("Completed", $"{published} organization credit event(s) published.")
+                    : ("NotDue", "No organization credit event is waiting to be published.");
             }
 
             default:

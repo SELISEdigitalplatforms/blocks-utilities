@@ -22,5 +22,8 @@ public enum SimulationWorkType
     CreditPurchaseRecovery,
 
     /// <summary>Close credit grants that have expired or run out.</summary>
-    CreditGrantMaintenance
+    CreditGrantMaintenance,
+
+    /// <summary>The organization credit outbox sweep (spec 005): events still owed by a grant.</summary>
+    OrganizationCreditOutbox
 }

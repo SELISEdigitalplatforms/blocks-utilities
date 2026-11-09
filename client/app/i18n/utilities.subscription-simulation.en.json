@@ -677,5 +677,7 @@
   "USAGE_SECTION.TRY_AGAIN_IN_A_MOMENT": "Try again in a moment.",
   "USAGE_SECTION.USAGE": "Usage",
   "USAGE_SECTION.USED": "{{userId}} used {{used}} {{unitLabel}}",
-  "USAGE_SECTION.WHOSE_USAGE": "Whose usage"
+  "USAGE_SECTION.WHOSE_USAGE": "Whose usage",
+  "ORGANIZATION_CREDITS_CARD.PACK": "Pack",
+  "ORGANIZATION_CREDITS_CARD.NO_PACK": "No pack — choose a quantity"
 }

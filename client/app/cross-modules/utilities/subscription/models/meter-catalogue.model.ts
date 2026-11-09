@@ -44,6 +44,14 @@ export interface CreditExpiryDuration {
   unit: "Hour" | "Day" | "Week" | "Month" | "Year";
 }
 
+/** A fixed-size bundle sold under an offer at its own price; expiry, tax and spend order are the offer's. */
+export interface CreditPack {
+  code: string;
+  displayName: string;
+  quantity: number;
+  unitPrices: CreditOfferPrice[];
+}
+
 /** `GET /api/credit-offers`. One per meter per scope; see spec 005. */
 export interface CreditOffer {
   offerId: string;
@@ -59,6 +67,7 @@ export interface CreditOffer {
   taxRateBasisPoints: number | null;
   taxMode: "Exclusive" | "Inclusive" | null;
   spendOrder: CreditSpendOrder;
+  packs: CreditPack[];
   createdAtUtc: string;
   lastUpdatedAtUtc: string;
   version: number;
@@ -75,4 +84,5 @@ export interface CreditOfferRequest {
   taxRateBasisPoints?: number | null;
   taxMode?: "Exclusive" | "Inclusive" | null;
   spendOrder: CreditSpendOrder;
+  packs: CreditPack[];
 }

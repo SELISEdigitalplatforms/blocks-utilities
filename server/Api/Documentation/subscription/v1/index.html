@@ -4934,6 +4934,7 @@ POST /api/subscriptions
                 <tr><td>taxRateBasisPoints</td><td class="type">int?</td><td class="prose">0&ndash;10000. A rate above zero needs <code>taxMode</code>.</td></tr>
                 <tr><td>taxMode</td><td class="type">string?</td><td class="prose"><code>Exclusive</code> or <code>Inclusive</code>.</td></tr>
                 <tr><td>spendOrder</td><td class="type">string</td><td class="prose"><code>SubscriptionFirst</code> (default) or <code>OrganizationCreditsFirst</code>. See above.</td></tr>
+                <tr><td>packs</td><td class="type">array</td><td class="prose">Optional. Fixed-size bundles, each <code>{ code, displayName, quantity, unitPrices }</code>: <code>code</code> is letters, digits, dashes and underscores, unique within the offer ignoring case; <code>quantity</code> whole credits; <code>unitPrices</code> as the offer&apos;s, at least one. A pack is bought by code at its own size and price &mdash; <code>minQuantity</code> and <code>maxQuantity</code> do not apply &mdash; and takes the offer&apos;s expiry, tax and spend order. Replaced whole on every edit.</td></tr>
               </tbody>
             </table>
           </div>
@@ -4967,6 +4968,7 @@ POST /api/subscriptions
           <pre><code>{
   "meterKey": "ai-credit",
   "quantity": 100,
+  "packCode": null,
   "currencyCode": "CHF",
   "discountCode": "topup20"
 }</code></pre>
@@ -4976,6 +4978,13 @@ POST /api/subscriptions
             credits, not money &mdash; so each purchase names its own. Only a <code>CreditPurchase</code>
             code with no plan restriction applies: there is no plan here for a plan-restricted code to
             match.
+          </p>
+          <p class="prose">
+            <code>packCode</code> buys one of the offer&apos;s packs instead: <code>quantity</code> is
+            then ignored and the quote is the pack&apos;s size at the pack&apos;s price, which must be
+            in <code>currencyCode</code> (<code>404</code> <code>subscription_credit_pack_not_found</code>,
+            <code>409</code> <code>subscription_credits_currency_not_priced</code>). The response echoes
+            <code>packCode</code>, and the pack is part of the purchase&apos;s idempotency fingerprint.
           </p>
           <h4>Sample response</h4>
           <pre><code>{
@@ -5099,9 +5108,17 @@ POST /api/subscriptions
         <code>OrganizationCreditsPurchased</code>, <code>OrganizationCreditsGranted</code> and
         <code>OrganizationCreditsExhausted</code> go to the lifecycle topic with an empty
         <code>subscriptionId</code>, carrying <code>organizationId</code>, <code>meterKey</code>,
-        <code>creditGrantId</code>, <code>creditQuantity</code> and <code>creditRemaining</code>.
-        Unlike a subscription&apos;s events they are sent directly rather than through an outbox, so
-        treat them as at-most-once and read the grant list for the truth.
+        <code>creditGrantId</code>, <code>creditQuantity</code>, <code>creditRemaining</code> and
+        <code>creditExpiresAtUtc</code>. They are written onto the grant in the same write as the
+        change that caused them and published from there &mdash; the grant is the organization&apos;s
+        outbox &mdash; so they are at-least-once, like a subscription&apos;s. A purchase event also
+        carries <code>creditPurchaseId</code>, <code>meterDisplayName</code>,
+        <code>creditTotalMinor</code>, <code>currencyCode</code>, <code>packCode</code> and
+        <code>billingAccountId</code>, and becomes the <code>organization_credits_purchased</code>
+        confirmation mail to the charged account&apos;s billing contact, with keys
+        <code>DisplayName</code>, <code>MeterName</code>, <code>MeterKey</code>, <code>Quantity</code>,
+        <code>PackCode</code>, <code>Amount</code>, <code>AmountMinor</code>, <code>Currency</code> and
+        <code>ExpiresOn</code>.
       </p>
 
       <h3 id="api-ent">Entitlements</h3>

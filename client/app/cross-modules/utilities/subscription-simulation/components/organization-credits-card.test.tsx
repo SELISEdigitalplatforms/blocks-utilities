@@ -49,6 +49,7 @@ const offer: CreditOffer = {
   taxRateBasisPoints: null,
   taxMode: null,
   spendOrder: "SubscriptionFirst",
+  packs: [],
   createdAtUtc: "2026-11-01T00:00:00Z",
   lastUpdatedAtUtc: "2026-11-01T00:00:00Z",
   version: 1,
@@ -124,6 +125,28 @@ describe("OrganizationCreditsCard", () => {
     const sent = credits.purchase.mock.calls[0][0];
     expect(sent.currencyCode).toBe("CHF");
     expect(sent.idempotencyKey).toMatch(/[0-9a-f-]{36}/);
+  });
+
+  it("buys a pack by its code, at the pack's size, in a currency the pack is priced in", async () => {
+    const user = userEvent.setup();
+    offers.listOffers.mockResolvedValue([
+      {
+        ...offer,
+        packs: [{ code: "bulk", displayName: "Bulk", quantity: 5000, unitPrices: [{ currencyCode: "CHF", unitAmountMinor: 6 }] }],
+      },
+    ]);
+
+    renderCard();
+    await user.click(await screen.findByRole("button", { name: "Buy" }));
+    await user.click(screen.getByRole("combobox", { name: "Pack" }));
+    await user.click(await screen.findByRole("option", { name: /Bulk/ }));
+    await user.click(screen.getByRole("button", { name: "Get quote" }));
+
+    await waitFor(() => expect(credits.previewPurchase).toHaveBeenCalledTimes(1));
+    expect(credits.previewPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ packCode: "bulk", quantity: 5000, currencyCode: "CHF" }),
+    );
+    expect(screen.getByLabelText("Credits")).toBeDisabled();
   });
 
   it("does not offer to buy from a paused offer", async () => {

@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using Payment.DomainService.Services;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Messaging;
@@ -33,6 +34,7 @@ public sealed class SubscriptionNotificationEmailServiceTests
     private readonly Mock<IMailDeliveryReporter> _reports = new();
     private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
     private readonly Mock<ISubscriptionBillingProfileRepository> _profiles = new();
+    private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
     private readonly List<MailDeliveryReportRequest> _recorded = [];
     private ConsumerMessage<SendMail>? _queued;
 
@@ -200,6 +202,81 @@ public sealed class SubscriptionNotificationEmailServiceTests
             report.ErrorCode == "billing_email_missing");
     }
 
+    // ---- standalone credit purchase confirmation (spec 005) -----------------------------------
+
+    [Fact]
+    public async Task A_paid_standalone_credit_purchase_mails_the_charged_accounts_billing_contact_every_figure()
+    {
+        _accounts
+            .Setup(repository => repository.GetAsync("tenant-1", "account-9", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { BillingEmail = "Buyer@Example.com", BillingName = "Grace Hopper", Language = "de-CH" });
+        long minorInOne = 100;
+        decimal major = 8.65m;
+        _currency.Setup(currency => currency.TryConvert(1m, "USD", out minorInOne)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(865, "USD", out major)).Returns(true);
+
+        await Service().SendAsync(CreditPurchase(), CancellationToken.None);
+
+        _queued.Should().NotBeNull("credits paid for outright deserve a confirmation, not only an invoice");
+        _queued!.Payload.Purpose.Should().Be(SubscriptionConstants.OrganizationCreditsPurchasedMailPurpose);
+        _queued.Payload.To.Should().Equal(["buyer@example.com"]);
+        _queued.Payload.Language.Should().Be("de-CH", "the account's language, with no profile to override it");
+        _queued.Payload.BodyDataContext.Should().Equal(new Dictionary<string, string>
+        {
+            ["DisplayName"] = "Grace Hopper",
+            ["MeterName"] = "AI",
+            ["MeterKey"] = "ai",
+            ["Quantity"] = "500",
+            ["PackCode"] = "starter",
+            ["Amount"] = "8.65",
+            ["AmountMinor"] = "865",
+            ["Currency"] = "USD",
+            ["ExpiresOn"] = "2026-12-06"
+        }, "every key, every time, so no tenant template can meet a missing placeholder");
+        _queued.Payload.SubjectDataContext.Should().Equal(_queued.Payload.BodyDataContext);
+        _subscriptions.VerifyNoOtherCalls();
+        _recorded.Should().ContainSingle().Which.Should().Match<MailDeliveryReportRequest>(report =>
+            report.Outcome == MailDeliveryReportOutcome.Published &&
+            report.SubjectId == "org-1:k1" &&
+            report.OrganizationId == "organization-1");
+    }
+
+    [Fact]
+    public async Task A_credit_purchase_whose_account_cannot_be_mailed_is_reported_rather_than_sent_nowhere()
+    {
+        var lifecycleEvent = CreditPurchase();
+        lifecycleEvent.BillingAccountId = "account-gone";
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        _queued.Should().BeNull();
+        _recorded.Should().ContainSingle().Which.Should().Match<MailDeliveryReportRequest>(report =>
+            report.Outcome == MailDeliveryReportOutcome.NotAttempted &&
+            report.ErrorCode == "billing_email_missing" &&
+            report.SubjectId == "org-1:k1");
+    }
+
+    private static SubscriptionLifecycleEvent CreditPurchase() => new()
+    {
+        EventId = "event-1",
+        EventType = SubscriptionConstants.OrganizationCreditsPurchased,
+        TenantId = "tenant-1",
+        OrganizationId = "organization-1",
+        SubscriptionId = string.Empty,
+        MeterKey = "ai",
+        MeterDisplayName = "AI",
+        CreditGrantId = "g1",
+        CreditPurchaseId = "org-1:k1",
+        CreditQuantity = 500,
+        CreditRemaining = 500,
+        CreditTotalMinor = 865,
+        CurrencyCode = "USD",
+        BillingAccountId = "account-9",
+        PackCode = "starter",
+        CreditExpiresAtUtc = new DateTime(2026, 12, 6, 23, 30, 0, DateTimeKind.Utc),
+        OccurredAtUtc = new DateTime(2026, 11, 6, 9, 0, 0, DateTimeKind.Utc)
+    };
+
     [Theory]
     [InlineData(SubscriptionConstants.UsageThresholdReached)]
     [InlineData(SubscriptionConstants.SubscriptionRenewed)]
@@ -348,7 +425,8 @@ public sealed class SubscriptionNotificationEmailServiceTests
         NullLogger<SubscriptionNotificationEmailService>.Instance,
         _reports.Object,
         _assignments.Object,
-        _profiles.Object);
+        _profiles.Object,
+        _currency.Object);
 
     private static SubscriptionDetail Subscription(string timeZoneId = "Europe/Zurich") => new()
     {

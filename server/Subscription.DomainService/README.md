@@ -209,7 +209,10 @@ never price or expiry. The catalogue is what a later plan picks meters from and 
 credit offer (`SubscriptionCreditOffers`, one per meter per scope, resolved like plans: an
 organization's own wins, else the tenant's) sells. An organization buys from an offer with or
 without a subscription; those grants and purchases live in the credit collections with a null
-`SubscriptionId`, and the usage gate spends them in the offer's `SpendOrder`. See spec 005.
+`SubscriptionId`, and the usage gate spends them in the offer's `SpendOrder`. An organization
+grant carries its own `OutboxEvents`, drained by `OrganizationCreditOutboxProcessor` alongside
+the subscription outbox; the purchase event becomes the `organization_credits_purchased` mail.
+See spec 005.
 
 The code and the organization come from the stored plan, never the request: a code is what
 configuration points at, and a scope change would move the plan out from under whoever can see it.

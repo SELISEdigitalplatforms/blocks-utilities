@@ -37,6 +37,9 @@ public sealed class SubscriptionCreditPurchase
 
     public long OfferVersion { get; set; }
 
+    /// <summary>The offer pack bought, when the purchase named one; its quantity is then the pack's.</summary>
+    public string? PackCode { get; set; }
+
     /// <summary>
     /// The meter's name when quoted, for the charge description and the invoice line of a purchase
     /// with no plan snapshot to read it from later. Null on a subscription purchase.

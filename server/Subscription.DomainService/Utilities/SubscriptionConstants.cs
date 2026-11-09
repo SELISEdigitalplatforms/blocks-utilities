@@ -50,6 +50,12 @@ public static class SubscriptionConstants
     public const string MemberAssignedMailPurpose = "subscription_member_assigned";
     public const string MemberRemovedMailPurpose = "subscription_member_removed";
 
+    /// <summary>
+    /// Sent to the billing contact when an organization's standalone credit purchase is paid for
+    /// (spec 005), on top of the invoice mail the document path sends.
+    /// </summary>
+    public const string OrganizationCreditsPurchasedMailPurpose = "organization_credits_purchased";
+
     public const string SubscriptionCreated = "SubscriptionCreated";
     public const string SubscriptionTrialStarted =
         "SubscriptionTrialStarted";
@@ -94,7 +100,8 @@ public static class SubscriptionConstants
             [SubscriptionCanceled] = CanceledMailPurpose,
             [SubscriptionCancellationWithdrawn] = CancellationWithdrawnMailPurpose,
             [SubscriptionMemberAssigned] = MemberAssignedMailPurpose,
-            [SubscriptionMemberReleased] = MemberRemovedMailPurpose
+            [SubscriptionMemberReleased] = MemberRemovedMailPurpose,
+            [OrganizationCreditsPurchased] = OrganizationCreditsPurchasedMailPurpose
         };
 
     /// <summary>

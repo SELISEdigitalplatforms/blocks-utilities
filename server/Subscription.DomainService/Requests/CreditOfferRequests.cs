@@ -33,4 +33,21 @@ public sealed class CreditOfferRequest
     public TaxMode? TaxMode { get; set; }
 
     public CreditSpendOrder SpendOrder { get; set; } = CreditSpendOrder.SubscriptionFirst;
+
+    /// <summary>Fixed-size bundles at their own price. Replaced whole on every edit.</summary>
+    public List<CreditPackRequest> Packs { get; set; } = [];
+}
+
+/// <summary>One pack of a standalone credit offer.</summary>
+public sealed class CreditPackRequest
+{
+    /// <summary>Letters, digits, dashes and underscores; unique within the offer.</summary>
+    public string Code { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>Whole credits.</summary>
+    public decimal Quantity { get; set; }
+
+    public List<MeterTopUpPriceRequest> UnitPrices { get; set; } = [];
 }

@@ -1,6 +1,6 @@
 import { useT } from "@seliseblocks/genesis-os";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router";
 import { Badge } from "@/components/ui-kits/badge/badge";
@@ -28,13 +28,27 @@ import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page
 import { SUBSCRIPTION_CURRENCY_OPTIONS } from "../constants/subscription.constants";
 import { CREDIT_OFFERS_QUERY_KEY, useCreditOffers, useMeterCatalogue } from "../hooks/use-meter-catalogue";
 import { useOrganizationScope } from "../hooks/use-organization-scope";
-import type { CreditExpiryDuration, CreditOffer, CreditOfferRequest, CreditSpendOrder } from "../models/meter-catalogue.model";
+import type {
+  CreditExpiryDuration,
+  CreditOffer,
+  CreditOfferRequest,
+  CreditPack,
+  CreditSpendOrder,
+} from "../models/meter-catalogue.model";
 import { meterCatalogueService } from "../services/meter-catalogue.service";
 import { formatMoney } from "../utilities/subscription-format";
 
 const MODULE = "utilities.subscription.pages";
 const EXPIRY_UNITS = ["Hour", "Day", "Week", "Month", "Year"] as const;
 const NEVER = "never";
+
+/** A pack as the form edits it: priced in the draft's currency, other currencies kept from the stored pack. */
+interface PackDraft {
+  code: string;
+  displayName: string;
+  quantity: string;
+  unitAmountMinor: string;
+}
 
 interface Draft {
   meterKey: string;
@@ -48,6 +62,7 @@ interface Draft {
   taxRateBasisPoints: string;
   taxMode: "Exclusive" | "Inclusive";
   spendOrder: CreditSpendOrder;
+  packs: PackDraft[];
 }
 
 const emptyDraft = (): Draft => ({
@@ -62,7 +77,10 @@ const emptyDraft = (): Draft => ({
   taxRateBasisPoints: "",
   taxMode: "Exclusive",
   spendOrder: "SubscriptionFirst",
+  packs: [],
 });
+
+const emptyPack = (): PackDraft => ({ code: "", displayName: "", quantity: "500", unitAmountMinor: "" });
 
 // ponytail: the dialog edits the first price only; an offer with several currencies keeps the
 // others untouched. Add a price list editor when a second currency is authored from the console.
@@ -78,7 +96,29 @@ const draftOf = (offer: CreditOffer): Draft => ({
   taxRateBasisPoints: offer.taxRateBasisPoints == null ? "" : String(offer.taxRateBasisPoints),
   taxMode: offer.taxMode ?? "Exclusive",
   spendOrder: offer.spendOrder,
+  packs: offer.packs.map((pack) => {
+    const currency = offer.unitPrices[0]?.currencyCode ?? "USD";
+    const price = pack.unitPrices.find((candidate) => candidate.currencyCode === currency) ?? pack.unitPrices[0];
+    return {
+      code: pack.code,
+      displayName: pack.displayName,
+      quantity: String(pack.quantity),
+      unitAmountMinor: String(price?.unitAmountMinor ?? ""),
+    };
+  }),
 });
+
+const toPacks = (draft: Draft, existing: CreditOffer | null): CreditPack[] =>
+  draft.packs.map((pack) => {
+    const stored = existing?.packs.find((candidate) => candidate.code.toLowerCase() === pack.code.trim().toLowerCase());
+    const otherPrices = (stored?.unitPrices ?? []).filter((price) => price.currencyCode !== draft.currencyCode);
+    return {
+      code: pack.code.trim(),
+      displayName: pack.displayName.trim(),
+      quantity: Number(pack.quantity),
+      unitPrices: [{ currencyCode: draft.currencyCode, unitAmountMinor: Number(pack.unitAmountMinor) }, ...otherPrices],
+    };
+  });
 
 export const toOfferRequest = (draft: Draft, existing: CreditOffer | null, organizationId?: string): CreditOfferRequest => {
   const otherPrices = (existing?.unitPrices ?? []).filter((price) => price.currencyCode !== draft.currencyCode);
@@ -98,6 +138,7 @@ export const toOfferRequest = (draft: Draft, existing: CreditOffer | null, organ
     taxRateBasisPoints: taxRate,
     taxMode: taxRate && taxRate > 0 ? draft.taxMode : null,
     spendOrder: draft.spendOrder,
+    packs: toPacks(draft, existing),
   };
 };
 
@@ -111,6 +152,7 @@ const describeOffer = (offer: CreditOffer, t: (key: string, values?: Record<stri
     offer.spendOrder === "OrganizationCreditsFirst"
       ? t("CREDIT_OFFERS_PAGE.SPEND_ORGANIZATION_FIRST")
       : t("CREDIT_OFFERS_PAGE.SPEND_SUBSCRIPTION_FIRST"),
+    ...(offer.packs.length ? [t("CREDIT_OFFERS_PAGE.PACK_COUNT", { count: offer.packs.length })] : []),
   ].join(" · ");
 
 /** Standalone credit offers (spec 005): one per meter per scope, priced and expired on their own terms. */
@@ -320,6 +362,66 @@ export const CreditOffersPage = () => {
               <div className="flex items-center gap-2 sm:col-span-2">
                 <Switch id="offer-enabled" checked={draft.enabled} onCheckedChange={(checked) => update({ enabled: checked })} />
                 <Label htmlFor="offer-enabled">{t("CREDIT_OFFERS_PAGE.ENABLED")}</Label>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <div className="flex items-center justify-between">
+                  <Label>{t("CREDIT_OFFERS_PAGE.PACKS")}</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => update({ packs: [...draft.packs, emptyPack()] })}
+                  >
+                    <Plus className="mr-1 h-3.5 w-3.5" />
+                    {t("CREDIT_OFFERS_PAGE.ADD_PACK")}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">{t("CREDIT_OFFERS_PAGE.PACKS_HINT", { currency: draft.currencyCode })}</p>
+                {draft.packs.map((pack, index) => {
+                  const set = (patch: Partial<PackDraft>) =>
+                    update({ packs: draft.packs.map((row, at) => (at === index ? { ...row, ...patch } : row)) });
+                  return (
+                    <div key={index} className="grid gap-2 rounded-md border p-2 sm:grid-cols-[1fr_1fr_1fr_1fr_auto]">
+                      <Input
+                        aria-label={t("CREDIT_OFFERS_PAGE.PACK_CODE")}
+                        placeholder={t("CREDIT_OFFERS_PAGE.PACK_CODE")}
+                        value={pack.code}
+                        onChange={(event) => set({ code: event.target.value })}
+                      />
+                      <Input
+                        aria-label={t("CREDIT_OFFERS_PAGE.PACK_NAME")}
+                        placeholder={t("CREDIT_OFFERS_PAGE.PACK_NAME")}
+                        value={pack.displayName}
+                        onChange={(event) => set({ displayName: event.target.value })}
+                      />
+                      <Input
+                        aria-label={t("CREDIT_OFFERS_PAGE.PACK_QUANTITY")}
+                        placeholder={t("CREDIT_OFFERS_PAGE.PACK_QUANTITY")}
+                        type="number"
+                        min={1}
+                        value={pack.quantity}
+                        onChange={(event) => set({ quantity: event.target.value })}
+                      />
+                      <Input
+                        aria-label={t("CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT")}
+                        placeholder={t("CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT")}
+                        type="number"
+                        min={1}
+                        value={pack.unitAmountMinor}
+                        onChange={(event) => set({ unitAmountMinor: event.target.value })}
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label={t("CREDIT_OFFERS_PAGE.REMOVE_PACK")}
+                        onClick={() => update({ packs: draft.packs.filter((_, at) => at !== index) })}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
             {problem && (

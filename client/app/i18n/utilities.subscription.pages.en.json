@@ -314,5 +314,14 @@
   "PLAN_LIST_PAGE.TENANT_WIDE_ONLY": "Tenant-wide only",
   "PLAN_LIST_PAGE.TITLE": "Subscription plans",
   "PLAN_LIST_PAGE.TRY_AGAIN": "Try again",
-  "PLAN_LIST_PAGE.TRY_LOADING_AGAIN": "Try loading the plan list again."
+  "PLAN_LIST_PAGE.TRY_LOADING_AGAIN": "Try loading the plan list again.",
+  "CREDIT_OFFERS_PAGE.PACKS": "Packs",
+  "CREDIT_OFFERS_PAGE.PACKS_HINT": "Fixed-size bundles at their own price per credit, in {{currency}}. Expiry, tax and spend order are the offer's.",
+  "CREDIT_OFFERS_PAGE.ADD_PACK": "Add pack",
+  "CREDIT_OFFERS_PAGE.REMOVE_PACK": "Remove pack",
+  "CREDIT_OFFERS_PAGE.PACK_CODE": "Code",
+  "CREDIT_OFFERS_PAGE.PACK_NAME": "Name",
+  "CREDIT_OFFERS_PAGE.PACK_QUANTITY": "Credits",
+  "CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT": "Price per credit (minor units)",
+  "CREDIT_OFFERS_PAGE.PACK_COUNT": "{{count}} pack(s)"
 }

@@ -66,6 +66,8 @@ const describeExpiry = (offer: CreditOffer): string =>
 
 type Action = { kind: "buy" | "grant"; offer: CreditOffer };
 
+const NO_PACK = "__none__";
+
 /**
  * The standalone credits an organization holds outside any subscription (spec 005): the offers it
  * may buy from, what it holds, and what it bought. Shown with or without a subscription — that is
@@ -257,7 +259,11 @@ const BuyOrganizationCreditsDialog = ({
 }) => {
   const { t } = useT(MODULE);
   const [quantity, setQuantity] = useState(String(Math.max(offer.minQuantity, 100)));
+  const [packCode, setPackCode] = useState(NO_PACK);
   const [currencyCode, setCurrencyCode] = useState(offer.unitPrices[0]?.currencyCode ?? "");
+  const pack = offer.packs.find((candidate) => candidate.code === packCode) ?? null;
+  // A pack is priced on its own: the currencies on offer are the pack's, not the meter's.
+  const prices = pack ? pack.unitPrices : offer.unitPrices;
   const [code, setCode] = useState("");
   const [quote, setQuote] = useState<CreditQuote | null>(null);
   // One key per quote: a retry of the same purchase reuses it and is never charged twice.
@@ -271,10 +277,21 @@ const BuyOrganizationCreditsDialog = ({
   const request = () => ({
     organizationId,
     meterKey: offer.meterKey,
-    quantity: Number(quantity),
+    quantity: pack ? pack.quantity : Number(quantity),
+    packCode: pack?.code,
     currencyCode,
     discountCode: code.trim() || undefined,
   });
+
+  const choosePack = (value: string) =>
+    edit(() => {
+      setPackCode(value);
+      const chosen = offer.packs.find((candidate) => candidate.code === value);
+      const available = chosen ? chosen.unitPrices : offer.unitPrices;
+      if (!available.some((price) => price.currencyCode === currencyCode)) {
+        setCurrencyCode(available[0]?.currencyCode ?? "");
+      }
+    });
 
   const edit = (apply: () => void) => {
     if (awaiting) return;
@@ -337,6 +354,26 @@ const BuyOrganizationCreditsDialog = ({
           </DialogDescription>
         </DialogHeader>
 
+        {offer.packs.length > 0 && (
+          <div className="space-y-1">
+            <Label>{t("ORGANIZATION_CREDITS_CARD.PACK")}</Label>
+            <Select value={packCode} onValueChange={choosePack}>
+              <SelectTrigger aria-label={t("ORGANIZATION_CREDITS_CARD.PACK")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PACK}>{t("ORGANIZATION_CREDITS_CARD.NO_PACK")}</SelectItem>
+                {offer.packs.map((candidate) => (
+                  <SelectItem key={candidate.code} value={candidate.code}>
+                    {candidate.displayName} · {candidate.quantity.toLocaleString()} ·{" "}
+                    {candidate.unitPrices.map((price) => formatMoney(price.unitAmountMinor, price.currencyCode)).join(" / ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1">
             <Label htmlFor="org-credit-quantity">{t("ORGANIZATION_CREDITS_CARD.CREDITS")}</Label>
@@ -345,7 +382,8 @@ const BuyOrganizationCreditsDialog = ({
               type="number"
               min={offer.minQuantity}
               max={offer.maxQuantity}
-              value={quantity}
+              value={pack ? String(pack.quantity) : quantity}
+              disabled={pack !== null}
               onChange={(event) => edit(() => setQuantity(event.target.value))}
             />
           </div>
@@ -356,7 +394,7 @@ const BuyOrganizationCreditsDialog = ({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {offer.unitPrices.map((price) => (
+                {prices.map((price) => (
                   <SelectItem key={price.currencyCode} value={price.currencyCode}>
                     {price.currencyCode} · {formatMoney(price.unitAmountMinor, price.currencyCode)}
                   </SelectItem>

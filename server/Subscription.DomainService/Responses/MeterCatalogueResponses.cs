@@ -26,6 +26,17 @@ public sealed class MeterCatalogueEntryResponse
     public long Version { get; init; }
 }
 
+public sealed class CreditPackResponse
+{
+    public string Code { get; init; } = string.Empty;
+
+    public string DisplayName { get; init; } = string.Empty;
+
+    public decimal Quantity { get; init; }
+
+    public List<PlanMeterTopUpPriceResponse> UnitPrices { get; init; } = [];
+}
+
 public sealed class CreditOfferResponse
 {
     public string OfferId { get; init; } = string.Empty;
@@ -54,6 +65,8 @@ public sealed class CreditOfferResponse
     public string? TaxMode { get; init; }
 
     public string SpendOrder { get; init; } = string.Empty;
+
+    public List<CreditPackResponse> Packs { get; init; } = [];
 
     public DateTime CreatedAtUtc { get; init; }
 
