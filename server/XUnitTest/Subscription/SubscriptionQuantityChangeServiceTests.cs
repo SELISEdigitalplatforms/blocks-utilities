@@ -1131,4 +1131,74 @@ public sealed class SubscriptionQuantityChangeServiceTests
             ]
         }
     };
+
+    // ---- Offline subscriptions (spec 006) -------------------------------------------------------
+    //
+    // Guards a bank-transfer customer against being charged by Utilities for extra seats, and
+    // against a contract (one flat figure) being invoiced per seat after all.
+
+    private void CaptureOfflineInvoice() =>
+        _subscriptions
+            .Setup(repository => repository.TryApplyQuantityChangeAsync(
+                TenantId, "sub-1", It.IsAny<int>(),
+                It.IsAny<List<SubscriptionQuantityItem>>(), It.IsAny<long>(), It.IsAny<string?>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>(),
+                It.IsAny<SubscriptionDocumentSource?>(), It.IsAny<PendingAnnualPeriod?>()))
+            .Callback((string _, string _, int _, List<SubscriptionQuantityItem> _, long _, string? _,
+                    SubscriptionOutboxEvent _, CancellationToken _, SubscriptionDocumentSource? source,
+                    PendingAnnualPeriod? _) => _offlineInvoice = source)
+            .ReturnsAsync(true);
+
+    private SubscriptionDocumentSource? _offlineInvoice;
+
+    private void VerifyNeverCharged() =>
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "spec 006: extra seats on a bank-transfer contract are invoiced, never charged");
+
+    [Fact]
+    public async Task An_offline_increase_grants_the_seats_and_records_a_prorated_invoice_without_charging()
+    {
+        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        _subscription.OfflinePricing = new OfflinePricing { Mode = OfflinePricingMode.Catalogue };
+        CaptureOfflineInvoice();
+
+        var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        VerifyNeverCharged();
+        _reservation.Should().BeNull(because: "nothing is collected, so nothing is reserved");
+        _offlineInvoice.Should().NotBeNull(
+            because: "the customer's own invoice for the extra seat is written from this record");
+        _offlineInvoice!.ChargeKind.Should().Be(SubscriptionChargeKind.QuantityChange);
+        _offlineInvoice.Amounts!.TotalMinor.Should().BeGreaterThan(0);
+        _offlineInvoice.QuantityItems.Single().Quantity.Should().Be(
+            5, because: "the invoice describes the subscription at its new seat count");
+    }
+
+    [Fact]
+    public async Task A_contract_priced_increase_grants_the_seats_and_records_nothing()
+    {
+        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        _subscription.OfflinePricing = new OfflinePricing
+        {
+            Mode = OfflinePricingMode.Contract,
+            ContractAmountMinor = 40_000,
+            ContractCurrencyCode = "CHF"
+        };
+        OfflineSubscriptionTerms.ApplyContract(
+            _subscription.Price, _subscription.QuantityItems, _subscription.OfflinePricing);
+        CaptureOfflineInvoice();
+
+        var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        VerifyNeverCharged();
+        _offlineInvoice.Should().BeNull(
+            because: "spec 006 AC-15: a contract is one flat amount whatever the seats, so adding " +
+                "one changes nothing anybody owes");
+    }
 }

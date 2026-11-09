@@ -2483,4 +2483,146 @@ public sealed class SubscriptionCreationServiceTests
         QuantityItemKey = "seat",
         Status = CatalogueStatus.Active
     };
+
+    // ---- Offline activation (spec 006) -----------------------------------------------------------
+
+    private static OfflinePricing Catalogue() => new() { Mode = OfflinePricingMode.Catalogue };
+
+    private static OfflinePricing Contract(long amountMinor) => new()
+    {
+        Mode = OfflinePricingMode.Contract,
+        ContractAmountMinor = amountMinor,
+        ContractCurrencyCode = "chf"
+    };
+
+    [Fact]
+    public async Task An_offline_contract_price_is_the_opening_charge_whatever_the_seat_count()
+    {
+        var result = await Service().CreateOfflineAsync(
+            NewRequest(), Contract(50_000), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _created!.InitialChargeAmountMinor.Should().Be(
+            50_000,
+            because: "a contract is one flat amount, so 12 seats at the catalogue's 89.00 each " +
+                "must not leak into the first invoice");
+        _created.CurrencyCode.Should().Be("CHF");
+        _created.Price.QuantityItemKey.Should().BeNull(
+            because: "with a per-seat price key left in place, every renewal would multiply the " +
+                "contract amount by the seat count");
+        _created.QuantityItems.Should().OnlyContain(item => item.UnitAmountMinor == 0);
+        _created.QuantityItems.Single().Quantity.Should().Be(12, because: "seats still entitle people");
+    }
+
+    [Fact]
+    public async Task An_offline_subscription_names_the_operator_as_activator_not_as_buyer()
+    {
+        await Service().CreateOfflineAsync(
+            NewRequest(), Catalogue(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.CollectionMethod.Should().Be(SubscriptionCollectionMethod.OfflineInvoice);
+        _created.PurchasedBy.Should().BeNull(
+            because: "the operator bought nothing, and documents that print the buyer would name " +
+                "someone from the console as the customer");
+        _created.ActivatedBy!.UserId.Should().Be("user-1");
+    }
+
+    [Fact]
+    public async Task An_offline_catalogue_price_is_priced_exactly_as_a_card_subscription_would_be()
+    {
+        await Service().CreateOfflineAsync(
+            NewRequest(), Catalogue(), Context(), "corr-1", CancellationToken.None);
+
+        _created!.InitialChargeAmountMinor.Should().Be(
+            8_900 * 12,
+            because: "catalogue pricing means the catalogue's own figure, seats and all");
+    }
+
+    [Fact]
+    public async Task An_offline_activation_does_not_need_a_ready_payment_provider()
+    {
+        var service = ServiceWithMerchantProfile(
+            global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+            global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.NotConfigured);
+
+        var result = await service.CreateOfflineAsync(
+            NewRequest(), Catalogue(), Context(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(
+            because: "an offline subscription never reaches a provider, so a tenant's broken card " +
+                "configuration must not stop a contract customer from being switched on");
+    }
+
+    [Fact]
+    public async Task An_offline_activation_requires_a_complete_billing_profile_even_on_a_free_price()
+    {
+        _plan.QuantityItems = [];
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var price = NewPrice();
+                price.UnitAmountMinor = 0;
+                price.QuantityItemKey = null;
+                return price;
+            });
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["LegalName"]);
+
+        var request = NewRequest();
+        request.Quantities = [];
+
+        var result = await Service().CreateOfflineAsync(
+            request, Catalogue(), Context(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be(
+            "subscription_billing_profile_incomplete",
+            because: "every offline document is a record somebody invoices from, so it must be " +
+                "addressed to someone whatever the price");
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_offline_activation_does_not_remember_the_operator_as_an_invoice_initiator()
+    {
+        await Service().CreateOfflineAsync(
+            NewRequest(), Catalogue(), Context(), "corr-1", CancellationToken.None);
+
+        _billingProfile.Verify(
+            guard => guard.RememberInitiatorAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the operator is from the console, not the customer, and must not appear on the " +
+                "customer's invoices");
+    }
+
+    [Fact]
+    public async Task A_contract_price_on_a_calendar_aligned_yearly_price_is_refused()
+    {
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var price = NewPrice();
+                price.Interval = BillingInterval.Year;
+                price.BillingAlignment = BillingAlignment.CalendarMonth;
+                price.CalendarStubBaseUnitAmountMinor = 900;
+                return price;
+            });
+
+        var result = await Service().CreateOfflineAsync(
+            NewRequest(), Contract(500_000), Context(), "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be(
+            "subscription_offline_contract_calendar_unsupported",
+            because: "the opening stub has no agreed monthly figure, and inventing one would " +
+                "invoice the customer an amount nobody signed");
+        _created.Should().BeNull();
+    }
 }

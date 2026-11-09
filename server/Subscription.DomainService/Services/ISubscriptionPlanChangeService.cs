@@ -39,6 +39,33 @@ public interface ISubscriptionPlanChangeService
     /// anything — so this only forgets the schedule. Refused as not found when none is held, and
     /// as a conflict when the subscription moved underneath the caller.
     /// </remarks>
+    /// <summary>
+    /// An operator moving an offline subscription onto another plan, at the pricing they name.
+    /// See spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Timing, proration and scheduling are the ordinary change's own; nothing is ever charged, and
+    /// what an immediate change would have charged is recorded as an invoice.
+    /// </remarks>
+    Task<SubscriptionOperationResult<SubscriptionResponse>> ChangePlanOfflineAsync(
+        string subscriptionId,
+        OfflinePlanChangeRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// An operator re-pricing an offline subscription from its next renewal. See spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Held as a pending change to the same plan, so the current period is untouched and the next
+    /// renewal installs the new figure. A second re-pricing before then replaces the first.
+    /// </remarks>
+    Task<SubscriptionOperationResult<SubscriptionResponse>> RepriceOfflineAsync(
+        string subscriptionId,
+        OfflineRepricingRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionOperationResult<SubscriptionResponse>> CancelPendingPlanChangeAsync(
         string subscriptionId,
         string? organizationId,

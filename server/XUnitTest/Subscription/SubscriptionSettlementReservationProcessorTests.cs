@@ -207,6 +207,29 @@ public sealed class SubscriptionSettlementReservationProcessorTests
     }
 
     [Fact]
+    public async Task An_offline_subscriptions_reservation_is_given_back_rather_than_replayed()
+    {
+        // Spec 006. An offline subscription never reserves, but if one somehow holds a reservation
+        // the Stripe replay below must not reach the card on file: a bank-transfer customer is
+        // never charged by Utilities.
+        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+
+        var resolved = await Processor().RecoverStaleAsync(TenantId, default);
+
+        resolved.Should().Be(1);
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        _subscriptions.Verify(
+            repository => repository.TryReleaseSettlementAsync(
+                TenantId, "sub-1", ReservationId, It.IsAny<CancellationToken>()),
+            Times.Once);
+        VerifyNeverPromoted();
+    }
+
+    [Fact]
     public async Task An_adyen_reservation_with_no_payment_record_is_given_back_without_charging()
     {
         // The recurring charge path writes its payment under the charge key before it calls the
@@ -387,7 +410,7 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent raised,
                     CancellationToken _, SubscriptionDocumentSource? _,
-                    PendingAnnualPeriod? _) => announced = raised)
+                    PendingAnnualPeriod? _, OfflinePricing? _) => announced = raised)
             .ReturnsAsync(true);
 
         GivenPayment(ChargeKey, PaymentStatuses.Captured);
@@ -495,7 +518,7 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
                     CancellationToken _, SubscriptionDocumentSource? _,
-                    PendingAnnualPeriod? annual) => installed = annual)
+                    PendingAnnualPeriod? annual, OfflinePricing? _) => installed = annual)
             .ReturnsAsync(true);
 
         GivenPayment(ChargeKey, PaymentStatuses.Captured);

@@ -777,6 +777,14 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             return;
         }
 
+        if (subscription.IsOffline)
+        {
+            // Spec 006: never charged, never retried, never abandoned for lacking a card.
+            await RecordOfflineAsync(subscription, invoice, now, cancellationToken);
+
+            return;
+        }
+
         var account = await _billingAccounts.GetAsync(
             invoice.TenantId,
             subscription.BillingAccountId,
@@ -873,6 +881,73 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
         _logger.LogInformation(
             "Usage invoice charged AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
             attemptNumber,
+            PaymentLogValue.Label(invoice.PeriodKey));
+    }
+
+    /// <summary>
+    /// Settles an offline subscription's overage as a record invoice instead of a charge. See spec 006.
+    /// </summary>
+    /// <remarks>
+    /// The obligation first, then the state. Recording it is idempotent on its source key, so a
+    /// worker that dies between the two leaves the invoice pending and the next sweep records the
+    /// same obligation again harmlessly before settling it — the reverse order could settle an
+    /// invoice nobody ever documents.
+    /// </remarks>
+    private async Task RecordOfflineAsync(
+        SubscriptionDetail subscription,
+        SubscriptionUsageInvoice invoice,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var gross = invoice.Lines.Sum(line => line.AmountMinor);
+
+        var source = SubscriptionDocumentSourceFactory.ForOfflineCharge(
+            subscription,
+            SubscriptionChargeKind.Usage,
+            invoice.PeriodKey,
+            new FinancialDocumentAmounts
+            {
+                // The figures the invoice was rated at, which are what a card would have been charged.
+                GrossSubtotalMinor = gross,
+                AutomaticDiscountMinor = invoice.DiscountAmountMinor,
+                NetSubtotalMinor = invoice.NetAmountMinor,
+                TaxRateBasisPoints = invoice.TaxRateBasisPoints,
+                TaxMode = invoice.TaxMode?.ToString(),
+                TaxAmountMinor = invoice.TaxAmountMinor,
+                TotalMinor = invoice.TotalAmountMinor,
+                AutomaticDiscountBasisPoints = invoice.AutomaticDiscountBasisPoints
+            },
+            initiatedBy: null,
+            now,
+            invoice.CorrelationId);
+
+        await _subscriptions.TryAppendDocumentSourceAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            source,
+            cancellationToken);
+
+        if (!await _usageInvoices.TryMarkRecordedOfflineAsync(
+                invoice.TenantId, invoice.ItemId, cancellationToken))
+        {
+            // Another worker already settled it. Its outcome stands.
+            return;
+        }
+
+        await _subscriptions.TryAppendEventAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            _events.CreateUsageRatingOutcome(
+                subscription, SubscriptionConstants.UsageRated, invoice.PeriodKey, invoice.CorrelationId),
+            cancellationToken);
+
+        if (_documents is not null)
+        {
+            await _documents.RequestPendingAsync(subscription, invoice.CorrelationId, cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Usage invoice recorded for an offline subscription PeriodKey={PeriodKey}",
             PaymentLogValue.Label(invoice.PeriodKey));
     }
 

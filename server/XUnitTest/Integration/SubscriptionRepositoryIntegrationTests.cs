@@ -123,6 +123,46 @@ public sealed class SubscriptionRepositoryIntegrationTests
         stored.Version.Should().Be(2);
     }
 
+    /// <summary>
+    /// Spec 006: an offline renewal collects nothing, so its record invoice can only be recovered
+    /// from the obligation the transition itself wrote. Only the real update can show the period
+    /// and the obligation land together.
+    /// </summary>
+    [Fact]
+    public async Task A_transition_records_its_document_obligation_in_the_same_write_as_the_period()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-offline", SubscriptionStatus.Active);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        var periodEnd = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var transition = new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+        {
+            CurrentPeriodEndUtc = periodEnd,
+            DocumentSource = new SubscriptionDocumentSource
+            {
+                SourceKey = $"offline:{subscription.ItemId}:Renewal:2026-09",
+                DocumentType = FinancialDocumentType.Invoice,
+                ChargeKind = SubscriptionChargeKind.Renewal,
+                PeriodKey = "2026-09",
+                Amounts = new FinancialDocumentAmounts { GrossSubtotalMinor = 8_900, TotalMinor = 8_900 }
+            }
+        };
+
+        (await _subscriptions.TryTransitionAsync(
+            tenantId, subscription.ItemId, transition, CancellationToken.None)).Should().BeTrue();
+
+        var stored = await _subscriptions.GetByIdAsync(tenantId, subscription.ItemId, CancellationToken.None);
+
+        stored!.CurrentPeriodEndUtc.Should().Be(periodEnd);
+        stored.PendingDocumentSources.Should().ContainSingle(
+            source => source.SourceKey == $"offline:{subscription.ItemId}:Renewal:2026-09" &&
+                source.Amounts!.TotalMinor == 8_900,
+            because: "the obligation lands with the period it describes, or nothing would ever " +
+                "issue the customer's invoice for it");
+    }
+
     [Fact]
     public async Task A_scheduled_cancellation_persists_whether_it_may_be_escalated()
     {

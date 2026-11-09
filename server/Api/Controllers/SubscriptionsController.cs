@@ -139,6 +139,45 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
+    /// Activates a paid plan for an organization that pays by bank transfer, with no card and no
+    /// checkout. Spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Console only, and behind its own permission rather than <c>subscription::manage</c>, which
+    /// every organization admin holds: this is the one route that grants a paid plan without taking
+    /// money. The subscription is never charged; each period it renews on schedule and issues a
+    /// record invoice marked "Payable by bank transfer". The organization's billing profile must be
+    /// complete, because every one of those invoices is addressed to it.
+    /// </remarks>
+    [HttpPost("offline")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProtectedEndPoint("blocks-utilities::subscription-offline::manage")]
+    public async Task<IActionResult> ActivateOffline(
+        [FromBody] ActivateOfflineSubscriptionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _checkout.ActivateOfflineAsync(
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("ActivateOffline", request.OrganizationId, result.Value?.SubscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
     /// The caller's own subscription, or nothing if they have none.
     /// </summary>
     /// <remarks>
@@ -328,6 +367,84 @@ public sealed class SubscriptionsController : ControllerBase
             cancellationToken);
 
         await AuditAsync("ChangePlan", request.OrganizationId, subscriptionId, result.IsSuccess,
+            result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Moves an offline subscription onto another plan at the pricing the operator names. Spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Console only, behind the offline permission. The organization's own <c>PUT …/plan</c> always
+    /// lands on the target's catalogue price; this route lets an operator name a contract price for
+    /// the new plan instead. Timing and proration are the ordinary change's: an upgrade applies now
+    /// and records a prorated invoice, a downgrade waits for the end of the paid period. Nothing is
+    /// ever charged.
+    /// </remarks>
+    [HttpPut("{subscriptionId}/offline/plan")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProtectedEndPoint("blocks-utilities::subscription-offline::manage")]
+    public async Task<IActionResult> ChangePlanOffline(
+        string subscriptionId,
+        [FromBody] OfflinePlanChangeRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _planChange.ChangePlanOfflineAsync(
+            subscriptionId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("ChangePlanOffline", request.OrganizationId, subscriptionId, result.IsSuccess,
+            result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Re-prices an offline subscription from its next renewal. Spec 006.
+    /// </summary>
+    /// <remarks>
+    /// Console only, behind the offline permission. The current period is untouched; the next
+    /// renewal installs the new pricing, which <c>pendingOfflinePricingMode</c> shows until then. A
+    /// second re-pricing before that replaces the first.
+    /// </remarks>
+    [HttpPut("{subscriptionId}/offline/pricing")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProtectedEndPoint("blocks-utilities::subscription-offline::manage")]
+    public async Task<IActionResult> RepriceOffline(
+        string subscriptionId,
+        [FromBody] OfflineRepricingRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _planChange.RepriceOfflineAsync(
+            subscriptionId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("RepriceOffline", request.OrganizationId, subscriptionId, result.IsSuccess,
             result.ErrorCode, result.FailureKind.ToString(), correlationId,
             result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
 
