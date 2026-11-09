@@ -551,6 +551,18 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
             return refused;
         }
 
+        if (subscription.IsOffline)
+        {
+            // Spec 006: credits are not sold to bank-transfer customers for now, so a card on file
+            // is never charged for them. Admin free grants and moves are unaffected — neither
+            // prices anything.
+            return Failure<Priced>(
+                PaymentFailureKind.Conflict,
+                "subscription_offline_collection",
+                "This subscription is billed by invoice, so credits cannot be bought for it.",
+                correlationId);
+        }
+
         if (FindMeter(subscription, request.MeterKey) is not { } meter)
         {
             return MeterNotFound<Priced>(correlationId);

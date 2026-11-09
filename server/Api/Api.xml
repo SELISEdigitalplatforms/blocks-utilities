@@ -1292,6 +1292,28 @@
             simply swaps with no charge or credit either way.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ChangePlanOffline(System.String,Subscription.DomainService.Requests.OfflinePlanChangeRequest,System.Threading.CancellationToken)">
+            <summary>
+            Moves an offline subscription onto another plan at the pricing the operator names. Spec 006.
+            </summary>
+            <remarks>
+            Console only, behind the offline permission. The organization's own <c>PUT …/plan</c> always
+            lands on the target's catalogue price; this route lets an operator name a contract price for
+            the new plan instead. Timing and proration are the ordinary change's: an upgrade applies now
+            and records a prorated invoice, a downgrade waits for the end of the paid period. Nothing is
+            ever charged.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.RepriceOffline(System.String,Subscription.DomainService.Requests.OfflineRepricingRequest,System.Threading.CancellationToken)">
+            <summary>
+            Re-prices an offline subscription from its next renewal. Spec 006.
+            </summary>
+            <remarks>
+            Console only, behind the offline permission. The current period is untouched; the next
+            renewal installs the new pricing, which <c>pendingOfflinePricingMode</c> shows until then. A
+            second re-pricing before that replaces the first.
+            </remarks>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.WithdrawCancellation(System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Undoes a cancellation scheduled for the end of the paid period.

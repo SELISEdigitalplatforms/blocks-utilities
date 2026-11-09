@@ -105,7 +105,7 @@ public sealed class SubscriptionPlanChangeServiceTests
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
                     CancellationToken _, SubscriptionDocumentSource? _,
-                    PendingAnnualPeriod? annual) => _appliedAnnual = annual)
+                    PendingAnnualPeriod? annual, OfflinePricing? _) => _appliedAnnual = annual)
             .ReturnsAsync(true);
 
         _catalogue
@@ -212,7 +212,7 @@ public sealed class SubscriptionPlanChangeServiceTests
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
                     CancellationToken _, SubscriptionDocumentSource? source,
-                    PendingAnnualPeriod? _) => carried = source)
+                    PendingAnnualPeriod? _, OfflinePricing? _) => carried = source)
             .ReturnsAsync(true);
 
         var result = await Service().ChangePlanAsync(
@@ -301,7 +301,7 @@ public sealed class SubscriptionPlanChangeServiceTests
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod pending, long _, string? _, SubscriptionOutboxEvent _,
                     CancellationToken _, SubscriptionDocumentSource? _,
-                    PendingAnnualPeriod? _) => captured = pending)
+                    PendingAnnualPeriod? _, OfflinePricing? _) => captured = pending)
             .ReturnsAsync(true);
 
         var result = await ServiceWithUsage(usage.Object).ChangePlanAsync(
@@ -2331,4 +2331,290 @@ public sealed class SubscriptionPlanChangeServiceTests
         IntervalCount = 1,
         Status = CatalogueStatus.Active
     };
+
+    // ---- Offline subscriptions (spec 006) -------------------------------------------------------
+    //
+    // Guards a bank-transfer customer against being charged by Utilities for a plan change, and
+    // the operator's contract price against being lost or set by the customer themselves.
+
+    private SubscriptionDocumentSource? _offlineInvoice;
+    private OfflinePricing? _writtenPricing;
+
+    private void Offline(OfflinePricing? pricing = null)
+    {
+        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        _subscription.OfflinePricing = pricing ?? new OfflinePricing { Mode = OfflinePricingMode.Catalogue };
+
+        _subscriptions
+            .Setup(repository => repository.TryChangePlanAsync(
+                TenantId, "sub-1", It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<PlanSnapshot>(),
+                It.IsAny<PriceSnapshot>(), It.IsAny<List<SubscriptionQuantityItem>>(),
+                It.IsAny<SubscriptionPlanSchedule>(), It.IsAny<PendingUsagePeriod>(),
+                It.IsAny<long>(), It.IsAny<string?>(), It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>(), It.IsAny<SubscriptionDocumentSource?>(),
+                It.IsAny<PendingAnnualPeriod?>(), It.IsAny<OfflinePricing?>()))
+            .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
+                    List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
+                    PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
+                    CancellationToken _, SubscriptionDocumentSource? source,
+                    PendingAnnualPeriod? _, OfflinePricing? pricing) =>
+            {
+                _offlineInvoice = source;
+                _writtenPricing = pricing;
+            })
+            .ReturnsAsync(true);
+    }
+
+    private void AsConsole() =>
+        _contextResolver
+            .Setup(resolver => resolver.ResolveAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SubscriptionContextResolution.Resolved(
+                new SubscriptionContext(TenantId, OrganizationId, "actor-1", "operator-1")
+                {
+                    CallerIsConsole = true
+                }));
+
+    private SubscriptionPlanChangeService OfflineService() => new(
+        _contextResolver.Object,
+        _subscriptions.Object,
+        _catalogue.Object,
+        _billingAccounts.Object,
+        _gateway.Object,
+        new SubscriptionOutboxEventFactory(),
+        _cache.Object,
+        new SubscriptionResponseMapper(),
+        new ChangeSubscriptionPlanRequestValidator(),
+        NullLogger<SubscriptionPlanChangeService>.Instance,
+        _time,
+        billingProfile: _billingProfile.Object,
+        offlinePricingValidator: new OfflinePricingRequestValidator(CurrencyAlwaysKnown()));
+
+    private static global::Payment.DomainService.Services.ICurrencyMinorUnitResolver CurrencyAlwaysKnown()
+    {
+        var currency = new Mock<global::Payment.DomainService.Services.ICurrencyMinorUnitResolver>();
+        decimal ignored;
+        currency
+            .Setup(resolver => resolver.TryConvertBack(It.IsAny<long>(), It.IsAny<string>(), out ignored))
+            .Returns(true);
+        return currency.Object;
+    }
+
+    private void CurrentPlanInCatalogue()
+    {
+        _subscription.Price.PriceId = "price-1";
+        _catalogue
+            .Setup(repository => repository.FindPlanByCodeAsync(
+                TenantId, OrganizationId, "basic", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Plan
+            {
+                ItemId = "plan-1", TenantId = TenantId, Code = "basic", DisplayName = "Basic",
+                Status = CatalogueStatus.Active
+            });
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price
+            {
+                ItemId = "price-1", TenantId = TenantId, PlanId = "plan-1", CurrencyCode = "CHF",
+                UnitAmountMinor = 1_000, Interval = BillingInterval.Month, IntervalCount = 1,
+                Status = CatalogueStatus.Active
+            });
+    }
+
+    private void VerifyNeverCharged() =>
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "spec 006: an offline subscription is paid by bank transfer, so a card on file must " +
+                "never be charged for its plan change");
+
+    [Fact]
+    public async Task An_offline_upgrade_applies_now_with_a_record_invoice_and_charges_nothing()
+    {
+        Offline();
+
+        var result = await OfflineService().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        VerifyNeverCharged();
+        _reserved.Should().BeNull(because: "nothing is collected, so nothing needs reserving");
+        _offlineInvoice.Should().NotBeNull(
+            because: "the prorated difference is what the customer's own invoice is written from");
+        _offlineInvoice!.ChargeKind.Should().Be(SubscriptionChargeKind.PlanChange);
+        _offlineInvoice.Settlement.Should().NotBeNull(
+            because: "the invoice explains the proration the way a card settlement does");
+        _offlineInvoice.Amounts!.TotalMinor.Should().BeGreaterThan(0);
+        _offlineInvoice.SourceKey.Should().Be(FinancialDocumentSourceKey.ForOfflineCharge(
+            "sub-1", SubscriptionChargeKind.PlanChange, "v3"));
+    }
+
+    [Fact]
+    public async Task An_organizations_own_change_drops_a_contract_price_for_the_new_plans_catalogue_price()
+    {
+        Offline(new OfflinePricing
+        {
+            Mode = OfflinePricingMode.Contract,
+            ContractAmountMinor = 1_000,
+            ContractCurrencyCode = "CHF"
+        });
+
+        await OfflineService().ChangePlanAsync("sub-1", Request(), "corr-1", CancellationToken.None);
+
+        _writtenPricing!.Mode.Should().Be(
+            OfflinePricingMode.Catalogue,
+            because: "the contract was agreed for the plan being left; only an operator can agree " +
+                "a new one, so the customer's own move lands on the catalogue price");
+    }
+
+    [Fact]
+    public async Task An_offline_preview_does_not_ask_for_a_card()
+    {
+        Offline();
+        _account = null;
+
+        var preview = await OfflineService().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.Value!.Blockers.Should().NotContain(
+            blocker => blocker.Code == "subscription_plan_change_no_payment_method",
+            because: "an offline upgrade is invoiced, never charged");
+    }
+
+    [Fact]
+    public async Task An_operator_moves_an_offline_subscription_onto_a_contract_price()
+    {
+        Offline();
+        AsConsole();
+
+        var result = await OfflineService().ChangePlanOfflineAsync(
+            "sub-1",
+            new OfflinePlanChangeRequest
+            {
+                OrganizationId = OrganizationId,
+                PlanCode = "premium",
+                PriceId = "price-2",
+                Pricing = new OfflinePricingRequest
+                {
+                    Mode = OfflinePricingMode.Contract,
+                    ContractAmountMinor = 1_500,
+                    ContractCurrencyCode = "CHF"
+                }
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _writtenPricing!.Mode.Should().Be(OfflinePricingMode.Contract);
+        _writtenPricing.ContractAmountMinor.Should().Be(1_500);
+        _offlineInvoice!.Amounts!.TotalMinor.Should().Be(
+            500,
+            because: "the upgrade is prorated to the contract price the operator set (1,500), not " +
+                "the catalogue's 2,000, over a whole remaining period from 1,000");
+        VerifyNeverCharged();
+    }
+
+    [Fact]
+    public async Task Only_the_console_can_set_an_offline_subscriptions_pricing()
+    {
+        Offline();
+
+        var result = await OfflineService().ChangePlanOfflineAsync(
+            "sub-1",
+            new OfflinePlanChangeRequest
+            {
+                OrganizationId = OrganizationId,
+                PlanCode = "premium",
+                PriceId = "price-2",
+                Pricing = new OfflinePricingRequest { Mode = OfflinePricingMode.Catalogue }
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be(
+            "subscription_offline_console_only",
+            because: "otherwise an organization could set its own contract price");
+    }
+
+    [Fact]
+    public async Task An_operator_cannot_set_offline_pricing_on_a_card_subscription()
+    {
+        AsConsole();
+        CurrentPlanInCatalogue();
+
+        var result = await OfflineService().RepriceOfflineAsync(
+            "sub-1",
+            new OfflineRepricingRequest
+            {
+                OrganizationId = OrganizationId,
+                Pricing = new OfflinePricingRequest { Mode = OfflinePricingMode.Catalogue }
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_not_offline");
+    }
+
+    [Fact]
+    public async Task A_contract_in_another_currency_is_refused()
+    {
+        Offline();
+        AsConsole();
+        CurrentPlanInCatalogue();
+
+        var result = await OfflineService().RepriceOfflineAsync(
+            "sub-1",
+            new OfflineRepricingRequest
+            {
+                OrganizationId = OrganizationId,
+                Pricing = new OfflinePricingRequest
+                {
+                    Mode = OfflinePricingMode.Contract,
+                    ContractAmountMinor = 900,
+                    ContractCurrencyCode = "EUR"
+                }
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be(
+            "subscription_offline_contract_currency_mismatch",
+            because: "a subscription's currency is fixed for life; its invoices could not be totalled");
+    }
+
+    [Fact]
+    public async Task Re_pricing_leaves_the_current_period_alone_and_waits_for_the_next_renewal()
+    {
+        Offline();
+        AsConsole();
+        CurrentPlanInCatalogue();
+
+        var result = await OfflineService().RepriceOfflineAsync(
+            "sub-1",
+            new OfflineRepricingRequest
+            {
+                OrganizationId = OrganizationId,
+                Pricing = new OfflinePricingRequest
+                {
+                    Mode = OfflinePricingMode.Contract,
+                    ContractAmountMinor = 1_200,
+                    ContractCurrencyCode = "CHF"
+                }
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _scheduled.Should().NotBeNull(
+            because: "the period already invoiced keeps its figure; the new one starts at renewal");
+        _scheduled!.Price.UnitAmountMinor.Should().Be(1_200);
+        _scheduled.OfflinePricing!.Mode.Should().Be(OfflinePricingMode.Contract);
+        _scheduled.EffectiveAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc);
+        result.Value!.PendingContractAmountMinor.Should().Be(1_200);
+        VerifyNeverCharged();
+    }
 }

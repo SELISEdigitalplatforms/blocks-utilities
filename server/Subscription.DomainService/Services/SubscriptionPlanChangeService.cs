@@ -74,6 +74,12 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     /// <summary>Optional so existing callers compile unchanged. See <see cref="TrialUsage"/>.</summary>
     private readonly ITrialUsageRepository? _trialUsages;
 
+    /// <summary>
+    /// Optional so existing callers compile unchanged. Absent, the operator routes are refused
+    /// rather than run unvalidated: they set what a contract customer is invoiced.
+    /// </summary>
+    private readonly IValidator<OfflinePricingRequest>? _offlinePricingValidator;
+
     public SubscriptionPlanChangeService(
         ISubscriptionContextResolver contextResolver,
         ISubscriptionRepository subscriptions,
@@ -93,8 +99,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         IMeterAllowanceResolver? allowances = null,
         ISubscriptionAuditTrail? audit = null,
         IOptionsMonitor<SubscriptionOptions>? options = null,
-        ITrialUsageRepository? trialUsages = null)
+        ITrialUsageRepository? trialUsages = null,
+        IValidator<OfflinePricingRequest>? offlinePricingValidator = null)
     {
+        _offlinePricingValidator = offlinePricingValidator;
         _trialUsages = trialUsages;
         _audit = audit;
         _contextResolver = contextResolver;
@@ -223,6 +231,196 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             : await ChargeAndApplyAsync(
                 r.Subscription, r.NewPlan, r.NewPrice, r.Quantities, r.NewSchedule, r.Now,
                 r.RequestedByUserId, r.RequestedByName, correlationId, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SubscriptionOperationResult<SubscriptionResponse>> ChangePlanOfflineAsync(
+        string subscriptionId,
+        OfflinePlanChangeRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return OperatorChangeAsync(
+            subscriptionId,
+            request.ToChangeRequest(),
+            request.Pricing,
+            scheduleOnly: false,
+            correlationId,
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<SubscriptionOperationResult<SubscriptionResponse>> RepriceOfflineAsync(
+        string subscriptionId,
+        OfflineRepricingRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId, request.OrganizationId, cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<SubscriptionResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var subscription = await _subscriptions.GetAsync(
+            context.TenantId, context.OrganizationId, subscriptionId, cancellationToken);
+
+        if (subscription is null)
+        {
+            return Failure(
+                PaymentFailureKind.NotFound,
+                "subscription_not_found",
+                "The subscription does not exist.",
+                correlationId);
+        }
+
+        // Re-pricing is a change to the same plan, the same catalogue price and the same quantities,
+        // held for the next renewal: the pending-change machinery already freezes a new price and
+        // installs it at exactly that boundary, so it is reused rather than built a second time.
+        return await OperatorChangeAsync(
+            subscriptionId,
+            new ChangeSubscriptionPlanRequest
+            {
+                OrganizationId = request.OrganizationId,
+                PlanCode = subscription.Plan.Code,
+                PriceId = subscription.Price.PriceId,
+                Quantities = [.. subscription.QuantityItems.Select(item => new SubscriptionQuantityRequest
+                {
+                    ItemKey = item.ItemKey,
+                    Quantity = item.Quantity
+                })]
+            },
+            request.Pricing,
+            scheduleOnly: true,
+            correlationId,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// What both operator routes share: the ordinary change, with the operator's pricing on its target.
+    /// </summary>
+    private async Task<SubscriptionOperationResult<SubscriptionResponse>> OperatorChangeAsync(
+        string subscriptionId,
+        ChangeSubscriptionPlanRequest change,
+        OfflinePricingRequest? pricingRequest,
+        bool scheduleOnly,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        if (_offlinePricingValidator is null)
+        {
+            return Failure(
+                PaymentFailureKind.Unavailable,
+                "subscription_offline_unavailable",
+                "Offline pricing is not available on this host.",
+                correlationId);
+        }
+
+        if (string.IsNullOrWhiteSpace(change.OrganizationId) || pricingRequest is null)
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_request_invalid",
+                "Name the customer organization and the pricing.",
+                correlationId);
+        }
+
+        var invalid = await SubscriptionValidation
+            .CheckAsync<OfflinePricingRequest, SubscriptionResponse>(
+                _offlinePricingValidator,
+                pricingRequest,
+                "subscription_request_invalid",
+                "The offline pricing is invalid.",
+                correlationId,
+                cancellationToken);
+
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+
+        // ponytail: no-price contracts need the service statement document type, which lands with
+        // the statements work in this same spec; refused until then rather than issuing nothing.
+        if (pricingRequest.Mode == OfflinePricingMode.None)
+        {
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_offline_pricing_unsupported",
+                "Offline subscriptions without a price are not available yet.",
+                correlationId);
+        }
+
+        var resolved = await ResolveAsync(
+            subscriptionId, change, preview: false, correlationId, cancellationToken, asOperator: true);
+
+        if (!resolved.IsSuccess)
+        {
+            return resolved.ToFailure<SubscriptionResponse>();
+        }
+
+        var r = resolved.Value!;
+
+        var pricing = new OfflinePricing
+        {
+            Mode = pricingRequest.Mode,
+            ContractAmountMinor = pricingRequest.ContractAmountMinor,
+            ContractCurrencyCode = pricingRequest.ContractCurrencyCode?.Trim().ToUpperInvariant()
+        };
+
+        if (pricing.Mode == OfflinePricingMode.Contract)
+        {
+            if (!string.Equals(pricing.ContractCurrencyCode, r.Subscription.CurrencyCode, StringComparison.Ordinal))
+            {
+                // A subscription's currency is fixed for its life; its invoice history could not
+                // be totalled otherwise.
+                return Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_offline_contract_currency_mismatch",
+                    "A contract price must be in the subscription's own currency.",
+                    correlationId);
+            }
+
+            if (CalendarBillingAlignment.IsCalendarAligned(r.NewPrice) &&
+                CalendarBillingAlignment.NeedsStubBasePrice(r.NewPrice.Interval, r.NewPrice.IntervalCount))
+            {
+                // The rule activation applies, for the same reason: see spec 006's deferred decisions.
+                return Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_offline_contract_calendar_unsupported",
+                    "A contract price cannot be used with a calendar-aligned yearly price. " +
+                        "Choose an anniversary-billed price, or catalogue pricing.",
+                    correlationId);
+            }
+
+            OfflineSubscriptionTerms.ApplyContract(r.NewPrice, r.Quantities, pricing);
+        }
+
+        if (scheduleOnly)
+        {
+            return await ScheduleAsync(
+                r.Subscription, r.NewPlan, r.NewPrice, r.Quantities, r.Now,
+                r.RequestedByUserId, r.RequestedByName, correlationId, cancellationToken,
+                pricing);
+        }
+
+        return r.Subscription.Status == SubscriptionStatus.Trialing
+            ? await ApplyAsync(
+                r.Subscription, r.NewPlan, r.NewPrice, r.Quantities, r.NewSchedule,
+                r.Subscription.CreditBalanceMinor, null, null, correlationId, cancellationToken,
+                initiatedByUserId: r.RequestedByUserId,
+                initiatedByName: r.RequestedByName,
+                targetPricing: pricing)
+            : await ChargeAndApplyAsync(
+                r.Subscription, r.NewPlan, r.NewPrice, r.Quantities, r.NewSchedule, r.Now,
+                r.RequestedByUserId, r.RequestedByName, correlationId, cancellationToken,
+                pricing);
     }
 
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> CancelPendingPlanChangeAsync(
@@ -386,7 +584,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // Gated on the timing rather than on the amount: a scheduled cadence change can settle to
         // a positive figure and still take nothing now, and demanding a card for it would block a
         // change that is not going to charge anybody for weeks.
-        if (timing == PlanChangeTiming.Immediate && chargeMinor > 0)
+        // Not for an offline subscription (spec 006): it is invoiced, never charged, so a missing
+        // card blocks nothing.
+        if (timing == PlanChangeTiming.Immediate && chargeMinor > 0 && !r.Subscription.IsOffline)
         {
             var account = await _billingAccounts.GetAsync(
                 r.Subscription.TenantId,
@@ -463,7 +663,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         ChangeSubscriptionPlanRequest request,
         bool preview,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool asOperator = false)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -493,6 +694,17 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         var context = resolution.Context!;
 
+        if (asOperator && !context.CallerIsConsole)
+        {
+            // Spec 006. Anyone else's named organization was already replaced by their own, so going
+            // on would let an organization set its own contract price.
+            return Failure<PlanChangeResolution>(
+                PaymentFailureKind.Validation,
+                "subscription_offline_console_only",
+                "Only the platform console can set an offline subscription's pricing.",
+                correlationId);
+        }
+
         var subscription = await _subscriptions.GetAsync(
             context.TenantId,
             context.OrganizationId,
@@ -505,6 +717,15 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 PaymentFailureKind.NotFound,
                 "subscription_not_found",
                 "The subscription does not exist.",
+                correlationId);
+        }
+
+        if (asOperator && !subscription.IsOffline)
+        {
+            return Failure<PlanChangeResolution>(
+                PaymentFailureKind.Conflict,
+                "subscription_not_offline",
+                "Only an offline subscription has pricing an operator can set.",
                 correlationId);
         }
 
@@ -632,7 +853,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             });
         }
 
-        if (await MissingBillingProfileFieldsAsync(context, preview, cancellationToken) is
+        // An operator is never remembered as an initiator: they are from the console, and the
+        // customer's invoices must not name them. Read-only for them exactly as for a preview.
+        if (await MissingBillingProfileFieldsAsync(context, preview || asOperator, cancellationToken) is
             { Count: > 0 } missing)
         {
             // A plan change prorates two periods and usually charges the difference, so it is a
@@ -748,7 +971,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         string? requestedByUserId,
         string? requestedByName,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        OfflinePricing? targetPricing = null)
     {
         // A prepaid opening stub, moving onto a plan that keeps the subscriber's calendar boundary,
         // settles the stub and the year it already paid for together rather than being refused
@@ -776,13 +1000,14 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             {
                 return await ScheduleAsync(
                     subscription, newPlan, newPrice, quantities, now,
-                    requestedByUserId, requestedByName, correlationId, cancellationToken);
+                    requestedByUserId, requestedByName, correlationId, cancellationToken,
+                    targetPricing);
             }
 
             return await ChargeAndApplyOpeningStubUpgradeAsync(
                 subscription, newPlan, newPrice, quantities, newSchedule, prepaidAnnual,
                 stubUpgrade, now, requestedByUserId, requestedByName, correlationId,
-                cancellationToken);
+                cancellationToken, targetPricing);
         }
 
         var outcome = SubscriptionProrationCalculator.Calculate(
@@ -809,7 +1034,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         {
             return await ScheduleAsync(
                 subscription, newPlan, newPrice, quantities, now,
-                requestedByUserId, requestedByName, correlationId, cancellationToken);
+                requestedByUserId, requestedByName, correlationId, cancellationToken,
+                targetPricing);
         }
 
         // Only an unpaid stub reaches this any more: a prepaid one was intercepted above, whether
@@ -846,7 +1072,22 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 subscription, newPlan, newPrice, quantities, newSchedule,
                 outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
                 SettlementCharge.BreakdownOf(outcome), requestedByUserId,
-                initiatedByName: requestedByName);
+                initiatedByName: requestedByName,
+                targetPricing: targetPricing);
+        }
+
+        if (subscription.IsOffline)
+        {
+            // Spec 006: paid by bank transfer under a contract. The upgrade applies now exactly as a
+            // card one would once charged, with no reservation and no gateway call; what it would
+            // have charged is recorded as an invoice in the same write instead.
+            return await ApplyAsync(
+                subscription, newPlan, newPrice, quantities, newSchedule,
+                outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
+                SettlementCharge.BreakdownOf(outcome), requestedByUserId,
+                initiatedByName: requestedByName,
+                offlineChargeMinor: outcome.ChargeMinor,
+                targetPricing: targetPricing);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -995,7 +1236,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         string? requestedByUserId,
         string? requestedByName,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        OfflinePricing? targetPricing = null)
     {
         var compositeSchedule = newSchedule with
         {
@@ -1035,7 +1277,22 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 subscription, newPlan, newPrice, quantities, compositeSchedule,
                 stubUpgrade.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
                 SettlementCharge.BreakdownOf(stubUpgrade), requestedByUserId, replacementAnnual,
-                initiatedByName: requestedByName);
+                initiatedByName: requestedByName,
+                targetPricing: targetPricing);
+        }
+
+        if (subscription.IsOffline)
+        {
+            // Spec 006: the combined stub-and-year settlement is recorded as an invoice in the
+            // applying write instead of charged. The replacement year stands as prepaid, exactly as
+            // the card path leaves it once its charge settles.
+            return await ApplyAsync(
+                subscription, newPlan, newPrice, quantities, compositeSchedule,
+                stubUpgrade.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
+                SettlementCharge.BreakdownOf(stubUpgrade), requestedByUserId, replacementAnnual,
+                initiatedByName: requestedByName,
+                offlineChargeMinor: stubUpgrade.ChargeMinor,
+                targetPricing: targetPricing);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -1194,7 +1451,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         string? requestedByUserId,
         string? requestedByName,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        OfflinePricing? targetPricing = null)
     {
         var effectiveAtUtc = SubscriptionPaidPeriod.PaidThroughUtc(subscription);
 
@@ -1226,7 +1484,10 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             EffectiveAtUtc = effectiveAtUtc,
             RequestedByUserId = requestedByUserId,
             RequestedByName = requestedByName,
-            ExpectedVersion = subscription.Version
+            ExpectedVersion = subscription.Version,
+            // Spec 006: installed with the price at the boundary, so a contract the change drops
+            // stops being recorded as one exactly when its figure stops being charged.
+            OfflinePricing = TargetPricingOf(subscription, targetPricing)
         };
 
         if (!await _subscriptions.TrySetPendingPlanChangeAsync(
@@ -1288,7 +1549,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         SubscriptionSettlementBreakdown? settlement = null,
         string? initiatedByUserId = null,
         PendingAnnualPeriod? replacementPendingAnnualPeriod = null,
-        string? initiatedByName = null)
+        string? initiatedByName = null,
+        long offlineChargeMinor = 0,
+        OfflinePricing? targetPricing = null)
     {
         var previousPlanCode = subscription.Plan.Code;
         var previousPlanName = subscription.Plan.DisplayName;
@@ -1322,6 +1585,33 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             subscription.PendingAnnualPeriod = replacementPendingAnnualPeriod;
         }
 
+        var offlinePricing = TargetPricingOf(subscription, targetPricing);
+
+        if (offlinePricing is not null)
+        {
+            subscription.OfflinePricing = offlinePricing;
+        }
+
+        // Spec 006: what an offline change would have charged, recorded in the applying write.
+        // Keyed on the version the change was applied against, which the versioned write lets
+        // succeed exactly once — the same guarantee a banked downgrade credit relies on.
+        var offlineInvoice = subscription.IsOffline && offlineChargeMinor > 0 && settlement is not null
+            ? SubscriptionDocumentSourceFactory.ForOfflineCharge(
+                subscription,
+                SubscriptionChargeKind.PlanChange,
+                $"v{expectedVersion}",
+                SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
+                    subscription, settlement, offlineChargeMinor),
+                SubscriptionDocumentSourceFactory.ActorOf(initiatedByUserId, initiatedByName, null),
+                _time.GetUtcNow().UtcDateTime,
+                correlationId)
+            : null;
+
+        if (offlineInvoice is not null)
+        {
+            offlineInvoice.Settlement = settlement;
+        }
+
         var outboxEvent = _events.CreatePlanChanged(
             subscription,
             previousPlanCode,
@@ -1342,7 +1632,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             paymentDetailId,
             outboxEvent,
             cancellationToken,
-            replacementPendingAnnualPeriod: replacementPendingAnnualPeriod);
+            documentSource: offlineInvoice,
+            replacementPendingAnnualPeriod: replacementPendingAnnualPeriod,
+            offlinePricing: offlinePricing);
 
         if (!applied)
         {
@@ -1397,6 +1689,12 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             correlationId,
             cancellationToken);
 
+        if (offlineInvoice is not null && _announcer is not null)
+        {
+            // Only makes the recorded obligation prompt; the repair sweep issues it regardless.
+            await _announcer.RequestPendingAsync(subscription, correlationId, cancellationToken);
+        }
+
         _logger.LogInformation(
             "Subscription plan changed TenantId={TenantId} SubscriptionId={SubscriptionId} " +
             "PreviousPlan={PreviousPlan} NewPlan={NewPlan} CorrelationId={CorrelationId}",
@@ -1411,6 +1709,20 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 _billingAccounts, subscription, null, null, cancellationToken),
             correlationId);
     }
+
+    /// <summary>
+    /// The pricing record an offline subscription carries onto its new plan; null for every card one.
+    /// </summary>
+    /// <remarks>
+    /// Spec 006. An operator names it explicitly. An organization's own change carries none and takes
+    /// the target's catalogue price — a contract was agreed for the plan being left, not this one.
+    /// </remarks>
+    private static OfflinePricing? TargetPricingOf(
+        SubscriptionDetail subscription,
+        OfflinePricing? targetPricing) =>
+        subscription.IsOffline
+            ? targetPricing ?? OfflineSubscriptionTerms.CataloguePricing()
+            : null;
 
     /// <summary>
     /// Asks for the invoice this change warrants, when it charged anything.

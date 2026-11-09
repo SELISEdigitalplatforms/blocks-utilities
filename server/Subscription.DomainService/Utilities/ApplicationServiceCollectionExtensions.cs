@@ -240,6 +240,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddTransient<
             IValidator<ActivateOfflineSubscriptionRequest>,
             ActivateOfflineSubscriptionRequestValidator>();
+        services.AddTransient<IValidator<OfflinePricingRequest>, OfflinePricingRequestValidator>();
         services.AddTransient<IValidator<CreateDiscountRequest>, CreateDiscountRequestValidator>();
         services.AddTransient<IValidator<UpdateDiscountRequest>, UpdateDiscountRequestValidator>();
         services.AddTransient<

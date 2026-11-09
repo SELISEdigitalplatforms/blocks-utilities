@@ -202,6 +202,38 @@ public sealed class OfflineSubscriptionRenewalTests
     }
 
     [Fact]
+    public async Task A_re_pricing_held_for_this_renewal_is_installed_and_invoiced_at_its_new_figure()
+    {
+        var subscription = OfflineSubscription(SubscriptionStatus.Active);
+        subscription.PendingPlanChange = new PendingPlanChange
+        {
+            Plan = subscription.Plan,
+            Price = new PriceSnapshot { CurrencyCode = "CHF", UnitAmountMinor = 12_000 },
+            QuantityItems = [],
+            FeeSchedule = subscription.FeeSchedule,
+            UsageSchedule = subscription.FeeSchedule,
+            EffectiveAtUtc = subscription.CurrentPeriodEndUtc,
+            OfflinePricing = new OfflinePricing
+            {
+                Mode = OfflinePricingMode.Contract,
+                ContractAmountMinor = 12_000,
+                ContractCurrencyCode = "CHF"
+            }
+        };
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        var transition = _transitions.Single();
+        transition.OfflinePricing!.ContractAmountMinor.Should().Be(
+            12_000,
+            because: "the pricing record is installed in the same write as the price it describes, " +
+                "so the two can never disagree");
+        transition.DocumentSource!.Amounts!.TotalMinor.Should().Be(
+            12_000,
+            because: "the first period after a re-pricing is invoiced at the new figure");
+    }
+
+    [Fact]
     public async Task A_card_subscription_without_a_card_still_goes_unpaid()
     {
         var subscription = OfflineSubscription(SubscriptionStatus.Active);

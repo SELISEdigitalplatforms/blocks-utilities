@@ -71,4 +71,15 @@ public sealed class PendingPlanChange
     /// for enforcement — the renewal applies whatever is pending when it runs.
     /// </summary>
     public int ExpectedVersion { get; set; }
+
+    /// <summary>
+    /// For an offline subscription (spec 006), the pricing record the change installs with
+    /// <see cref="Price"/>. Null for every card subscription and every change scheduled before
+    /// offline billing existed, which leaves the subscription's own record as it is.
+    /// </summary>
+    /// <remarks>
+    /// The figure itself is already in <see cref="Price"/>; this only says which kind of figure it
+    /// is, so a contract dropped by an organization's own plan change reads as catalogue afterwards.
+    /// </remarks>
+    public OfflinePricing? OfflinePricing { get; set; }
 }

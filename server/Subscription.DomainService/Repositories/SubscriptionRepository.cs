@@ -515,7 +515,8 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken,
         SubscriptionDocumentSource? documentSource = null,
-        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null,
+        OfflinePricing? offlinePricing = null)
     {
         ArgumentNullException.ThrowIfNull(newPlan);
         ArgumentNullException.ThrowIfNull(newPrice);
@@ -579,6 +580,13 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
             update = update.Set(
                 subscription => subscription.PendingAnnualPeriod,
                 replacementPendingAnnualPeriod);
+        }
+
+        // Spec 006: which kind of figure the new price is, written with the price so the two never
+        // disagree. Null for a card subscription, leaving the field untouched.
+        if (offlinePricing is not null)
+        {
+            update = update.Set(subscription => subscription.OfflinePricing, offlinePricing);
         }
 
         var result = await Subscriptions(tenantId).UpdateOneAsync(
@@ -1313,6 +1321,11 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         if (transition.Price is { } price)
         {
             update = update.Set(subscription => subscription.Price, price);
+        }
+
+        if (transition.OfflinePricing is { } offlinePricing)
+        {
+            update = update.Set(subscription => subscription.OfflinePricing, offlinePricing);
         }
 
         if (transition.FeeSchedule is { } feeSchedule)

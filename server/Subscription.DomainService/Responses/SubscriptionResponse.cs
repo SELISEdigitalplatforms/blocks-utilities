@@ -31,6 +31,15 @@ public sealed class SubscriptionResponse
     /// <summary>The flat net contract amount per interval, for <c>Contract</c> pricing only.</summary>
     public long? ContractAmountMinor { get; init; }
 
+    /// <summary>
+    /// The pricing a scheduled change or re-pricing installs at the next renewal, when one is held.
+    /// Null otherwise. Until then the current period stays at <see cref="OfflinePricingMode"/>.
+    /// </summary>
+    public string? PendingOfflinePricingMode { get; init; }
+
+    /// <summary>See <see cref="PendingOfflinePricingMode"/>; <c>Contract</c> pricing only.</summary>
+    public long? PendingContractAmountMinor { get; init; }
+
     /// <summary>The operator who activated an offline subscription. Null for every other one.</summary>
     public string? ActivatedByUserId { get; init; }
 

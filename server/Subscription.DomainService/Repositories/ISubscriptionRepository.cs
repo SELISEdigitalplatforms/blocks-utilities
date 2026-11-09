@@ -170,7 +170,8 @@ public interface ISubscriptionRepository
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken,
         SubscriptionDocumentSource? documentSource = null,
-        PendingAnnualPeriod? replacementPendingAnnualPeriod = null);
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null,
+        OfflinePricing? offlinePricing = null);
 
     /// <summary>
     /// Moves a subscription's purchased quantity, compare-and-set on the version.

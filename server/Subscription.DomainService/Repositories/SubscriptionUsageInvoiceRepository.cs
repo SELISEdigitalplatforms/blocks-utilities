@@ -134,6 +134,22 @@ public sealed class SubscriptionUsageInvoiceRepository : ISubscriptionUsageInvoi
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryMarkRecordedOfflineAsync(
+        string tenantId,
+        string invoiceId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Invoices(tenantId).UpdateOneAsync(
+            PendingFilter(tenantId, invoiceId),
+            Builders<SubscriptionUsageInvoice>.Update
+                .Set(invoice => invoice.State, SubscriptionUsageInvoiceState.RecordedOffline)
+                .Set(invoice => invoice.NextAttemptAtUtc, null)
+                .Set(invoice => invoice.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryMarkAbandonedAsync(
         string tenantId,
         string invoiceId,

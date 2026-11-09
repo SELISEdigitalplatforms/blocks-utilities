@@ -910,12 +910,20 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
                 amounts,
                 subscription,
                 source.Period,
-                opening),
+                opening,
+                // An offline overage (spec 006) is broken down per meter exactly as a charged one:
+                // the usage invoice it was rated into is read the same way, payment or not.
+                kind == SubscriptionChargeKind.Usage
+                    ? await MeteredLinesAsync(subscription, terms, source.Period, amounts, cancellationToken)
+                    : null),
             source.Period,
             terms,
             correlationId,
             paymentDetailId: null,
-            settlement: null,
+            // Null for an opening period or a renewal; an offline plan or quantity change (spec
+            // 006) carries its two-sided breakdown so the invoice explains the proration the way a
+            // card settlement's does.
+            settlement: source.Settlement,
             initiatedBy: source.InitiatedBy,
             initiatedByUserId: source.InitiatedBy?.UserId,
             settlementReservationId: null,
@@ -1659,6 +1667,40 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             total = Math.Max(0, settlement.NetSettlementMinor);
         }
 
+        return SettlementAmountsOf(
+            total, settlement, payment.SubscriptionTaxRateBasisPoints, payment.SubscriptionTaxMode);
+    }
+
+    /// <summary>
+    /// The breakdown of a plan or quantity change that was priced but never collected — an offline
+    /// subscription's (spec 006).
+    /// </summary>
+    /// <remarks>
+    /// The arithmetic <see cref="SettlementAmounts"/> applies to a settled charge, with the total the
+    /// settlement came to standing in for what a provider took — nothing was taken, and the figure the
+    /// customer is invoiced for is exactly the one the card path would have charged.
+    /// </remarks>
+    internal static FinancialDocumentAmounts AmountsOfUncollectedSettlement(
+        SubscriptionDetail subscription,
+        SubscriptionSettlementBreakdown settlement,
+        long chargeMinor)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(settlement);
+
+        return SettlementAmountsOf(
+            chargeMinor,
+            settlement,
+            subscription.Price.TaxRateBasisPoints,
+            SubscriptionTaxPresentation.Describe(subscription.Price));
+    }
+
+    private static FinancialDocumentAmounts SettlementAmountsOf(
+        long total,
+        SubscriptionSettlementBreakdown settlement,
+        int? taxRateBasisPoints,
+        string? taxMode)
+    {
         var credit = settlement.CreditConsumedMinor;
 
         var (outgoingNet, outgoingTax) = ProratedNetAndTax(settlement.Outgoing);
@@ -1708,8 +1750,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         {
             GrossSubtotalMinor = net,
             NetSubtotalMinor = net,
-            TaxRateBasisPoints = payment.SubscriptionTaxRateBasisPoints,
-            TaxMode = payment.SubscriptionTaxMode,
+            TaxRateBasisPoints = taxRateBasisPoints,
+            TaxMode = taxMode,
             TaxAmountMinor = tax,
             CreditAppliedMinor = credit,
             TotalMinor = total

@@ -328,6 +328,28 @@ public sealed class SubscriptionCreditServiceTests
 
     // ---- purchase -------------------------------------------------------------------------
 
+    /// <summary>
+    /// Spec 006 AC-23: credits are not sold to bank-transfer customers for now, so the card on file
+    /// is never charged for them, whichever of preview or purchase is asked.
+    /// </summary>
+    [Fact]
+    public async Task An_offline_subscription_cannot_preview_or_buy_credits_and_its_card_is_never_charged()
+    {
+        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        var service = Service();
+
+        var preview = await service.PreviewAsync(SubscriptionId, Buy(), "corr-1", CancellationToken.None);
+        var purchase = await service.PurchaseAsync(SubscriptionId, Buy(key: "k1"), "corr-1", CancellationToken.None);
+
+        preview.ErrorCode.Should().Be("subscription_offline_collection");
+        purchase.ErrorCode.Should().Be("subscription_offline_collection");
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task A_purchase_charges_once_and_grants_the_credits()
     {

@@ -730,6 +730,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // would install them again next period.
                 Plan = appliedPlanChange?.Plan,
                 Price = appliedPlanChange?.Price,
+                // Spec 006: a scheduled change says which kind of figure its price is, installed
+                // with the price itself so the two can never disagree.
+                OfflinePricing = appliedPlanChange?.OfflinePricing,
                 FeeSchedule = appliedPlanChange?.FeeSchedule,
                 UsageSchedule = appliedPlanChange?.UsageSchedule,
                 ClearPendingPlanChange = appliedPlanChange is not null,

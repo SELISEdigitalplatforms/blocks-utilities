@@ -18,28 +18,37 @@ public sealed class ActivateOfflineSubscriptionRequestValidator
 {
     public ActivateOfflineSubscriptionRequestValidator(ICurrencyMinorUnitResolver currency)
     {
-        ArgumentNullException.ThrowIfNull(currency);
-
         RuleFor(request => request.OrganizationId).NotEmpty().MaximumLength(128);
 
         RuleFor(request => request.ToCreateRequest())
             .SetValidator(new CreateSubscriptionRequestValidator())
             .OverridePropertyName(string.Empty);
 
-        RuleFor(request => request.Pricing).NotNull();
+        RuleFor(request => request.Pricing)
+            .NotNull()
+            .SetValidator(new OfflinePricingRequestValidator(currency));
+    }
+}
 
-        RuleFor(request => request.Pricing.Mode)
-            .IsInEnum()
-            .When(request => request.Pricing is not null);
+/// <summary>
+/// The pricing an operator names, wherever it is named, so a contract means one thing throughout.
+/// </summary>
+public sealed class OfflinePricingRequestValidator : AbstractValidator<OfflinePricingRequest>
+{
+    public OfflinePricingRequestValidator(ICurrencyMinorUnitResolver currency)
+    {
+        ArgumentNullException.ThrowIfNull(currency);
 
-        When(request => request.Pricing is { Mode: OfflinePricingMode.Contract }, () =>
+        RuleFor(pricing => pricing.Mode).IsInEnum();
+
+        When(pricing => pricing.Mode == OfflinePricingMode.Contract, () =>
         {
-            RuleFor(request => request.Pricing.ContractAmountMinor)
+            RuleFor(pricing => pricing.ContractAmountMinor)
                 .NotNull()
                 .GreaterThan(0)
                 .WithErrorCode("subscription_offline_contract_amount_invalid");
 
-            RuleFor(request => request.Pricing.ContractCurrencyCode)
+            RuleFor(pricing => pricing.ContractCurrencyCode)
                 // Stop at the first failure: the currency lookup below must never see a null.
                 .Cascade(CascadeMode.Stop)
                 .NotEmpty()
@@ -50,13 +59,13 @@ public sealed class ActivateOfflineSubscriptionRequestValidator
                 .WithErrorCode("subscription_offline_contract_currency_unknown");
         });
 
-        When(request => request.Pricing is { Mode: not OfflinePricingMode.Contract }, () =>
+        When(pricing => pricing.Mode != OfflinePricingMode.Contract, () =>
         {
-            RuleFor(request => request.Pricing.ContractAmountMinor)
+            RuleFor(pricing => pricing.ContractAmountMinor)
                 .Null()
                 .WithMessage("A contract amount is only accepted with contract pricing.");
 
-            RuleFor(request => request.Pricing.ContractCurrencyCode)
+            RuleFor(pricing => pricing.ContractCurrencyCode)
                 .Null()
                 .WithMessage("A contract currency is only accepted with contract pricing.");
         });

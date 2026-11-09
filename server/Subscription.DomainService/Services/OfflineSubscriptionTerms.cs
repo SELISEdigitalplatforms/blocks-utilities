@@ -39,11 +39,27 @@ public static class OfflineSubscriptionTerms
             return;
         }
 
-        var currency = subscription.OfflinePricing.ContractCurrencyCode!;
-        var price = subscription.Price;
+        subscription.CurrencyCode = subscription.OfflinePricing.ContractCurrencyCode!;
+        ApplyContract(subscription.Price, subscription.QuantityItems, subscription.OfflinePricing);
+    }
 
-        subscription.CurrencyCode = currency;
-        price.CurrencyCode = currency;
+    /// <summary>
+    /// Rewrites a price and its quantities into one flat, net contract amount.
+    /// </summary>
+    /// <remarks>
+    /// Shared by activation and by a later plan change or re-pricing that names a contract, so a
+    /// contract means the same thing whenever it is set.
+    /// </remarks>
+    public static void ApplyContract(
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantities,
+        OfflinePricing pricing)
+    {
+        ArgumentNullException.ThrowIfNull(price);
+        ArgumentNullException.ThrowIfNull(quantities);
+        ArgumentNullException.ThrowIfNull(pricing);
+
+        price.CurrencyCode = pricing.ContractCurrencyCode!.Trim().ToUpperInvariant();
 
         // One flat amount whatever the quantities: the price stops charging per unit, and every
         // unit stops carrying a price of its own.
@@ -56,9 +72,16 @@ public static class OfflineSubscriptionTerms
         price.AutomaticDiscountBasisPoints = null;
         price.QuantityDiscountCombination = null;
 
-        foreach (var item in subscription.QuantityItems)
+        foreach (var item in quantities)
         {
             item.UnitAmountMinor = 0;
         }
     }
+
+    /// <summary>The pricing record an organization's own plan change leaves behind. See spec 006.</summary>
+    /// <remarks>
+    /// An organization admin choosing another plan takes that plan's catalogue price: the contract
+    /// was negotiated for the plan they are leaving, and only an operator can agree a new one.
+    /// </remarks>
+    public static OfflinePricing CataloguePricing() => new() { Mode = OfflinePricingMode.Catalogue };
 }
