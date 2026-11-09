@@ -257,6 +257,19 @@ public sealed partial class SubscriptionCreditService
             return invalid;
         }
 
+        // Spec 006 AC-23: an organization on a bank-transfer contract is not sold credits for now,
+        // so a card on its billing account is never charged for them. Checked on the live
+        // subscription, the one the contract is; a tenant admin's free grant does not come here.
+        if (await _subscriptions.GetLiveAsync(
+                context.TenantId, context.OrganizationId, Now(), cancellationToken) is { IsOffline: true })
+        {
+            return Failure<OrganizationPriced>(
+                PaymentFailureKind.Conflict,
+                "subscription_offline_collection",
+                "This organization is billed by invoice, so credits cannot be bought for it.",
+                correlationId);
+        }
+
         var resolved = await ResolveOfferAsync<OrganizationPriced>(context, request.MeterKey, forSale: true, correlationId, cancellationToken);
 
         if (!resolved.IsSuccess)
