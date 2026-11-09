@@ -34,22 +34,72 @@ public static class OfflineSubscriptionTerms
         subscription.ActivatedBy = subscription.PurchasedBy;
         subscription.PurchasedBy = null;
 
-        if (pricing.Mode != OfflinePricingMode.Contract)
+        if (pricing.Mode == OfflinePricingMode.Contract)
         {
-            return;
+            subscription.CurrencyCode = subscription.OfflinePricing.ContractCurrencyCode!;
         }
 
-        subscription.CurrencyCode = subscription.OfflinePricing.ContractCurrencyCode!;
-        ApplyContract(subscription.Price, subscription.QuantityItems, subscription.OfflinePricing);
+        ApplyPricing(subscription.Price, subscription.QuantityItems, subscription.OfflinePricing);
+    }
+
+    /// <summary>
+    /// Writes a pricing mode into a price and its quantities. Catalogue leaves them as they are.
+    /// </summary>
+    /// <remarks>
+    /// Shared by activation and by a later plan change or re-pricing, so a mode means the same
+    /// thing whenever it is set.
+    /// </remarks>
+    public static void ApplyPricing(
+        PriceSnapshot price,
+        IReadOnlyList<SubscriptionQuantityItem> quantities,
+        OfflinePricing pricing)
+    {
+        ArgumentNullException.ThrowIfNull(pricing);
+
+        switch (pricing.Mode)
+        {
+            case OfflinePricingMode.Contract:
+                ApplyContract(price, quantities, pricing);
+                break;
+            case OfflinePricingMode.None:
+                ApplyNoPrice(price, quantities);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Prices a subscription whose price is agreed outside Utilities at nothing at all.
+    /// </summary>
+    /// <remarks>
+    /// The same move as a contract: the rule lives in the snapshot, so renewal, proration, preview
+    /// and revenue reporting all arrive at zero with no branch of their own, and the only thing that
+    /// has to know about the mode is which document is issued. The calendar stub's base is zeroed
+    /// too, which is why no-price, unlike a contract, works on a calendar-aligned yearly price.
+    /// </remarks>
+    public static void ApplyNoPrice(PriceSnapshot price, IReadOnlyList<SubscriptionQuantityItem> quantities)
+    {
+        ArgumentNullException.ThrowIfNull(price);
+        ArgumentNullException.ThrowIfNull(quantities);
+
+        price.UnitAmountMinor = 0;
+        price.QuantityItemKey = null;
+        price.AutomaticDiscountBasisPoints = null;
+        price.QuantityDiscountCombination = null;
+
+        if (price.CalendarStubBaseUnitAmountMinor is not null)
+        {
+            price.CalendarStubBaseUnitAmountMinor = 0;
+        }
+
+        foreach (var item in quantities)
+        {
+            item.UnitAmountMinor = 0;
+        }
     }
 
     /// <summary>
     /// Rewrites a price and its quantities into one flat, net contract amount.
     /// </summary>
-    /// <remarks>
-    /// Shared by activation and by a later plan change or re-pricing that names a contract, so a
-    /// contract means the same thing whenever it is set.
-    /// </remarks>
     public static void ApplyContract(
         PriceSnapshot price,
         IReadOnlyList<SubscriptionQuantityItem> quantities,
@@ -84,4 +134,7 @@ public static class OfflineSubscriptionTerms
     /// was negotiated for the plan they are leaving, and only an operator can agree a new one.
     /// </remarks>
     public static OfflinePricing CataloguePricing() => new() { Mode = OfflinePricingMode.Catalogue };
+
+    /// <summary>The pricing record a no-price subscription keeps through an organization's own change.</summary>
+    public static OfflinePricing NoPricing() => new() { Mode = OfflinePricingMode.None };
 }

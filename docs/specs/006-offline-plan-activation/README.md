@@ -79,7 +79,13 @@ Rules:
 - **Catalogue** pricing behaves exactly as a card subscription's frozen `PriceSnapshot`.
 - **None**: the recurring fee and usage overage are never invoiced. Each activation, renewal,
   trial conversion, plan change and quantity change issues a service statement listing plan,
-  period, quantities and effective date, with no amounts.
+  period, quantities and effective date, with no amounts. The price is stored as zero, so
+  previews, proration and MRR read 0 with no special case. Every plan change on a no-price
+  subscription applies immediately (nothing is paid, so there is no paid period to wait out),
+  quantity decreases still wait for the renewal whose statement records them, and a trial's
+  opening document is a statement too, so no invoice number is ever consumed. Overage is rated
+  and kept as `NoCharge`. No-price works on a calendar-aligned yearly price, unlike a contract.
+  _(Clarified 2026-11-09 during implementation.)_
 - **Trial**: a plan with a trial starts `Trialing`; conversion is a renewal like any other.
 - **Discount and campaign codes** apply at activation as for card subscriptions.
 - **Billing profile** must be complete before activation, as for a paid card subscription.

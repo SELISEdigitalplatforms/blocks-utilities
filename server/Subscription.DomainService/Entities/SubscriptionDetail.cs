@@ -83,6 +83,13 @@ public sealed class SubscriptionDetail
     public bool IsOffline => CollectionMethod == SubscriptionCollectionMethod.OfflineInvoice;
 
     /// <summary>
+    /// Whether the price is agreed outside Utilities entirely (spec 006), so every document this
+    /// subscription owes is a service statement with no amounts rather than an invoice.
+    /// </summary>
+    [BsonIgnore]
+    public bool IsNoPrice => IsOffline && OfflinePricing?.Mode == OfflinePricingMode.None;
+
+    /// <summary>
     /// Fixed for the life of the subscription. Refunds must return in the currency they
     /// arrived in, and invoice history that spans currencies cannot be totalled.
     /// </summary>

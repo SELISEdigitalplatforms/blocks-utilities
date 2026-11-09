@@ -346,17 +346,6 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             return invalid;
         }
 
-        // ponytail: no-price contracts need the service statement document type, which lands with
-        // the statements work in this same spec; refused until then rather than issuing nothing.
-        if (pricingRequest.Mode == OfflinePricingMode.None)
-        {
-            return Failure(
-                PaymentFailureKind.Validation,
-                "subscription_offline_pricing_unsupported",
-                "Offline subscriptions without a price are not available yet.",
-                correlationId);
-        }
-
         var resolved = await ResolveAsync(
             subscriptionId, change, preview: false, correlationId, cancellationToken, asOperator: true);
 
@@ -398,9 +387,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                         "Choose an anniversary-billed price, or catalogue pricing.",
                     correlationId);
             }
-
-            OfflineSubscriptionTerms.ApplyContract(r.NewPrice, r.Quantities, pricing);
         }
+
+        OfflineSubscriptionTerms.ApplyPricing(r.NewPrice, r.Quantities, pricing);
 
         if (scheduleOnly)
         {
@@ -910,6 +899,13 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         var newPlan = SubscriptionSnapshotBuilder.SnapshotOf(plan);
         var newPrice = SubscriptionSnapshotBuilder.SnapshotOf(price);
         var now = _time.GetUtcNow().UtcDateTime;
+
+        // Spec 006: an organization's own change keeps a no-price subscription no-price, so it is
+        // priced (and previewed) at nothing. An operator names the target's pricing explicitly.
+        if (!asOperator && subscription.IsNoPrice)
+        {
+            OfflineSubscriptionTerms.ApplyNoPrice(newPrice, quantities);
+        }
 
         if (!TryBuildSchedule(subscription, newPlan, newPrice, now, out var newSchedule))
         {
@@ -1595,13 +1591,19 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // Spec 006: what an offline change would have charged, recorded in the applying write.
         // Keyed on the version the change was applied against, which the versioned write lets
         // succeed exactly once — the same guarantee a banked downgrade credit relies on.
-        var offlineInvoice = subscription.IsOffline && offlineChargeMinor > 0 && settlement is not null
+        // A no-price subscription is owed a statement for every change it applies outside a trial,
+        // whatever the (always zero) figure: the statement is its only record of the change.
+        var noPriceStatement = subscription.IsNoPrice && subscription.Status != SubscriptionStatus.Trialing;
+        var offlineInvoice = subscription.IsOffline &&
+            ((offlineChargeMinor > 0 && settlement is not null) || noPriceStatement)
             ? SubscriptionDocumentSourceFactory.ForOfflineCharge(
                 subscription,
                 SubscriptionChargeKind.PlanChange,
                 $"v{expectedVersion}",
-                SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
-                    subscription, settlement, offlineChargeMinor),
+                settlement is null
+                    ? new FinancialDocumentAmounts()
+                    : SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
+                        subscription, settlement, offlineChargeMinor),
                 SubscriptionDocumentSourceFactory.ActorOf(initiatedByUserId, initiatedByName, null),
                 _time.GetUtcNow().UtcDateTime,
                 correlationId)
@@ -1715,13 +1717,16 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
     /// </summary>
     /// <remarks>
     /// Spec 006. An operator names it explicitly. An organization's own change carries none and takes
-    /// the target's catalogue price — a contract was agreed for the plan being left, not this one.
+    /// the target's catalogue price — a contract was agreed for the plan being left, not this one —
+    /// unless the subscription has no price at all, which no organization change can give it.
     /// </remarks>
     private static OfflinePricing? TargetPricingOf(
         SubscriptionDetail subscription,
         OfflinePricing? targetPricing) =>
         subscription.IsOffline
-            ? targetPricing ?? OfflineSubscriptionTerms.CataloguePricing()
+            ? targetPricing ?? (subscription.IsNoPrice
+                ? OfflineSubscriptionTerms.NoPricing()
+                : OfflineSubscriptionTerms.CataloguePricing())
             : null;
 
     /// <summary>

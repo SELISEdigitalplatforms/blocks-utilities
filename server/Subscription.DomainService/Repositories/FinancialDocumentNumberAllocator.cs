@@ -65,10 +65,16 @@ public sealed class FinancialDocumentNumberAllocator : IFinancialDocumentNumberA
     /// Trial invoices share the invoice sequence rather than getting a third. They are invoices — a
     /// zero-total one — and a subscriber whose first document is <c>INV-2026-000001</c> and whose
     /// second is <c>INV-2026-000002</c> can see they have all of them. A separate series would make
-    /// their invoice numbering start at 1 twice.
+    /// their invoice numbering start at 1 twice. A service statement (spec 006) is the opposite case:
+    /// it invoices nothing, so it must not take an invoice number.
     /// </remarks>
-    private static string PrefixFor(FinancialDocumentType documentType) =>
-        documentType == FinancialDocumentType.CreditNote ? "CRN" : "INV";
+    internal static string PrefixFor(FinancialDocumentType documentType) =>
+        documentType switch
+        {
+            FinancialDocumentType.CreditNote => "CRN",
+            FinancialDocumentType.ServiceStatement => "STM",
+            _ => "INV"
+        };
 
     private IMongoCollection<BsonDocument> Collection(string tenantId) =>
         SubscriptionCollections.Of<BsonDocument>(

@@ -464,6 +464,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             return await IssueTrialInvoiceAsync(subscription, source, correlationId, cancellationToken);
         }
 
+        if (source.DocumentType == FinancialDocumentType.ServiceStatement)
+        {
+            return await IssueServiceStatementAsync(subscription, source, correlationId, cancellationToken);
+        }
+
         // Nothing produces a banked-credit source any more — no plan change or quantity change
         // banks credit, so SubscriptionDocumentSourceFactory no longer has a method that builds
         // one. This branch is kept to drain the sources written *before* that policy changed.
@@ -812,7 +817,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         var document = await ComposeAndIssueAsync(
             subscription,
-            FinancialDocumentType.TrialInvoice,
+            // Spec 006: a no-price subscription never takes an invoice number, its trial included.
+            subscription.IsNoPrice ? FinancialDocumentType.ServiceStatement : FinancialDocumentType.TrialInvoice,
             FinancialDocumentSourceKey.ForTrial(subscription.ItemId, trial.StartsAtUtc),
             trial.StartsAtUtc,
             // Zero throughout, deliberately explicit rather than an absent block: a trial invoice
@@ -852,6 +858,75 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
         return document;
     }
+
+    /// <summary>
+    /// The statement a no-price offline subscription (spec 006) is owed instead of an invoice.
+    /// </summary>
+    /// <remarks>
+    /// Plan, period and quantities, and nothing that looks like money: the price was agreed outside
+    /// Utilities, so any figure here would be one Utilities invented. Its issue date is the event's,
+    /// which is the effective date of the activation, renewal or change it records.
+    /// </remarks>
+    private async Task<SubscriptionFinancialDocument?> IssueServiceStatementAsync(
+        SubscriptionDetail subscription,
+        SubscriptionDocumentSource source,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var terms = TermsFor(
+            subscription,
+            source,
+            new SubscriptionChargeReference(subscription.ItemId, source.ChargeKind, source.PeriodKey),
+            subscription.ItemId);
+
+        var lines = terms.QuantityItems
+            .Select(item => new FinancialDocumentLine
+            {
+                Description = item.UnitLabel,
+                Quantity = item.Quantity,
+                ItemKey = item.ItemKey
+            })
+            .ToList();
+
+        lines.Insert(0, new FinancialDocumentLine
+        {
+            Description = StatementHeadline(terms.Subject.PlanName, source.ChargeKind)
+        });
+
+        var document = await ComposeAndIssueAsync(
+            subscription,
+            FinancialDocumentType.ServiceStatement,
+            source.SourceKey,
+            source.OccurredAtUtc,
+            new FinancialDocumentAmounts(),
+            lines,
+            source.Period,
+            terms,
+            correlationId,
+            paymentDetailId: null,
+            settlement: null,
+            initiatedBy: source.InitiatedBy,
+            initiatedByUserId: source.InitiatedBy?.UserId,
+            settlementReservationId: null,
+            cancellationToken: cancellationToken);
+
+        if (document is not null)
+        {
+            await ConsumeAsync(subscription, source, cancellationToken);
+        }
+
+        return document;
+    }
+
+    internal static string StatementHeadline(string planName, SubscriptionChargeKind kind) =>
+        kind switch
+        {
+            SubscriptionChargeKind.Initial => $"{planName}, activated",
+            SubscriptionChargeKind.Renewal => $"{planName}, renewed",
+            SubscriptionChargeKind.PlanChange => $"{planName}, plan changed",
+            SubscriptionChargeKind.QuantityChange => $"{planName}, quantities changed",
+            _ => planName
+        };
 
     /// <summary>
     /// The document for an opening period that activated with nothing due — a price discounted to

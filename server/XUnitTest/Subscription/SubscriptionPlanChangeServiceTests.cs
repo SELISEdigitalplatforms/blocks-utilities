@@ -2472,6 +2472,26 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task An_organizations_own_change_keeps_a_no_price_subscription_no_price_and_records_a_statement()
+    {
+        Offline(OfflineSubscriptionTerms.NoPricing());
+        OfflineSubscriptionTerms.ApplyNoPrice(_subscription.Price, _subscription.QuantityItems);
+
+        var result = await OfflineService().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _writtenPricing!.Mode.Should().Be(
+            OfflinePricingMode.None,
+            because: "only an operator can put a price on a contract agreed outside Utilities");
+        _offlineInvoice!.DocumentType.Should().Be(
+            FinancialDocumentType.ServiceStatement,
+            because: "spec 006 AC-14: the change applies now and a statement is its only record");
+        _offlineInvoice.ChargeKind.Should().Be(SubscriptionChargeKind.PlanChange);
+        VerifyNeverCharged();
+    }
+
+    [Fact]
     public async Task An_offline_preview_does_not_ask_for_a_card()
     {
         Offline();

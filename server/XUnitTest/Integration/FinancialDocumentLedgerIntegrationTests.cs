@@ -152,6 +152,25 @@ public sealed class FinancialDocumentLedgerIntegrationTests
     }
 
     [Fact]
+    public async Task A_service_statement_takes_its_own_series_and_never_an_invoice_number()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var year = NewYear();
+
+        (await _numbers.AllocateAsync(
+                tenantId, FinancialDocumentType.ServiceStatement, year, CancellationToken.None))
+            .Should().Be($"STM-{year}-000001");
+
+        // Spec 006 AC-3: a statement invoices nothing, so the invoice series must not show a gap
+        // where it was issued.
+        (await _numbers.AllocateAsync(
+                tenantId, FinancialDocumentType.Invoice, year, CancellationToken.None))
+            .Should().Be(
+                $"INV-{year}-000001",
+                because: "invoice numbering stays a gapless record of what was actually invoiced");
+    }
+
+    [Fact]
     public async Task An_issued_pdf_is_never_replaced()
     {
         var tenantId = MongoIntegrationFixture.NewTenantId();
