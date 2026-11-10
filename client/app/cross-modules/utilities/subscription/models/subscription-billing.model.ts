@@ -122,7 +122,8 @@ export interface UpdateMerchantProfileRequest {
   paymentProviderName: SubscriptionPaymentProviderName;
 }
 
-export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote";
+/** `ServiceStatement`: a no-price offline subscription's record, which states no amounts (spec 006). */
+export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote" | "ServiceStatement";
 
 export type FinancialDocumentStatus = "Issued" | "PartiallyRefunded" | "Refunded";
 
@@ -194,6 +195,11 @@ export interface SubscriptionFinancialDocument {
   documentNumber: string;
   documentType: FinancialDocumentType;
   status: FinancialDocumentStatus;
+  /**
+   * `OfflineInvoice` for a record of what is owed under a bank transfer contract (spec 006): Issued
+   * like a paid card invoice, though nothing was collected. Absent from an older server.
+   */
+  collectionMethod?: "AutomaticCharge" | "OfflineInvoice";
   issuedAtUtc: string;
   subscriptionId: string;
   currencyCode: string;

@@ -34,6 +34,13 @@ public sealed class SubscriptionFinancialDocumentResponse
 
     public string Status { get; init; } = string.Empty;
 
+    /// <summary>
+    /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for a record of what is owed under a bank
+    /// transfer contract (spec 006). The status alone cannot tell a reader which: an offline record
+    /// invoice is <c>Issued</c> exactly like a paid card one, yet nothing was ever collected on it.
+    /// </summary>
+    public string CollectionMethod { get; init; } = string.Empty;
+
     public DateTime IssuedAtUtc { get; init; }
 
     public string SubscriptionId { get; init; } = string.Empty;

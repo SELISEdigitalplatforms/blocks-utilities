@@ -73,6 +73,12 @@ export const UTILITIES_FEATURES = [
     enabled: true,
     spec: "tests/03-subscriptions/plans.spec.ts",
   },
+  {
+    id: "offline-billing",
+    name: "Utilities – offline billing",
+    enabled: true,
+    spec: "tests/03-subscriptions/offline-billing.spec.ts",
+  },
 ];
 
 export function resolveEnabledFeatures() {

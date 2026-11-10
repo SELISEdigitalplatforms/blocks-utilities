@@ -360,5 +360,9 @@
   "TRIAL_DURATION_LABEL.SPAN_END_OF_MONTH": "until the end of the calendar month",
   "TRIAL_DURATION_LABEL.SPAN_MONTHS_one": "{{count}} month",
   "TRIAL_DURATION_LABEL.SPAN_MONTHS_other": "{{count}} months",
-  "TRIAL_DURATION_LABEL.UNTIL_END_OF_MONTH": "Trial until end of month"
+  "TRIAL_DURATION_LABEL.UNTIL_END_OF_MONTH": "Trial until end of month",
+  "CONSTANTS.DOCUMENT_TYPE_SERVICE_STATEMENT": "Service statements",
+  "FINANCIAL_DOCUMENT_FORMAT.TYPE_SERVICE_STATEMENT": "Service statement",
+  "FINANCIAL_DOCUMENT_FORMAT.STATUS_PRICED_UNDER_CONTRACT": "Priced under contract",
+  "FINANCIAL_DOCUMENT_FORMAT.STATUS_PAYABLE_BY_BANK_TRANSFER": "Payable by bank transfer"
 }

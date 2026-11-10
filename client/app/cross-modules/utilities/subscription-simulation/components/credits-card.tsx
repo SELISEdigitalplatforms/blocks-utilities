@@ -23,12 +23,13 @@ import {
   usePurchaseCredits,
 } from "../hooks/use-credits";
 import { SubscriptionOperationError } from "../services/subscription-simulation.service";
-import type {
-  CreditGrant,
-  CreditPurchase,
-  CreditQuote,
-  MeterTerms,
-  SimulatedSubscription,
+import {
+  isOfflineSubscription,
+  type CreditGrant,
+  type CreditPurchase,
+  type CreditQuote,
+  type MeterTerms,
+  type SimulatedSubscription,
 } from "../models/subscription-simulation.model";
 import { tStatic, useT } from "@seliseblocks/genesis-os";
 
@@ -151,7 +152,8 @@ export const CreditsCard = ({
               </p>
             </div>
             <div className="flex gap-2">
-              {meter.creditPurchase && (
+              {/* Never for a subscription paid by bank transfer: buying charges a card it does not have (spec 006). */}
+              {meter.creditPurchase && !isOfflineSubscription(subscription) && (
                 <Button size="sm" onClick={() => setAction({ kind: "buy", meter })}>
                   {t("CREDITS_CARD.BUY_CREDITS")}
                 </Button>

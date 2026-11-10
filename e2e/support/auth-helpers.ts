@@ -71,6 +71,7 @@ export function sidebarNavItem(
     | "Invoices"
     | "Billing profile"
     | "Merchant profile"
+    | "Offline billing"
     | "Simulation",
 ) {
   return page
@@ -99,7 +100,7 @@ export async function openPaymentsSubPage(
 /** Expands the "Subscriptions" sidebar group if its children aren't visible yet. */
 export async function openSubscriptionSubPage(
   page: Page,
-  name: "Plans" | "Invoices" | "Billing profile" | "Merchant profile" | "Simulation",
+  name: "Plans" | "Invoices" | "Billing profile" | "Merchant profile" | "Simulation" | "Offline billing",
 ) {
   const subLink = sidebarNavItem(page, name);
   if (

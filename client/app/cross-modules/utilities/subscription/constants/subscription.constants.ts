@@ -40,6 +40,12 @@ export const FINANCIAL_DOCUMENT_TYPE_OPTIONS = [
       return text("CONSTANTS.DOCUMENT_TYPE_CREDIT_NOTE");
     },
   },
+  {
+    value: "ServiceStatement",
+    get label() {
+      return text("CONSTANTS.DOCUMENT_TYPE_SERVICE_STATEMENT");
+    },
+  },
 ] as const;
 
 export const FINANCIAL_DOCUMENT_STATUS_OPTIONS = [

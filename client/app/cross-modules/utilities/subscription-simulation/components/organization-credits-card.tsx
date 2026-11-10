@@ -76,8 +76,14 @@ const NO_PACK = "__none__";
 export const OrganizationCreditsCard = ({
   organizationId,
   showSweeps = false,
+  purchaseRefused = false,
 }: {
   organizationId: string | undefined;
+  /**
+   * The organization holds a live subscription paid by bank transfer, so buying is refused (spec
+   * 006) and only the operator's free grant is offered.
+   */
+  purchaseRefused?: boolean;
   /** The harness's credit sweeps, for an organization with no subscription to run them from. */
   showSweeps?: boolean;
 }) => {
@@ -150,9 +156,11 @@ export const OrganizationCreditsCard = ({
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button size="sm" disabled={!offer.enabled} onClick={() => setAction({ kind: "buy", offer })}>
-                  {t("ORGANIZATION_CREDITS_CARD.BUY")}
-                </Button>
+                {!purchaseRefused && (
+                  <Button size="sm" disabled={!offer.enabled} onClick={() => setAction({ kind: "buy", offer })}>
+                    {t("ORGANIZATION_CREDITS_CARD.BUY")}
+                  </Button>
+                )}
                 <Button size="sm" variant="outline" onClick={() => setAction({ kind: "grant", offer })}>
                   {t("ORGANIZATION_CREDITS_CARD.GRANT")}
                 </Button>

@@ -137,6 +137,9 @@ Existing routes:
 - `SubscriptionResponse`, "current" and "mine" gain `collectionMethod`, `offlinePricing`,
   `pendingOfflinePricing`.
 - Invoice list and PDF routes return statements with `type: ServiceStatement`.
+  _(Clarified 2026-11-09 during implementation.)_ Each listed document also carries
+  `collectionMethod`: an offline record invoice is `Issued` exactly like a paid card one, and
+  without the field a client can only call it paid.
 - Revenue reports accept a `collectionMethod` filter.
   _(Clarified 2026-11-09 during implementation.)_ `GET /reports/revenue` and
   `GET /reports/recurring-revenue` take `collectionMethod=AutomaticCharge|OfflineInvoice`; the
@@ -194,6 +197,14 @@ otherwise; amount greater than zero; currency one the `Payment` section knows th
 - **Audit trail**: activation, re-pricing and offline plan change recorded with the actor.
 - **Worker**: renewal scheduling unchanged; offline branch inside `SubscriptionRenewalService`.
 - **Client console**: activation and re-pricing page; customer badge; card prompts hidden.
+  _(Clarified 2026-11-09 during implementation.)_ The page is Subscriptions > Offline billing
+  (`/app/subscription/offline`), for a named organization only, never the console's own. The
+  customer's view is the simulation page's current-subscription card: "Billed by invoice", the
+  pricing in force and any pending re-pricing, and no checkout, card setup, add, change or
+  recover-card prompt; subscription and organization credit "Buy" is hidden too, "Grant" kept.
+  The invoices list names statements "Service statement" with no amount, and reads offline
+  invoices "Payable by bank transfer" rather than "Paid". The operator's offline plan change
+  (`PUT /offline/plan`) has no console screen yet; the org admin's ordinary plan change does.
 - **Simulation harness**: offline create and run-due renewals.
 - **OpenAPI**: new routes, fields and enum values documented.
 

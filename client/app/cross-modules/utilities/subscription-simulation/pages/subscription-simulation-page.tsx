@@ -52,6 +52,7 @@ import { SubscribeDialog } from "../components/subscribe-dialog";
 import { UsageSection } from "../components/usage-section";
 import { useCurrentSimulatedSubscription } from "../hooks/use-current-simulated-subscription";
 import { useMyPlaces } from "../hooks/use-members";
+import { isOfflineSubscription } from "../models/subscription-simulation.model";
 import type {
   SubscriptionSimulationActionResponse,
   SubscriptionSimulationJobRunResponse,
@@ -435,7 +436,11 @@ export const SubscriptionSimulationPage = () => {
       )}
 
       {/* With or without a subscription (spec 005): a credits-only organization has this and nothing else. */}
-      <OrganizationCreditsCard organizationId={organizationScope} showSweeps={!currentSubscription} />
+      <OrganizationCreditsCard
+        organizationId={organizationScope}
+        showSweeps={!currentSubscription}
+        purchaseRefused={isOfflineSubscription(currentSubscription) && isEntitled}
+      />
 
       {(isEntitled || memberPlans.length > 0) && (
         <UsageSection

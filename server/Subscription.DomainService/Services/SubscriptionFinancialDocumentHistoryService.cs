@@ -343,6 +343,7 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
             DocumentNumber = document.DocumentNumber,
             DocumentType = document.DocumentType.ToString(),
             Status = document.Status.ToString(),
+            CollectionMethod = document.CollectionMethod.ToString(),
             IssuedAtUtc = document.IssuedAtUtc,
             SubscriptionId = document.SubscriptionId,
             CurrencyCode = document.CurrencyCode,
