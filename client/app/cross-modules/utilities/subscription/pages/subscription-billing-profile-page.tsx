@@ -1,12 +1,21 @@
-import { useT } from "@seliseblocks/genesis-os";
+import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { useState } from "react";
 import { AlertCircle, ArrowRight, Building2, CheckCircle2, ReceiptText } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
+import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui-kits/select/select";
 import { RichText } from "../components/rich-text";
+import { ORGANIZATION_PAGE_SIZE, ORGANIZATION_QUERY_PARAM } from "../constants/subscription.constants";
 import { SubscriptionPlanPageHeader } from "../components/subscription-plan-page-header";
 import { useBillingProfile, useUpdateBillingProfile } from "../hooks/use-billing-profile";
 import { useOrganizationScope } from "../hooks/use-organization-scope";
@@ -19,6 +28,9 @@ import { describeMissingProfileFields } from "../utilities/financial-document-fo
  * and the mail module has no fallback between languages, so any well-formed tag is accepted.
  */
 const commonLanguageTags = ["en-US", "en-GB", "de-CH", "de-DE", "fr-CH", "fr-FR", "it-CH"];
+
+/** The picker's value for "no organization named": the caller's own, the console's for an admin. */
+const OWN_ORGANIZATION = "__own__";
 
 /**
  * The loaded profile's identity, so the form can tell "this is the same profile I am editing" from
@@ -85,7 +97,15 @@ const toForm = (profile: SubscriptionBillingProfile): ProfileForm => ({
 export const SubscriptionBillingProfilePage = () => {
   const { t } = useT("utilities.subscription.pages");
   const organizationId = useOrganizationScope();
+  const [searchParams, setSearchParams] = useSearchParams();
   const subscriptionLink = useSubscriptionLink();
+  const tenantId = useProjectStore()?.selectedProject?.tenantId ?? "";
+  const { data: organizationsData } = useGetOrganizations({
+    projectKey: tenantId,
+    page: 0,
+    pageSize: ORGANIZATION_PAGE_SIZE,
+  });
+  const organizations = organizationsData?.organizations ?? [];
   const { data: profile, isLoading, error } = useBillingProfile(organizationId);
   const update = useUpdateBillingProfile();
   const [form, setForm] = useState<ProfileForm>(emptyForm);
@@ -100,6 +120,20 @@ export const SubscriptionBillingProfilePage = () => {
     setLoadedIdentity(identityOf(profile));
     setForm(toForm(profile));
   }
+
+  // Found on dev: from the menu this page only ever edited the console's own profile, so a profile
+  // "completed" for a customer was in fact the console's, and the customer's activation was refused.
+  // The scope stays in the URL, so links that already name an organization keep working.
+  const chooseOrganization = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === OWN_ORGANIZATION) {
+      next.delete(ORGANIZATION_QUERY_PARAM);
+    } else {
+      next.set(ORGANIZATION_QUERY_PARAM, value);
+    }
+    setSearchParams(next, { replace: true });
+    setSaved(false);
+  };
 
   const set = (field: keyof ProfileForm) => (value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -155,6 +189,25 @@ export const SubscriptionBillingProfilePage = () => {
         backTo={subscriptionLink("plans")}
         icon={<ReceiptText className="h-6 w-6" />}
       />
+
+      {organizations.length > 0 && (
+        <div className="flex flex-col gap-2 sm:w-80">
+          <Label htmlFor="billingProfileOrganization">{t("BILLING_PROFILE_PAGE.ORGANIZATION")}</Label>
+          <Select value={organizationId ?? OWN_ORGANIZATION} onValueChange={chooseOrganization}>
+            <SelectTrigger id="billingProfileOrganization" aria-label={t("BILLING_PROFILE_PAGE.ORGANIZATION")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={OWN_ORGANIZATION}>{t("BILLING_PROFILE_PAGE.OWN_ORGANIZATION")}</SelectItem>
+              {organizations.map((organization) => (
+                <SelectItem key={organization.itemId} value={organization.itemId}>
+                  {organization.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {resolvedOrganizationId && (
         <Card

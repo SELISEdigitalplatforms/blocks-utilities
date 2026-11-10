@@ -29,6 +29,8 @@
   "BILLING_PROFILE_PAGE.SAVING": "Saving…",
   "BILLING_PROFILE_PAGE.SCOPE_FOR_NAME": "Billing profile for {{name}}",
   "BILLING_PROFILE_PAGE.SCOPE_FOR_ORGANIZATION": "Billing profile for this organization",
+  "BILLING_PROFILE_PAGE.ORGANIZATION": "Organization",
+  "BILLING_PROFILE_PAGE.OWN_ORGANIZATION": "Your own organization",
   "BILLING_PROFILE_PAGE.SCOPE_HINT": "Every organization keeps its own. Saving here changes nothing for any other.",
   "BILLING_PROFILE_PAGE.TAX_REGISTRATION": "Tax or VAT registration",
   "BILLING_PROFILE_PAGE.TAX_REGISTRATION_HINT": "Printed exactly as entered. Every jurisdiction spells these differently, so nothing here reformats it.",
