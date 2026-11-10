@@ -17,6 +17,8 @@ export const describeDocumentType = (documentType: string): string => {
       return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_TRIAL_INVOICE");
     case "CreditNote":
       return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_CREDIT_NOTE");
+    case "ServiceStatement":
+      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_SERVICE_STATEMENT");
     default:
       return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_INVOICE");
   }
@@ -29,7 +31,7 @@ export const describeDocumentType = (documentType: string): string => {
  * other way. Saying "Paid" on either would be wrong in a way somebody would eventually act on.
  */
 export const describeDocumentStatus = (
-  document: Pick<SubscriptionFinancialDocument, "documentType" | "status">,
+  document: Pick<SubscriptionFinancialDocument, "documentType" | "status" | "collectionMethod">,
 ): string => {
   if (document.documentType === "TrialInvoice") {
     return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_NO_PAYMENT_DUE");
@@ -37,6 +39,16 @@ export const describeDocumentStatus = (
 
   if (document.documentType === "CreditNote") {
     return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_CREDITED");
+  }
+
+  // Spec 006: nothing was collected on either. A statement names no amount at all, and a record
+  // invoice is settled by bank transfer outside Utilities, which never learns whether it was paid.
+  if (document.documentType === "ServiceStatement") {
+    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_PRICED_UNDER_CONTRACT");
+  }
+
+  if (document.collectionMethod === "OfflineInvoice") {
+    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_PAYABLE_BY_BANK_TRANSFER");
   }
 
   switch (document.status) {

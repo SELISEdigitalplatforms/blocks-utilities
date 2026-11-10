@@ -21,6 +21,7 @@ import SubscriptionSimulationRoute from "./routes/dashboard/subscription-simulat
 import MeterCatalogueRoute from "./routes/dashboard/meter-catalogue";
 import CreditOffersRoute from "./routes/dashboard/credit-offers";
 import OrganizationCreditsRoute from "./routes/dashboard/organization-credits";
+import OfflineBillingRoute from "./routes/dashboard/offline-billing";
 import {
   AuthResolver,
   PublicGuard,
@@ -181,6 +182,10 @@ export const router = createBrowserRouter([
                   {
                     path: "subscription/credits",
                     element: <OrganizationCreditsRoute />,
+                  },
+                  {
+                    path: "subscription/offline",
+                    element: <OfflineBillingRoute />,
                   },
                   { path: "magic-url", element: <MagicUrlPage /> },
                   {

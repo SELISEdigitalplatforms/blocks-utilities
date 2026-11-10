@@ -11,6 +11,7 @@ import {
   ReceiptText,
   Settings2,
   WalletCards,
+  Landmark,
   Wand2,
 } from "lucide-react";
 import { Menu } from "@/models/menu-models";
@@ -112,6 +113,13 @@ export const navigationMenus: Menu[] = [
         name: "Organization credits",
         path: "/app/subscription/credits",
         icon: WalletCards,
+      },
+      {
+        id: "subscription-offline",
+        type: "menu",
+        name: "Offline billing",
+        path: "/app/subscription/offline",
+        icon: Landmark,
       },
       {
         id: "subscription-invoices",

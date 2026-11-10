@@ -343,3 +343,65 @@ describe("CurrentSubscriptionCard provider name", () => {
     expect(screen.queryByText("Stripe")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Spec 006 AC-22: an organization billed by bank transfer sees that it is, and is never offered a
+ * card -- every one of those prompts would only earn a 409 from the server.
+ */
+describe("CurrentSubscriptionCard for a subscription billed by invoice", () => {
+  const offline: SimulatedSubscription = {
+    ...baseSubscription,
+    status: "Unpaid",
+    hasPaymentMethod: false,
+    collectionMethod: "OfflineInvoice",
+    offlinePricingMode: "Contract",
+    contractAmountMinor: 50_000,
+    checkoutUrl: "https://checkout.example/session",
+    pendingCheckout: {
+      purpose: "PaymentMethodSetup",
+      state: "Pending",
+      errorCode: null,
+      checkoutUrl: "https://checkout.example/setup",
+    },
+  };
+
+  it("shows the badge and offers no card prompt of any kind", () => {
+    renderCard(offline);
+
+    expect(screen.getByTestId("billed-by-invoice")).toHaveTextContent("Billed by invoice");
+    expect(screen.queryByRole("button", { name: /payment method|change card|continue subscription/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /checkout|card setup/i })).not.toBeInTheDocument();
+  });
+
+  it("hides the change-card prompt even with a card on file, since it would never be charged", () => {
+    renderCard({ ...offline, status: "Active", hasPaymentMethod: true, checkoutUrl: null, pendingCheckout: null });
+
+    expect(screen.queryByRole("button", { name: /change card/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /change plan/i })).toBeInTheDocument();
+  });
+
+  it("states the contract price and the pricing the next renewal installs", () => {
+    renderCard({
+      ...offline,
+      status: "Active",
+      pendingOfflinePricingMode: "Contract",
+      pendingContractAmountMinor: 60_000,
+    });
+
+    const pricing = screen.getByTestId("offline-pricing");
+    expect(pricing).toHaveTextContent(/500/);
+    expect(pricing).toHaveTextContent(/from the next renewal.*600/);
+  });
+
+  it("says a no-price subscription is priced under contract rather than showing a zero", () => {
+    renderCard({ ...offline, status: "Active", offlinePricingMode: "None", contractAmountMinor: null });
+
+    expect(screen.getByTestId("offline-pricing")).toHaveTextContent("Priced under your contract");
+  });
+
+  it("shows no badge for a card subscription", () => {
+    renderCard({ ...baseSubscription, collectionMethod: "AutomaticCharge" });
+
+    expect(screen.queryByTestId("billed-by-invoice")).not.toBeInTheDocument();
+  });
+});

@@ -34,7 +34,7 @@ export async function openUtilitiesPayments(
 
 export async function openUtilitiesSubscription(
   page: Page,
-  name: "Plans" | "Invoices" | "Billing profile" | "Merchant profile" | "Simulation",
+  name: "Plans" | "Invoices" | "Billing profile" | "Merchant profile" | "Simulation" | "Offline billing",
 ) {
   await openUtilitiesDashboard(page)
   await openSubscriptionSubPage(page, name)

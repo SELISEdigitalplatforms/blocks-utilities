@@ -107,6 +107,24 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
     }
 
     [Fact]
+    public async Task A_record_invoice_says_it_is_payable_by_bank_transfer_rather_than_passing_for_a_paid_one()
+    {
+        var offline = await StoredAsync("INV-2026-000001", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        offline.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        await StoredAsync("INV-2026-000002", new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var result = await Service().ListAsync(
+            new GetFinancialDocumentsRequest(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.Value!.Items.Select(item => (item.DocumentNumber, item.CollectionMethod))
+            .Should().BeEquivalentTo(
+                [("INV-2026-000002", "AutomaticCharge"), ("INV-2026-000001", "OfflineInvoice")],
+                because: "both are Issued, and only this field stops a console calling a bank-transfer invoice paid when nothing was collected");
+    }
+
+    [Fact]
     public async Task An_issue_date_range_bounds_both_ends_inclusively()
     {
         await StoredAsync("INV-2026-000001", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
