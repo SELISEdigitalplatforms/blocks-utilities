@@ -108,6 +108,7 @@
   "EDIT_PAGE.DISCOUNT_CLEARED": "Automatic discount cleared",
   "EDIT_PAGE.DISCOUNT_SAVED": "Automatic discount saved",
   "EDIT_PAGE.DISCOUNT_SAVED_DESCRIPTION": "New subscriptions and future moves onto this price use it; everyone already on it keeps their snapshot.",
+  "EDIT_PAGE.TERMS_EXTENDED_DESCRIPTION": "New subscriptions use it now. Existing subscribers are being emailed and move to it at their next renewal at least 7 days away.",
   "EDIT_PAGE.NOT_FOUND": "Plan not found",
   "EDIT_PAGE.NOT_FOUND_HINT": "It may belong to another organization, or no longer exists.",
   "EDIT_PAGE.NOT_LOADED": "This plan could not be loaded.",

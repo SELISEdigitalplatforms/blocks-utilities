@@ -867,6 +867,70 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<IReadOnlyList<SubscriptionDetail>> ListRenewableOnPriceAsync(
+        string tenantId,
+        string priceId,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<SubscriptionDetail>.Filter.And(
+            TenantFilter(tenantId),
+            Builders<SubscriptionDetail>.Filter.Eq(
+                subscription => subscription.Price.PriceId,
+                priceId),
+            Builders<SubscriptionDetail>.Filter.In(
+                subscription => subscription.Status,
+                new[]
+                {
+                    SubscriptionStatus.Trialing,
+                    SubscriptionStatus.Active,
+                    SubscriptionStatus.PastDue,
+                    SubscriptionStatus.Unpaid
+                }));
+
+        if (!string.IsNullOrWhiteSpace(afterId))
+        {
+            // Keyset paging, for the reason ListLivePageAsync gives.
+            filter &= Builders<SubscriptionDetail>.Filter.Gt(
+                subscription => subscription.ItemId,
+                afterId);
+        }
+
+        return await Subscriptions(tenantId)
+            .Find(filter)
+            .SortBy(subscription => subscription.ItemId)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> TrySetPendingPriceTermsAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PendingPriceTerms pending,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pending);
+        ArgumentNullException.ThrowIfNull(outboxEvent);
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                VersionedFilter(tenantId, subscriptionId, expectedVersion),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Price.PriceId,
+                    pending.PriceId)),
+            Builders<SubscriptionDetail>.Update
+                .Set(subscription => subscription.PendingPriceTerms, pending)
+                .Inc(subscription => subscription.Version, 1)
+                .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
+                .Push(subscription => subscription.OutboxEvents, outboxEvent),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryClearPendingPlanChangeAsync(
         string tenantId,
         string subscriptionId,
@@ -1349,6 +1413,11 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         if (transition.ClearPendingPlanChange)
         {
             update = update.Set(subscription => subscription.PendingPlanChange, null);
+        }
+
+        if (transition.ClearPendingPriceTerms)
+        {
+            update = update.Set(subscription => subscription.PendingPriceTerms, null);
         }
 
         if (transition.ActivatedAtUtc is { } activatedAt)

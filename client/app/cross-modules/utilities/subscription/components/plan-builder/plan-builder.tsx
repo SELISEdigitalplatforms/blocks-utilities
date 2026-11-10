@@ -73,8 +73,18 @@ export interface PlanBuilderProps {
    * Retires one of the prices above. Omitted where nothing can be retired — creating a plan.
    */
   onRetirePrice?: (priceId: string) => void;
-  onUpdatePriceTax?: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
-  onUpdatePriceDiscount?: (priceId: string, discountPercent?: number, combination?: "BestDiscount" | "Additive") => Promise<void>;
+  onUpdatePriceTax?: (
+    priceId: string,
+    taxPercent?: number,
+    taxMode?: "Exclusive" | "Inclusive",
+    applyToExistingSubscribers?: boolean,
+  ) => Promise<void>;
+  onUpdatePriceDiscount?: (
+    priceId: string,
+    discountPercent?: number,
+    combination?: "BestDiscount" | "Additive",
+    applyToExistingSubscribers?: boolean,
+  ) => Promise<void>;
   retiringPriceId?: string | null;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;

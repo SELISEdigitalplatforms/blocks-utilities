@@ -103,6 +103,7 @@ export const EditSubscriptionPlanPage = () => {
     priceId: string,
     taxPercent?: number,
     taxMode?: TaxMode,
+    applyToExistingSubscribers = false,
   ) => {
     await updatePriceTax({
       priceId,
@@ -110,12 +111,15 @@ export const EditSubscriptionPlanPage = () => {
         organizationId: plan.organizationId ?? undefined,
         taxRateBasisPoints: taxPercent ? toBasisPoints(taxPercent) : undefined,
         taxMode: taxPercent ? taxMode : undefined,
+        applyToExistingSubscribers,
       },
     });
     toast({
       variant: "success",
       title: t("EDIT_PAGE.TAX_SAVED"),
-      description: t("EDIT_PAGE.TAX_SAVED_DESCRIPTION"),
+      description: applyToExistingSubscribers
+        ? t("EDIT_PAGE.TERMS_EXTENDED_DESCRIPTION")
+        : t("EDIT_PAGE.TAX_SAVED_DESCRIPTION"),
     });
   };
 
@@ -123,6 +127,7 @@ export const EditSubscriptionPlanPage = () => {
     priceId: string,
     discountPercent?: number,
     combination?: AutomaticDiscountCombination,
+    applyToExistingSubscribers = false,
   ) => {
     await updatePriceDiscount({
       priceId,
@@ -132,12 +137,15 @@ export const EditSubscriptionPlanPage = () => {
         // omitting the field would leave the stored discount in place.
         automaticDiscountBasisPoints: discountPercent ? toBasisPoints(discountPercent) : 0,
         quantityDiscountCombination: discountPercent ? combination : undefined,
+        applyToExistingSubscribers,
       },
     });
     toast({
       variant: "success",
       title: discountPercent ? t("EDIT_PAGE.DISCOUNT_SAVED") : t("EDIT_PAGE.DISCOUNT_CLEARED"),
-      description: t("EDIT_PAGE.DISCOUNT_SAVED_DESCRIPTION"),
+      description: applyToExistingSubscribers
+        ? t("EDIT_PAGE.TERMS_EXTENDED_DESCRIPTION")
+        : t("EDIT_PAGE.DISCOUNT_SAVED_DESCRIPTION"),
     });
   };
 

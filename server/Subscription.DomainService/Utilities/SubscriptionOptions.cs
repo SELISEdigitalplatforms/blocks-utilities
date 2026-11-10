@@ -135,6 +135,17 @@ public sealed class SubscriptionOptions
 
     public int RenewalBatchSize { get; set; } = 50;
 
+    /// <summary>
+    /// The least notice, in days, a subscriber is given before a discount or tax edit an operator
+    /// extended to them takes effect.
+    /// </summary>
+    /// <remarks>
+    /// The edit lands on the first renewal at least this far away, so a subscriber whose renewal is
+    /// tomorrow renews once more on the terms they have and is billed on the new ones a period
+    /// later. Zero means the very next renewal, whatever its distance.
+    /// </remarks>
+    public int PriceTermsNoticeDays { get; set; } = 7;
+
     public int CancellationBatchSize { get; set; } = 50;
 
     /// <summary>

@@ -25,7 +25,9 @@ public sealed class SubscriptionNotificationEmailServiceTests
     private static readonly string[] AllKeys =
     [
         "DisplayName", "PlanName", "PlanCode", "PreviousPlanName", "ActorName",
-        "QuantityChanges", "EffectiveDate", "CancellationReason"
+        "QuantityChanges", "EffectiveDate", "CancellationReason",
+        "PreviousDiscount", "NewDiscount", "PreviousTaxRate", "NewTaxRate",
+        "PreviousTaxMode", "NewTaxMode"
     ];
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
@@ -125,6 +127,39 @@ public sealed class SubscriptionNotificationEmailServiceTests
 
         _queued!.Payload.BodyDataContext["PreviousPlanName"].Should().Be("Starter");
         _queued.Payload.BodyDataContext["PlanName"].Should().Be("Team");
+    }
+
+    [Fact]
+    public async Task An_extended_price_change_tells_the_subscriber_both_terms_and_the_local_day_it_starts()
+    {
+        var lifecycleEvent = Event(SubscriptionConstants.SubscriptionPriceTermsChangeScheduled);
+        lifecycleEvent.PreviousPriceTerms = new PriceTerms
+        {
+            AutomaticDiscountBasisPoints = 800,
+            TaxRateBasisPoints = 810,
+            TaxMode = TaxMode.Exclusive
+        };
+        lifecycleEvent.PriceTerms = new PriceTerms
+        {
+            AutomaticDiscountBasisPoints = 1500,
+            TaxRateBasisPoints = 825,
+            TaxMode = TaxMode.Inclusive
+        };
+        // The renewal at midnight starting 1 December in Zurich, as billing stores it.
+        lifecycleEvent.EffectiveAtUtc = new DateTime(2026, 11, 30, 23, 0, 0, DateTimeKind.Utc);
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        _queued!.Payload.Purpose.Should().Be(SubscriptionConstants.PriceTermsChangedMailPurpose);
+        var body = _queued.Payload.BodyDataContext;
+        body["PreviousDiscount"].Should().Be("8%");
+        body["NewDiscount"].Should().Be("15%");
+        body["PreviousTaxRate"].Should().Be("8.1%");
+        body["NewTaxRate"].Should().Be("8.25%",
+            "a rate is quoted as configured, not rounded to a figure the bill will not match");
+        body["NewTaxMode"].Should().Be("Inclusive");
+        body["EffectiveDate"].Should().Be("2026-12-01",
+            "the subscriber is told the local day of the renewal that first bills the new terms");
     }
 
     [Fact]

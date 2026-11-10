@@ -38,6 +38,12 @@ public static class SubscriptionConstants
     public const string PlanChangedMailPurpose = "subscription_plan_changed";
     public const string CancellationRequestedMailPurpose = "subscription_cancellation_requested";
     public const string CanceledMailPurpose = "subscription_canceled";
+
+    /// <summary>
+    /// Sent when an operator extends a discount or tax edit to a subscriber already on the price, so
+    /// they hear of the new terms before the renewal that bills them.
+    /// </summary>
+    public const string PriceTermsChangedMailPurpose = "subscription_price_terms_changed";
     public const string CancellationWithdrawnMailPurpose = "subscription_cancellation_withdrawn";
 
     /// <summary>
@@ -80,6 +86,11 @@ public static class SubscriptionConstants
 
     public const string SubscriptionQuantityChanged = "SubscriptionQuantityChanged";
 
+    /// <summary>
+    /// An operator extended a discount or tax edit to this subscriber, effective at a later renewal.
+    /// </summary>
+    public const string SubscriptionPriceTermsChangeScheduled = "SubscriptionPriceTermsChangeScheduled";
+
     /// <summary>A person was given, or lost, a seat on a user-wise subscription.</summary>
     public const string SubscriptionMemberAssigned = "SubscriptionMemberAssigned";
     public const string SubscriptionMemberReleased = "SubscriptionMemberReleased";
@@ -99,6 +110,7 @@ public static class SubscriptionConstants
         {
             [SubscriptionQuantityChanged] = QuantityChangedMailPurpose,
             [SubscriptionPlanChanged] = PlanChangedMailPurpose,
+            [SubscriptionPriceTermsChangeScheduled] = PriceTermsChangedMailPurpose,
             [SubscriptionCancellationRequested] = CancellationRequestedMailPurpose,
             [SubscriptionCanceled] = CanceledMailPurpose,
             [SubscriptionCancellationWithdrawn] = CancellationWithdrawnMailPurpose,

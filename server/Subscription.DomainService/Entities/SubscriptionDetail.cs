@@ -249,6 +249,17 @@ public sealed class SubscriptionDetail
     public PendingPlanChange? PendingPlanChange { get; set; }
 
     /// <summary>
+    /// A discount or tax edit extended to this subscriber, waiting for the renewal it was announced
+    /// for, if an operator chose to extend one.
+    /// </summary>
+    /// <remarks>
+    /// Independent of the two pending changes above: it blocks neither, and is dropped rather than
+    /// applied when a plan change moves the subscriber off the price first. Absent on every
+    /// subscription written before it existed, which is the same thing as having none.
+    /// </remarks>
+    public PendingPriceTerms? PendingPriceTerms { get; set; }
+
+    /// <summary>
     /// An increase reserved but not yet settled, if one is in flight.
     /// </summary>
     /// <remarks>

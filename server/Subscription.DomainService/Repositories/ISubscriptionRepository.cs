@@ -285,6 +285,38 @@ public interface ISubscriptionRepository
         CancellationToken cancellationToken,
         SubscriptionOutboxEvent? outboxEvent = null);
 
+    /// <summary>
+    /// A page of the subscriptions still billed on <paramref name="priceId"/>, in id order after
+    /// <paramref name="afterId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Every status that can still renew: trialing, active, past due, and unpaid — an unpaid
+    /// subscriber who comes back with a card renews on the price it holds, and must not be the one
+    /// subscriber an extended edit skipped.
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionDetail>> ListRenewableOnPriceAsync(
+        string tenantId,
+        string priceId,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Holds an extended discount or tax edit for a later renewal, replacing any already held, and
+    /// announces it in the same write.
+    /// </summary>
+    /// <remarks>
+    /// Refuses unless the subscription is still on the price the terms belong to, so a plan change
+    /// landing between the read and this write cannot be given another price's terms.
+    /// </remarks>
+    Task<bool> TrySetPendingPriceTermsAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PendingPriceTerms pending,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
     /// <summary>Withdraws a scheduled plan change.</summary>
     Task<bool> TryClearPendingPlanChangeAsync(
         string tenantId,

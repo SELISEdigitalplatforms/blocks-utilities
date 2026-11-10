@@ -1,14 +1,17 @@
 using FluentAssertions;
 using FluentValidation;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Services;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
+using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
+using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
 
 namespace XUnitTest.Subscription;
@@ -709,6 +712,60 @@ public sealed class PlanCatalogueServiceTests
         _catalogue.Verify(repository => repository.TryUpdatePriceAutomaticDiscountAsync(
             TenantId, "price-1", 4, 800, AutomaticDiscountCombination.Additive,
             It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_discount_edit_leaves_existing_subscribers_alone_unless_asked()
+    {
+        var plan = StoredPlan();
+        StoredPriceFor(plan, version: 4);
+        _catalogue.Setup(repository => repository.TryUpdatePriceAutomaticDiscountAsync(
+            TenantId, "price-1", 4, 1500, AutomaticDiscountCombination.BestDiscount,
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        await Service().UpdatePriceDiscountAsync(
+            "price-1",
+            new UpdatePriceDiscountRequest { AutomaticDiscountBasisPoints = 1500 },
+            "corr-1",
+            CancellationToken.None);
+
+        _subscriptions.Verify(
+            repository => repository.ListRenewableOnPriceAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "an operator who did not tick the box was promised nobody already subscribed is repriced");
+    }
+
+    [Fact]
+    public async Task A_discount_edit_extended_to_existing_subscribers_reaches_them()
+    {
+        var plan = StoredPlan();
+        StoredPriceFor(plan, version: 4);
+        _catalogue.Setup(repository => repository.TryUpdatePriceAutomaticDiscountAsync(
+            TenantId, "price-1", 4, 1500, AutomaticDiscountCombination.BestDiscount,
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _subscriptions
+            .Setup(repository => repository.ListRenewableOnPriceAsync(
+                TenantId, "price-1", null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var result = await Service().UpdatePriceDiscountAsync(
+            "price-1",
+            new UpdatePriceDiscountRequest
+            {
+                AutomaticDiscountBasisPoints = 1500,
+                ApplyToExistingSubscribers = true
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscriptions.Verify(
+            repository => repository.ListRenewableOnPriceAsync(
+                TenantId, "price-1", null, It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Once,
+            "ticking the box is the operator asking for the subscribers on this price to be repriced");
     }
 
     [Fact]
@@ -1952,7 +2009,14 @@ public sealed class PlanCatalogueServiceTests
         new CreatePriceRequestValidator(_currencyResolver.Object),
         new PlanResponseMapper(),
         _auditTrail.Object,
-        NullLogger<PlanCatalogueService>.Instance);
+        NullLogger<PlanCatalogueService>.Instance,
+        new ExistingSubscriberPriceTerms(
+            _subscriptions.Object,
+            new SubscriptionOutboxEventFactory(),
+            Mock.Of<IOptionsMonitor<SubscriptionOptions>>(
+                options => options.CurrentValue == new SubscriptionOptions()),
+            TimeProvider.System,
+            NullLogger<ExistingSubscriberPriceTerms>.Instance));
 
     private static Plan StoredPlan() => new()
     {

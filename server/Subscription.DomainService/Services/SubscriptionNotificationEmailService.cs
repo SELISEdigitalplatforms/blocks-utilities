@@ -339,8 +339,38 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         ["ActorName"] = lifecycleEvent.ActorName ?? string.Empty,
         ["QuantityChanges"] = Describe(lifecycleEvent.QuantityChanges),
         ["EffectiveDate"] = EffectiveDate(EffectiveAtUtc(lifecycleEvent), timeZoneId),
-        [CancellationReasonKey] = lifecycleEvent.CancellationReason ?? string.Empty
+        [CancellationReasonKey] = lifecycleEvent.CancellationReason ?? string.Empty,
+        ["PreviousDiscount"] = Percent(lifecycleEvent.PreviousPriceTerms, terms => terms.AutomaticDiscountBasisPoints),
+        ["NewDiscount"] = Percent(lifecycleEvent.PriceTerms, terms => terms.AutomaticDiscountBasisPoints),
+        ["PreviousTaxRate"] = Percent(lifecycleEvent.PreviousPriceTerms, terms => terms.TaxRateBasisPoints),
+        ["NewTaxRate"] = Percent(lifecycleEvent.PriceTerms, terms => terms.TaxRateBasisPoints),
+        ["PreviousTaxMode"] = TaxModeOf(lifecycleEvent.PreviousPriceTerms),
+        ["NewTaxMode"] = TaxModeOf(lifecycleEvent.PriceTerms)
     };
+
+    /// <summary>
+    /// A rate in basis points as a percentage — <c>15%</c>, <c>8.25%</c> — and <c>0%</c> for none.
+    /// Empty on every event that carries no price terms.
+    /// </summary>
+    /// <remarks>
+    /// Invariant and unworded, for the reason <see cref="EffectiveDate"/> gives: the mail language is
+    /// not always the recipient's, and a bare figure reads the same in every one of them.
+    /// </remarks>
+    private static string Percent(PriceTerms? terms, Func<PriceTerms, int?> rate) =>
+        terms is null
+            ? string.Empty
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"{(rate(terms) ?? 0) / 100m:0.##}%");
+
+    /// <summary>
+    /// <c>Inclusive</c> or <c>Exclusive</c> where a tax rate applies, so a template can word it;
+    /// empty where none does.
+    /// </summary>
+    private static string TaxModeOf(PriceTerms? terms) =>
+        terms is { TaxRateBasisPoints: > 0 }
+            ? (terms.TaxMode ?? TaxMode.Exclusive).ToString()
+            : string.Empty;
 
     /// <summary>
     /// The instant the email's news takes hold: when a change was applied, or when access ends.
@@ -355,6 +385,7 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             SubscriptionConstants.SubscriptionCancellationRequested or
             SubscriptionConstants.SubscriptionCanceled => lifecycleEvent.CurrentPeriodEndUtc,
             SubscriptionConstants.SubscriptionCancellationWithdrawn => null,
+            SubscriptionConstants.SubscriptionPriceTermsChangeScheduled => lifecycleEvent.EffectiveAtUtc,
             _ => lifecycleEvent.OccurredAtUtc
         };
 
