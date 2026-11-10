@@ -75,7 +75,7 @@
   "CREDIT_OFFERS_PAGE.TAX_MODE": "Tax mode",
   "CREDIT_OFFERS_PAGE.TAX_RATE_BASIS_POINTS": "Tax rate (basis points)",
   "CREDIT_OFFERS_PAGE.TITLE": "Credit offers",
-  "CREDIT_OFFERS_PAGE.UNIT_AMOUNT_MINOR": "Price per credit (minor units)",
+  "CREDIT_OFFERS_PAGE.UNIT_AMOUNT": "Price per credit ({{currency}})",
   "DISCOUNTS_PAGE.AMOUNT_OFF": "{{amount}} off",
   "DISCOUNTS_PAGE.APPLIES_TO_ANY": "Applies to any plan and any price.",
   "DISCOUNTS_PAGE.CATALOGUE": "Discount catalogue",
@@ -322,6 +322,6 @@
   "CREDIT_OFFERS_PAGE.PACK_CODE": "Code",
   "CREDIT_OFFERS_PAGE.PACK_NAME": "Name",
   "CREDIT_OFFERS_PAGE.PACK_QUANTITY": "Credits",
-  "CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT": "Price per credit (minor units)",
+  "CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT": "Price per credit ({{currency}})",
   "CREDIT_OFFERS_PAGE.PACK_COUNT": "{{count}} pack(s)"
 }
