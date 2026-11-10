@@ -109,6 +109,7 @@ export const SimulationHarnessCard = ({
                       <TableCell className="text-xs text-muted-foreground">
                         {job.detail ?? "—"}
                       </TableCell>
+                      {/* eslint-disable-next-line no-restricted-syntax -- unit symbol */}
                       <TableCell className="text-xs">{job.durationMs} ms</TableCell>
                     </TableRow>
                   ))}

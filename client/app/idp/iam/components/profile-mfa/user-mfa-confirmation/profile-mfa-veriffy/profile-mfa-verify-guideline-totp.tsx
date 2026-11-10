@@ -18,7 +18,7 @@ export const ProfileMfaVerifyGuideLineTotp = () => {
       <div className="flex flex-col items-center gap-4">
         <div className="relative aspect-square w-40 rounded-sm border p-2">
           {data?.qrImageUrl ? (
-            <img alt="qr_code" src={data?.qrImageUrl} />
+            <img alt={t("PROFILE_MFA_VERIFY_GUIDELINE_TOTP.QR_CODE_ALT")} src={data?.qrImageUrl} />
           ) : (
             <Skeleton />
           )}

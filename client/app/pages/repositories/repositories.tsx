@@ -175,6 +175,7 @@ export const RepositoriesPage = () => {
         cell: () => (
           <div className="flex flex-row">
             <Github className="mr-2 inline-block h-5 w-5" />
+            {/* eslint-disable-next-line no-restricted-syntax -- product name */}
             <div className="truncate">Github</div>
           </div>
         ),

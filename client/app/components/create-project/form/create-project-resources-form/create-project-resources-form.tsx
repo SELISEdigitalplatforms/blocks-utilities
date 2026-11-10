@@ -123,6 +123,7 @@ export const CreateProjectResourcesForm = () => {
                           className="h-full w-full object-cover"
                         />
                       ) : (
+                        // eslint-disable-next-line no-restricted-syntax -- product name
                         <img src={githubIconSrc} alt="github" width={20} height={20} />
                       )}
                     </div>
@@ -145,6 +146,7 @@ export const CreateProjectResourcesForm = () => {
                         className="flex items-center justify-between rounded-md bg-card py-2"
                       >
                         <div className="flex items-center gap-2">
+                          {/* eslint-disable-next-line no-restricted-syntax -- product name */}
                           <img src={githubIconSrc} alt="github" width={20} height={20} />
                           <div className="text-sm font-medium"> {repo.full_name}</div>
                         </div>
