@@ -268,6 +268,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             }
         }
 
+        // A discount or tax edit an operator extended to this subscriber, announced for this
+        // boundary. Installed before pricing, exactly like the changes above, so the period it was
+        // announced for is the first one billed on it. Not when a plan change lands here too: that
+        // moves the subscriber onto terms quoted for the price they are moving to, and those win.
+        var duePriceTerms = DuePriceTerms(subscription);
+        var priceTermsApplied = duePriceTerms is not null &&
+            pendingPlan is null &&
+            duePriceTerms.PriceId == subscription.Price.PriceId;
+
+        if (priceTermsApplied)
+        {
+            duePriceTerms!.Terms.ApplyTo(subscription.Price);
+        }
+
         // A card-free trial that ends mid-month buys the rest of that month, not all of it. This
         // is the only renewal that can be charging for a partial period: every later one runs on a
         // boundary, where the period it opens is whole by construction.
@@ -465,7 +479,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 cancellationToken,
                 new AppliedChangeOrigin(previousPlan, previousQuantities),
                 pendingPlan,
-                outgoingUsagePeriod);
+                outgoingUsagePeriod,
+                duePriceTerms,
+                priceTermsApplied);
 
             return;
         }
@@ -631,6 +647,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             : null;
 
     /// <summary>
+    /// The extended discount or tax edit this boundary is the one announced for, or null.
+    /// </summary>
+    /// <remarks>
+    /// The same "has its instant passed" test as the two above, and like them applied only on the
+    /// success path: a declined renewal leaves the terms pending, and each dunning retry prices the
+    /// period on them again until one settles.
+    /// </remarks>
+    private static PendingPriceTerms? DuePriceTerms(SubscriptionDetail subscription) =>
+        subscription.PendingPriceTerms is { } pending &&
+        pending.EffectiveAtUtc <= subscription.CurrentPeriodEndUtc
+            ? pending
+            : null;
+
+    /// <summary>
     /// Whether this renewal is a calendar-aligned card-free trial converting to paid, and if so
     /// which period it should charge for.
     /// </summary>
@@ -707,7 +737,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         CancellationToken cancellationToken,
         AppliedChangeOrigin origin,
         PendingPlanChange? appliedPlanChange = null,
-        PendingUsagePeriod? outgoingUsagePeriod = null)
+        PendingUsagePeriod? outgoingUsagePeriod = null,
+        PendingPriceTerms? duePriceTerms = null,
+        bool priceTermsApplied = false)
     {
         var offlineInvoice = OfflineRenewalInvoice(subscription, period, charge);
 
@@ -736,7 +768,13 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // plan at the old rate, and one that installed both without clearing the schedule
                 // would install them again next period.
                 Plan = appliedPlanChange?.Plan,
-                Price = appliedPlanChange?.Price,
+                // Or the same price on the extended terms it was just billed on — installed and
+                // forgotten in this one write for the same reason, or the next renewal would apply
+                // them again and announce nothing.
+                Price = appliedPlanChange?.Price ?? (priceTermsApplied ? subscription.Price : null),
+                // Due means spent, applied or not: a subscriber a plan change moved off the price
+                // has nothing left for these terms to apply to.
+                ClearPendingPriceTerms = duePriceTerms is not null,
                 // Spec 006: a scheduled change says which kind of figure its price is, installed
                 // with the price itself so the two can never disagree.
                 OfflinePricing = appliedPlanChange?.OfflinePricing,

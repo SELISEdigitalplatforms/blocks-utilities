@@ -276,6 +276,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionContextResolver,
             SubscriptionContextResolver>();
+        services.AddScoped<ExistingSubscriberPriceTerms>();
         services.AddScoped<IPlanCatalogueService, PlanCatalogueService>();
         services.AddScoped<IDiscountCatalogueService, DiscountCatalogueService>();
         services.AddScoped<IMeterCatalogueService, MeterCatalogueService>();

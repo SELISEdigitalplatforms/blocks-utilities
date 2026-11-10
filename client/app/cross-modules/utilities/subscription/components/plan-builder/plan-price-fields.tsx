@@ -1,6 +1,6 @@
 import { useT } from "@seliseblocks/genesis-os";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   FormControl,
   FormDescription,
@@ -10,6 +10,7 @@ import {
   FormMessage,
 } from "@/components/ui-kits/form/form";
 import { Button } from "@/components/ui-kits/button/button";
+import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { Input } from "@/components/ui-kits/input/input";
 import {
   Select,
@@ -50,12 +51,44 @@ import { CardListItem, CardListShell } from "./card-list-shell";
 
 const UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE = "utilities.subscription.plan-builder";
 
+/**
+ * Whether an edit to an existing price reaches the subscribers already on it.
+ *
+ * Off by default, which is what every edit did before this existed: nobody already subscribed is
+ * repriced. Ticked, each of them moves to the new terms from their first renewal at least the
+ * configured notice period away, and is told by email when the edit is saved.
+ */
+const ApplyToExistingSubscribers = ({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
+  const id = useId();
+
+  return (
+    <div className="flex items-start gap-2 sm:col-span-3">
+      <Checkbox id={id} checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} />
+      <label htmlFor={id} className="text-xs leading-snug text-muted-foreground">
+        {t("PLAN_PRICE_FIELDS.APPLY_TO_EXISTING_SUBSCRIBERS")}
+      </label>
+    </div>
+  );
+};
+
 const ExistingPriceTaxEditor = ({
   price,
   onSave,
 }: {
   price: PlanPrice;
-  onSave: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
+  onSave: (
+    priceId: string,
+    taxPercent?: number,
+    taxMode?: "Exclusive" | "Inclusive",
+    applyToExistingSubscribers?: boolean,
+  ) => Promise<void>;
 }) => {
   const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
   const [taxPercent, setTaxPercent] = useState<string>(
@@ -66,6 +99,7 @@ const ExistingPriceTaxEditor = ({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [applyToExisting, setApplyToExisting] = useState(false);
   const numericRate = taxPercent === "" ? undefined : Number(taxPercent);
 
   return (
@@ -98,7 +132,7 @@ const ExistingPriceTaxEditor = ({
           setSaving(true);
           setError(null);
           try {
-            await onSave(price.priceId, numericRate, numericRate ? taxMode : undefined);
+            await onSave(price.priceId, numericRate, numericRate ? taxMode : undefined, applyToExisting);
           } catch (reason) {
             setError(reason instanceof Error ? reason.message : t("PLAN_PRICE_FIELDS.TAX_SAVE_FAILED"));
           } finally {
@@ -108,6 +142,7 @@ const ExistingPriceTaxEditor = ({
       >
         {saving ? t("PLAN_PRICE_FIELDS.SAVING") : t("PLAN_PRICE_FIELDS.SAVE_TAX")}
       </Button>
+      <ApplyToExistingSubscribers checked={applyToExisting} onCheckedChange={setApplyToExisting} />
       {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
     </div>
   );
@@ -118,7 +153,8 @@ const ExistingPriceTaxEditor = ({
  *
  * Its own editor beside the tax one, because they are two endpoints and two decisions: an author
  * changing a discount has not necessarily changed their mind about VAT. Both are the same deliberate
- * exception to a price being immutable — they reach future subscriptions only.
+ * exception to a price being immutable — they reach future subscriptions, and existing subscribers
+ * only when the author ticks the box to say so.
  */
 const ExistingPriceDiscountEditor = ({
   price,
@@ -129,6 +165,7 @@ const ExistingPriceDiscountEditor = ({
     priceId: string,
     discountPercent?: number,
     combination?: AutomaticDiscountCombination,
+    applyToExistingSubscribers?: boolean,
   ) => Promise<void>;
 }) => {
   const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
@@ -140,6 +177,7 @@ const ExistingPriceDiscountEditor = ({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [applyToExisting, setApplyToExisting] = useState(false);
   const numericDiscount = discountPercent === "" ? undefined : Number(discountPercent);
 
   return (
@@ -182,7 +220,12 @@ const ExistingPriceDiscountEditor = ({
           setSaving(true);
           setError(null);
           try {
-            await onSave(price.priceId, numericDiscount, numericDiscount ? combination : undefined);
+            await onSave(
+              price.priceId,
+              numericDiscount,
+              numericDiscount ? combination : undefined,
+              applyToExisting,
+            );
           } catch (reason) {
             setError(reason instanceof Error ? reason.message : t("PLAN_PRICE_FIELDS.DISCOUNT_SAVE_FAILED"));
           } finally {
@@ -192,6 +235,7 @@ const ExistingPriceDiscountEditor = ({
       >
         {saving ? t("PLAN_PRICE_FIELDS.SAVING") : t("PLAN_PRICE_FIELDS.SAVE_DISCOUNT")}
       </Button>
+      <ApplyToExistingSubscribers checked={applyToExisting} onCheckedChange={setApplyToExisting} />
       {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
     </div>
   );
@@ -715,11 +759,13 @@ export const PlanPriceFields = ({
     priceId: string,
     taxPercent?: number,
     taxMode?: "Exclusive" | "Inclusive",
+    applyToExistingSubscribers?: boolean,
   ) => Promise<void>;
   onUpdatePriceDiscount?: (
     priceId: string,
     discountPercent?: number,
     combination?: AutomaticDiscountCombination,
+    applyToExistingSubscribers?: boolean,
   ) => Promise<void>;
   retiringPriceId?: string | null;
 }) => {

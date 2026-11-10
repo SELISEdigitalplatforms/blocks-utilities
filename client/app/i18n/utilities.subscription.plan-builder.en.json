@@ -124,6 +124,7 @@
   "PLAN_PRICE_FIELDS.RETIRE_HINT": "Retiring stops a price being sold. Anyone already on it keeps their terms and their renewals — a subscription bills from what it was sold on, not from this list. Prices keep immutable amount, cadence and billing-cycle terms; only tax and automatic-discount metadata can be edited, and only for future subscriptions and future moves onto the price. To move a plan onto a different billing cycle, add a new price and retire this one.",
   "PLAN_PRICE_FIELDS.RETIRING": "Retiring…",
   "PLAN_PRICE_FIELDS.SAVE_DISCOUNT": "Save discount",
+  "PLAN_PRICE_FIELDS.APPLY_TO_EXISTING_SUBSCRIBERS": "Also apply to existing subscribers from their next renewal at least 7 days away. They will be emailed about the change.",
   "PLAN_PRICE_FIELDS.SAVE_TAX": "Save tax",
   "PLAN_PRICE_FIELDS.SAVING": "Saving…",
   "PLAN_PRICE_FIELDS.STUB_PREVIEW": "A signup on 25 August pays 7/31 of {{amount}} for the rest of the month. Any automatic discount below applies to that opening period as well as to the year; a promotional code applies to the year alone.",

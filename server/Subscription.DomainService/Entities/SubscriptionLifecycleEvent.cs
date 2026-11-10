@@ -141,6 +141,14 @@ public sealed class SubscriptionLifecycleEvent
     /// <summary>When a scheduled change takes effect.</summary>
     public DateTime? EffectiveAtUtc { get; set; }
 
+    /// <summary>
+    /// Set on an extended discount or tax edit: the terms billed until <see cref="EffectiveAtUtc"/>.
+    /// </summary>
+    public PriceTerms? PreviousPriceTerms { get; set; }
+
+    /// <summary>Set on an extended discount or tax edit: the terms billed from then on.</summary>
+    public PriceTerms? PriceTerms { get; set; }
+
     /// <summary>Set on an organization credit purchase (spec 005): the purchase record.</summary>
     public string? CreditPurchaseId { get; set; }
 

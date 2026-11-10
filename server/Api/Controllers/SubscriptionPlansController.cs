@@ -259,7 +259,8 @@ public sealed class SubscriptionPlansController : ControllerBase
 
     /// <summary>
     /// Sets or clears the automatic discount on a price. Future subscriptions and future moves onto
-    /// this price only — nobody already on it is repriced.
+    /// this price only, unless <c>applyToExistingSubscribers</c> is set — then everyone already on it
+    /// is emailed and moves to it at their first renewal at least the notice period away.
     /// </summary>
     [HttpPut("prices/{priceId}/discount")]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]

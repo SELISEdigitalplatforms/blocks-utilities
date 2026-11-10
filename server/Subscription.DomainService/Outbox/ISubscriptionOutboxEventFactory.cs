@@ -54,6 +54,15 @@ public interface ISubscriptionOutboxEventFactory
         string? actorName,
         string correlationId);
 
+    /// <summary>
+    /// A discount or tax edit extended to this subscriber, announced when it is scheduled. Built
+    /// from the subscription before the write, so its price still carries the terms being replaced.
+    /// </summary>
+    SubscriptionOutboxEvent CreatePriceTermsChangeScheduled(
+        SubscriptionDetail subscription,
+        PendingPriceTerms pending,
+        string correlationId);
+
     SubscriptionOutboxEvent CreatePlanChanged(
         SubscriptionDetail subscription,
         string previousPlanCode,

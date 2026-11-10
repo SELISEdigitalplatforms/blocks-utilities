@@ -690,8 +690,15 @@ the plan, so the builder catches it first.
 
 **Prices are immutable in their commercial terms.** Tax metadata and the automatic discount can be
 updated for *future* subscriptions; the amount, interval and alignment cannot change. To reprice,
-add a new price and retire the old one. Existing subscribers keep the terms they were sold either
-way, because a subscription bills from its own snapshot and is never migrated automatically.
+add a new price and retire the old one. By default, existing subscribers keep the terms they were
+sold, because a subscription bills from its own snapshot and is never migrated automatically.
+
+The one opt-in exception is a tax or discount edit saved with **Also apply to existing
+subscribers** (`applyToExistingSubscribers`). Each subscriber on the price is emailed
+(`subscription_price_terms_changed`) and moves to the new terms at the first renewal at least
+`Subscription:PriceTermsNoticeDays` (default 7) away. Offline subscriptions, subscriptions
+cancelling at period end, and subscriptions with their own plan change scheduled are left alone.
+Saving the same edit again is safe, and reaches anyone a failed save missed.
 
 **Editing a plan ends when the first subscriber arrives.** After that the plan is frozen — a
 subscription bills from its own copy of the terms, which an edit cannot reach.
