@@ -219,8 +219,8 @@ class SubscriptionSimulationService {
 
   /**
    * Activates a plan for an organization that pays by bank transfer (spec 006): no card, no
-   * checkout, and it comes back already live. Console only, behind
-   * `subscription-offline::manage`; any other caller is refused by the server.
+   * checkout, and it comes back already live. Same permission as an ordinary subscribe; the
+   * server refuses any caller but the platform console.
    */
   async activateOffline(
     request: ActivateOfflineSubscriptionRequest,

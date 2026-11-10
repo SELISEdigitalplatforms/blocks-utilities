@@ -14,7 +14,7 @@ import {
  * Spec 006 end to end: activate a bank transfer customer, re-price it, see the customer's view
  * offer no card, renew, and receive the record document. Runs against the organization
  * `E2E_OFFLINE_ORGANIZATION` names (or the first listed); it needs a complete billing profile, and
- * the signed-in user needs `subscription-offline::manage`. An organization already offline is
+ * the signed-in user needs `subscription::manage`. An organization already offline is
  * carried on from where it stands, so the spec can be rerun against the same project.
  */
 test.describe("flow: Subscriptions - Offline billing", () => {

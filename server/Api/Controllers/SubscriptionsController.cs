@@ -143,9 +143,10 @@ public sealed class SubscriptionsController : ControllerBase
     /// checkout. Spec 006.
     /// </summary>
     /// <remarks>
-    /// Console only, and behind its own permission rather than <c>subscription::manage</c>, which
-    /// every organization admin holds: this is the one route that grants a paid plan without taking
-    /// money. The subscription is never charged; each period it renews on schedule and issues a
+    /// Same permission as an ordinary subscribe, <c>subscription::manage</c>. What keeps an
+    /// organization from granting itself a paid plan without paying is the service, not the
+    /// permission: it refuses any caller but the platform console
+    /// (<c>subscription_offline_console_only</c>). The subscription is never charged; each period it renews on schedule and issues a
     /// record invoice marked "Payable by bank transfer". The organization's billing profile must be
     /// complete, because every one of those invoices is addressed to it.
     /// </remarks>
@@ -156,7 +157,7 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProtectedEndPoint("blocks-utilities::subscription-offline::manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> ActivateOffline(
         [FromBody] ActivateOfflineSubscriptionRequest request,
         CancellationToken cancellationToken)
@@ -377,7 +378,8 @@ public sealed class SubscriptionsController : ControllerBase
     /// Moves an offline subscription onto another plan at the pricing the operator names. Spec 006.
     /// </summary>
     /// <remarks>
-    /// Console only, behind the offline permission. The organization's own <c>PUT …/plan</c> always
+    /// Console only: the service refuses any other caller, whatever its permission. The
+    /// organization's own <c>PUT …/plan</c> always
     /// lands on the target's catalogue price; this route lets an operator name a contract price for
     /// the new plan instead. Timing and proration are the ordinary change's: an upgrade applies now
     /// and records a prorated invoice, a downgrade waits for the end of the paid period. Nothing is
@@ -390,7 +392,7 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProtectedEndPoint("blocks-utilities::subscription-offline::manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> ChangePlanOffline(
         string subscriptionId,
         [FromBody] OfflinePlanChangeRequest request,
@@ -417,7 +419,8 @@ public sealed class SubscriptionsController : ControllerBase
     /// Re-prices an offline subscription from its next renewal. Spec 006.
     /// </summary>
     /// <remarks>
-    /// Console only, behind the offline permission. The current period is untouched; the next
+    /// Console only: the service refuses any other caller, whatever its permission. The current
+    /// period is untouched; the next
     /// renewal installs the new pricing, which <c>pendingOfflinePricingMode</c> shows until then. A
     /// second re-pricing before that replaces the first.
     /// </remarks>
@@ -428,7 +431,7 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProtectedEndPoint("blocks-utilities::subscription-offline::manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
     public async Task<IActionResult> RepriceOffline(
         string subscriptionId,
         [FromBody] OfflineRepricingRequest request,

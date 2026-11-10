@@ -161,9 +161,15 @@ otherwise; amount greater than zero; currency one the `Payment` section knows th
 
 | Action | Required permission |
 |---|---|
-| Offline activation, re-pricing, offline plan change | `blocks-utilities::subscription-offline::manage` (new), console organization only |
+| Offline activation, re-pricing, offline plan change | existing `blocks-utilities::subscription::manage`, console organization only |
 | Plan change, quantity change, cancel | existing `blocks-utilities::subscription::manage`, own organization |
 | Read offline fields, invoices, statements | existing read permissions |
+
+_(Changed 2026-11-10.)_ Offline actions first had their own permission,
+`subscription-offline::manage`. They now use `subscription::manage`, like an ordinary subscription,
+so a console admin needs no extra grant. Every organization admin holds that permission too, so
+what keeps an organization from activating or re-pricing itself is the service: it refuses any
+caller but the platform console with `subscription_offline_console_only`.
 
 ## Edge Cases & Failure Modes
 
