@@ -82,8 +82,14 @@ const operationError = (error: unknown, fallback: string): SubscriptionOperation
   }
 
   const failure = subscriptionApiFailure(error);
+  // An HttpError's own message is its body serialized, so a 403 with no body read "{}".
+  const readable =
+    error instanceof HttpError
+      ? error.status === 403 &&
+        tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.FORBIDDEN")
+      : error instanceof Error && error.message;
   return new SubscriptionOperationError(
-    failure?.message || (error instanceof Error && error.message) || fallback,
+    failure?.message || readable || fallback,
     failure?.code ?? "unknown",
     error instanceof HttpError ? error.status : undefined,
     failure?.fields ?? {},
