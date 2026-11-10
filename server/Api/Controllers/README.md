@@ -1,8 +1,8 @@
 # API controllers
 
-## Subscription and payment endpoint authorization
+## Endpoint authorization
 
-Every subscription and payment endpoint is a `[ProtectedEndPoint("<resource>")]`. The framework —
+Every endpoint is a `[ProtectedEndPoint("<resource>")]`. The framework —
 `Blocks.Genesis.ProtectedEndpointAccessHandler`, wired up by `ApplicationConfigurations.ConfigureApi`
 — does the whole check: the caller is authenticated, the resource is within its tenant quota
 (`ResourceLimits`), and the resource is reachable from one of the caller's `permissions` claims or
@@ -11,7 +11,11 @@ domain service reads a claim or a permission itself.
 
 Webhooks (`POST /api/payments/{provider}/webhooks`, the Adyen routes) and
 `GET /api/payments/validate` stay `[AllowAnonymous]`: the provider calls them, not a tenant user,
-and they authenticate by signature instead.
+and they authenticate by signature instead. So do `POST /sms/{provider}/webhooks/{tenantId}` (the SMS provider)
+and `GET /api/MagicLink/Invoke/{linkId}` (the recipient clicking the link, who holds no token).
+
+`EndpointAuthorizationTests` fails the build's tests for any action that has neither, and for any
+anonymous action not on its list, so a new endpoint cannot ship open by omission.
 
 ## Resource naming
 
@@ -61,6 +65,27 @@ A resource with no row answers 403 for every endpoint that names it.
 | `blocks-utilities::subscription-simulation::read` | simulation state and data reads |
 | `blocks-utilities::subscription-simulation::manage` | every simulation mutation |
 | `blocks-utilities::subscription-background-work::manage` | dead-letter list, requeue, abandon |
+| `blocks-utilities::document-conversion::manage` | `POST /document-conversions` |
+| `blocks-utilities::document-conversion::read` | `POST /document-conversions/status` |
+| `blocks-utilities::geolocation::read` | `GET /Geolocation/LocateIp` |
+| `blocks-utilities::magic-link::manage` | `POST /MagicLink/CreateLink`, `CreateLinks`, `RemoveLinks` |
+| `blocks-utilities::magic-link::read` | `GET /MagicLink/GetLink`, `GetLinks` |
+| `blocks-utilities::magic-link::manage-config` | `POST /MagicLink/SaveConfig` |
+| `blocks-utilities::magic-link::read-config` | `GET /MagicLink/GetConfig` |
+| `blocks-utilities::pdf-generator::manage` | every `/PdfGenerator/*` action: merge, create, fix, stamp |
+| `blocks-utilities::pdf-ingestion::manage` | `POST /pdf-ingestions` |
+| `blocks-utilities::pdf-ingestion::read` | `POST /pdf-ingestions/status` |
+| `blocks-utilities::pdf-signature-validation::manage` | `POST /pdf-signature-validations` |
+| `blocks-utilities::pdf-signature-validation::read` | `POST /pdf-signature-validations/status` |
+| `blocks-utilities::sequence::manage` | `GET /Sequence/Next`, `NextHex` (a GET, but each call advances the counter) |
+| `blocks-utilities::sequence::reset` | `POST /Sequence/Reset` — separate because a reset can reissue numbers already used |
+| `blocks-utilities::sms::send` | `POST /Sms/Send`, `SendByTemplate` |
+| `blocks-utilities::sms-provider::read` | `GET /Sms/GetProviderConfiguration` |
+| `blocks-utilities::sms-provider::manage` | `POST /Sms/SaveProviderConfiguration` |
+| `blocks-utilities::sms-template::read` | `GET /Sms/GetTemplate`, `GetTemplates` |
+| `blocks-utilities::sms-template::manage` | `POST /Sms/SaveTemplate`, `DELETE /Sms/DeleteTemplate` |
+| `blocks-utilities::template-engine::render` | `RenderWithJSON`, `RenderWithJSONBulk`, `GenerateRenderedFile`, `GenerateRenderedFileBulk` |
+| `blocks-utilities::template-engine::query` | the three `CreateFileWithFilteredMongoQuery*` actions — separate because they read tenant data |
 
 The last one replaces the `SubscriptionBackgroundWorkOperator` policy, which hand-required a
 `permission` claim of `subscription.background-work.manage`. That claim value no longer does

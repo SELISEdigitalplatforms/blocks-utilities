@@ -58,6 +58,7 @@ namespace Api.Controllers
         /// <returns>MergePdfsResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<MergePdfsResponse> MergePdfs([FromBody] MergePdfsRequest request)
         {
             return await _pdfGeneratorService.MergePdfsAsync(request);
@@ -78,6 +79,7 @@ namespace Api.Controllers
         /// <returns>CreatePdfsFromHtmlResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<CreatePdfsFromHtmlResponse> CreatePdfsFromHtml([FromBody] CreatePdfsFromHtmlRequest request)
         {
             return await _pdfGeneratorService.CreatePdfsFromHtmlAsync(request);
@@ -94,6 +96,7 @@ namespace Api.Controllers
         /// <returns>CreateSinglePdfFromHtmlResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<CreateSinglePdfFromHtmlResponse> CreateSinglePdfFromHtml([FromBody] CreateSinglePdfFromHtmlRequest request)
         {
             return await _singlePdfGeneratorService.CreateSinglePdfFromHtmlAsync(request);
@@ -114,6 +117,7 @@ namespace Api.Controllers
         /// <returns>CreatePdfsFromHtmlUsingTEResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<CreatePdfsFromHtmlUsingTEResponse> CreatePdfsFromHtmlUsingTemplateEngine([FromBody] CreatePdfsFromHtmlUsingTERequest request)
         {
             return await _pdfGeneratorService.CreatePdfsFromHtmlUsingTEAsync(request);
@@ -134,6 +138,7 @@ namespace Api.Controllers
         /// <returns>CreatePdfsFromHtmlUsingTEBulkResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<CreatePdfsFromHtmlUsingTEBulkResponse> CreatePdfsFromHtmlUsingTemplateEngineBulk([FromBody] CreatePdfsFromHtmlUsingTEBulkRequest request)
         {
             return await _pdfGeneratorService.CreatePdfsFromHtmlUsingTEBulkAsync(request);
@@ -152,6 +157,7 @@ namespace Api.Controllers
         /// <returns>FixPdfsResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<FixPdfsResponse> FixPdfs([FromBody] FixPdfsRequest request)
         {
             return await _pdfGeneratorService.FixPdfsAsync(request);
@@ -176,6 +182,7 @@ namespace Api.Controllers
         /// <returns>StampImageToPdfResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<StampImageToPdfResponse> StampImageToPdf([FromBody] StampImageToPdfRequest request)
         {
             return await _pdfGeneratorService.StampImageToPdfAsync(request);
@@ -195,6 +202,7 @@ namespace Api.Controllers
         /// <returns>StampTextToPdfResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<StampTextToPdfResponse> StampTextToPdf([FromBody] StampTextToPdfRequest request)
         {
             return await _pdfGeneratorService.StampTextToPdfAsync(request);
@@ -214,6 +222,7 @@ namespace Api.Controllers
         /// <returns>StampIntoPdfResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::pdf-generator::manage")]
         public async Task<StampIntoPdfResponse> StampIntoPdf([FromBody] StampIntoPdfRequest request)
         {
             return await _pdfGeneratorService.StampIntoPdfAsync(request);

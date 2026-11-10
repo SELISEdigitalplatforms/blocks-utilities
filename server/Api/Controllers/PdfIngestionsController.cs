@@ -1,4 +1,5 @@
 using Api.Utilities;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -58,6 +59,7 @@ public sealed class PdfIngestionsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<IngestPdfsBatchResponse>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("blocks-utilities::pdf-ingestion::manage")]
     public async Task<IActionResult> Ingest(
         [FromBody] IngestPdfsRequest request,
         CancellationToken cancellationToken)
@@ -91,6 +93,7 @@ public sealed class PdfIngestionsController : ControllerBase
         typeof(ApiResponse<PdfIngestionStatusBatchResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::pdf-ingestion::read")]
     public async Task<IActionResult> GetStatus(
         [FromBody] GetPdfIngestionStatusRequest request,
         CancellationToken cancellationToken)

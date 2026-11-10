@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Utility.DomainService.MagicLink.Models;
@@ -63,6 +64,7 @@ namespace Api.Controllers
         /// <returns>Response containing the generated link ID and short URI</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::magic-link::manage")]
         public async Task<CreateMagicLinkResponse> CreateLink([FromBody] CreateMagicLinkRequest request)
         {
             return await _magicLinkService.CreateLinkAsync(request);
@@ -83,6 +85,7 @@ namespace Api.Controllers
         /// <returns>Response containing all generated links with their IDs and success count</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::magic-link::manage")]
         public async Task<CreateMagicLinksResponse> CreateLinks([FromBody] CreateMagicLinksRequest request)
         {
             return await _magicLinkService.CreateLinksAsync(request);
@@ -103,6 +106,7 @@ namespace Api.Controllers
         /// <returns>Response indicating success and number of links removed</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::magic-link::manage")]
         public async Task<RemoveMagicLinksResponse> RemoveLinks([FromBody] RemoveMagicLinksRequest request)
         {
             return await _magicLinkService.RemoveLinksAsync(request);
@@ -127,6 +131,7 @@ namespace Api.Controllers
         /// <returns>Response containing the link details with computed status</returns>
         [HttpGet]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::magic-link::read")]
         public async Task<GetMagicLinkResponse> GetLink([FromQuery] GetMagicLinkRequest request)
         {
             return await _magicLinkService.GetLinkAsync(request);
@@ -152,6 +157,7 @@ namespace Api.Controllers
         /// <returns>Response containing the list of links with status information and total count</returns>
         [HttpGet]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::magic-link::read")]
         public async Task<GetMagicLinksResponse> GetLinks([FromQuery] GetMagicLinksRequest request)
         {
             return await _magicLinkService.GetLinksAsync(request);
@@ -174,6 +180,7 @@ namespace Api.Controllers
         /// <returns>Response containing the saved configuration and whether it was created or updated</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::magic-link::manage-config")]
         public async Task<SaveLinkBasedActionConfigResponse> SaveConfig([FromBody] SaveLinkBasedActionConfigRequest request)
         {
             return await _magicLinkService.SaveLinkBasedActionConfigAsync(request);
@@ -193,6 +200,7 @@ namespace Api.Controllers
         /// <returns>Response containing the configuration (if exists)</returns>
         [HttpGet]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::magic-link::read-config")]
         public async Task<GetLinkBasedActionConfigResponse> GetConfig([FromQuery] GetLinkBasedActionConfigRequest request)
         {
             return await _magicLinkService.GetLinkBasedActionConfigAsync(request);

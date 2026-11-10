@@ -1,4 +1,5 @@
 using Api.Utilities;
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -58,6 +59,7 @@ public sealed class DocumentConversionsController : ControllerBase
     [ProducesResponseType(
         typeof(ApiResponse<ConvertDocumentsToPdfBatchResponse>),
         StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("blocks-utilities::document-conversion::manage")]
     public async Task<IActionResult> Convert(
         [FromBody] ConvertDocumentToPdfRequest request,
         CancellationToken cancellationToken)
@@ -102,6 +104,7 @@ public sealed class DocumentConversionsController : ControllerBase
         typeof(ApiResponse<DocumentConversionStatusBatchResponse>),
         StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::document-conversion::read")]
     public async Task<IActionResult> GetStatus(
         [FromBody] GetDocumentConversionStatusRequest request,
         CancellationToken cancellationToken)

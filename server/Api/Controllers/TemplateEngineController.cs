@@ -44,6 +44,7 @@ namespace Api.Controllers
         /// <returns>RenderWithJsonResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::template-engine::render")]
         public async Task<RenderWithJsonResponse> RenderWithJSON([FromBody] RenderWithJsonRequest request)
         {
             return await _templateEngineService.RenderWithJsonAsync(request);
@@ -58,6 +59,7 @@ namespace Api.Controllers
         /// <returns>RenderWithJsonBulkResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::template-engine::render")]
         public async Task<RenderWithJsonBulkResponse> RenderWithJSONBulk([FromBody] RenderWithJsonBulkRequest request)
         {
             return await _templateEngineService.RenderWithJsonBulkAsync(request);
@@ -78,6 +80,7 @@ namespace Api.Controllers
         /// <returns>GenerateRenderedFileResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::template-engine::render")]
         public async Task<GenerateRenderedFileResponse> GenerateRenderedFile([FromBody] GenerateRenderedFileRequest request)
         {
             return await _templateEngineService.GenerateRenderedFileAsync(request);
@@ -92,6 +95,7 @@ namespace Api.Controllers
         /// <returns>GenerateRenderedFilesBulkResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::template-engine::render")]
         public async Task<GenerateRenderedFilesBulkResponse> GenerateRenderedFileBulk([FromBody] GenerateRenderedFilesBulkRequest request)
         {
             return await _templateEngineService.GenerateRenderedFilesBulkAsync(request);
@@ -112,6 +116,7 @@ namespace Api.Controllers
         /// <returns>CreateFileWithFilteredMongoQueryResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::template-engine::query")]
         public async Task<CreateFileWithFilteredMongoQueryResponse> CreateFileWithFilteredMongoQuery([FromBody] CreateFileWithFilteredMongoQueryRequest request)
         {
             return await _templateEngineService.CreateFileWithFilteredMongoQueryAsync(request);
@@ -126,6 +131,7 @@ namespace Api.Controllers
         /// <returns>CreateFileWithFilteredMongoQueryBulkResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::template-engine::query")]
         public async Task<CreateFileWithFilteredMongoQueryBulkResponse> CreateFileWithFilteredMongoQueryBulk([FromBody] CreateFileWithFilteredMongoQueryBulkRequest request)
         {
             return await _templateEngineService.CreateFileWithFilteredMongoQueryBulkAsync(request);
@@ -144,6 +150,7 @@ namespace Api.Controllers
         /// <returns>CreateMultipleFileWithFilteredMongoQueryResponse</returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::template-engine::query")]
         public async Task<CreateMultipleFileWithFilteredMongoQueryResponse> CreateMultipleFileWithFilteredMongoQuery([FromBody] CreateMultipleFileWithFilteredMongoQueryRequest request)
         {
             return await _templateEngineService.CreateMultipleFileWithFilteredMongoQueryAsync(request);

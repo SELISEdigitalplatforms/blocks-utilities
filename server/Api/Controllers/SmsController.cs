@@ -1,3 +1,4 @@
+using Blocks.Genesis;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Sms.DomainService.Requests;
@@ -20,6 +21,7 @@ public class SmsController : ControllerBase
     }
 
     [HttpPost]
+    [ProtectedEndPoint("blocks-utilities::sms::send")]
     public async Task<IActionResult> Send([FromBody] SendSmsRequest request, CancellationToken cancellationToken)
     {
         var result = await _smsService.SendAsync(request, cancellationToken);
@@ -27,6 +29,7 @@ public class SmsController : ControllerBase
     }
 
     [HttpPost]
+    [ProtectedEndPoint("blocks-utilities::sms::send")]
     public async Task<IActionResult> SendByTemplate([FromBody] SendSmsByTemplateRequest request, CancellationToken cancellationToken)
     {
         var result = await _smsService.SendByTemplateAsync(request, cancellationToken);
@@ -34,6 +37,7 @@ public class SmsController : ControllerBase
     }
 
     [HttpPost]
+    [ProtectedEndPoint("blocks-utilities::sms-provider::manage")]
     public async Task<IActionResult> SaveProviderConfiguration([FromBody] SaveSmsProviderConfigurationRequest request, CancellationToken cancellationToken)
     {
         var result = await _smsService.SaveProviderConfigurationAsync(request, cancellationToken);
@@ -41,6 +45,7 @@ public class SmsController : ControllerBase
     }
 
     [HttpGet]
+    [ProtectedEndPoint("blocks-utilities::sms-provider::read")]
     public async Task<IActionResult> GetProviderConfiguration(CancellationToken cancellationToken)
     {
         var result = await _smsService.GetProviderConfigurationAsync(cancellationToken);
@@ -49,6 +54,7 @@ public class SmsController : ControllerBase
 
     /// <summary>Creates a template, or updates one when TemplateId is set. Name + language is unique per tenant.</summary>
     [HttpPost]
+    [ProtectedEndPoint("blocks-utilities::sms-template::manage")]
     public async Task<IActionResult> SaveTemplate([FromBody] SaveSmsTemplateRequest request, CancellationToken cancellationToken)
     {
         var result = await _templates.SaveAsync(request, cancellationToken);
@@ -56,6 +62,7 @@ public class SmsController : ControllerBase
     }
 
     [HttpGet]
+    [ProtectedEndPoint("blocks-utilities::sms-template::read")]
     public async Task<IActionResult> GetTemplate([FromQuery] string templateId, CancellationToken cancellationToken)
     {
         var result = await _templates.GetAsync(templateId, cancellationToken);
@@ -63,12 +70,14 @@ public class SmsController : ControllerBase
     }
 
     [HttpGet]
+    [ProtectedEndPoint("blocks-utilities::sms-template::read")]
     public async Task<IActionResult> GetTemplates([FromQuery] GetSmsTemplatesRequest request, CancellationToken cancellationToken)
     {
         return Ok(await _templates.ListAsync(request, cancellationToken));
     }
 
     [HttpDelete]
+    [ProtectedEndPoint("blocks-utilities::sms-template::manage")]
     public async Task<IActionResult> DeleteTemplate([FromQuery] string templateId, CancellationToken cancellationToken)
     {
         var result = await _templates.DeleteAsync(templateId, cancellationToken);

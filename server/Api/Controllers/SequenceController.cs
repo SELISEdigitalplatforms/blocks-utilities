@@ -34,6 +34,7 @@ namespace Api.Controllers
         /// <returns></returns>
         [HttpGet]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::sequence::manage")]
         public Task<SequenceNumberQueryResponse> Next([FromQuery] SequenceNumberQuery query)
         {
             return _sequenceService.GetNextSequenceNumberAsync(query);
@@ -51,6 +52,7 @@ namespace Api.Controllers
         /// <returns></returns>
         [HttpGet]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::sequence::manage")]
         public Task<SequenceNumberHexQueryResponse> NextHex([FromQuery] SequenceNumberHexQuery query)
         {
             return _sequenceService.GetNextHexSequenceNumberAsync(query);
@@ -70,6 +72,7 @@ namespace Api.Controllers
         /// <returns></returns>
         [HttpPost]
         [Authorize]
+        [ProtectedEndPoint("blocks-utilities::sequence::reset")]
         public Task<BaseResponse> Reset([FromBody] ResetSequenceNumberRequest request)
         {
             return _sequenceService.ResetSequenceNumberAsync(request);
