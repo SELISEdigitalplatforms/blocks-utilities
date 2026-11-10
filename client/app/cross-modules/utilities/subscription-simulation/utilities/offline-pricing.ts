@@ -1,3 +1,4 @@
+import type { TFunction } from "@seliseblocks/genesis-os";
 import {
   formatMoney,
   isRepresentableInMinorUnits,
@@ -55,7 +56,7 @@ export const parseOfflinePricing = (
  * zero reads as "free" and the customer pays under an agreement this system never sees.
  */
 export const describeOfflinePricing = (
-  t: (key: string, params?: Record<string, unknown>) => string,
+  t: TFunction,
   mode: OfflinePricingMode | null | undefined,
   contractAmountMinor: number | null | undefined,
   currencyCode: string,
