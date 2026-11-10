@@ -36,7 +36,8 @@ import type {
   CreditSpendOrder,
 } from "../models/meter-catalogue.model";
 import { meterCatalogueService } from "../services/meter-catalogue.service";
-import { formatMoney } from "../utilities/subscription-format";
+import { describeDiscountAmountProblem } from "../utilities/discount-amount";
+import { exampleMinorAmount, formatMoney, toMajorUnits, toMinorUnits } from "../utilities/subscription-format";
 
 const MODULE = "utilities.subscription.pages";
 const EXPIRY_UNITS = ["Hour", "Day", "Week", "Month", "Year"] as const;
@@ -47,14 +48,16 @@ interface PackDraft {
   code: string;
   displayName: string;
   quantity: string;
-  unitAmountMinor: string;
+  /** In the currency's own units, as typed: "0.10", not 10. */
+  unitAmount: string;
 }
 
 interface Draft {
   meterKey: string;
   enabled: boolean;
   currencyCode: string;
-  unitAmountMinor: string;
+  /** In the currency's own units, as typed. Converted to minor units on save. */
+  unitAmount: string;
   minQuantity: string;
   maxQuantity: string;
   expiryCount: string;
@@ -69,7 +72,7 @@ const emptyDraft = (): Draft => ({
   meterKey: "",
   enabled: true,
   currencyCode: "USD",
-  unitAmountMinor: "10",
+  unitAmount: "0.10",
   minQuantity: "1",
   maxQuantity: "1000",
   expiryCount: "",
@@ -80,7 +83,7 @@ const emptyDraft = (): Draft => ({
   packs: [],
 });
 
-const emptyPack = (): PackDraft => ({ code: "", displayName: "", quantity: "500", unitAmountMinor: "" });
+const emptyPack = (): PackDraft => ({ code: "", displayName: "", quantity: "500", unitAmount: "" });
 
 // ponytail: the dialog edits the first price only; an offer with several currencies keeps the
 // others untouched. Add a price list editor when a second currency is authored from the console.
@@ -88,7 +91,7 @@ const draftOf = (offer: CreditOffer): Draft => ({
   meterKey: offer.meterKey,
   enabled: offer.enabled,
   currencyCode: offer.unitPrices[0]?.currencyCode ?? "USD",
-  unitAmountMinor: String(offer.unitPrices[0]?.unitAmountMinor ?? 0),
+  unitAmount: String(toMajorUnits(offer.unitPrices[0]?.unitAmountMinor ?? 0, offer.unitPrices[0]?.currencyCode ?? "USD")),
   minQuantity: String(offer.minQuantity),
   maxQuantity: String(offer.maxQuantity),
   expiryCount: offer.expiresAfter ? String(offer.expiresAfter.count) : "",
@@ -103,7 +106,7 @@ const draftOf = (offer: CreditOffer): Draft => ({
       code: pack.code,
       displayName: pack.displayName,
       quantity: String(pack.quantity),
-      unitAmountMinor: String(price?.unitAmountMinor ?? ""),
+      unitAmount: price ? String(toMajorUnits(price.unitAmountMinor, price.currencyCode)) : "",
     };
   }),
 });
@@ -116,7 +119,7 @@ const toPacks = (draft: Draft, existing: CreditOffer | null): CreditPack[] =>
       code: pack.code.trim(),
       displayName: pack.displayName.trim(),
       quantity: Number(pack.quantity),
-      unitPrices: [{ currencyCode: draft.currencyCode, unitAmountMinor: Number(pack.unitAmountMinor) }, ...otherPrices],
+      unitPrices: [{ currencyCode: draft.currencyCode, unitAmountMinor: toMinorUnits(Number(pack.unitAmount), draft.currencyCode) }, ...otherPrices],
     };
   });
 
@@ -128,7 +131,7 @@ export const toOfferRequest = (draft: Draft, existing: CreditOffer | null, organ
     organizationId,
     meterKey: draft.meterKey.trim(),
     enabled: draft.enabled,
-    unitPrices: [{ currencyCode: draft.currencyCode, unitAmountMinor: Number(draft.unitAmountMinor) }, ...otherPrices],
+    unitPrices: [{ currencyCode: draft.currencyCode, unitAmountMinor: toMinorUnits(Number(draft.unitAmount), draft.currencyCode) }, ...otherPrices],
     minQuantity: Number(draft.minQuantity),
     maxQuantity: Number(draft.maxQuantity),
     expiresAfter:
@@ -141,6 +144,16 @@ export const toOfferRequest = (draft: Draft, existing: CreditOffer | null, organ
     packs: toPacks(draft, existing),
   };
 };
+
+/**
+ * Why the draft's prices cannot be sent, or null when they can. The offer's price and every pack's
+ * price are typed in the currency's own units, so the same rule as a fixed discount applies: more
+ * than zero, and no finer than the currency's minor unit.
+ */
+export const describePriceProblem = (draft: Draft): string | null =>
+  describeDiscountAmountProblem(draft.unitAmount, draft.currencyCode) ??
+  draft.packs.map((pack) => describeDiscountAmountProblem(pack.unitAmount, draft.currencyCode)).find(Boolean) ??
+  null;
 
 const describeOffer = (offer: CreditOffer, t: (key: string, values?: Record<string, string | number>) => string) =>
   [
@@ -192,6 +205,7 @@ export const CreditOffersPage = () => {
   });
 
   const draft = editing?.draft;
+  const priceProblem = draft ? describePriceProblem(draft) : null;
   const update = (patch: Partial<Draft>) =>
     setEditing((current) => (current ? { ...current, draft: { ...current.draft, ...patch } } : current));
   const activeMeters = (catalogue.data ?? []).filter((entry) => entry.status === "Active");
@@ -293,8 +307,16 @@ export const CreditOffersPage = () => {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="offer-unit-amount">{t("CREDIT_OFFERS_PAGE.UNIT_AMOUNT_MINOR")}</Label>
-                <Input id="offer-unit-amount" type="number" min={1} value={draft.unitAmountMinor} onChange={(event) => update({ unitAmountMinor: event.target.value })} />
+                <Label htmlFor="offer-unit-amount">{t("CREDIT_OFFERS_PAGE.UNIT_AMOUNT", { currency: draft.currencyCode })}</Label>
+                <Input
+                  id="offer-unit-amount"
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder={exampleMinorAmount(draft.currencyCode)}
+                  value={draft.unitAmount}
+                  onChange={(event) => update({ unitAmount: event.target.value })}
+                />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="offer-min">{t("CREDIT_OFFERS_PAGE.MIN_QUANTITY")}</Label>
@@ -403,13 +425,13 @@ export const CreditOffersPage = () => {
                         onChange={(event) => set({ quantity: event.target.value })}
                       />
                       <Input
-                        aria-label={t("CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT")}
-                        placeholder={t("CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT")}
+                        aria-label={t("CREDIT_OFFERS_PAGE.PACK_UNIT_AMOUNT", { currency: draft.currencyCode })}
+                        placeholder={exampleMinorAmount(draft.currencyCode)}
                         type="number"
-                        min={1}
-                        step={1}
-                        value={pack.unitAmountMinor}
-                        onChange={(event) => set({ unitAmountMinor: event.target.value })}
+                        min={0}
+                        step="any"
+                        value={pack.unitAmount}
+                        onChange={(event) => set({ unitAmount: event.target.value })}
                       />
                       <Button
                         type="button"
@@ -425,16 +447,16 @@ export const CreditOffersPage = () => {
                 })}
               </div>
             </div>
-            {problem && (
+            {(problem ?? priceProblem) && (
               <p role="alert" className="text-sm text-destructive">
-                {problem}
+                {problem ?? priceProblem}
               </p>
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditing(null)}>
                 {t("common:CANCEL")}
               </Button>
-              <Button disabled={save.isPending || !draft.meterKey} onClick={() => save.mutate({ offer: editing.offer, draft })}>
+              <Button disabled={save.isPending || !draft.meterKey || priceProblem !== null} onClick={() => save.mutate({ offer: editing.offer, draft })}>
                 {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t("common:SAVE")}
               </Button>
