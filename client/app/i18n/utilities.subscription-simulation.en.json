@@ -682,6 +682,7 @@
   "USAGE_SECTION.WHOSE_USAGE": "Whose usage",
   "ORGANIZATION_CREDITS_CARD.PACK": "Pack",
   "ORGANIZATION_CREDITS_CARD.NO_PACK": "No pack — choose a quantity",
+  "SUBSCRIPTION_SIMULATION_SERVICE.FORBIDDEN": "You do not have permission to do this. Ask an administrator for the permission it needs.",
   "SUBSCRIPTION_SIMULATION_SERVICE.OFFLINE_ACTIVATION_FAILED": "The offline subscription could not be activated.",
   "SUBSCRIPTION_SIMULATION_SERVICE.OFFLINE_REPRICING_FAILED": "The new pricing could not be scheduled.",
   "OFFLINE_PRICING.MODE": "Pricing",

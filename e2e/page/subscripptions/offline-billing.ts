@@ -48,9 +48,9 @@ export async function organizationState(page: Page): Promise<OrganizationState> 
 }
 
 /**
- * Activates the first plan at a contract price. Returns false when the organization's billing
- * profile is incomplete, which the page reports instead of activating: every record invoice is
- * addressed to that profile, so the server refuses without one.
+ * Activates the first plan at a contract price. Returns false when the page reports that the
+ * organization's billing profile, or the tenant's seller profile, is incomplete instead of
+ * activating: every record invoice names both, so the server refuses without them.
  */
 export async function activateAtContractPrice(page: Page, amount: string): Promise<boolean> {
   await page.getByRole("combobox", { name: "Plan" }).click();
@@ -61,7 +61,8 @@ export async function activateAtContractPrice(page: Page, amount: string): Promi
   await page.getByRole("button", { name: "Activate without payment" }).click();
 
   const activated = page.getByTestId("offline-billing-current").getByTestId("billed-by-invoice");
-  const profileIncomplete = page.getByText(/billing profile/i).first();
+  // Not getByText(/billing profile/i): the sidebar's "Billing profile" link would match at once.
+  const profileIncomplete = page.getByTestId("billing-profile-incomplete");
   await expect(activated.or(profileIncomplete)).toBeVisible({ timeout: 30_000 });
   return activated.isVisible();
 }

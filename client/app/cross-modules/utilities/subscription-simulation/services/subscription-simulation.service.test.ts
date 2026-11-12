@@ -71,3 +71,30 @@ describe("the caller's own usage", () => {
     await expect(subscriptionSimulationService.getMyUsage()).rejects.toBeDefined();
   });
 });
+
+describe("an offline activation the caller may not make", () => {
+  /**
+   * Found on dev: a user without subscription-offline::manage got a 403 with no body, and the
+   * activation form showed "{}" -- HttpError's message is its body serialized.
+   */
+  it("says permission is missing rather than showing the empty body", async () => {
+    http.post.mockRejectedValue(new HttpError(403, { errors: {} }));
+
+    const failure = await subscriptionSimulationService
+      .activateOffline({} as never)
+      .catch((error: unknown) => error);
+
+    expect((failure as Error).message).not.toBe("{}");
+    expect((failure as SubscriptionOperationError).status).toBe(403);
+  });
+
+  it("falls back to the operation's own sentence for a bodyless failure", async () => {
+    http.post.mockRejectedValue(new HttpError(502, { errors: {} }));
+
+    const failure = await subscriptionSimulationService
+      .activateOffline({} as never)
+      .catch((error: unknown) => error);
+
+    expect((failure as Error).message).not.toBe("{}");
+  });
+});
