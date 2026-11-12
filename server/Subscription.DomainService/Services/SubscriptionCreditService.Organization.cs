@@ -40,7 +40,7 @@ public sealed partial class SubscriptionCreditService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var priced = await PriceForOrganizationAsync(request, correlationId, cancellationToken);
+        var priced = await PriceForOrganizationAsync(request, correlationId, cancellationToken).ConfigureAwait(false);
 
         return priced.IsSuccess
             ? SubscriptionOperationResult<CreditQuoteResponse>.Success(
@@ -69,7 +69,7 @@ public sealed partial class SubscriptionCreditService
             return Unavailable<CreditPurchaseResponse>(correlationId);
         }
 
-        var resolution = await _contextResolver.ResolveAsync(correlationId, request.OrganizationId, cancellationToken);
+        var resolution = await _contextResolver.ResolveAsync(correlationId, request.OrganizationId, cancellationToken).ConfigureAwait(false);
 
         if (!resolution.IsSuccess)
         {
@@ -81,12 +81,12 @@ public sealed partial class SubscriptionCreditService
         var fingerprint = Fingerprint(request);
 
         // A retry is answered from the record before anything is re-checked, as a subscription's is.
-        if (await _purchases.GetAsync(context.TenantId, purchaseId, cancellationToken) is { } existing)
+        if (await _purchases.GetAsync(context.TenantId, purchaseId, cancellationToken).ConfigureAwait(false) is { } existing)
         {
-            return await ReplayAsync(existing, fingerprint, correlationId, cancellationToken);
+            return await ReplayAsync(existing, fingerprint, correlationId, cancellationToken).ConfigureAwait(false);
         }
 
-        var priced = await PriceForOrganizationAsync(context, request, correlationId, cancellationToken);
+        var priced = await PriceForOrganizationAsync(context, request, correlationId, cancellationToken).ConfigureAwait(false);
 
         if (!priced.IsSuccess)
         {
@@ -97,7 +97,7 @@ public sealed partial class SubscriptionCreditService
 
         return await ExecutePurchaseAsync(
             null, context, purchase, account, discount, purchaseId, request.IdempotencyKey, fingerprint,
-            label, correlationId, cancellationToken);
+            label, correlationId, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<SubscriptionOperationResult<CreditGrantResponse>> GrantToOrganizationAsync(
@@ -114,14 +114,14 @@ public sealed partial class SubscriptionCreditService
 
         var invalid = await SubscriptionValidation.CheckAsync<OrganizationGrantCreditsRequest, CreditGrantResponse>(
             _organizationGrantValidator!, request, "subscription_credits_invalid",
-            "The credit grant request is invalid.", correlationId, cancellationToken);
+            "The credit grant request is invalid.", correlationId, cancellationToken).ConfigureAwait(false);
 
         if (invalid is not null)
         {
             return invalid;
         }
 
-        var resolution = await _contextResolver.ResolveAsync(correlationId, request.OrganizationId, cancellationToken);
+        var resolution = await _contextResolver.ResolveAsync(correlationId, request.OrganizationId, cancellationToken).ConfigureAwait(false);
 
         if (!resolution.IsSuccess)
         {
@@ -129,7 +129,7 @@ public sealed partial class SubscriptionCreditService
         }
 
         var context = resolution.Context!;
-        var offer = await ResolveOfferAsync<CreditGrantResponse>(context, request.MeterKey, forSale: false, correlationId, cancellationToken);
+        var offer = await ResolveOfferAsync<CreditGrantResponse>(context, request.MeterKey, forSale: false, correlationId, cancellationToken).ConfigureAwait(false);
 
         if (!offer.IsSuccess)
         {
@@ -157,10 +157,10 @@ public sealed partial class SubscriptionCreditService
         // The event rides in the insert, so the grant and its announcement are one write (spec 005).
         grant.OutboxEvents.Add(CreditLedger.OrganizationEvent(
             grant, SubscriptionConstants.OrganizationCreditsGranted, correlationId, nowUtc: now));
-        await _grants.TryInsertAsync(grant, cancellationToken);
-        await _ledger.PublishOrganizationAsync(grant, SubscriptionConstants.OrganizationCreditsGranted, correlationId, cancellationToken);
+        await _grants.TryInsertAsync(grant, cancellationToken).ConfigureAwait(false);
+        await _ledger.PublishOrganizationAsync(grant, SubscriptionConstants.OrganizationCreditsGranted, correlationId, cancellationToken).ConfigureAwait(false);
         await AuditAsync(context, null, GrantOperation, "StateApplied", "Succeeded",
-            grant.ItemId, null, null, correlationId, cancellationToken, reason: grant.Reason);
+            grant.ItemId, null, null, correlationId, cancellationToken, reason: grant.Reason).ConfigureAwait(false);
 
         return SubscriptionOperationResult<CreditGrantResponse>.Success(GrantResponse(grant), correlationId);
     }
@@ -172,7 +172,7 @@ public sealed partial class SubscriptionCreditService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = await _contextResolver.ResolveAsync(correlationId, organizationId, cancellationToken);
+        var resolution = await _contextResolver.ResolveAsync(correlationId, organizationId, cancellationToken).ConfigureAwait(false);
 
         if (!resolution.IsSuccess)
         {
@@ -181,7 +181,7 @@ public sealed partial class SubscriptionCreditService
 
         var context = resolution.Context!;
         var grants = await _grants.ListForOrganizationAsync(
-            context.TenantId, context.OrganizationId, meterKey, status, cancellationToken);
+            context.TenantId, context.OrganizationId, meterKey, status, cancellationToken).ConfigureAwait(false);
         var now = Now();
 
         return SubscriptionOperationResult<IReadOnlyList<CreditGrantResponse>>.Success(
@@ -195,7 +195,7 @@ public sealed partial class SubscriptionCreditService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = await _contextResolver.ResolveAsync(correlationId, organizationId, cancellationToken);
+        var resolution = await _contextResolver.ResolveAsync(correlationId, organizationId, cancellationToken).ConfigureAwait(false);
 
         if (!resolution.IsSuccess)
         {
@@ -204,7 +204,7 @@ public sealed partial class SubscriptionCreditService
 
         var context = resolution.Context!;
         var purchases = await _purchases.ListForOrganizationAsync(
-            context.TenantId, context.OrganizationId, status, cancellationToken);
+            context.TenantId, context.OrganizationId, status, cancellationToken).ConfigureAwait(false);
 
         return SubscriptionOperationResult<IReadOnlyList<CreditPurchaseResponse>>.Success(
             [.. purchases.Select(purchase => PurchaseResponse(purchase, null, replayed: false))], correlationId);
@@ -231,10 +231,10 @@ public sealed partial class SubscriptionCreditService
             return Unavailable<OrganizationPriced>(correlationId);
         }
 
-        var resolution = await _contextResolver.ResolveAsync(correlationId, request.OrganizationId, cancellationToken);
+        var resolution = await _contextResolver.ResolveAsync(correlationId, request.OrganizationId, cancellationToken).ConfigureAwait(false);
 
         return resolution.IsSuccess
-            ? await PriceForOrganizationAsync(resolution.Context!, request, correlationId, cancellationToken)
+            ? await PriceForOrganizationAsync(resolution.Context!, request, correlationId, cancellationToken).ConfigureAwait(false)
             : resolution.ToFailure<OrganizationPriced>(correlationId);
     }
 
@@ -250,7 +250,7 @@ public sealed partial class SubscriptionCreditService
             "subscription_credits_invalid",
             "The credit purchase request is invalid.",
             correlationId,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         if (invalid is not null)
         {
@@ -261,7 +261,7 @@ public sealed partial class SubscriptionCreditService
         // so a card on its billing account is never charged for them. Checked on the live
         // subscription, the one the contract is; a tenant admin's free grant does not come here.
         if (await _subscriptions.GetLiveAsync(
-                context.TenantId, context.OrganizationId, Now(), cancellationToken) is { IsOffline: true })
+                context.TenantId, context.OrganizationId, Now(), cancellationToken).ConfigureAwait(false) is { IsOffline: true })
         {
             return Failure<OrganizationPriced>(
                 PaymentFailureKind.Conflict,
@@ -270,7 +270,7 @@ public sealed partial class SubscriptionCreditService
                 correlationId);
         }
 
-        var resolved = await ResolveOfferAsync<OrganizationPriced>(context, request.MeterKey, forSale: true, correlationId, cancellationToken);
+        var resolved = await ResolveOfferAsync<OrganizationPriced>(context, request.MeterKey, forSale: true, correlationId, cancellationToken).ConfigureAwait(false);
 
         if (!resolved.IsSuccess)
         {
@@ -318,7 +318,7 @@ public sealed partial class SubscriptionCreditService
                 correlationId);
         }
 
-        var accountResult = await _organizationAccounts!.ResolveAsync(context, correlationId, cancellationToken);
+        var accountResult = await _organizationAccounts!.ResolveAsync(context, correlationId, cancellationToken).ConfigureAwait(false);
 
         if (!accountResult.IsSuccess)
         {
@@ -333,7 +333,7 @@ public sealed partial class SubscriptionCreditService
         if (!string.IsNullOrWhiteSpace(request.DiscountCode))
         {
             var code = await ResolveDiscountAsync(
-                context, string.Empty, currency, offer.MeterKey, request.DiscountCode, now, correlationId, cancellationToken);
+                context, string.Empty, currency, offer.MeterKey, request.DiscountCode, now, correlationId, cancellationToken).ConfigureAwait(false);
 
             if (!code.IsSuccess)
             {
@@ -433,7 +433,7 @@ public sealed partial class SubscriptionCreditService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var offer = await _offers!.ResolveAsync(context.TenantId, context.OrganizationId, meterKey, cancellationToken);
+        var offer = await _offers!.ResolveAsync(context.TenantId, context.OrganizationId, meterKey, cancellationToken).ConfigureAwait(false);
 
         if (offer is null)
         {
@@ -444,7 +444,7 @@ public sealed partial class SubscriptionCreditService
                 correlationId);
         }
 
-        var meter = await _catalogue!.ResolveAsync(context.TenantId, context.OrganizationId, meterKey, cancellationToken);
+        var meter = await _catalogue!.ResolveAsync(context.TenantId, context.OrganizationId, meterKey, cancellationToken).ConfigureAwait(false);
 
         if (forSale && meter is { Status: CatalogueStatus.Archived })
         {
@@ -486,12 +486,12 @@ public sealed partial class SubscriptionCreditService
                 ? CreditLabel(meter)
                 : $"{purchase.MeterKey} credits";
 
-    private static string OrderIdFor(SubscriptionDetail? subscription, string organizationId)
+    private static string OrderIdFor(SubscriptionDetail? subscription)
     {
         var token = Guid.NewGuid().ToString("N");
 
         return subscription is null
-            ? SubscriptionConstants.OrganizationCreditPurchaseOrderIdFor(organizationId, token)
+            ? SubscriptionConstants.OrganizationCreditPurchaseOrderIdFor(token)
             : SubscriptionConstants.CreditPurchaseOrderIdFor(subscription.ItemId, token);
     }
 
@@ -509,7 +509,7 @@ public sealed partial class SubscriptionCreditService
         SubscriptionCreditPurchase purchase,
         CancellationToken cancellationToken) =>
         purchase.SubscriptionId is { Length: > 0 } subscriptionId
-            ? await _subscriptions.GetByIdAsync(purchase.TenantId, subscriptionId, cancellationToken)
+            ? await _subscriptions.GetByIdAsync(purchase.TenantId, subscriptionId, cancellationToken).ConfigureAwait(false)
             : null;
 
     /// <summary>

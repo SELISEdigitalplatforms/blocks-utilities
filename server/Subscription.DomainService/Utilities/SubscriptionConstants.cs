@@ -255,8 +255,12 @@ public static class SubscriptionConstants
     /// </summary>
     public const string OrganizationCreditOrderIdPrefix = "orgcredit:";
 
-    public static string OrganizationCreditPurchaseOrderIdFor(string organizationId, string token) =>
-        $"{OrganizationCreditOrderIdPrefix}{organizationId}:{CreditPurchaseSegment}:{token}";
+    /// <remarks>
+    /// No organization id: the payment module caps an order id at 80 characters, and a GUID
+    /// organization id pushed this form to 82. The purchase record carries the organization.
+    /// </remarks>
+    public static string OrganizationCreditPurchaseOrderIdFor(string token) =>
+        $"{OrganizationCreditOrderIdPrefix}{CreditPurchaseSegment}:{token}";
 
     /// <summary>The idempotency key a credit purchase is charged under. One per purchase record.</summary>
     public static string CreditPurchaseChargeKeyFor(string purchaseId) =>

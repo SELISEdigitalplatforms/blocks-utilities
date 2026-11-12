@@ -223,7 +223,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
         purchase.ItemId = purchaseId;
         purchase.IdempotencyKey = idempotencyKey;
         purchase.RequestFingerprint = fingerprint;
-        purchase.OrderId = OrderIdFor(subscription, purchase.OrganizationId);
+        purchase.OrderId = OrderIdFor(subscription);
         purchase.ProviderName = account.ProviderName;
         // The merchant's scope, which holds the card, exactly as a renewal charges. A checkout opens
         // under the scope a signup checkout does, which is the one the card it saves will live in.
