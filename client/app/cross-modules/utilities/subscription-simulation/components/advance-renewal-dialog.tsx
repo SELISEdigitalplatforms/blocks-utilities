@@ -46,9 +46,12 @@ export const AdvanceRenewalDialog = ({
   open,
   onOpenChange,
   onResult,
+  offline = false,
 }: {
   subscriptionId: string;
   organizationId: string | undefined;
+  /** Spec 006: never charged, and the server refuses a scripted outcome for it. */
+  offline?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onResult: (result: SubscriptionSimulationActionResponse) => void;
@@ -77,9 +80,11 @@ export const AdvanceRenewalDialog = ({
       toast({
         variant: paymentOutcome && paymentOutcome !== "Succeeded" ? "destructive" : "success",
         title: t("ADVANCE_RENEWAL_DIALOG.RENEWAL_ADVANCED"),
-        description: paymentOutcome
-          ? t("ADVANCE_RENEWAL_DIALOG.CHARGED_AS", { paymentOutcome })
-          : t("ADVANCE_RENEWAL_DIALOG.CHARGED_AGAINST_THE_REAL_PAYMENT"),
+        description: offline
+          ? t("ADVANCE_RENEWAL_DIALOG.RENEWED_OFFLINE")
+          : paymentOutcome
+            ? t("ADVANCE_RENEWAL_DIALOG.CHARGED_AS", { paymentOutcome })
+            : t("ADVANCE_RENEWAL_DIALOG.CHARGED_AGAINST_THE_REAL_PAYMENT"),
       });
 
       onOpenChange(false);
@@ -105,6 +110,7 @@ export const AdvanceRenewalDialog = ({
         </DialogHeader>
 
         <div className="space-y-4">
+          {!offline && (
           <div className="space-y-1.5">
             <Label htmlFor="advance-renewal-outcome">{t("ADVANCE_RENEWAL_DIALOG.PAYMENT_OUTCOME")}</Label>
             <Select
@@ -125,9 +131,14 @@ export const AdvanceRenewalDialog = ({
               </SelectContent>
             </Select>
           </div>
+          )}
 
           <p className="text-xs text-muted-foreground">
-            {(selection === REAL_GATEWAY ? t("ADVANCE_RENEWAL_DIALOG.ADVANCES_REAL_GATEWAY") : t("ADVANCE_RENEWAL_DIALOG.ADVANCES_SCRIPTED"))}
+            {offline
+              ? t("ADVANCE_RENEWAL_DIALOG.ADVANCES_OFFLINE")
+              : selection === REAL_GATEWAY
+                ? t("ADVANCE_RENEWAL_DIALOG.ADVANCES_REAL_GATEWAY")
+                : t("ADVANCE_RENEWAL_DIALOG.ADVANCES_SCRIPTED")}
           </p>
 
           {formError && <p className="text-sm text-destructive">{formError}</p>}

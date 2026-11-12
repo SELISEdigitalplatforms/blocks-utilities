@@ -457,7 +457,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription.CorrelationId,
                 cancellationToken);
 
-        await AuditAsync(subscription, "ChargeCompleted",
+        // An offline renewal never reached the gateway, so its trail must not read as a charge.
+        await AuditAsync(subscription, subscription.IsOffline ? "RecordedOffline" : "ChargeCompleted",
             outcome.IsSuccess ? "Succeeded" : "Failed", outcome.ErrorCode,
             charge.AmountMinor, outcome.Value, attemptNumber, cancellationToken);
 

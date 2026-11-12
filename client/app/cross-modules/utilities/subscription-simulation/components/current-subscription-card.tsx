@@ -124,6 +124,10 @@ export const CurrentSubscriptionCard = ({
   // applies -- the server answers 409 to each of them anyway.
   const offline = isOfflineSubscription(subscription);
 
+  // A change the console scheduled (a re-price, or an operator's plan change) is not the
+  // subscriber's to withdraw -- the server refuses it -- and the pricing line below says when it applies.
+  const operatorChange = subscription.pendingPlanChange?.scheduledByOperator === true;
+
   // A session already open -- from any of the three cases below -- always wins over starting a
   // new one, so a subscriber part-way through Stripe sees where to finish it rather than a button
   // that would open a second, competing session.
@@ -171,7 +175,11 @@ export const CurrentSubscriptionCard = ({
               unitAmountMinor: subscription.unitAmountMinor,
               interval: subscription.interval,
               intervalCount: subscription.intervalCount,
-              quantityItemKey: subscription.quantities[0]?.itemKey ?? null,
+              // A contract price is one flat amount whatever the quantities (spec 006), never "per user".
+              quantityItemKey:
+                subscription.offlinePricingMode === "Contract"
+                  ? null
+                  : (subscription.quantities[0]?.itemKey ?? null),
             })}
           </p>
         </div>
@@ -307,7 +315,7 @@ export const CurrentSubscriptionCard = ({
       {/* A plan change already booked, shown for the same reason the reduction below is: without
           it a reload shows the current plan with nothing to say a different one is coming, and no
           way to call it off. The subscriber keeps this plan, at this price, until the date shown. */}
-      {subscription.pendingPlanChange && (
+      {subscription.pendingPlanChange && !operatorChange && (
         <div
           className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-300 bg-warning-50 p-2.5 text-xs"
           data-testid="pending-plan-change"

@@ -66,6 +66,8 @@ export interface PendingPlanChange {
   quantities: SubscriptionQuantity[];
   requestedAtUtc: string;
   effectiveAtUtc: string;
+  /** Scheduled by the console (spec 006 re-price or operator plan change); only the console may withdraw it. */
+  scheduledByOperator?: boolean;
 }
 
 export interface SimulatedSubscription {

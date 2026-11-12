@@ -82,4 +82,11 @@ public sealed class PendingPlanChange
     /// is, so a contract dropped by an organization's own plan change reads as catalogue afterwards.
     /// </remarks>
     public OfflinePricing? OfflinePricing { get; set; }
+
+    /// <summary>
+    /// Scheduled by the platform console through an operator route (spec 006): a re-price or an
+    /// operator's plan change. Only the console may withdraw it; false on every change an
+    /// organization scheduled itself and on every change stored before this field existed.
+    /// </summary>
+    public bool ScheduledByOperator { get; set; }
 }

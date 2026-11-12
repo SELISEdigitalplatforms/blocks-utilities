@@ -2198,6 +2198,49 @@ public sealed class SubscriptionPlanChangeServiceTests
     }
 
     [Fact]
+    public async Task An_organization_cannot_withdraw_a_change_the_console_scheduled()
+    {
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.PendingPlanChange = new PendingPlanChange
+        {
+            Plan = new PlanSnapshot { Code = "premium" },
+            EffectiveAtUtc = _subscription.CurrentPeriodEndUtc,
+            ScheduledByOperator = true
+        };
+
+        var result = await Service().CancelPendingPlanChangeAsync(
+            "sub-1", null, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be(
+            "subscription_offline_console_only",
+            because: "otherwise a customer could undo the price change an operator set");
+        _subscriptions.Verify(repository => repository.TryClearPendingPlanChangeAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task The_console_can_withdraw_a_change_it_scheduled()
+    {
+        AsConsole();
+        _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
+        _subscription.PendingPlanChange = new PendingPlanChange
+        {
+            Plan = new PlanSnapshot { Code = "premium" },
+            EffectiveAtUtc = _subscription.CurrentPeriodEndUtc,
+            ScheduledByOperator = true
+        };
+        _subscriptions
+            .Setup(repository => repository.TryClearPendingPlanChangeAsync(
+                TenantId, "sub-1", It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().CancelPendingPlanChangeAsync(
+            "sub-1", OrganizationId, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+    }
+
+    [Fact]
     public async Task Cancelling_when_nothing_is_scheduled_reads_as_not_found()
     {
         _subscription = NewSubscription(SubscriptionStatus.Active, 2_000);
@@ -2638,6 +2681,8 @@ public sealed class SubscriptionPlanChangeServiceTests
         _scheduled.Should().NotBeNull(
             because: "the period already invoiced keeps its figure; the new one starts at renewal");
         _scheduled!.Price.UnitAmountMinor.Should().Be(1_200);
+        _scheduled.ScheduledByOperator.Should().BeTrue(
+            because: "only the console may withdraw the pricing it set");
         _scheduled.OfflinePricing!.Mode.Should().Be(OfflinePricingMode.Contract);
         _scheduled.EffectiveAtUtc.Should().Be(_subscription.CurrentPeriodEndUtc);
         result.Value!.PendingContractAmountMinor.Should().Be(1_200);
