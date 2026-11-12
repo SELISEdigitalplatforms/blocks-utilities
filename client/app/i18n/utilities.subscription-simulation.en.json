@@ -1,4 +1,5 @@
 {
+  "ADVANCE_RENEWAL_DIALOG.ADVANCES_OFFLINE": "Advances the one renewal due for the current fee period — there is no simulated clock, so this cannot run several future periods in one call. This subscription is billed by invoice, so nothing is charged: the renewal records an invoice payable by bank transfer, or a service statement.",
   "ADVANCE_RENEWAL_DIALOG.ADVANCES_REAL_GATEWAY": "Advances the one renewal due for the current fee period — there is no simulated clock, so this cannot run several future periods in one call. This will place a real charge against whatever payment provider account is configured (e.g. a Stripe test account).",
   "ADVANCE_RENEWAL_DIALOG.ADVANCES_SCRIPTED": "Advances the one renewal due for the current fee period — there is no simulated clock, so this cannot run several future periods in one call. Scripting an outcome here never reaches the real payment gateway.",
   "ADVANCE_RENEWAL_DIALOG.ADVANCE_RENEWAL": "Advance renewal",
@@ -12,6 +13,7 @@
   "ADVANCE_RENEWAL_DIALOG.PROVIDER_UNAVAILABLE": "Provider unavailable",
   "ADVANCE_RENEWAL_DIALOG.REAL_PAYMENT_GATEWAY_NO_SCRIPT": "Real payment gateway (no script)",
   "ADVANCE_RENEWAL_DIALOG.RENEWAL_ADVANCED": "Renewal advanced",
+  "ADVANCE_RENEWAL_DIALOG.RENEWED_OFFLINE": "Renewed without a charge; the period's invoice or statement is issued in the background.",
   "ADVANCE_RENEWAL_DIALOG.SENDS_FORCES_AN_IMMEDIATE_RENEWAL": "Sends {{endpoint}} — forces an immediate renewal attempt with a scripted outcome, without waiting for the fee schedule's own due date.",
   "ADVANCE_RENEWAL_DIALOG.SUCCEEDED": "Succeeded",
   "ADVANCE_RENEWAL_DIALOG.THE_RENEWAL_COULD_NOT_BE": "The renewal could not be advanced.",

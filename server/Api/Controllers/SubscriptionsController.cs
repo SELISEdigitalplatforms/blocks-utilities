@@ -447,9 +447,12 @@ public sealed class SubscriptionsController : ControllerBase
             correlationId,
             cancellationToken);
 
+        // No amount: a re-price invoices nothing now, and the response's recurring amount is still the
+        // current period's price. Like any scheduled change, the renewal that installs it audits the
+        // new figure.
         await AuditAsync("RepriceOffline", request.OrganizationId, subscriptionId, result.IsSuccess,
             result.ErrorCode, result.FailureKind.ToString(), correlationId,
-            result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
+            null, result.Value?.CurrencyCode, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

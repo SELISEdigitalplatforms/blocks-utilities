@@ -181,7 +181,7 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
         // subscription owes, so one key covers a trial and anything else recorded beside it.
         await ScheduleAsync(
             subscription,
-            $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}",
+            SubscriptionWorkKey(subscription),
             subscription.ItemId,
             correlationId,
             cancellationToken);
@@ -235,7 +235,7 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
         // AnnounceChargeAsync does would queue work that can never complete.
         await ScheduleAsync(
             subscription,
-            $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}",
+            SubscriptionWorkKey(subscription),
             subscription.ItemId,
             correlationId,
             cancellationToken);
@@ -250,7 +250,7 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
 
         return ScheduleAsync(
             subscription,
-            $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}",
+            SubscriptionWorkKey(subscription),
             subscription.ItemId,
             correlationId,
             cancellationToken);
@@ -291,6 +291,17 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
                 source.DocumentType);
         }
     }
+
+    /// <summary>
+    /// One occurrence per write of the subscription, not one per subscription.
+    /// </summary>
+    /// <remarks>
+    /// The queue keeps finished work for days and refuses a second item with the same key, so a key
+    /// of the subscription alone made every later request a silent no-op until the repair sweep
+    /// found the obligation. The version still collapses a retried money path onto one item.
+    /// </remarks>
+    private static string SubscriptionWorkKey(SubscriptionDetail subscription) =>
+        $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}:v{subscription.Version}";
 
     private async Task ScheduleAsync(
         SubscriptionDetail subscription,

@@ -73,6 +73,22 @@ public sealed class OfflineSubscriptionRenewalTests
     }
 
     [Fact]
+    public async Task An_offline_renewal_audits_a_recorded_period_rather_than_a_charge()
+    {
+        var audit = new Mock<ISubscriptionAuditTrail>();
+        var stages = new List<string>();
+        audit
+            .Setup(trail => trail.RecordAsync(It.IsAny<SubscriptionAuditEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAuditEvent, CancellationToken>((entry, _) => stages.Add(entry.Stage))
+            .Returns(Task.CompletedTask);
+
+        await Service(audit.Object).RenewAsync(OfflineSubscription(SubscriptionStatus.Active), CancellationToken.None);
+
+        stages.Should().Contain("RecordedOffline").And.NotContain("ChargeCompleted",
+            "nothing reached the gateway, so the trail must not say a charge completed");
+    }
+
+    [Fact]
     public async Task A_stored_card_on_the_billing_account_is_never_charged_for_an_offline_subscription()
     {
         _billingAccounts
@@ -291,7 +307,7 @@ public sealed class OfflineSubscriptionRenewalTests
                 "every card-less subscriber free renewals");
     }
 
-    private SubscriptionRenewalService Service() => new(
+    private SubscriptionRenewalService Service(ISubscriptionAuditTrail? audit = null) => new(
         _subscriptions.Object,
         _billingAccounts.Object,
         _gateway.Object,
@@ -300,6 +316,7 @@ public sealed class OfflineSubscriptionRenewalTests
         new OptionsStub(),
         NullLogger<SubscriptionRenewalService>.Instance,
         _time,
+        audit: audit,
         documents: _documents.Object);
 
     private static SubscriptionDetail OfflineSubscription(SubscriptionStatus status) => new()

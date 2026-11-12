@@ -135,7 +135,8 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
                             pendingPlan.Plan.QuantityItems))
                     ],
                     RequestedAtUtc = pendingPlan.RequestedAtUtc,
-                    EffectiveAtUtc = pendingPlan.EffectiveAtUtc
+                    EffectiveAtUtc = pendingPlan.EffectiveAtUtc,
+                    ScheduledByOperator = pendingPlan.ScheduledByOperator
                 }
                 : null,
             CurrentTier = QuantityResponseMapper.Tier(band.Tier),

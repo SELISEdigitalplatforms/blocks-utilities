@@ -558,6 +558,7 @@ export const SubscriptionSimulationPage = () => {
           open={isAdvancingRenewal}
           onOpenChange={setIsAdvancingRenewal}
           onResult={setHarnessResult}
+          offline={isOfflineSubscription(currentSubscription)}
         />
       )}
 

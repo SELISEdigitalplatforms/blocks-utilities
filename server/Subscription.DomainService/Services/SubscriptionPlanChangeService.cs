@@ -448,6 +448,17 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        if (subscription.PendingPlanChange.ScheduledByOperator && !context.CallerIsConsole)
+        {
+            // Spec 006: the console set this pricing; the organization withdrawing it would let a
+            // customer undo its own price change.
+            return Failure(
+                PaymentFailureKind.Validation,
+                "subscription_offline_console_only",
+                "Only the platform console can withdraw a change it scheduled.",
+                correlationId);
+        }
+
         if (!await _subscriptions.TryClearPendingPlanChangeAsync(
                 subscription.TenantId,
                 subscription.ItemId,
@@ -1483,7 +1494,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             ExpectedVersion = subscription.Version,
             // Spec 006: installed with the price at the boundary, so a contract the change drops
             // stops being recorded as one exactly when its figure stops being charged.
-            OfflinePricing = TargetPricingOf(subscription, targetPricing)
+            OfflinePricing = TargetPricingOf(subscription, targetPricing),
+            // Only an operator route names offline pricing, so this is exactly the operator's own.
+            ScheduledByOperator = targetPricing is not null
         };
 
         // Spec 006: only an operator names offline pricing, and what they set is announced in the
