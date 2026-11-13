@@ -65,6 +65,7 @@ Decided in conversation on 2026-11-13.
 - Renewal, plan change, quantity change and usage rating keep their existing `IsOffline` branches that skip the gateway and record the outcome without a charge. Those already exist; they are kept, not rebuilt.
 - Every branch that **refuses** an action for an offline subscription is removed: credit purchases (`SubscriptionCreditService`, `subscription_offline_collection`), the operator-only plan change and re-price routes (`PUT /offline/plan`, `PUT /offline/pricing`), and the "console can withdraw a change it scheduled" rule from #790. An offline customer's own admins change plan and quantities through the ordinary routes, like anyone else (decided 2026-11-13): the change issues a bigger Unpaid invoice and no card is involved. They can only ever make themselves owe more, never get more for free.
 - Credit purchases by an offline customer: the builder checks whether a card-less purchase can be invoiced Unpaid through the same path. If it cannot be done within this change, credit purchase for offline customers stays refused and the design doc is updated to say so. (Anti-goal remains: no new offline-specific product.)
+  - **Decision: credit purchase stays refused for offline customers.** A credit purchase is a gateway charge with a settlement floor; invoicing credits Unpaid would be a new product path, which the anti-goal rules out.
 - Renewal never consults payment state. There is no dunning for offline subscriptions; renewal of an offline subscription always succeeds on schedule.
 
 ### 3. Invoices: a payment state
@@ -96,12 +97,13 @@ Server: `OfflinePricing`, `OfflinePricingMode`, `OfflineSubscriptionTerms`, `Act
 
 1. Create `blocks-utilities::subscription::manage-offline` in Blocks OS IAM (type Endpoint, group blocks-utilities) and grant it to Klax's integration role and the console admin role. Klax's role also needs `subscription::read-invoice` and `subscription::manage-invoice`, or the list and record-payment calls 403. Without this step the feature is unreachable, as happened with spec 006.
 2. Cancel the Contract-mode test subscriptions on dev (their price snapshots hold the contract amount and cannot be reinterpreted).
-3. Deploy.
+3. The mail module's `subscription_invoice` template must print `{{PaymentStatus}}`; until it does the email body says nothing about payment.
+4. Deploy.
 
 ## Left to the builder
 
 - Exact field names and the migration/backfill mechanism for `PaymentStatus` (Mongo documents; follow how other added fields were backfilled).
 - Where the `offline` boolean enters `SubscribeAsync` and how checkout creation is skipped, keeping the zero-amount card-setup path intact.
-- Whether credit purchases for offline customers can ride the Unpaid invoice path (section 2).
+- Whether credit purchases for offline customers can ride the Unpaid invoice path (section 2). Answered: no, they stay refused (see section 2).
 - Row shape for seats in the invoice list.
 - Email and PDF wording for Unpaid/Paid; keep the existing templates' tone.

@@ -1,5 +1,7 @@
 # Spec 006: Offline Plan Activation
 
+> **Superseded on 2026-11-13** by `docs/superpowers/specs/2026-11-13-offline-billing-simplified-design.md`: pricing modes, service statements, operator routes and the console page were removed.
+
 **Status:** Approved (2026-11-05)
 **Date:** 2026-11-05
 **Tracks:** [#745](https://github.com/SELISEdigitalplatforms/blocks-utilities/issues/745)
