@@ -158,9 +158,9 @@ public sealed class SubscriptionFinancialDocument
     /// How the subscription behind this document collects its money, as it was when issued.
     /// </summary>
     /// <remarks>
-    /// <see cref="SubscriptionCollectionMethod.OfflineInvoice"/> marks a record of what is owed under
-    /// a bank-transfer contract (spec 006): it renders "Payable by bank transfer" beside the
-    /// merchant's payment instructions and never claims to have been paid. Absent on every document
+    /// <see cref="SubscriptionCollectionMethod.OfflineInvoice"/> marks an invoice-billed subscription's
+    /// invoice: it is issued Unpaid and shows its payment status beside the merchant's payment
+    /// instructions until a payment is recorded. Absent on every document
     /// issued before this existed, which deserializes to the card behaviour they were issued under.
     /// </remarks>
     public SubscriptionCollectionMethod CollectionMethod { get; set; }

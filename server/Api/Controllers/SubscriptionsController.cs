@@ -139,8 +139,8 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
-    /// Activates a paid plan for an organization that pays by bank transfer, with no card and no
-    /// checkout. Spec 006.
+    /// Activates a paid plan for an organization billed by invoice, with no card and no
+    /// checkout.
     /// </summary>
     /// <remarks>
     /// Same request as Subscribe; the route is the option, the permission is the gate.

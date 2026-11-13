@@ -129,7 +129,7 @@ export const CurrentSubscriptionCard = ({
     );
   }
 
-  // Paid by bank transfer (spec 006): never charged and takes no card, so not one card prompt below
+  // Billed by invoice: never charged and takes no card, so not one card prompt below
   // applies -- the server answers 409 to each of them anyway.
   const offline = isOfflineSubscription(subscription);
 

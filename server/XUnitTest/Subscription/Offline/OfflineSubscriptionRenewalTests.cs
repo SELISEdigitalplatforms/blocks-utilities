@@ -13,7 +13,7 @@ using XUnitTest.Payment;
 namespace XUnitTest.Subscription.Offline;
 
 /// <summary>
-/// Renewing a subscription paid by bank transfer under a contract (spec 006).
+/// Renewing an invoice-billed subscription.
 /// </summary>
 /// <remarks>
 /// Guards the two ways an offline customer gets hurt: charged by Utilities for money they pay by
@@ -213,7 +213,7 @@ public sealed class OfflineSubscriptionRenewalTests
         transition.NewStatus.Should().Be(
             SubscriptionStatus.Active,
             because: "a card-free trial with no card goes Unpaid on the card path; an offline one " +
-                "converts, because its money comes by bank transfer");
+                "converts, because it is invoiced and skips the gateway");
         transition.DocumentSource.Should().NotBeNull();
     }
 

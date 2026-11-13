@@ -54,7 +54,7 @@ public sealed class SubscriptionDetail
         SubscriptionStatus.Incomplete;
 
     /// <summary>
-    /// How this subscription's money is collected. Set at creation, never changed. See spec 006.
+    /// How this subscription's money is collected. Set at creation, never changed.
     /// </summary>
     /// <remarks>
     /// Absent on every subscription written before offline billing existed, which deserializes to

@@ -329,7 +329,7 @@ public sealed class SubscriptionCreditServiceTests
     // ---- purchase -------------------------------------------------------------------------
 
     /// <summary>
-    /// Spec 006 AC-23: credits are not sold to bank-transfer customers for now, so the card on file
+    /// Credits are not sold to invoice-billed customers for now, so the card on file
     /// is never charged for them, whichever of preview or purchase is asked.
     /// </summary>
     [Fact]

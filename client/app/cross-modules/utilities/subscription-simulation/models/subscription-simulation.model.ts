@@ -138,7 +138,7 @@ export interface SimulatedSubscription {
    */
   providerName: string | null;
   /**
-   * `"OfflineInvoice"` for a subscription paid by bank transfer under a contract (spec 006): never
+   * `"OfflineInvoice"` for a subscription billed by invoice: never
    * charged, takes no card, so every card prompt is hidden for it. Absent from an older server.
    */
   collectionMethod?: CollectionMethod;

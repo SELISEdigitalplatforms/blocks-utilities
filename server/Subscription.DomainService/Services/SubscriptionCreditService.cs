@@ -604,7 +604,7 @@ public sealed partial class SubscriptionCreditService : ISubscriptionCreditServi
 
         if (subscription.IsOffline)
         {
-            // Spec 006: credits are not sold to bank-transfer customers for now, so a card on file
+            // Credits are not sold to invoice-billed customers (a purchase is a gateway charge), so a card on file
             // is never charged for them. Admin free grants and moves are unaffected — neither
             // prices anything.
             return Failure<Priced>(

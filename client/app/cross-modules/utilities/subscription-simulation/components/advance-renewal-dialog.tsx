@@ -50,7 +50,7 @@ export const AdvanceRenewalDialog = ({
 }: {
   subscriptionId: string;
   organizationId: string | undefined;
-  /** Spec 006: never charged, and the server refuses a scripted outcome for it. */
+  /** Invoice-billed: never charged, and the server refuses a scripted outcome for it. */
   offline?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;

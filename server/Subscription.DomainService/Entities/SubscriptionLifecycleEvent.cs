@@ -124,8 +124,8 @@ public sealed class SubscriptionLifecycleEvent
     public int? FromSeatNumber { get; set; }
 
     /// <summary>
-    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c> (spec 006), so a consumer can tell a
-    /// bank-transfer contract from a card subscription without reading it back.
+    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c>, so a consumer can tell an invoice-billed
+    /// subscription from a card one without reading it back.
     /// </summary>
     public string? CollectionMethod { get; set; }
 

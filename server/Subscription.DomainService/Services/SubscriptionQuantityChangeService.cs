@@ -545,9 +545,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // takes the ordinary compare-and-set. A band that makes more units cheaper lands here too,
         // and so does a stub-and-annual combination that comes to zero or less.
         //
-        // So does every increase on an offline subscription (spec 006), which is never charged: what
-        // it would have cost is recorded as an invoice in the same write instead. A contract price
-        // carries no per-unit amount, so its increases arrive here at zero and record nothing.
+        // So does every increase on an invoice-billed subscription, which skips the gateway: what it
+        // costs is recorded as an Unpaid invoice in the same write instead.
         if (chargeMinor <= 0 || subscription.IsOffline)
         {
             return await ApplyFreeIncreaseAsync(

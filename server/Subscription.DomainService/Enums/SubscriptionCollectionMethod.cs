@@ -1,7 +1,7 @@
 namespace Subscription.DomainService.Enums;
 
 /// <summary>
-/// How a subscription's money is collected. See spec 006.
+/// How a subscription's money is collected.
 /// </summary>
 /// <remarks>
 /// Zero is <see cref="AutomaticCharge"/> because it is what every subscription written before this
@@ -19,8 +19,8 @@ public enum SubscriptionCollectionMethod
     AutomaticCharge = 0,
 
     /// <summary>
-    /// Paid by bank transfer under a contract, outside Utilities. Never charged, never dunned;
-    /// documents are issued as a record only.
+    /// Billed by invoice. Never charged through the gateway, never dunned; invoices are issued
+    /// Unpaid until a payment is recorded.
     /// </summary>
     OfflineInvoice = 1
 }

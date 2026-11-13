@@ -47,8 +47,8 @@ public interface ISubscriptionUsageInvoiceRepository
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Settles a pending invoice of an offline subscription as recorded rather than charged. See
-    /// spec 006 and <see cref="Enums.SubscriptionUsageInvoiceState.RecordedOffline"/>.
+    /// Settles a pending invoice of an invoice-billed subscription as recorded rather than charged. See
+    /// <see cref="Enums.SubscriptionUsageInvoiceState.RecordedOffline"/>.
     /// </summary>
     Task<bool> TryMarkRecordedOfflineAsync(
         string tenantId,

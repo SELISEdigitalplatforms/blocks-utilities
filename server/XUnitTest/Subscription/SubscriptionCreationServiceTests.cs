@@ -2484,7 +2484,7 @@ public sealed class SubscriptionCreationServiceTests
         Status = CatalogueStatus.Active
     };
 
-    // ---- Offline activation (spec 006) -----------------------------------------------------------
+    // ---- Offline activation -----------------------------------------------------------
 
     [Fact]
     public async Task An_offline_subscription_keeps_the_buyer_as_buyer()

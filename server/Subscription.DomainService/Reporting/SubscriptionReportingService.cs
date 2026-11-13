@@ -467,8 +467,8 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
     /// figure come from one calculation and cannot drift apart.
     /// </summary>
     /// <remarks>
-    /// Offline subscriptions (spec 006) count at the price frozen on them — a contract's flat
-    /// amount, or zero for a no-price one — because that is what their invoices state.
+    /// Invoice-billed subscriptions count at the price frozen on them, because that is what their
+    /// invoices state.
     /// </remarks>
     private async Task<(RecurringRevenueReportResponse Summary, List<SubscriptionRunRateEntry> RunRates)>
         SummarizeRecurringRevenueAsync(

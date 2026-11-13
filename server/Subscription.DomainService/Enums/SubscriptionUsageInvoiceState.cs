@@ -16,7 +16,7 @@ public enum SubscriptionUsageInvoiceState
     Abandoned = 3,
 
     /// <summary>
-    /// Owed under a bank-transfer contract (spec 006): recorded as an invoice, never charged.
+    /// Owed by an invoice-billed subscription: recorded as an Unpaid invoice, never charged.
     /// Terminal. Distinct from <see cref="Charged"/>, which would claim money moved, and from
     /// <see cref="NoCharge"/>, which would claim nothing was owed.
     /// </summary>

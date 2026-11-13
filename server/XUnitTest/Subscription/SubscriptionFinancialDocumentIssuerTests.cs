@@ -876,10 +876,10 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
 
         var document = _documents.Documents.Single();
         document.DocumentType.Should().Be(FinancialDocumentType.Invoice);
-        document.PaymentDetailId.Should().BeNull(because: "spec 006: nothing was collected");
+        document.PaymentDetailId.Should().BeNull(because: "nothing was collected");
         document.CollectionMethod.Should().Be(
             SubscriptionCollectionMethod.OfflineInvoice,
-            because: "the rendered invoice reads this to say 'Payable by bank transfer' rather than 'Paid'");
+            because: "the invoice is issued with PaymentStatus Unpaid rather than Paid");
         document.Amounts.TotalMinor.Should().Be(
             54_050,
             because: "the customer's own invoice is written from this figure, tax included");

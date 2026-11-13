@@ -687,8 +687,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         if (subscription.IsOffline)
         {
-            // Spec 006: paid by bank transfer under a contract. A card added here would never be
-            // charged, and offering to take one tells the customer something untrue.
+            // An invoice-billed subscription never charges a card, so offering to take one tells the
+            // customer something untrue.
             return Failure(
                 PaymentFailureKind.Conflict,
                 "subscription_offline_collection",
@@ -1206,7 +1206,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     }
 
     /// <summary>
-    /// The record invoice an offline subscription's opening period owes, or null. See spec 006.
+    /// The Unpaid invoice an invoice-billed subscription's opening period owes, or null.
     /// </summary>
     /// <remarks>
     /// Owed when a card subscriber would have been charged at checkout — a positive opening figure —

@@ -345,7 +345,7 @@ describe("CurrentSubscriptionCard provider name", () => {
 });
 
 /**
- * Spec 006 AC-22: an organization billed by bank transfer sees that it is, and is never offered a
+ * An organization billed by invoice sees that it is, and is never offered a
  * card -- every one of those prompts would only earn a 409 from the server.
  */
 describe("CurrentSubscriptionCard for a subscription billed by invoice", () => {

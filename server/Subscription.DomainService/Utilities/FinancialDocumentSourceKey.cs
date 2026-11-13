@@ -68,7 +68,7 @@ public static class FinancialDocumentSourceKey
         Require(reference, nameof(reference));
 
     /// <summary>
-    /// A charge an offline subscription would have raised, recorded instead of collected. See spec 006.
+    /// A charge an invoice-billed subscription would have raised, recorded as an Unpaid invoice instead of collected.
     /// </summary>
     /// <remarks>
     /// There is no payment to key on, so the key is what a payment's order id is built from: the

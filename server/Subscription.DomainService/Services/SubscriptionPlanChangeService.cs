@@ -386,8 +386,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // Gated on the timing rather than on the amount: a scheduled cadence change can settle to
         // a positive figure and still take nothing now, and demanding a card for it would block a
         // change that is not going to charge anybody for weeks.
-        // Not for an offline subscription (spec 006): it is invoiced, never charged, so a missing
-        // card blocks nothing.
+        // Not for an invoice-billed subscription: it skips the gateway and gets an Unpaid invoice,
+        // so a missing card blocks nothing.
         if (timing == PlanChangeTiming.Immediate && chargeMinor > 0 && !r.Subscription.IsOffline)
         {
             var account = await _billingAccounts.GetAsync(

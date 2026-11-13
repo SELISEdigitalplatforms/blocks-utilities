@@ -56,7 +56,7 @@ public interface ISubscriptionReportingRepository
 
     /// <summary>
     /// Settled usage-invoice totals over a window, grouped by UTC day and currency: charged ones,
-    /// and offline ones recorded as owed by bank transfer (spec 006).
+    /// and invoice-billed ones recorded as owed.
     /// </summary>
     /// <param name="collectionMethod">Null for both; otherwise only the matching settlement.</param>
     Task<IReadOnlyList<OverageRevenueBucket>> AggregateOverageRevenueAsync(

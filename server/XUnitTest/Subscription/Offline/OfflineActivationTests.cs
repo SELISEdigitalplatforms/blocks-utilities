@@ -20,7 +20,7 @@ using Subscription.DomainService.Validators;
 namespace XUnitTest.Subscription.Offline;
 
 /// <summary>
-/// The ordinary subscribe with <c>offline: true</c> (spec 006).
+/// The ordinary subscribe with <c>offline: true</c>.
 /// </summary>
 /// <remarks>
 /// Guards the route that grants a paid plan without taking money: that it never reaches a card or

@@ -152,7 +152,7 @@ export const CreditsCard = ({
               </p>
             </div>
             <div className="flex gap-2">
-              {/* Never for a subscription paid by bank transfer: buying charges a card it does not have (spec 006). */}
+              {/* Never for an invoice-billed subscription: buying charges a card it does not have. */}
               {meter.creditPurchase && !isOfflineSubscription(subscription) && (
                 <Button size="sm" onClick={() => setAction({ kind: "buy", meter })}>
                   {t("CREDITS_CARD.BUY_CREDITS")}

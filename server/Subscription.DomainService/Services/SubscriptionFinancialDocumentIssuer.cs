@@ -886,7 +886,7 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
         }
 
         // The source's own kind: an opening period that activated with nothing due is Initial, and
-        // an offline subscription's renewal (spec 006) freezes its figures here for the same reason
+        // an invoice-billed subscription's renewal freezes its figures here for the same reason
         // — there is no payment to read them off — so it is described as the renewal it was.
         var kind = source.ChargeKind;
 
@@ -920,7 +920,7 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
                 subscription,
                 source.Period,
                 opening,
-                // An offline overage (spec 006) is broken down per meter exactly as a charged one:
+                // An invoice-billed overage is broken down per meter exactly as a charged one:
                 // the usage invoice it was rated into is read the same way, payment or not.
                 kind == SubscriptionChargeKind.Usage
                     ? await MeteredLinesAsync(subscription, terms, source.Period, amounts, cancellationToken)
@@ -1522,7 +1522,7 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
         RecomposeOpening(subscription).Amounts;
 
     /// <summary>
-    /// The breakdown of a charge that was priced but never collected — an offline renewal (spec 006).
+    /// The breakdown of a charge that was priced but never collected — an invoice-billed renewal.
     /// </summary>
     /// <remarks>
     /// The same split a card renewal hands the gateway and the gateway stores on the payment, read
@@ -1686,8 +1686,8 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
     }
 
     /// <summary>
-    /// The breakdown of a plan or quantity change that was priced but never collected — an offline
-    /// subscription's (spec 006).
+    /// The breakdown of a plan or quantity change that was priced but never collected — an
+    /// invoice-billed subscription's.
     /// </summary>
     /// <remarks>
     /// The arithmetic <see cref="SettlementAmounts"/> applies to a settled charge, with the total the

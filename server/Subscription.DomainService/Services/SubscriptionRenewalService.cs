@@ -134,9 +134,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await AuditAsync(subscription, "Started", "InProgress", null, null, null,
             subscription.DunningAttemptCount + 1, cancellationToken);
 
-        // An offline subscription (spec 006) is paid under a contract outside Utilities. It has no
-        // card to look for, and must never be moved to Unpaid for lacking one: the period simply
-        // opens, and what it would have cost is recorded instead of collected.
+        // An invoice-billed subscription skips the gateway. It has no card to look for, and must
+        // never be moved to Unpaid for lacking one: the period simply opens, and an Unpaid invoice
+        // records what it costs.
         BillingAccount? account = null;
 
         if (!subscription.IsOffline)
@@ -889,7 +889,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     }
 
     /// <summary>
-    /// The record invoice an offline renewal owes, or null when it owes none. See spec 006.
+    /// The Unpaid invoice an invoice-billed renewal owes, or null when it owes none.
     /// </summary>
     /// <remarks>
     /// Owed exactly when a card renewal would have raised a charge — a positive amount. A period
