@@ -173,16 +173,18 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
                 correlationId);
         }
 
-        if (document.PaymentStatus == FinancialDocumentPaymentStatus.Unpaid &&
+        if (document.PaymentStatus == FinancialDocumentPaymentStatus.Unpaid)
+        {
             await _documents.TryRecordPaymentAsync(
                 context.TenantId,
                 documentId,
                 request.PaidAtUtc?.ToUniversalTime() ?? _time.GetUtcNow().UtcDateTime,
                 request.Reference?.Trim(),
                 context.UserId,
-                cancellationToken))
-        {
-            // Re-read for the stored values rather than echoing the request.
+                cancellationToken);
+
+            // Re-read whatever the update returned: on a lost race the stored values are the other
+            // writer's, and the pre-read snapshot would still say Unpaid.
             document = await _documents.GetAsync(context.TenantId, documentId, cancellationToken)
                 ?? document;
         }

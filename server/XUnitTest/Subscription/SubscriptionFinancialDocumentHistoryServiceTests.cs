@@ -728,6 +728,47 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
     }
 
     [Fact]
+    public async Task Losing_the_race_to_record_a_payment_returns_the_winners_paid_invoice()
+    {
+        var firstPaidAt = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        var stale = await UnpaidAsync();
+        var winner = await StoredAsync("INV-2026-000009", stale.IssuedAtUtc);
+        winner.ItemId = stale.ItemId;
+        winner.PaymentStatus = FinancialDocumentPaymentStatus.Paid;
+        winner.PaymentReference = "TRF-42";
+        winner.PaidAtUtc = firstPaidAt;
+
+        var repository = new Mock<ISubscriptionFinancialDocumentRepository>();
+        repository
+            .SetupSequence(r => r.GetAsync(TenantId, stale.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(stale)
+            .ReturnsAsync(winner);
+        repository
+            .Setup(r => r.TryRecordPaymentAsync(
+                TenantId, stale.ItemId, It.IsAny<DateTime>(), It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        var service = new SubscriptionFinancialDocumentHistoryService(
+            _context.Object,
+            repository.Object,
+            _files.Object,
+            Options.Create(new PaymentOptions { ConsoleOrganizationId = ConsoleOrganizationId }),
+            _scheduler.Object,
+            new FixedTime(Now));
+
+        var result = await service.RecordPaymentAsync(
+            stale.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = "TRF-99" },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PaymentStatus.Should().Be("Paid");
+        result.Value.PaymentReference.Should().Be("TRF-42");
+        result.Value.PaidAtUtc.Should().Be(firstPaidAt);
+    }
+
+    [Fact]
     public async Task A_payment_with_no_date_is_recorded_at_now()
     {
         var document = await UnpaidAsync();

@@ -922,10 +922,11 @@ public sealed class SubscriptionsController : ControllerBase
     [ProtectedEndPoint("blocks-utilities::subscription::manage-invoice")]
     public async Task<IActionResult> RecordInvoicePayment(
         string documentId,
-        [FromBody] RecordFinancialDocumentPaymentRequest request,
+        [FromBody] RecordFinancialDocumentPaymentRequest? request,
         CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
+        request ??= new();
 
         var result = await _documents.RecordPaymentAsync(
             documentId,
