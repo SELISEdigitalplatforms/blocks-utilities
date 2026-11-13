@@ -378,7 +378,11 @@ export const DocumentRow = ({
         </div>
       )}
 
-      <Dialog open={paying} onOpenChange={(value) => !recording && setPaying(value)}>
+      <Dialog open={paying} onOpenChange={(value) => {
+          if (recording) return;
+          setPaying(value);
+          if (!value) setReference("");
+        }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("INVOICES_PAGE.RECORD_PAYMENT")}</DialogTitle>
@@ -397,7 +401,10 @@ export const DocumentRow = ({
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" disabled={recording} onClick={() => setPaying(false)}>
+            <Button variant="outline" disabled={recording} onClick={() => {
+                setPaying(false);
+                setReference("");
+              }}>
               {t("INVOICES_PAGE.CANCEL")}
             </Button>
             <Button disabled={recording} onClick={confirmPayment}>

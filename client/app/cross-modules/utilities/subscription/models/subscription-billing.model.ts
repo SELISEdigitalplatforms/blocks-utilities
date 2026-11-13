@@ -200,7 +200,8 @@ export interface SubscriptionFinancialDocument {
   paidAtUtc?: string | null;
   paymentReference?: string | null;
   organizationId: string;
-  collectionMethod?: "AutomaticCharge";
+  /** How the subscription is collected; {@link paymentStatus} says whether this document is paid. */
+  collectionMethod?: "AutomaticCharge" | "OfflineInvoice";
   issuedAtUtc: string;
   subscriptionId: string;
   currencyCode: string;
