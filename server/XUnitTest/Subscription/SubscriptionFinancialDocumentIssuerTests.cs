@@ -952,21 +952,22 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     {
         var subscription = Subscribed();
         subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
         Owing(
             subscription,
             SubscriptionDocumentSourceFactory.ForOfflineCharge(
                 subscription,
                 SubscriptionChargeKind.Renewal,
                 "2026-09",
-                new FinancialDocumentAmounts(),
+                new FinancialDocumentAmounts { TotalMinor = 0 },
                 null,
                 SettledAt,
                 "corr-1"));
 
         await Issuer().IssueForSubscriptionAsync(TenantId, SubscriptionId, "corr-1", CancellationToken.None);
 
-        _documents.Documents.Single().PaymentStatus.Should().Be(
+        var document = _documents.Documents.Single();
+        document.DocumentType.Should().Be(FinancialDocumentType.Invoice);
+        document.PaymentStatus.Should().Be(
             FinancialDocumentPaymentStatus.Paid,
             because: "there is nothing to pay");
     }
@@ -977,13 +978,16 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
         Subscribed();
         SettledRenewal();
         var issuer = Issuer();
-        await issuer.IssueDocumentForPaymentAsync(TenantId, "pay-1", "corr-1", CancellationToken.None);
+        var invoice = await issuer.IssueDocumentForPaymentAsync(TenantId, "pay-1", "corr-1", CancellationToken.None);
+        // Forced Unpaid so the credit note cannot pass by inheriting its original's state.
+        invoice!.PaymentStatus = FinancialDocumentPaymentStatus.Unpaid;
         RefundedBy(959.30m, PaymentStatuses.Refunded, refundedTotal: 959.30m);
 
         var creditNote = await issuer.IssueRefundCreditNoteAsync(
             TenantId, "pay-1", "refund-1", "corr-2", CancellationToken.None);
 
         creditNote!.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Paid);
+        invoice.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Unpaid);
     }
 
     [Fact]
