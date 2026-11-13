@@ -909,6 +909,37 @@ public sealed class SubscriptionsController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// Records that an invoice was paid outside the card flow, for example by bank transfer.
+    /// </summary>
+    [HttpPost("invoices/{documentId}/payment")]
+    [ProducesResponseType(
+        typeof(ApiResponse<SubscriptionFinancialDocumentResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage-invoice")]
+    public async Task<IActionResult> RecordInvoicePayment(
+        string documentId,
+        [FromBody] RecordFinancialDocumentPaymentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _documents.RecordPaymentAsync(
+            documentId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("RecordInvoicePayment", request.OrganizationId, result.Value?.SubscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.Amounts.TotalMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     [HttpGet("invoices/{documentId}/pdf")]
     [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]

@@ -186,6 +186,18 @@ public interface ISubscriptionFinancialDocumentRepository
         string documentId,
         FinancialDocumentStatus status,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves an unpaid document to paid. Returns false when it was not unpaid, so a second recording
+    /// cannot overwrite the first one's date or reference.
+    /// </summary>
+    Task<bool> TryRecordPaymentAsync(
+        string tenantId,
+        string documentId,
+        DateTime paidAtUtc,
+        string? reference,
+        string? recordedByUserId,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>

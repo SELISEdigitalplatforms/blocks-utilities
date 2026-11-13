@@ -132,6 +132,67 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
             correlationId);
     }
 
+    public async Task<SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>>
+        RecordPaymentAsync(
+            string documentId,
+            RecordFinancialDocumentPaymentRequest request,
+            string correlationId,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var resolution = await _context.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+
+        if (resolution.Context is not { } context)
+        {
+            return resolution.ToFailure<SubscriptionFinancialDocumentResponse>(correlationId);
+        }
+
+        var document = await _documents.GetAsync(context.TenantId, documentId, cancellationToken);
+
+        // One answer for absent and for another organization's, as for the PDF.
+        if (document is null ||
+            !string.Equals(document.OrganizationId, context.OrganizationId, StringComparison.Ordinal))
+        {
+            return SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>.Failure(
+                PaymentFailureKind.NotFound,
+                "financial_document_not_found",
+                "No such financial document.",
+                correlationId);
+        }
+
+        if (document.DocumentType == FinancialDocumentType.CreditNote)
+        {
+            return SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "financial_document_not_collectable",
+                "A credit note is not collected, so no payment can be recorded against it.",
+                correlationId);
+        }
+
+        if (document.PaymentStatus == FinancialDocumentPaymentStatus.Unpaid &&
+            await _documents.TryRecordPaymentAsync(
+                context.TenantId,
+                documentId,
+                request.PaidAtUtc?.ToUniversalTime() ?? _time.GetUtcNow().UtcDateTime,
+                request.Reference?.Trim(),
+                context.UserId,
+                cancellationToken))
+        {
+            // Re-read for the stored values rather than echoing the request.
+            document = await _documents.GetAsync(context.TenantId, documentId, cancellationToken)
+                ?? document;
+        }
+
+        // Already paid, or paid by a concurrent call: the first recording stands.
+        return SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>.Success(
+            Map(document, request.OrganizationId),
+            correlationId);
+    }
+
     /// <summary>
     /// Queues the reopened send, and says whether it got there.
     /// </summary>

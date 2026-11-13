@@ -50,4 +50,13 @@ public interface ISubscriptionFinancialDocumentHistoryService
         string documentId,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Marks an unpaid invoice as paid. Recording twice returns the invoice as the first call left it.
+    /// </summary>
+    Task<SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>> RecordPaymentAsync(
+        string documentId,
+        RecordFinancialDocumentPaymentRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
 }

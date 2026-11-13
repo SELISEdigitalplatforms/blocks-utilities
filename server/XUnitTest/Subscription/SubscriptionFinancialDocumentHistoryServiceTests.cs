@@ -634,6 +634,113 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
             .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, ConsoleOrganizationId, "actor-1", "user-7")));
 
+    private sealed class FixedTime(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private static readonly DateTime Now = new(2026, 5, 5, 8, 0, 0, DateTimeKind.Utc);
+
+    private async Task<SubscriptionFinancialDocument> UnpaidAsync(
+        FinancialDocumentType type = FinancialDocumentType.Invoice,
+        string organizationId = OrganizationId)
+    {
+        var document = await StoredAsync(
+            "INV-2026-000009",
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            organizationId,
+            type);
+        document.PaymentStatus = FinancialDocumentPaymentStatus.Unpaid;
+        return document;
+    }
+
+    [Fact]
+    public async Task Recording_a_payment_moves_an_unpaid_invoice_to_paid_with_the_reference_and_actor()
+    {
+        var document = await UnpaidAsync();
+        var paidAt = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = " TRF-42 ", PaidAtUtc = paidAt },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PaymentStatus.Should().Be("Paid");
+        result.Value.PaidAtUtc.Should().Be(paidAt);
+        result.Value.PaymentReference.Should().Be("TRF-42");
+        document.PaymentRecordedByUserId.Should().Be("user-7");
+    }
+
+    [Fact]
+    public async Task Recording_a_payment_twice_returns_the_paid_invoice_unchanged()
+    {
+        var document = await UnpaidAsync();
+        var paidAt = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        var service = Service();
+        await service.RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = "TRF-42", PaidAtUtc = paidAt },
+            "corr-1",
+            CancellationToken.None);
+
+        var second = await service.RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = "TRF-99", PaidAtUtc = Now },
+            "corr-2",
+            CancellationToken.None);
+
+        second.IsSuccess.Should().BeTrue();
+        second.Value!.PaymentReference.Should().Be("TRF-42");
+        second.Value.PaidAtUtc.Should().Be(paidAt);
+    }
+
+    [Fact]
+    public async Task A_payment_cannot_be_recorded_on_a_credit_note()
+    {
+        var document = await UnpaidAsync(FinancialDocumentType.CreditNote);
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("financial_document_not_collectable");
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+    }
+
+    [Fact]
+    public async Task A_payment_on_another_organizations_document_is_not_found()
+    {
+        var document = await UnpaidAsync(organizationId: OtherOrganizationId);
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("financial_document_not_found");
+        document.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Unpaid);
+    }
+
+    [Fact]
+    public async Task A_payment_with_no_date_is_recorded_at_now()
+    {
+        var document = await UnpaidAsync();
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.Value!.PaidAtUtc.Should().Be(Now);
+    }
+
     private ISubscriptionFinancialDocumentHistoryService Service() =>
         new SubscriptionFinancialDocumentHistoryService(
             _context.Object,
@@ -643,7 +750,8 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
             {
                 ConsoleOrganizationId = ConsoleOrganizationId
             }),
-            _scheduler.Object);
+            _scheduler.Object,
+            new FixedTime(Now));
 
     private async Task<SubscriptionFinancialDocument> StoredAsync(
         string documentNumber,

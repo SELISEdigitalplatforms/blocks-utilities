@@ -1540,6 +1540,11 @@
             </para>
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.RecordInvoicePayment(System.String,Subscription.DomainService.Requests.RecordFinancialDocumentPaymentRequest,System.Threading.CancellationToken)">
+            <summary>
+            Records that an invoice was paid outside the card flow, for example by bank transfer.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetInvoiceHistory(Subscription.DomainService.Requests.GetFinancialDocumentsRequest,System.Threading.CancellationToken)">
             <summary>
             Lists the calling organization's invoices, trial invoices and credit notes, newest first.

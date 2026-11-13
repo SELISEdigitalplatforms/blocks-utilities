@@ -291,4 +291,27 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
 
         return Task.CompletedTask;
     }
+
+    public Task<bool> TryRecordPaymentAsync(
+        string tenantId,
+        string documentId,
+        DateTime paidAtUtc,
+        string? reference,
+        string? recordedByUserId,
+        CancellationToken cancellationToken)
+    {
+        var document = _documents.FirstOrDefault(item => item.ItemId == documentId);
+
+        if (document is null || document.PaymentStatus != FinancialDocumentPaymentStatus.Unpaid)
+        {
+            return Task.FromResult(false);
+        }
+
+        document.PaymentStatus = FinancialDocumentPaymentStatus.Paid;
+        document.PaidAtUtc = paidAtUtc;
+        document.PaymentReference = reference;
+        document.PaymentRecordedByUserId = recordedByUserId;
+
+        return Task.FromResult(true);
+    }
 }

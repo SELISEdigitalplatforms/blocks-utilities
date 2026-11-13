@@ -487,6 +487,36 @@ public sealed class SubscriptionFinancialDocumentRepository :
                 .Set(document => document.LastUpdatedDateUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
 
+    public async Task<bool> TryRecordPaymentAsync(
+        string tenantId,
+        string documentId,
+        DateTime paidAtUtc,
+        string? reference,
+        string? recordedByUserId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Collection(tenantId).UpdateOneAsync(
+            Builders<SubscriptionFinancialDocument>.Filter.And(
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.TenantId,
+                    tenantId),
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.ItemId,
+                    documentId),
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.PaymentStatus,
+                    FinancialDocumentPaymentStatus.Unpaid)),
+            Builders<SubscriptionFinancialDocument>.Update
+                .Set(document => document.PaymentStatus, FinancialDocumentPaymentStatus.Paid)
+                .Set(document => document.PaidAtUtc, paidAtUtc)
+                .Set(document => document.PaymentReference, reference)
+                .Set(document => document.PaymentRecordedByUserId, recordedByUserId)
+                .Set(document => document.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount > 0;
+    }
+
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {
         if (_indexed.ContainsKey(tenantId))
