@@ -292,6 +292,30 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         return Task.CompletedTask;
     }
 
+    public Task<bool> TryReplacePdfAsync(
+        string tenantId,
+        string documentId,
+        string storageId,
+        string contentHash,
+        long contentLength,
+        DateTime generatedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var document = _documents.FirstOrDefault(item => item.ItemId == documentId);
+
+        if (document is null || document.Delivery.StorageId is not { Length: > 0 })
+        {
+            return Task.FromResult(false);
+        }
+
+        document.Delivery.StorageId = storageId;
+        document.Delivery.ContentHash = contentHash;
+        document.Delivery.ContentLength = contentLength;
+        document.Delivery.GeneratedAtUtc = generatedAtUtc;
+
+        return Task.FromResult(true);
+    }
+
     public Task<bool> TryRecordPaymentAsync(
         string tenantId,
         string documentId,

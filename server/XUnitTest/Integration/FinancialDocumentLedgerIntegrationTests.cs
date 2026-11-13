@@ -1,4 +1,6 @@
 ﻿using FluentAssertions;
+using MongoDB.Bson;
+using MongoDB.Driver;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
@@ -17,12 +19,14 @@ namespace XUnitTest.Integration;
 [Collection(MongoIntegrationCollection.Name)]
 public sealed class FinancialDocumentLedgerIntegrationTests
 {
+    private readonly MongoIntegrationFixture _fixture;
     private readonly SubscriptionFinancialDocumentRepository _documents;
     private readonly FinancialDocumentNumberAllocator _numbers;
     private readonly SubscriptionBillingProfileRepository _profiles;
 
     public FinancialDocumentLedgerIntegrationTests(MongoIntegrationFixture fixture)
     {
+        _fixture = fixture;
         _documents = new SubscriptionFinancialDocumentRepository(fixture.DbContextProvider);
         _numbers = new FinancialDocumentNumberAllocator(fixture.DbContextProvider);
         _profiles = new SubscriptionBillingProfileRepository(fixture.DbContextProvider);
@@ -451,6 +455,55 @@ public sealed class FinancialDocumentLedgerIntegrationTests
         second.ItemId.Should().Be(first.ItemId);
         second.LegalName.Should().Be("Second");
         second.Version.Should().BeGreaterThan(first.Version);
+    }
+
+    [Fact]
+    public async Task A_document_stored_without_a_payment_status_lists_as_paid_not_unpaid()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var document = Document(tenantId, "INV-2026-000001", "payment:legacy");
+        await _documents.InsertAsync(document, CancellationToken.None);
+
+        // What a document issued before payment status existed looks like on disk.
+        await _fixture.Database
+            .GetCollection<BsonDocument>("SubscriptionFinancialDocuments")
+            .UpdateOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", document.ItemId),
+                Builders<BsonDocument>.Update.Unset("PaymentStatus"));
+
+        async Task<IReadOnlyList<SubscriptionFinancialDocument>> ListAsync(
+            FinancialDocumentPaymentStatus status) =>
+            (await _documents.ListAsync(
+                tenantId, "org-1", null, null, null, status, null, null, 50, null,
+                CancellationToken.None)).Items;
+
+        (await ListAsync(FinancialDocumentPaymentStatus.Paid))
+            .Should().ContainSingle().Which.ItemId.Should().Be(document.ItemId);
+        (await ListAsync(FinancialDocumentPaymentStatus.Unpaid)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Recording_a_payment_succeeds_once_and_the_first_reference_stands()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var document = Document(tenantId, "INV-2026-000001", "payment:pay-1");
+        document.PaymentStatus = FinancialDocumentPaymentStatus.Unpaid;
+        await _documents.InsertAsync(document, CancellationToken.None);
+        var firstPaidAt = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var first = await _documents.TryRecordPaymentAsync(
+            tenantId, document.ItemId, firstPaidAt, "TRF-1", "user-1", CancellationToken.None);
+        var second = await _documents.TryRecordPaymentAsync(
+            tenantId, document.ItemId, firstPaidAt.AddDays(1), "TRF-2", "user-2", CancellationToken.None);
+
+        first.Should().BeTrue();
+        second.Should().BeFalse();
+
+        var stored = await _documents.GetAsync(tenantId, document.ItemId, CancellationToken.None);
+        stored!.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Paid);
+        stored.PaymentReference.Should().Be("TRF-1");
+        stored.PaidAtUtc.Should().Be(firstPaidAt);
+        stored.PaymentRecordedByUserId.Should().Be("user-1");
     }
 
     private static SubscriptionFinancialDocument Document(

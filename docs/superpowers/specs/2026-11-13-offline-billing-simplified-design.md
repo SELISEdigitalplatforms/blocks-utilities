@@ -6,7 +6,7 @@ Issue: SELISEdigitalplatforms/blocks-utilities#792. Replaces the offline product
 
 Let an operator put a customer on a paid plan **without charging a card**, because the customer pays by bank transfer. Everything else is the ordinary subscription: same plan, price, tax, discount, proration, renewal dates, invoice and invoice email. The only differences are that no card is ever charged, the invoice is born **Unpaid**, and the integrating application (Klax) records the payment later through the API, which makes it **Paid**.
 
-The client does not want a second billing system. Spec 006 built one (three pricing modes, service statements, a dedicated console page, refused credit purchases). All of that goes.
+The client does not want a second billing system. Spec 006 built one (three pricing modes, service statements, a dedicated console page). All of that goes.
 
 ## Goals
 
@@ -73,6 +73,7 @@ Decided in conversation on 2026-11-13.
 - New field on `SubscriptionFinancialDocument`: `PaymentStatus` with values `Paid`, `Unpaid`. Plus `PaidAtUtc`, `PaymentReference` (free text, optional), `PaymentRecordedByUserId`.
 - Issued **Paid** when the document is backed by a gateway payment (`PaymentDetailId` set) or its amount is zero. Issued **Unpaid** otherwise, which today means an offline subscription's invoice. Credit notes are always Paid (they are not collectable).
 - Documents already in the database get `Paid` (they were all card-backed or statements; statements are deleted with their type).
+- The PDF is re-rendered, without any mail, when a payment is recorded, so the stored copy says Paid; if the renderer is down the earlier copy stays and the API and console status are already Paid.
 - `FinancialDocumentType.ServiceStatement` and the `STM` number sequence are deleted. Offline subscriptions issue `Invoice` only.
 - "Payable by bank transfer" (`FinancialDocumentHtmlTemplate.cs:818`) is replaced by the payment status, shown on the PDF, the invoice email and the console invoice list: **Unpaid** or **Paid**. Bank details still come from the merchant profile's payment instructions, as today.
 
@@ -96,6 +97,7 @@ Server: `OfflinePricing`, `OfflinePricingMode`, `OfflineSubscriptionTerms`, `Act
 ### 7. Rollout
 
 1. Create `blocks-utilities::subscription::manage-offline` in Blocks OS IAM (type Endpoint, group blocks-utilities) and grant it to Klax's integration role and the console admin role. Klax's role also needs `subscription::read-invoice` and `subscription::manage-invoice`, or the list and record-payment calls 403. Without this step the feature is unreachable, as happened with spec 006.
+   Audit which IAM roles hold `subscription::manage-invoice`; it now also allows recording a payment. If customer-organization admin roles hold it, decide whether to accept self-reported payments or move record-payment to its own permission before release.
 2. Cancel the Contract-mode test subscriptions on dev (their price snapshots hold the contract amount and cannot be reinterpreted).
 3. The mail module's `subscription_invoice` template must print `{{PaymentStatus}}`; until it does the email body says nothing about payment.
 4. Deploy.

@@ -24,6 +24,13 @@ public sealed class SubscriptionsControllerOfflinePermissionTests
             "blocks-utilities::subscription::manage");
     }
 
+    [Fact]
+    public void Recording_an_invoice_payment_asks_for_the_manage_invoice_permission()
+    {
+        ScopeOf(nameof(SubscriptionsController.RecordInvoicePayment)).Should().Be(
+            "blocks-utilities::subscription::manage-invoice");
+    }
+
     private static string? ScopeOf(string actionName) =>
         typeof(SubscriptionsController).GetMethod(actionName)!
             .GetCustomAttributes()

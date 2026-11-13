@@ -262,6 +262,37 @@ public sealed class SubscriptionFinancialDocumentRepository :
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryReplacePdfAsync(
+        string tenantId,
+        string documentId,
+        string storageId,
+        string contentHash,
+        long contentLength,
+        DateTime generatedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Collection(tenantId).UpdateOneAsync(
+            Builders<SubscriptionFinancialDocument>.Filter.And(
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.TenantId,
+                    tenantId),
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.ItemId,
+                    documentId),
+                Builders<SubscriptionFinancialDocument>.Filter.Ne(
+                    document => document.Delivery.StorageId,
+                    null)),
+            Builders<SubscriptionFinancialDocument>.Update
+                .Set(document => document.Delivery.StorageId, storageId)
+                .Set(document => document.Delivery.ContentHash, contentHash)
+                .Set(document => document.Delivery.ContentLength, contentLength)
+                .Set(document => document.Delivery.GeneratedAtUtc, generatedAtUtc)
+                .Set(document => document.LastUpdatedDateUtc, generatedAtUtc),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryRecordMailRequestedAsync(
         string tenantId,
         string documentId,

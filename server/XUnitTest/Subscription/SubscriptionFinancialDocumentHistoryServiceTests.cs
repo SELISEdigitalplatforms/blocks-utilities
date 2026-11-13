@@ -11,6 +11,10 @@ using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
+using Subscription.DomainService.Validators;
+using Microsoft.Extensions.Logging.Abstractions;
+using Subscription.DomainService.Messaging;
+using Payment.DomainService.Services;
 
 namespace XUnitTest.Subscription;
 
@@ -753,6 +757,7 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
             repository.Object,
             _files.Object,
             Options.Create(new PaymentOptions { ConsoleOrganizationId = ConsoleOrganizationId }),
+            new RecordFinancialDocumentPaymentRequestValidator(new FixedTime(Now)),
             _scheduler.Object,
             new FixedTime(Now));
 
@@ -782,7 +787,8 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
         result.Value!.PaidAtUtc.Should().Be(Now);
     }
 
-    private ISubscriptionFinancialDocumentHistoryService Service() =>
+    private ISubscriptionFinancialDocumentHistoryService Service(
+        ISubscriptionFinancialDocumentDeliveryService? delivery = null) =>
         new SubscriptionFinancialDocumentHistoryService(
             _context.Object,
             _documents,
@@ -791,8 +797,116 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
             {
                 ConsoleOrganizationId = ConsoleOrganizationId
             }),
+            new RecordFinancialDocumentPaymentRequestValidator(new FixedTime(Now)),
             _scheduler.Object,
-            new FixedTime(Now));
+            new FixedTime(Now),
+            delivery);
+
+    private (ISubscriptionFinancialDocumentDeliveryService Delivery, Mock<IFinancialDocumentPdfRenderer> Renderer)
+        RealDelivery()
+    {
+        var renderer = new Mock<IFinancialDocumentPdfRenderer>();
+        var logo = new Mock<IFinancialDocumentLogoResolver>();
+        logo.Setup(l => l.ResolveAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FinancialDocumentLogoResolution.None);
+        var currency = new Mock<ICurrencyMinorUnitResolver>();
+        currency
+            .Setup(c => c.TryConvertBack(It.IsAny<long>(), It.IsAny<string>(), out It.Ref<decimal>.IsAny))
+            .Returns((long minor, string _, out decimal amount) => { amount = minor / 100m; return true; });
+        _files
+            .Setup(f => f.SaveAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        return (
+            new SubscriptionFinancialDocumentDeliveryService(
+                _documents,
+                renderer.Object,
+                _files.Object,
+                logo.Object,
+                currency.Object,
+                new Mock<Blocks.Genesis.IMessageClient>().Object,
+                Options.Create(new SubscriptionOptions()),
+                NullLogger<SubscriptionFinancialDocumentDeliveryService>.Instance),
+            renderer);
+    }
+
+    private async Task<SubscriptionFinancialDocument> UnpaidWithStoredPdfAsync()
+    {
+        var document = await UnpaidAsync();
+        document.Delivery.StorageId = "old-pdf";
+        document.Delivery.ContentHash = "old";
+        document.Delivery.State = FinancialDocumentDeliveryState.Delivered;
+        return document;
+    }
+
+    [Fact]
+    public async Task Recording_a_payment_re_renders_the_stored_pdf_once_and_replaces_it()
+    {
+        var document = await UnpaidWithStoredPdfAsync();
+        var (delivery, renderer) = RealDelivery();
+        renderer
+            .Setup(r => r.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Encoding.UTF8.GetBytes("%PDF paid"));
+
+        var result = await Service(delivery).RecordPaymentAsync(
+            document.ItemId, new RecordFinancialDocumentPaymentRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        renderer.Verify(r => r.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        document.Delivery.StorageId.Should().NotBe("old-pdf");
+        document.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Delivered);
+        document.Delivery.MailMessageId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_renderer_failure_still_returns_the_paid_document_and_keeps_the_old_pdf()
+    {
+        var document = await UnpaidWithStoredPdfAsync();
+        var (delivery, renderer) = RealDelivery();
+        renderer
+            .Setup(r => r.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("renderer down"));
+
+        var result = await Service(delivery).RecordPaymentAsync(
+            document.ItemId, new RecordFinancialDocumentPaymentRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PaymentStatus.Should().Be("Paid");
+        document.Delivery.StorageId.Should().Be("old-pdf");
+    }
+
+    [Fact]
+    public async Task A_payment_reference_over_200_characters_is_refused()
+    {
+        var document = await UnpaidAsync();
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = new string('x', 201) },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_request_invalid");
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        document.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Unpaid);
+    }
+
+    [Fact]
+    public async Task A_payment_dated_in_the_future_is_refused()
+    {
+        var document = await UnpaidAsync();
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { PaidAtUtc = Now.AddHours(1) },
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_request_invalid");
+        document.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Unpaid);
+    }
 
     private async Task<SubscriptionFinancialDocument> StoredAsync(
         string documentNumber,

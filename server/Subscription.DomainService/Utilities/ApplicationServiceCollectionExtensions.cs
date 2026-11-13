@@ -260,6 +260,7 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<PreviewUsageOverageRequest>,
             PreviewUsageOverageRequestValidator>();
         services.AddTransient<IValidator<CreditPurchaseRequest>, CreditPurchaseRequestValidator>();
+        services.AddTransient<IValidator<RecordFinancialDocumentPaymentRequest>, RecordFinancialDocumentPaymentRequestValidator>();
         services.AddTransient<IValidator<CreateMeterCatalogueEntryRequest>, CreateMeterCatalogueEntryRequestValidator>();
         services.AddTransient<IValidator<UpdateMeterCatalogueEntryRequest>, UpdateMeterCatalogueEntryRequestValidator>();
         services.AddTransient<IValidator<CreditOfferRequest>, CreditOfferRequestValidator>();

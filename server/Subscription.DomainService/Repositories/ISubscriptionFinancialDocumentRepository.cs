@@ -110,6 +110,23 @@ public interface ISubscriptionFinancialDocumentRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Replaces an already-stored PDF with a fresh render, leaving the mail fields and delivery state
+    /// untouched.
+    /// </summary>
+    /// <remarks>
+    /// Only for re-rendering after a payment is recorded, so the stored copy says Paid. Never used
+    /// for the first render, which stays permanent via <see cref="TryRecordPdfAsync"/>.
+    /// </remarks>
+    Task<bool> TryReplacePdfAsync(
+        string tenantId,
+        string documentId,
+        string storageId,
+        string contentHash,
+        long contentLength,
+        DateTime generatedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Records the intent to publish, before publishing.
     /// </summary>
     /// <remarks>

@@ -81,7 +81,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         {
             var render = document.Delivery.StorageId is { Length: > 0 } existingStorageId
                 ? RenderOutcome.AlreadyStored(existingStorageId)
-                : await RenderAndStoreAsync(document, trace, cancellationToken);
+                : await RenderAndStoreAsync(document, trace, replaceExisting: false, cancellationToken);
 
             if (render.StorageId is null)
             {
@@ -155,6 +155,42 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
         }
     }
 
+    public async Task<bool> RerenderStoredPdfAsync(
+        string tenantId,
+        string documentId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var document = await _documents.GetAsync(tenantId, documentId, cancellationToken);
+
+            // No PDF yet: the first render has not happened and will pick up the current status itself.
+            if (document?.Delivery.StorageId is not { Length: > 0 })
+            {
+                return false;
+            }
+
+            var render = await RenderAndStoreAsync(
+                document,
+                new DeliveryTrace(tenantId, document, null, document.Delivery.AttemptCount),
+                replaceExisting: true,
+                cancellationToken);
+
+            return render.StorageId is not null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "A financial document's PDF could not be re-rendered; the earlier copy stays " +
+                "TenantId={TenantId} DocumentId={DocumentId}",
+                PaymentLogValue.Id(tenantId),
+                PaymentLogValue.Label(documentId));
+
+            return false;
+        }
+    }
+
     public async Task<int> DeliverPendingAsync(string tenantId, CancellationToken cancellationToken)
     {
         var options = _options.Value;
@@ -207,6 +243,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
     private async Task<RenderOutcome> RenderAndStoreAsync(
         SubscriptionFinancialDocument document,
         DeliveryTrace trace,
+        bool replaceExisting,
         CancellationToken cancellationToken)
     {
         // Resolved first, and never allowed to fail this method: a missing or invalid logo falls
@@ -279,14 +316,23 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             return RenderOutcome.Failed("document_pdf_storage_failed");
         }
 
-        var recorded = await _documents.TryRecordPdfAsync(
-            document.TenantId,
-            document.ItemId,
-            storageId,
-            hash,
-            content.Length,
-            _time.GetUtcNow().UtcDateTime,
-            cancellationToken);
+        var recorded = replaceExisting
+            ? await _documents.TryReplacePdfAsync(
+                document.TenantId,
+                document.ItemId,
+                storageId,
+                hash,
+                content.Length,
+                _time.GetUtcNow().UtcDateTime,
+                cancellationToken)
+            : await _documents.TryRecordPdfAsync(
+                document.TenantId,
+                document.ItemId,
+                storageId,
+                hash,
+                content.Length,
+                _time.GetUtcNow().UtcDateTime,
+                cancellationToken);
 
         if (recorded)
         {

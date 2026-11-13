@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Options;
+﻿using FluentValidation;
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -8,6 +9,7 @@ using Subscription.DomainService.Requests;
 using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
+using Subscription.DomainService.Validators;
 
 namespace Subscription.DomainService.Services;
 
@@ -20,6 +22,8 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
     private readonly ISubscriptionFinancialDocumentRepository _documents;
     private readonly IFinancialDocumentFileStore _files;
     private readonly IOptions<PaymentOptions> _paymentOptions;
+    private readonly IValidator<RecordFinancialDocumentPaymentRequest> _paymentValidator;
+    private readonly ISubscriptionFinancialDocumentDeliveryService? _delivery;
     private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
 
@@ -28,13 +32,17 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
         ISubscriptionFinancialDocumentRepository documents,
         IFinancialDocumentFileStore files,
         IOptions<PaymentOptions> paymentOptions,
+        IValidator<RecordFinancialDocumentPaymentRequest> paymentValidator,
         ISubscriptionWorkScheduler? scheduler = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionFinancialDocumentDeliveryService? delivery = null)
     {
         _context = context;
         _documents = documents;
         _files = files;
         _paymentOptions = paymentOptions;
+        _paymentValidator = paymentValidator;
+        _delivery = delivery;
         _scheduler = scheduler;
         _time = time ?? TimeProvider.System;
     }
@@ -141,6 +149,21 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        var invalid = await SubscriptionValidation.CheckAsync<
+            RecordFinancialDocumentPaymentRequest,
+            SubscriptionFinancialDocumentResponse>(
+            _paymentValidator,
+            request,
+            "subscription_request_invalid",
+            "The payment is invalid.",
+            correlationId,
+            cancellationToken);
+
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+
         var resolution = await _context.ResolveAsync(
             correlationId,
             request.OrganizationId,
@@ -175,10 +198,12 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
 
         if (document.PaymentStatus == FinancialDocumentPaymentStatus.Unpaid)
         {
-            await _documents.TryRecordPaymentAsync(
+            var recorded = await _documents.TryRecordPaymentAsync(
                 context.TenantId,
                 documentId,
-                request.PaidAtUtc?.ToUniversalTime() ?? _time.GetUtcNow().UtcDateTime,
+                request.PaidAtUtc is { } paidAt
+                    ? RecordFinancialDocumentPaymentRequestValidator.AsUtc(paidAt)
+                    : _time.GetUtcNow().UtcDateTime,
                 request.Reference?.Trim(),
                 context.UserId,
                 cancellationToken);
@@ -187,6 +212,13 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
             // writer's, and the pre-read snapshot would still say Unpaid.
             document = await _documents.GetAsync(context.TenantId, documentId, cancellationToken)
                 ?? document;
+
+            // The stored PDF still says Unpaid. Replace it, quietly: no mail, and a renderer outage
+            // costs only a stale PDF -- the API and console already show Paid.
+            if (recorded && _delivery is not null)
+            {
+                await _delivery.RerenderStoredPdfAsync(context.TenantId, documentId, cancellationToken);
+            }
         }
 
         // Already paid, or paid by a concurrent call: the first recording stands.
