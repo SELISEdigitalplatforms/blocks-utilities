@@ -70,6 +70,7 @@ public interface ISubscriptionFinancialDocumentRepository
         string? subscriptionId,
         FinancialDocumentType? documentType,
         FinancialDocumentStatus? status,
+        FinancialDocumentPaymentStatus? paymentStatus,
         DateTime? issuedFromUtc,
         DateTime? issuedToUtc,
         int pageSize,

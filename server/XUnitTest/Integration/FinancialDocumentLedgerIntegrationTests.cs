@@ -372,7 +372,7 @@ public sealed class FinancialDocumentLedgerIntegrationTests
         }
 
         var page = await _documents.ListAsync(
-            tenantId, "org-1", null, null, null, null, null, 2, null, CancellationToken.None);
+            tenantId, "org-1", null, null, null, null, null, null, 2, null, CancellationToken.None);
 
         page.Items.Should().HaveCount(2);
         page.HasMore.Should().BeTrue();
@@ -380,7 +380,7 @@ public sealed class FinancialDocumentLedgerIntegrationTests
 
         var last = page.Items[^1];
         var next = await _documents.ListAsync(
-            tenantId, "org-1", null, null, null, null, null, 2,
+            tenantId, "org-1", null, null, null, null, null, null, 2,
             new FinancialDocumentCursor(last.IssuedAtUtc, last.ItemId),
             CancellationToken.None);
 

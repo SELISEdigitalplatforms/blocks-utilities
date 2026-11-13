@@ -18,6 +18,8 @@ public sealed class GetFinancialDocumentsRequest
 
     public FinancialDocumentStatus? Status { get; set; }
 
+    public FinancialDocumentPaymentStatus? PaymentStatus { get; set; }
+
     /// <summary>
     /// Inclusive bounds on the issue date. A tax year is the query this exists for, so both ends are
     /// inclusive rather than half-open.

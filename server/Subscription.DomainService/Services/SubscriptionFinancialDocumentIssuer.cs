@@ -1300,6 +1300,11 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
             OrganizationId = subscription.OrganizationId,
             SubscriptionId = subscription.ItemId,
             PaymentDetailId = paymentDetailId,
+            PaymentStatus = documentType == FinancialDocumentType.CreditNote
+                || paymentDetailId is { Length: > 0 }
+                || amounts.TotalMinor <= 0
+                    ? FinancialDocumentPaymentStatus.Paid
+                    : FinancialDocumentPaymentStatus.Unpaid,
             RefundId = refundId,
             SettlementReservationId = settlementReservationId,
             OriginalDocumentId = originalDocument?.ItemId,

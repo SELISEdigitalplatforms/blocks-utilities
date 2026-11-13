@@ -913,6 +913,80 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
+    public async Task An_invoice_backed_by_a_payment_is_issued_paid()
+    {
+        Subscribed();
+        SettledRenewal();
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Paid);
+    }
+
+    [Fact]
+    public async Task An_offline_invoice_with_an_amount_is_issued_unpaid()
+    {
+        var subscription = Subscribed();
+        subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForOfflineCharge(
+                subscription,
+                SubscriptionChargeKind.Renewal,
+                "2026-09",
+                new FinancialDocumentAmounts { GrossSubtotalMinor = 50_000, NetSubtotalMinor = 50_000, TotalMinor = 50_000 },
+                null,
+                SettledAt,
+                "corr-1"));
+
+        await Issuer().IssueForSubscriptionAsync(TenantId, SubscriptionId, "corr-1", CancellationToken.None);
+
+        _documents.Documents.Single().PaymentStatus.Should().Be(
+            FinancialDocumentPaymentStatus.Unpaid,
+            because: "nothing was collected and something is owed");
+    }
+
+    [Fact]
+    public async Task A_zero_amount_document_is_issued_paid()
+    {
+        var subscription = Subscribed();
+        subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForOfflineCharge(
+                subscription,
+                SubscriptionChargeKind.Renewal,
+                "2026-09",
+                new FinancialDocumentAmounts(),
+                null,
+                SettledAt,
+                "corr-1"));
+
+        await Issuer().IssueForSubscriptionAsync(TenantId, SubscriptionId, "corr-1", CancellationToken.None);
+
+        _documents.Documents.Single().PaymentStatus.Should().Be(
+            FinancialDocumentPaymentStatus.Paid,
+            because: "there is nothing to pay");
+    }
+
+    [Fact]
+    public async Task A_credit_note_is_always_paid()
+    {
+        Subscribed();
+        SettledRenewal();
+        var issuer = Issuer();
+        await issuer.IssueDocumentForPaymentAsync(TenantId, "pay-1", "corr-1", CancellationToken.None);
+        RefundedBy(959.30m, PaymentStatuses.Refunded, refundedTotal: 959.30m);
+
+        var creditNote = await issuer.IssueRefundCreditNoteAsync(
+            TenantId, "pay-1", "refund-1", "corr-2", CancellationToken.None);
+
+        creditNote!.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Paid);
+    }
+
+    [Fact]
     public async Task A_no_price_renewal_is_issued_as_a_service_statement_with_no_amounts()
     {
         var subscription = Subscribed();

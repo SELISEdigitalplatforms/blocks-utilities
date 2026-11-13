@@ -81,6 +81,7 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         string? subscriptionId,
         FinancialDocumentType? documentType,
         FinancialDocumentStatus? status,
+        FinancialDocumentPaymentStatus? paymentStatus,
         DateTime? issuedFromUtc,
         DateTime? issuedToUtc,
         int pageSize,
@@ -94,6 +95,9 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
             .Where(item => subscriptionId is not null || !standaloneCreditsOnly || item.SubscriptionId.Length == 0)
             .Where(item => documentType is null || item.DocumentType == documentType)
             .Where(item => status is null || item.Status == status)
+            .Where(item => paymentStatus is null ||
+                (paymentStatus == FinancialDocumentPaymentStatus.Unpaid) ==
+                (item.PaymentStatus == FinancialDocumentPaymentStatus.Unpaid))
             .Where(item => issuedFromUtc is null || item.IssuedAtUtc >= issuedFromUtc)
             .Where(item => issuedToUtc is null || item.IssuedAtUtc <= issuedToUtc)
             .OrderByDescending(item => item.IssuedAtUtc)

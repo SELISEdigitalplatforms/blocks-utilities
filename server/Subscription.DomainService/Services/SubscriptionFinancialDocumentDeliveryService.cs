@@ -503,6 +503,7 @@ public sealed class SubscriptionFinancialDocumentDeliveryService :
             ["MessageId"] = messageId,
             ["DocumentNumber"] = document.DocumentNumber,
             ["DocumentType"] = document.DocumentType.ToString(),
+            ["PaymentStatus"] = document.PaymentStatus.ToString(),
             ["OrganizationName"] = document.Subscriber.LegalName,
             ["ContactName"] = document.BillingContact.Name,
             ["PlanName"] = document.Subject.PlanName,

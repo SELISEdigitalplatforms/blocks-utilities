@@ -39,6 +39,14 @@ public sealed class SubscriptionFinancialDocument
 
     public FinancialDocumentStatus Status { get; set; } = FinancialDocumentStatus.Issued;
 
+    public FinancialDocumentPaymentStatus PaymentStatus { get; set; } = FinancialDocumentPaymentStatus.Paid;
+
+    public DateTime? PaidAtUtc { get; set; }
+
+    public string? PaymentReference { get; set; }
+
+    public string? PaymentRecordedByUserId { get; set; }
+
     /// <summary>
     /// When the document was issued, which is when the money moved rather than when this row was
     /// written.

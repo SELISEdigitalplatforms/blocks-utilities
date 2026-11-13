@@ -119,6 +119,7 @@ public sealed class SubscriptionFinancialDocumentRepository :
         string? subscriptionId,
         FinancialDocumentType? documentType,
         FinancialDocumentStatus? status,
+        FinancialDocumentPaymentStatus? paymentStatus,
         DateTime? issuedFromUtc,
         DateTime? issuedToUtc,
         int pageSize,
@@ -152,6 +153,14 @@ public sealed class SubscriptionFinancialDocumentRepository :
         if (status is { } documentStatus)
         {
             filters.Add(builder.Eq(document => document.Status, documentStatus));
+        }
+
+        if (paymentStatus is { } payment)
+        {
+            // Paid is "not Unpaid": a document stored before the field existed has no value at all.
+            filters.Add(payment == FinancialDocumentPaymentStatus.Unpaid
+                ? builder.Eq(document => document.PaymentStatus, FinancialDocumentPaymentStatus.Unpaid)
+                : builder.Ne(document => document.PaymentStatus, FinancialDocumentPaymentStatus.Unpaid));
         }
 
         if (issuedFromUtc is { } from)

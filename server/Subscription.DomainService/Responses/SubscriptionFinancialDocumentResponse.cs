@@ -34,6 +34,14 @@ public sealed class SubscriptionFinancialDocumentResponse
 
     public string Status { get; init; } = string.Empty;
 
+    public string PaymentStatus { get; init; } = string.Empty;
+
+    public DateTime? PaidAtUtc { get; init; }
+
+    public string? PaymentReference { get; init; }
+
+    public string OrganizationId { get; init; } = string.Empty;
+
     /// <summary>
     /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for a record of what is owed under a bank
     /// transfer contract (spec 006). The status alone cannot tell a reader which: an offline record
