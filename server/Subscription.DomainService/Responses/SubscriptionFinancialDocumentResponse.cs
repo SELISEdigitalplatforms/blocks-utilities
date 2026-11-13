@@ -44,8 +44,8 @@ public sealed class SubscriptionFinancialDocumentResponse
 
     /// <summary>
     /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for an invoice-billed subscription. The
-    /// status alone cannot tell a reader which, and neither says whether money arrived:
-    /// <c>PaymentStatus</c> answers whether the invoice is paid.
+    /// status alone cannot tell a reader which. This field says how the subscription is collected;
+    /// <c>PaymentStatus</c> says whether this document was paid.
     /// </summary>
     public string CollectionMethod { get; init; } = string.Empty;
 

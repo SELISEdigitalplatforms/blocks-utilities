@@ -259,7 +259,7 @@ public sealed partial class SubscriptionCreditService
 
         // An invoice-billed organization is not sold credits (a purchase is a gateway charge),
         // so a card on its billing account is never charged for them. Checked on the live
-        // subscription, the one the contract is; a tenant admin's free grant does not come here.
+        // subscription, the live one; a tenant admin's free grant does not come here.
         if (await _subscriptions.GetLiveAsync(
                 context.TenantId, context.OrganizationId, Now(), cancellationToken) is { IsOffline: true })
         {

@@ -63,7 +63,7 @@ Decided in conversation on 2026-11-13.
 ### 2. Lifecycle: the ordinary path, with the charge skipped
 
 - Renewal, plan change, quantity change and usage rating keep their existing `IsOffline` branches that skip the gateway and record the outcome without a charge. Those already exist; they are kept, not rebuilt.
-- Every branch that **refuses** an action for an offline subscription is removed: credit purchases (`SubscriptionCreditService`, `subscription_offline_collection`), the operator-only plan change and re-price routes (`PUT /offline/plan`, `PUT /offline/pricing`), and the "console can withdraw a change it scheduled" rule from #790. An offline customer's own admins change plan and quantities through the ordinary routes, like anyone else (decided 2026-11-13): the change issues a bigger Unpaid invoice and no card is involved. They can only ever make themselves owe more, never get more for free.
+- Every branch that **refuses** an action for an offline subscription is removed (the credit-purchase refusal stays, see below): the operator-only plan change and re-price routes (`PUT /offline/plan`, `PUT /offline/pricing`), and the "console can withdraw a change it scheduled" rule from #790. An offline customer's own admins change plan and quantities through the ordinary routes, like anyone else (decided 2026-11-13): the change issues a bigger Unpaid invoice and no card is involved. They can only ever make themselves owe more, never get more for free.
 - Credit purchases by an offline customer: the builder checks whether a card-less purchase can be invoiced Unpaid through the same path. If it cannot be done within this change, credit purchase for offline customers stays refused and the design doc is updated to say so. (Anti-goal remains: no new offline-specific product.)
   - **Decision: credit purchase stays refused for offline customers.** A credit purchase is a gateway charge with a settlement floor; invoicing credits Unpaid would be a new product path, which the anti-goal rules out.
 - Renewal never consults payment state. There is no dunning for offline subscriptions; renewal of an offline subscription always succeeds on schedule.
@@ -91,7 +91,7 @@ Decided in conversation on 2026-11-13.
 
 ### 6. Deletion list
 
-Server: `OfflinePricing`, `OfflinePricingMode`, `OfflineSubscriptionTerms`, `ActivateOfflineSubscriptionRequest`, `OfflineSubscriptionChangeRequests`, `ServiceStatement` type and `STM` sequence, `PUT /offline/plan`, `PUT /offline/pricing`, `PendingPlanChange.ScheduledByOperator`, the credit-purchase refusal, the console-only checks, the `OfflinePricingMode` column of the subscription revenue report (the `CollectionMethod` filter stays), and their tests. Client: the files listed under "Offline" in `client/app` that exist only for the page and the pricing modes, `offline-billing.spec.ts` in e2e. Docs: spec 006 README gets a note pointing here.
+Server: `OfflinePricing`, `OfflinePricingMode`, `OfflineSubscriptionTerms`, `ActivateOfflineSubscriptionRequest`, `OfflineSubscriptionChangeRequests`, `ServiceStatement` type and `STM` sequence, `PUT /offline/plan`, `PUT /offline/pricing`, `PendingPlanChange.ScheduledByOperator`, the console-only checks, the `OfflinePricingMode` column of the subscription revenue report (the `CollectionMethod` filter stays), and their tests. Client: the files listed under "Offline" in `client/app` that exist only for the page and the pricing modes, `offline-billing.spec.ts` in e2e. Docs: spec 006 README gets a note pointing here.
 
 ### 7. Rollout
 

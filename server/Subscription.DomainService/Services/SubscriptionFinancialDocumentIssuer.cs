@@ -929,8 +929,8 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
             terms,
             correlationId,
             paymentDetailId: null,
-            // Null for an opening period or a renewal; an offline plan or quantity change (spec
-            // 006) carries its two-sided breakdown so the invoice explains the proration the way a
+            // Null for an opening period or a renewal; an invoice-billed plan or quantity change
+            // carries its two-sided breakdown so the invoice explains the proration the way a
             // card settlement's does.
             settlement: source.Settlement,
             initiatedBy: source.InitiatedBy,
