@@ -251,7 +251,7 @@ export const SubscribeDialog = ({
         <DialogHeader>
           <DialogTitle>{t("SUBSCRIBE_DIALOG.SUBSCRIBE_TO", { displayName: plan.displayName })}</DialogTitle>
           <DialogDescription>
-            {t("SUBSCRIBE_DIALOG.SENDS_EXACTLY", { endpoint: "POST /api/subscriptions" })}
+            {t("SUBSCRIBE_DIALOG.SENDS_EXACTLY", { endpoint: offline ? "POST /api/subscriptions/offline" : "POST /api/subscriptions" })}
           </DialogDescription>
         </DialogHeader>
 
