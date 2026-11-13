@@ -2,6 +2,7 @@ import { AlertTriangle, Info, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
+import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +73,7 @@ export const SubscribeDialog = ({
     ),
   );
   const [discountCode, setDiscountCode] = useState("");
+  const [offline, setOffline] = useState(false);
   const [quote, setQuote] = useState<SubscriptionPurchasePreview | null>(null);
   // A rejected code is not an error here -- the quote beside it is the same subscription priced
   // without the code, and is still worth showing. Only the notice tells the subscriber why.
@@ -188,7 +190,7 @@ export const SubscribeDialog = ({
     setFormError(null);
 
     try {
-      const subscription = await subscribe.mutateAsync(parsed.request);
+      const subscription = await subscribe.mutateAsync({ request: parsed.request, offline });
 
       toast({
         variant: "success",
@@ -240,6 +242,7 @@ export const SubscribeDialog = ({
       open={open}
       onOpenChange={(next) => {
         if (!busy) {
+          if (!next) setOffline(false);
           onOpenChange(next);
         }
       }}
@@ -306,6 +309,15 @@ export const SubscribeDialog = ({
                 <span>{t("SUBSCRIBE_DIALOG.THE_PRICE_BELOW_EXCLUDES_IT", { discountNotice })}</span>
               </p>
             ) : null}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="subscribe-offline"
+              checked={offline}
+              onCheckedChange={(checked) => setOffline(checked === true)}
+            />
+            <Label htmlFor="subscribe-offline">{t("SUBSCRIBE_DIALOG.OFFLINE_CHECKBOX")}</Label>
           </div>
 
           {profileGap && (

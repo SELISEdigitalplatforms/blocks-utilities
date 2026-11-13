@@ -17,8 +17,6 @@ export const describeDocumentType = (documentType: string): string => {
       return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_TRIAL_INVOICE");
     case "CreditNote":
       return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_CREDIT_NOTE");
-    case "ServiceStatement":
-      return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_SERVICE_STATEMENT");
     default:
       return tSubscription("FINANCIAL_DOCUMENT_FORMAT.TYPE_INVOICE");
   }
@@ -41,12 +39,8 @@ export const describeDocumentStatus = (
     return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_CREDITED");
   }
 
-  // Spec 006: nothing was collected on either. A statement names no amount at all, and a record
-  // invoice is settled by bank transfer outside Utilities, which never learns whether it was paid.
-  if (document.documentType === "ServiceStatement") {
-    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_PRICED_UNDER_CONTRACT");
-  }
-
+  // Spec 006: a record invoice is settled by bank transfer outside Utilities, which never learns
+  // whether it was paid.
   if (document.collectionMethod === "OfflineInvoice") {
     return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_PAYABLE_BY_BANK_TRANSFER");
   }

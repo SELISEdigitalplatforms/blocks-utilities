@@ -139,12 +139,9 @@ export const DocumentRow = ({
         </div>
 
         <div className="flex items-center gap-3">
-          {/* A statement states no amount; a zero here would read as "free". */}
-          {document.documentType !== "ServiceStatement" && (
-            <span className="whitespace-nowrap text-lg font-semibold">
-              {formatMoney(document.amounts.totalMinor, document.currencyCode)}
-            </span>
-          )}
+          <span className="whitespace-nowrap text-lg font-semibold">
+            {formatMoney(document.amounts.totalMinor, document.currencyCode)}
+          </span>
           <Button variant="ghost" size="sm" onClick={() => setOpen((value) => !value)}>
             {open ? t("INVOICES_PAGE.HIDE_DETAIL") : t("INVOICES_PAGE.SHOW_DETAIL")}
           </Button>
@@ -286,28 +283,26 @@ export const DocumentRow = ({
             </div>
           )}
 
-          {document.documentType !== "ServiceStatement" && (
-            <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {t("INVOICES_PAGE.AMOUNTS")}
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("INVOICES_PAGE.AMOUNTS")}
+            </p>
+            <table className="w-full max-w-sm text-sm">
+              <tbody>
+                {documentAmountRows(document.amounts, document.currencyCode).map((row) => (
+                  <tr key={row.label} className={row.isTotal ? "border-t font-medium" : undefined}>
+                    <td className="py-1 pr-6 text-muted-foreground">{row.label}</td>
+                    <td className="py-1 text-right">{row.amount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!amountsReconcile(document.amounts) && (
+              <p className="mt-2 text-xs text-amber-700" data-testid="amounts-warning">
+                {t("INVOICES_PAGE.AMOUNTS_WARNING")}
               </p>
-              <table className="w-full max-w-sm text-sm">
-                <tbody>
-                  {documentAmountRows(document.amounts, document.currencyCode).map((row) => (
-                    <tr key={row.label} className={row.isTotal ? "border-t font-medium" : undefined}>
-                      <td className="py-1 pr-6 text-muted-foreground">{row.label}</td>
-                      <td className="py-1 text-right">{row.amount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!amountsReconcile(document.amounts) && (
-                <p className="mt-2 text-xs text-amber-700" data-testid="amounts-warning">
-                  {t("INVOICES_PAGE.AMOUNTS_WARNING")}
-                </p>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
             <p>

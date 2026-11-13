@@ -179,12 +179,9 @@ describe("document type and status", () => {
       .toBe("Refunded in full");
   });
 
-  it("never calls a bank transfer record invoice or a service statement paid (spec 006)", () => {
-    // Both are Issued, like a paid card invoice, yet nothing was collected on either: Utilities
-    // never learns whether a bank transfer arrived, and a statement names no amount at all.
-    expect(describeDocumentType("ServiceStatement")).toBe("Service statement");
-    expect(describeDocumentStatus({ documentType: "ServiceStatement", status: "Issued" }))
-      .toBe("Priced under contract");
+  it("never calls a bank transfer record invoice paid (spec 006)", () => {
+    // Issued like a paid card invoice, yet nothing was collected: Utilities never learns whether
+    // a bank transfer arrived.
     expect(
       describeDocumentStatus({ documentType: "Invoice", status: "Issued", collectionMethod: "OfflineInvoice" }),
     ).toBe("Payable by bank transfer");

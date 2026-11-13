@@ -6,8 +6,8 @@ export const useSubscribeToPlan = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (request: SubscribeToPlanRequest) =>
-      subscriptionSimulationService.subscribe(request),
+    mutationFn: ({ request, offline }: { request: SubscribeToPlanRequest; offline: boolean }) =>
+      subscriptionSimulationService.subscribe(request, offline),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["subscription-simulation-current"] }),
   });

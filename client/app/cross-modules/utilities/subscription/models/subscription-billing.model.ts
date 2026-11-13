@@ -122,8 +122,7 @@ export interface UpdateMerchantProfileRequest {
   paymentProviderName: SubscriptionPaymentProviderName;
 }
 
-/** `ServiceStatement`: a no-price offline subscription's record, which states no amounts (spec 006). */
-export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote" | "ServiceStatement";
+export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote";
 
 export type FinancialDocumentStatus = "Issued" | "PartiallyRefunded" | "Refunded";
 
