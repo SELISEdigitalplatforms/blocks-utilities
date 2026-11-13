@@ -179,15 +179,11 @@ describe("document type and status", () => {
       .toBe("Refunded in full");
   });
 
-  it("never calls a bank transfer record invoice paid (spec 006)", () => {
-    // Issued like a paid card invoice, yet nothing was collected: Utilities never learns whether
-    // a bank transfer arrived.
-    expect(
-      describeDocumentStatus({ documentType: "Invoice", status: "Issued", collectionMethod: "OfflineInvoice" }),
-    ).toBe("Payable by bank transfer");
-    expect(
-      describeDocumentStatus({ documentType: "Invoice", status: "Issued", collectionMethod: "AutomaticCharge" }),
-    ).toBe("Paid");
+  it("reports an unpaid invoice as unpaid and a paid one as paid", () => {
+    const invoice = { documentType: "Invoice", status: "Issued" } as const;
+
+    expect(describeDocumentStatus({ ...invoice, paymentStatus: "Unpaid" })).toBe("Unpaid");
+    expect(describeDocumentStatus({ ...invoice, paymentStatus: "Paid" })).toBe("Paid");
   });
 });
 

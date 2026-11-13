@@ -124,6 +124,8 @@ export interface UpdateMerchantProfileRequest {
 
 export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote";
 
+export type FinancialDocumentPaymentStatus = "Paid" | "Unpaid";
+
 export type FinancialDocumentStatus = "Issued" | "PartiallyRefunded" | "Refunded";
 
 /**
@@ -194,11 +196,11 @@ export interface SubscriptionFinancialDocument {
   documentNumber: string;
   documentType: FinancialDocumentType;
   status: FinancialDocumentStatus;
-  /**
-   * `OfflineInvoice` for a record of what is owed under a bank transfer contract (spec 006): Issued
-   * like a paid card invoice, though nothing was collected. Absent from an older server.
-   */
-  collectionMethod?: "AutomaticCharge" | "OfflineInvoice";
+  paymentStatus: FinancialDocumentPaymentStatus;
+  paidAtUtc?: string | null;
+  paymentReference?: string | null;
+  organizationId: string;
+  collectionMethod?: "AutomaticCharge";
   issuedAtUtc: string;
   subscriptionId: string;
   currencyCode: string;
@@ -272,6 +274,7 @@ export interface FinancialDocumentQuery {
   subscriptionId?: string | null;
   documentType?: FinancialDocumentType | null;
   status?: FinancialDocumentStatus | null;
+  paymentStatus?: FinancialDocumentPaymentStatus | null;
   issuedFromUtc?: string | null;
   issuedToUtc?: string | null;
   organizationId?: string;

@@ -29,7 +29,7 @@ export const describeDocumentType = (documentType: string): string => {
  * other way. Saying "Paid" on either would be wrong in a way somebody would eventually act on.
  */
 export const describeDocumentStatus = (
-  document: Pick<SubscriptionFinancialDocument, "documentType" | "status" | "collectionMethod">,
+  document: Pick<SubscriptionFinancialDocument, "documentType" | "status" | "paymentStatus">,
 ): string => {
   if (document.documentType === "TrialInvoice") {
     return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_NO_PAYMENT_DUE");
@@ -39,10 +39,8 @@ export const describeDocumentStatus = (
     return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_CREDITED");
   }
 
-  // Spec 006: a record invoice is settled by bank transfer outside Utilities, which never learns
-  // whether it was paid.
-  if (document.collectionMethod === "OfflineInvoice") {
-    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_PAYABLE_BY_BANK_TRANSFER");
+  if (document.paymentStatus === "Unpaid") {
+    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_UNPAID");
   }
 
   switch (document.status) {
