@@ -7,7 +7,11 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Payment.DomainService.Requests;
+using Payment.DomainService.Responses;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
@@ -15,12 +19,12 @@ using Subscription.DomainService.Validators;
 namespace XUnitTest.Subscription.Offline;
 
 /// <summary>
-/// An operator activating a paid plan for a bank-transfer customer (spec 006).
+/// The ordinary subscribe with <c>offline: true</c> (spec 006).
 /// </summary>
 /// <remarks>
-/// Guards the one route that grants a paid plan without taking money: that only the console can
-/// use it, that it never reaches a card or a checkout, that the subscription is live at once, and
-/// that the opening period leaves a record invoice behind for the customer's own billing.
+/// Guards the route that grants a paid plan without taking money: that it never reaches a card or
+/// a checkout, that the subscription is live at once, and that the opening period leaves a record
+/// invoice behind. The permission, not the service, is the gate.
 /// </remarks>
 public sealed class OfflineActivationTests
 {
@@ -38,7 +42,6 @@ public sealed class OfflineActivationTests
 
     private SubscriptionDetail _subscription = OfflineSubscription();
     private SubscriptionTransition? _transition;
-    private bool _callerIsConsole = true;
 
     public OfflineActivationTests()
     {
@@ -51,18 +54,15 @@ public sealed class OfflineActivationTests
             .Setup(resolver => resolver.ResolveAsync(
                 It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => SubscriptionContextResolution.Resolved(
-                new SubscriptionContext(TenantId, OrganizationId, "actor-1", "operator-1", "Operator")
-                {
-                    CallerIsConsole = _callerIsConsole
-                }));
+                new SubscriptionContext(TenantId, OrganizationId, "actor-1", "operator-1", "Operator")));
 
         _creation
-            .Setup(service => service.CreateOfflineAsync(
+            .Setup(service => service.CreateAsync(
                 It.IsAny<CreateSubscriptionRequest>(),
-                It.IsAny<OfflinePricing>(),
                 It.IsAny<SubscriptionContext>(),
                 It.IsAny<string>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<bool>()))
             .ReturnsAsync(() => SubscriptionOperationResult<SubscriptionDetail>.Success(
                 _subscription, "corr-1"));
 
@@ -78,96 +78,91 @@ public sealed class OfflineActivationTests
     }
 
     [Fact]
-    public async Task A_console_operator_activates_a_paid_plan_with_no_card_and_no_checkout()
+    public async Task An_offline_activation_is_live_at_once_and_returns_no_checkout_url()
     {
-        var result = await Service().ActivateOfflineAsync(Request(), "corr-1", CancellationToken.None);
+        var result = await Subscribe(offline: true);
 
         result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
         result.Value!.CheckoutUrl.Should().BeNull(because: "a bank-transfer customer is never sent to pay");
-        result.Value.Status.Should().Be(nameof(SubscriptionStatus.Active));
         result.Value.CollectionMethod.Should().Be(nameof(SubscriptionCollectionMethod.OfflineInvoice));
-        _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Incomplete);
-        _transition.NewStatus.Should().Be(
+        _transition!.NewStatus.Should().Be(
             SubscriptionStatus.Active,
             because: "the plan is switched on at once; payment arrives later by bank transfer");
+    }
+
+    [Fact]
+    public async Task An_offline_activation_never_reaches_the_gateway()
+    {
+        await Subscribe(offline: true);
+
         _payments.VerifyNoOtherCalls();
         _setups.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task The_opening_period_records_its_invoice_in_the_activating_write()
+    public async Task An_offline_activation_never_opens_a_card_setup_session()
     {
-        await Service().ActivateOfflineAsync(Request(), "corr-1", CancellationToken.None);
+        _subscription.InitialChargeAmountMinor = 0;
+        _subscription.Plan.RequirePaymentMethodUpfront = true;
+        SubscriptionAmountCalculator.RequiresCardSetup(_subscription).Should().BeTrue(
+            because: "the premise: this subscription would ask a card customer for a card");
+
+        var result = await Subscribe(offline: true);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+        _setups.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task An_offline_opening_period_leaves_an_unpaid_record_invoice_source()
+    {
+        await Subscribe(offline: true);
 
         var source = _transition!.DocumentSource;
 
         source.Should().NotBeNull(
             because: "the customer is invoiced for the first period too, and nothing else would " +
                 "ever rediscover an invoice no payment stands behind");
-        source!.ChargeKind.Should().Be(SubscriptionChargeKind.Initial);
+        source!.DocumentType.Should().Be(FinancialDocumentType.Invoice);
         source.PaymentDetailId.Should().BeNull();
         source.Amounts!.TotalMinor.Should().Be(8_900);
-        source.InitiatedBy!.UserId.Should().Be(
-            "operator-1",
-            because: "the operator activated it, and the record should say who did");
-        _documents.Verify(
-            documents => documents.RequestPendingAsync(_subscription, "corr-1", It.IsAny<CancellationToken>()),
-            Times.Once);
     }
 
     [Fact]
-    public async Task A_caller_who_is_not_the_console_cannot_activate_an_offline_subscription()
+    public async Task A_card_activation_still_goes_to_checkout()
     {
-        _callerIsConsole = false;
-
-        var result = await Service().ActivateOfflineAsync(Request(), "corr-1", CancellationToken.None);
-
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be(
-            "subscription_offline_console_only",
-            because: "an organization admin reaching this route would otherwise put their own " +
-                "organization on a paid plan without paying");
-        _creation.Verify(
-            service => service.CreateOfflineAsync(
-                It.IsAny<CreateSubscriptionRequest>(),
-                It.IsAny<OfflinePricing>(),
-                It.IsAny<SubscriptionContext>(),
+        _subscription.CollectionMethod = SubscriptionCollectionMethod.AutomaticCharge;
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
+        decimal ignored;
+        _currency
+            .Setup(currency => currency.TryConvertBack(8_900, "CHF", out ignored))
+            .Returns(true);
+        _payments
+            .Setup(payments => payments.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(),
                 It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Success(
+                new PaymentResponse
+                {
+                    PaymentDetailId = "pay-1",
+                    RedirectUrl = "https://pay.example/checkout"
+                },
+                "corr-1"));
+
+        var result = await Subscribe(offline: false);
+
+        result.Value!.CheckoutUrl.Should().NotBeNull();
+        _payments.Verify(
+            payments => payments.MakePaymentAsync(
+                It.IsAny<MakePaymentRequest>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public async Task Contract_pricing_without_an_amount_is_refused_before_anything_is_created()
-    {
-        var request = Request();
-        request.Pricing = new OfflinePricingRequest { Mode = OfflinePricingMode.Contract };
-
-        var result = await Service().ActivateOfflineAsync(request, "corr-1", CancellationToken.None);
-
-        result.ErrorCode.Should().Be("subscription_request_invalid");
-        _subscriptions.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task A_no_price_activation_records_a_service_statement_rather_than_an_invoice()
-    {
-        _subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
-        OfflineSubscriptionTerms.ApplyNoPrice(_subscription.Price, _subscription.QuantityItems);
-        _subscription.InitialChargeAmountMinor = 0;
-        var request = Request();
-        request.Pricing = new OfflinePricingRequest { Mode = OfflinePricingMode.None };
-
-        var result = await Service().ActivateOfflineAsync(request, "corr-1", CancellationToken.None);
-
-        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
-        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
-        _transition.DocumentSource!.DocumentType.Should().Be(
-            FinancialDocumentType.ServiceStatement,
-            because: "the price was agreed outside Utilities, so an invoice would state a figure " +
-                "nobody agreed, and a zero figure is not owed at all, yet the customer still needs " +
-                "a record that the plan started");
-        _transition.DocumentSource.ChargeKind.Should().Be(SubscriptionChargeKind.Initial);
+            Times.Once);
     }
 
     [Fact]
@@ -179,7 +174,7 @@ public sealed class OfflineActivationTests
             EndsAtUtc = DateTime.UtcNow.AddDays(14)
         };
 
-        await Service().ActivateOfflineAsync(Request(), "corr-1", CancellationToken.None);
+        await Subscribe(offline: true);
 
         _transition!.NewStatus.Should().Be(SubscriptionStatus.Trialing);
         _transition.DocumentSource.Should().BeNull(
@@ -204,6 +199,9 @@ public sealed class OfflineActivationTests
         _setups.VerifyNoOtherCalls();
     }
 
+    private Task<SubscriptionOperationResult<SubscriptionResponse>> Subscribe(bool offline) =>
+        Service().SubscribeAsync(Request(), "corr-1", CancellationToken.None, offline);
+
     private SubscriptionCheckoutService Service() => new(
         _creation.Object,
         _subscriptions.Object,
@@ -217,16 +215,14 @@ public sealed class OfflineActivationTests
         _currency.Object,
         _billingAccounts.Object,
         NullLogger<SubscriptionCheckoutService>.Instance,
-        documents: _documents.Object,
-        offlineValidator: new ActivateOfflineSubscriptionRequestValidator(_currency.Object));
+        documents: _documents.Object);
 
-    private static ActivateOfflineSubscriptionRequest Request() => new()
+    private static CreateSubscriptionRequest Request() => new()
     {
         OrganizationId = OrganizationId,
         PlanCode = "professional",
         PriceId = "price-monthly",
-        TimeZoneId = "UTC",
-        Pricing = new OfflinePricingRequest { Mode = OfflinePricingMode.Catalogue }
+        TimeZoneId = "UTC"
     };
 
     private static SubscriptionDetail OfflineSubscription()
@@ -240,8 +236,7 @@ public sealed class OfflineActivationTests
             OrganizationId = OrganizationId,
             Status = SubscriptionStatus.Incomplete,
             CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice,
-            OfflinePricing = new OfflinePricing { Mode = OfflinePricingMode.Catalogue },
-            ActivatedBy = new FinancialDocumentPerson { UserId = "operator-1", Name = "Operator" },
+            PurchasedBy = new FinancialDocumentPerson { UserId = "operator-1", Name = "Operator" },
             CurrencyCode = "CHF",
             OrderId = SubscriptionConstants.OrderIdFor(id),
             Plan = new PlanSnapshot { Code = "professional", DisplayName = "Professional" },

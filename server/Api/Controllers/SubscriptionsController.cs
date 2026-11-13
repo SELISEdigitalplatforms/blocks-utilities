@@ -143,12 +143,7 @@ public sealed class SubscriptionsController : ControllerBase
     /// checkout. Spec 006.
     /// </summary>
     /// <remarks>
-    /// Same permission as an ordinary subscribe, <c>subscription::manage</c>. What keeps an
-    /// organization from granting itself a paid plan without paying is the service, not the
-    /// permission: it refuses any caller but the platform console
-    /// (<c>subscription_offline_console_only</c>). The subscription is never charged; each period it renews on schedule and issues a
-    /// record invoice marked "Payable by bank transfer". The organization's billing profile must be
-    /// complete, because every one of those invoices is addressed to it.
+    /// Same request as Subscribe; the route is the option, the permission is the gate.
     /// </remarks>
     [HttpPost("offline")]
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
@@ -157,19 +152,20 @@ public sealed class SubscriptionsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProtectedEndPoint("blocks-utilities::subscription::manage")]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage-offline")]
     public async Task<IActionResult> ActivateOffline(
-        [FromBody] ActivateOfflineSubscriptionRequest request,
+        [FromBody] CreateSubscriptionRequest request,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _checkout.ActivateOfflineAsync(
+        var result = await _checkout.SubscribeAsync(
             request,
             correlationId,
-            cancellationToken);
+            cancellationToken,
+            offline: true);
 
         await AuditAsync("ActivateOffline", request.OrganizationId, result.Value?.SubscriptionId,
             result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,

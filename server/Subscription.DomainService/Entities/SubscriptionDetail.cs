@@ -68,16 +68,6 @@ public sealed class SubscriptionDetail
     /// </summary>
     public OfflinePricing? OfflinePricing { get; set; }
 
-    /// <summary>
-    /// The operator who activated an offline subscription on the organization's behalf.
-    /// </summary>
-    /// <remarks>
-    /// Kept apart from <see cref="PurchasedBy"/>, which stays null for an offline activation: the
-    /// operator bought nothing, and the documents and the one-trial rule that read the buyer must
-    /// not name someone from the console as the customer.
-    /// </remarks>
-    public FinancialDocumentPerson? ActivatedBy { get; set; }
-
     /// <summary>Whether this subscription is billed outside Utilities and must never be charged.</summary>
     [BsonIgnore]
     public bool IsOffline => CollectionMethod == SubscriptionCollectionMethod.OfflineInvoice;

@@ -30,10 +30,6 @@ public static class OfflineSubscriptionTerms
             ContractCurrencyCode = pricing.ContractCurrencyCode?.Trim().ToUpperInvariant()
         };
 
-        // The operator activated it; nobody bought it. See SubscriptionDetail.ActivatedBy.
-        subscription.ActivatedBy = subscription.PurchasedBy;
-        subscription.PurchasedBy = null;
-
         if (pricing.Mode == OfflinePricingMode.Contract)
         {
             subscription.CurrencyCode = subscription.OfflinePricing.ContractCurrencyCode!;

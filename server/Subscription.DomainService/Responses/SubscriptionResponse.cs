@@ -40,12 +40,6 @@ public sealed class SubscriptionResponse
     /// <summary>See <see cref="PendingOfflinePricingMode"/>; <c>Contract</c> pricing only.</summary>
     public long? PendingContractAmountMinor { get; init; }
 
-    /// <summary>The operator who activated an offline subscription. Null for every other one.</summary>
-    public string? ActivatedByUserId { get; init; }
-
-    /// <summary>See <see cref="ActivatedByUserId"/>.</summary>
-    public string? ActivatedByName { get; init; }
-
     public string Status { get; init; } = string.Empty;
 
     public string PlanCode { get; init; } = string.Empty;

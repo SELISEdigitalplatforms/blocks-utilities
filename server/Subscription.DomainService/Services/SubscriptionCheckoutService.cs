@@ -59,10 +59,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         // constructs this service unaware the usage projection exists must keep compiling and
         // keep behaving as before.
         IUsageProjectionReconciler? usageProjections = null,
-        ITrialUsageRepository? trialUsages = null,
-        IValidator<ActivateOfflineSubscriptionRequest>? offlineValidator = null)
+        ITrialUsageRepository? trialUsages = null)
     {
-        _offlineValidator = offlineValidator;
         _trialUsages = trialUsages;
         _creation = creation;
         _subscriptions = subscriptions;
@@ -91,85 +89,6 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     private readonly ITrialUsageRepository? _trialUsages;
 
     /// <summary>
-    /// Optional so existing callers compile unchanged. Absent, offline activation is refused rather
-    /// than run unvalidated: it is the one path that grants a paid plan without taking money.
-    /// </summary>
-    private readonly IValidator<ActivateOfflineSubscriptionRequest>? _offlineValidator;
-
-    public async Task<SubscriptionOperationResult<SubscriptionResponse>> ActivateOfflineAsync(
-        ActivateOfflineSubscriptionRequest request,
-        string correlationId,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-
-        if (_offlineValidator is null)
-        {
-            return Failure(
-                PaymentFailureKind.Unavailable,
-                "subscription_offline_unavailable",
-                "Offline activation is not available on this host.",
-                correlationId);
-        }
-
-        var invalid = await SubscriptionValidation
-            .CheckAsync<ActivateOfflineSubscriptionRequest, SubscriptionResponse>(
-                _offlineValidator,
-                request,
-                "subscription_request_invalid",
-                "The offline activation request is invalid.",
-                correlationId,
-                cancellationToken);
-
-        if (invalid is not null)
-        {
-            return invalid;
-        }
-
-        var resolution = await _contextResolver.ResolveAsync(
-            correlationId,
-            request.OrganizationId,
-            cancellationToken);
-
-        if (!resolution.IsSuccess)
-        {
-            return resolution.ToFailure<SubscriptionResponse>(correlationId);
-        }
-
-        var context = resolution.Context!;
-
-        if (!context.CallerIsConsole)
-        {
-            // Anyone else's named organization was already replaced by their own, so going on would
-            // let an organization activate a paid plan for itself without paying.
-            return Failure(
-                PaymentFailureKind.Validation,
-                "subscription_offline_console_only",
-                "Only the platform console can activate an offline subscription for an organization.",
-                correlationId);
-        }
-
-        var created = await _creation.CreateOfflineAsync(
-            request.ToCreateRequest(),
-            new OfflinePricing
-            {
-                Mode = request.Pricing.Mode,
-                ContractAmountMinor = request.Pricing.ContractAmountMinor,
-                ContractCurrencyCode = request.Pricing.ContractCurrencyCode
-            },
-            context,
-            correlationId,
-            cancellationToken);
-
-        if (!created.IsSuccess)
-        {
-            return created.ToFailure<SubscriptionResponse>();
-        }
-
-        return await StartWithoutPaymentAsync(created.Value!, context, correlationId, cancellationToken);
-    }
-
-    /// <summary>
     /// Optional for the same reason. Missing it means a free or card-free-trial subscription
     /// waits for the repair sweep to publish its first usage projection row instead of getting
     /// one immediately, not that the subscribe request should fail.
@@ -179,7 +98,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> SubscribeAsync(
         CreateSubscriptionRequest request,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool offline = false)
     {
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
@@ -197,7 +117,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             request,
             context,
             correlationId,
-            cancellationToken);
+            cancellationToken,
+            offline);
 
         if (!created.IsSuccess)
         {
@@ -222,6 +143,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         }
 
         var subscription = created.Value!;
+
+        // Invoiced outside Utilities: never a checkout and never a card, whatever the opening figure.
+        if (offline)
+        {
+            return await StartWithoutPaymentAsync(subscription, context, correlationId, cancellationToken);
+        }
 
         // The figure fixed when the subscription was built, so the charge raised here is the one
         // the customer was quoted — and the same expression the purchase preview reports, so the
@@ -1302,7 +1229,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             SubscriptionChargeKind.Initial,
             periodKey: null,
             amounts,
-            subscription.ActivatedBy,
+            subscription.PurchasedBy,
             _time.GetUtcNow().UtcDateTime,
             correlationId);
     }

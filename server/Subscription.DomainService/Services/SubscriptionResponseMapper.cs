@@ -76,8 +76,6 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             ContractAmountMinor = subscription.OfflinePricing?.ContractAmountMinor,
             PendingOfflinePricingMode = subscription.PendingPlanChange?.OfflinePricing?.Mode.ToString(),
             PendingContractAmountMinor = subscription.PendingPlanChange?.OfflinePricing?.ContractAmountMinor,
-            ActivatedByUserId = subscription.ActivatedBy?.UserId,
-            ActivatedByName = subscription.ActivatedBy?.Name,
             Status = subscription.Status.ToString(),
             PlanCode = subscription.Plan.Code,
             PlanName = subscription.Plan.DisplayName,
