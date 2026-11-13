@@ -122,7 +122,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         if (!created.IsSuccess)
         {
-            if (string.Equals(
+            if (!offline &&
+                string.Equals(
                     created.ErrorCode,
                     "subscription_already_active",
                     StringComparison.Ordinal))

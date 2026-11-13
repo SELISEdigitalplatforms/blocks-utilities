@@ -7,6 +7,7 @@ using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Requests;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Utilities;
@@ -93,7 +94,12 @@ public sealed class OfflineActivationTests
     [Fact]
     public async Task An_offline_activation_never_reaches_the_gateway()
     {
-        await Subscribe(offline: true);
+        ChargeableCardAccount();
+
+        var result = await Subscribe(offline: true);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
 
         _payments.VerifyNoOtherCalls();
         _setups.VerifyNoOtherCalls();
@@ -130,17 +136,34 @@ public sealed class OfflineActivationTests
     }
 
     [Fact]
+    public async Task An_offline_activation_is_never_resumed_into_a_card_checkout()
+    {
+        _creation
+            .Setup(service => service.CreateAsync(
+                It.IsAny<CreateSubscriptionRequest>(),
+                It.IsAny<SubscriptionContext>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<bool>()))
+            .ReturnsAsync(SubscriptionOperationResult<SubscriptionDetail>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_already_active",
+                "Already active.",
+                "corr-1"));
+
+        var result = await Subscribe(offline: true);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_already_active");
+        result.Value.Should().BeNull(because: "the offline route never returns a checkout");
+        _payments.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task A_card_activation_still_goes_to_checkout()
     {
         _subscription.CollectionMethod = SubscriptionCollectionMethod.AutomaticCharge;
-        _billingAccounts
-            .Setup(repository => repository.GetAsync(
-                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
-        decimal ignored;
-        _currency
-            .Setup(currency => currency.TryConvertBack(8_900, "CHF", out ignored))
-            .Returns(true);
+        ChargeableCardAccount();
         _payments
             .Setup(payments => payments.MakePaymentAsync(
                 It.IsAny<MakePaymentRequest>(),
@@ -197,6 +220,20 @@ public sealed class OfflineActivationTests
             because: "a card added to a bank-transfer contract is never charged, so offering to " +
                 "take one tells the customer something untrue");
         _setups.VerifyNoOtherCalls();
+    }
+
+    // What a card charge needs before it can reach the (strict) gateway mock: with this in place, a
+    // wrongly taken card path trips _payments instead of failing early on a missing account.
+    private void ChargeableCardAccount()
+    {
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
+        decimal ignored;
+        _currency
+            .Setup(currency => currency.TryConvertBack(8_900, "CHF", out ignored))
+            .Returns(true);
     }
 
     private Task<SubscriptionOperationResult<SubscriptionResponse>> Subscribe(bool offline) =>
