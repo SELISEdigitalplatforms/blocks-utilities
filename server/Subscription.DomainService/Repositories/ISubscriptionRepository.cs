@@ -170,8 +170,7 @@ public interface ISubscriptionRepository
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken,
         SubscriptionDocumentSource? documentSource = null,
-        PendingAnnualPeriod? replacementPendingAnnualPeriod = null,
-        OfflinePricing? offlinePricing = null);
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null);
 
     /// <summary>
     /// Moves a subscription's purchased quantity, compare-and-set on the version.
@@ -273,17 +272,12 @@ public interface ISubscriptionRepository
     /// not silently discard the other. The service checks the same thing first for a named error;
     /// this is the guarantee that holds when two callers race that check.
     /// </remarks>
-    /// <param name="outboxEvent">
-    /// Published with the change when it has something to announce now (an offline re-pricing,
-    /// spec 006), so the announcement and the change are one write.
-    /// </param>
     Task<bool> TrySetPendingPlanChangeAsync(
         string tenantId,
         string subscriptionId,
         int expectedVersion,
         PendingPlanChange pending,
-        CancellationToken cancellationToken,
-        SubscriptionOutboxEvent? outboxEvent = null);
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// A page of the subscriptions still billed on <paramref name="priceId"/>, in id order after

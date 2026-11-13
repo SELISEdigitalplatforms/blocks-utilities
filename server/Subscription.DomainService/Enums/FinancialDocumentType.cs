@@ -22,12 +22,5 @@ public enum FinancialDocumentType
     /// Value returned or banked: a refund that confirmed, or a downgrade whose unused time became
     /// credit. Always linked to the invoice it adjusts.
     /// </summary>
-    CreditNote = 2,
-
-    /// <summary>
-    /// What an offline subscriber whose price is agreed outside Utilities received (spec 006): the
-    /// plan, period and quantities, with no amounts. Numbered from its own sequence so invoice
-    /// numbering stays a gapless record of what was actually invoiced.
-    /// </summary>
-    ServiceStatement = 3
+    CreditNote = 2
 }

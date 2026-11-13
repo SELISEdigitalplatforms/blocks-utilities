@@ -173,37 +173,6 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
-    public SubscriptionOutboxEvent CreateOfflinePricingChanged(
-        SubscriptionDetail subscription,
-        PendingPlanChange pending,
-        string? actorName,
-        string correlationId)
-    {
-        ArgumentNullException.ThrowIfNull(subscription);
-        ArgumentNullException.ThrowIfNull(pending);
-
-        const string eventType = Utilities.SubscriptionConstants.SubscriptionOfflinePricingChanged;
-        var payload = NewPayload(subscription, eventType);
-        payload.PlanCode = pending.Plan.Code;
-        payload.PlanName = pending.Plan.DisplayName;
-        payload.PreviousPlanCode = subscription.Plan.Code;
-        payload.PreviousPlanName = subscription.Plan.DisplayName;
-        payload.OfflinePricingMode = pending.OfflinePricing?.Mode.ToString();
-        payload.ContractAmountMinor = pending.OfflinePricing?.ContractAmountMinor;
-        payload.EffectiveAtUtc = pending.EffectiveAtUtc;
-        payload.ActorName = actorName;
-
-        return Build(
-            subscription,
-            eventType,
-            // The version being written over: unique per scheduling, so a second re-pricing before
-            // the renewal is announced too rather than deduplicated into the first.
-            $"{subscription.ItemId}:{eventType}:{subscription.Version}",
-            payload,
-            correlationId,
-            null);
-    }
-
     public SubscriptionOutboxEvent CreatePriceTermsChangeScheduled(
         SubscriptionDetail subscription,
         PendingPriceTerms pending,

@@ -471,26 +471,6 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
-    public void A_service_statement_states_the_terms_and_prints_no_money_at_all()
-    {
-        var html = Render(document =>
-        {
-            document.DocumentType = FinancialDocumentType.ServiceStatement;
-            document.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        });
-
-        html.Should().Contain("<div class=\"kind\">Service statement</div>");
-        html.Should().Contain("<tr><th>Status</th><td>Priced under your contract</td></tr>");
-        html.Should().NotContain(
-            "CHF",
-            because: "spec 006: the price was agreed outside Utilities, so any figure on the " +
-                "statement would be one nobody agreed to");
-        html.Should().NotContain("<th class=\"num\">Price</th>");
-        html.Should().NotContain("class=\"totals\"");
-        html.Should().NotContain("Payable by bank transfer", because: "a statement asks for no payment");
-    }
-
-    [Fact]
     public void The_total_and_its_status_are_facts_in_the_right_column_rather_than_a_headline()
     {
         var html = Render();

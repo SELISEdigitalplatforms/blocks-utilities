@@ -440,31 +440,6 @@ public sealed class SubscriptionReportingServiceTests
     }
 
     [Fact]
-    public async Task A_service_statement_is_neither_revenue_nor_a_billed_document()
-    {
-        _reports
-            .Setup(reports => reports.AggregateDocumentRevenueAsync(
-                "tenant-1",
-                It.IsAny<DateTime>(),
-                It.IsAny<DateTime>(),
-                It.IsAny<SubscriptionCollectionMethod?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(
-            [
-                new("CHF", FinancialDocumentType.Invoice, 50_000, 5, Now.Date),
-                new("CHF", FinancialDocumentType.ServiceStatement, 0, 4, Now.Date)
-            ]);
-
-        var result = await _service.GetRevenueAsync(
-            new GetBucketedReportRequest(), "correlation-1", CancellationToken.None);
-
-        result.Value!.Currencies.Single().SubscriptionDocumentCount.Should().Be(
-            5,
-            "spec 006: a statement for a contract priced outside Utilities bills nothing, so " +
-                "counting it would inflate the billed-document figure");
-    }
-
-    [Fact]
     public async Task The_revenue_report_passes_the_collection_method_filter_to_both_sources()
     {
         await _service.GetRevenueAsync(
@@ -497,27 +472,23 @@ public sealed class SubscriptionReportingServiceTests
     }
 
     [Fact]
-    public async Task Offline_subscriptions_count_in_recurring_revenue_at_their_frozen_price_and_can_be_isolated()
+    public async Task Offline_subscriptions_count_in_recurring_revenue_at_their_price_and_can_be_isolated()
     {
         var card = Subscription("CHF", 10_000, BillingInterval.Month);
-        var contract = Subscription("CHF", 50_000, BillingInterval.Month);
-        contract.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        contract.OfflinePricing = new OfflinePricing { Mode = OfflinePricingMode.Contract };
-        var noPrice = Subscription("CHF", 0, BillingInterval.Month);
-        noPrice.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        noPrice.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
-        GivenSubscriptions(card, contract, noPrice);
+        var invoiced = Subscription("CHF", 50_000, BillingInterval.Month);
+        invoiced.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        GivenSubscriptions(card, invoiced);
 
         (await WhenRecurringRevenue()).Currencies.Single().NetMonthlyMinor.Should().Be(
             60_000,
-            "spec 006 AC-19: a contract counts at what it invoices and a no-price one at zero");
+            "an offline subscription counts at what it invoices");
 
         var offline = await _service.GetRecurringRevenueAsync(
             SubscriptionCollectionMethod.OfflineInvoice, "correlation-1", CancellationToken.None);
 
-        offline.Value!.SubscriptionCount.Should().Be(2);
+        offline.Value!.SubscriptionCount.Should().Be(1);
         offline.Value.Currencies.Single().NetMonthlyMinor.Should().Be(
-            50_000, "the filter isolates the bank-transfer book");
+            50_000, "the filter isolates the invoiced book");
     }
 
     [Fact]

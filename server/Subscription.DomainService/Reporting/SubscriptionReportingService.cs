@@ -600,12 +600,9 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
 
         foreach (var currencyCode in currencyCodes)
         {
-            // A service statement (spec 006) records terms and bills nothing, so it is neither
-            // revenue nor a billed document.
             var forCurrency = documents
                 .Where(bucket => string.Equals(
                     bucket.CurrencyCode, currencyCode, StringComparison.Ordinal))
-                .Where(bucket => bucket.DocumentType != FinancialDocumentType.ServiceStatement)
                 .ToList();
 
             var subscriptionRevenue = forCurrency
@@ -992,7 +989,6 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             SeatCount = runRate.Seats,
             CurrencyCode = subscription.CurrencyCode,
             CollectionMethod = subscription.CollectionMethod.ToString(),
-            OfflinePricingMode = subscription.OfflinePricing?.Mode.ToString(),
             GrossMonthlyMinor = runRate.GrossMonthlyMinor,
             NetMonthlyMinor = runRate.NetMonthlyMinor,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,

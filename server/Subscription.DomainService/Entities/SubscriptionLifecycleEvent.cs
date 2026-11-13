@@ -129,15 +129,6 @@ public sealed class SubscriptionLifecycleEvent
     /// </summary>
     public string? CollectionMethod { get; set; }
 
-    /// <summary>
-    /// The pricing an offline re-pricing installs at <see cref="EffectiveAtUtc"/>:
-    /// <c>Catalogue</c>, <c>Contract</c> or <c>None</c>.
-    /// </summary>
-    public string? OfflinePricingMode { get; set; }
-
-    /// <summary>The contract's flat net amount per interval, for a <c>Contract</c> re-pricing.</summary>
-    public long? ContractAmountMinor { get; set; }
-
     /// <summary>When a scheduled change takes effect.</summary>
     public DateTime? EffectiveAtUtc { get; set; }
 

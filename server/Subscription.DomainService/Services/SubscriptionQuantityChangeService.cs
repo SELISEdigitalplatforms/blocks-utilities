@@ -788,14 +788,11 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         var outboxEvent = _events.CreateQuantityChanged(
             subscription, subscription.QuantityItems, target, requestedByName, correlationId);
 
-        // Spec 006: what an offline increase would have charged, recorded in the applying write.
-        // Described at the new quantities, and keyed on the version the versioned write lets succeed
-        // exactly once. A no-price subscription is owed a statement for every applied increase,
-        // whatever the (always zero) figure: it is the only record of the change.
+        // What an offline increase would have charged, recorded in the applying write. Described at
+        // the new quantities, and keyed on the version the versioned write lets succeed exactly once.
         SubscriptionDocumentSource? offlineInvoice = null;
-        var noPriceStatement = subscription.IsNoPrice && subscription.Status != SubscriptionStatus.Trialing;
 
-        if (subscription.IsOffline && ((offlineChargeMinor > 0 && settlement is not null) || noPriceStatement))
+        if (subscription.IsOffline && offlineChargeMinor > 0 && settlement is not null)
         {
             var previousQuantities = subscription.QuantityItems;
             subscription.QuantityItems = target;
@@ -804,10 +801,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 subscription,
                 SubscriptionChargeKind.QuantityChange,
                 $"v{subscription.Version}",
-                settlement is null
-                    ? new FinancialDocumentAmounts()
-                    : SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
-                        subscription, settlement, offlineChargeMinor),
+                SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
+                    subscription, settlement, offlineChargeMinor),
                 SubscriptionDocumentSourceFactory.ActorOf(requestedByUserId, requestedByName, null),
                 now,
                 correlationId);

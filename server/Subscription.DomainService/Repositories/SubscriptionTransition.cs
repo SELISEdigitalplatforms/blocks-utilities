@@ -161,12 +161,6 @@ public sealed record SubscriptionTransition(
 
     public PriceSnapshot? Price { get; init; }
 
-    /// <summary>
-    /// An offline subscription's new pricing record, written with <see cref="Price"/> when a
-    /// scheduled change installs both. Null leaves it as it is. See spec 006.
-    /// </summary>
-    public OfflinePricing? OfflinePricing { get; init; }
-
     public BillingSchedule? FeeSchedule { get; init; }
 
     public BillingSchedule? UsageSchedule { get; init; }

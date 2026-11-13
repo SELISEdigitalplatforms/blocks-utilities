@@ -259,13 +259,6 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             subscription.QuantityItems = pendingPlan.QuantityItems;
             subscription.FeeSchedule = pendingPlan.FeeSchedule;
             subscription.UsageSchedule = pendingPlan.UsageSchedule;
-
-            // Spec 006: a re-pricing takes effect at this boundary, so the document this renewal
-            // owes is the one the new pricing calls for — a statement once it has no price.
-            if (pendingPlan.OfflinePricing is { } offlinePricing)
-            {
-                subscription.OfflinePricing = offlinePricing;
-            }
         }
 
         // A discount or tax edit an operator extended to this subscriber, announced for this
@@ -776,9 +769,6 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // Due means spent, applied or not: a subscriber a plan change moved off the price
                 // has nothing left for these terms to apply to.
                 ClearPendingPriceTerms = duePriceTerms is not null,
-                // Spec 006: a scheduled change says which kind of figure its price is, installed
-                // with the price itself so the two can never disagree.
-                OfflinePricing = appliedPlanChange?.OfflinePricing,
                 FeeSchedule = appliedPlanChange?.FeeSchedule,
                 UsageSchedule = appliedPlanChange?.UsageSchedule,
                 ClearPendingPlanChange = appliedPlanChange is not null,
@@ -918,8 +908,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         BillingPeriod period,
         PeriodCharge charge)
     {
-        // A no-price subscription is owed a statement for every renewal, at a figure always zero.
-        if (!subscription.IsOffline || (charge.AmountMinor <= 0 && !subscription.IsNoPrice))
+        if (!subscription.IsOffline || charge.AmountMinor <= 0)
         {
             return null;
         }

@@ -28,10 +28,4 @@ public sealed class PendingPlanChangeResponse
 
     /// <summary>When this becomes the plan in force.</summary>
     public DateTime EffectiveAtUtc { get; init; }
-
-    /// <summary>
-    /// Scheduled by the platform console (spec 006): an offline re-price or operator plan change,
-    /// which only the console may withdraw.
-    /// </summary>
-    public bool ScheduledByOperator { get; init; }
 }

@@ -196,50 +196,6 @@ public sealed class OfflineSubscriptionRenewalTests
     }
 
     [Fact]
-    public async Task A_no_price_renewal_records_a_service_statement_even_though_it_costs_nothing()
-    {
-        var subscription = OfflineSubscription(SubscriptionStatus.Active);
-        subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
-        OfflineSubscriptionTerms.ApplyNoPrice(subscription.Price, subscription.QuantityItems);
-
-        await Service().RenewAsync(subscription, CancellationToken.None);
-
-        var transition = _transitions.Single();
-        transition.NewStatus.Should().Be(SubscriptionStatus.Active);
-        transition.DocumentSource!.DocumentType.Should().Be(
-            FinancialDocumentType.ServiceStatement,
-            because: "the price lives in a contract Utilities never sees, so each renewal is " +
-                "recorded as a statement of terms rather than skipped as a zero invoice would be");
-        transition.DocumentSource.ChargeKind.Should().Be(SubscriptionChargeKind.Renewal);
-        _gateway.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task A_re_pricing_to_no_price_takes_effect_at_the_renewal_it_was_held_for()
-    {
-        var subscription = OfflineSubscription(SubscriptionStatus.Active);
-        var price = new PriceSnapshot { CurrencyCode = "CHF", UnitAmountMinor = 8_900 };
-        OfflineSubscriptionTerms.ApplyNoPrice(price, []);
-        subscription.PendingPlanChange = new PendingPlanChange
-        {
-            Plan = subscription.Plan,
-            Price = price,
-            QuantityItems = [],
-            FeeSchedule = subscription.FeeSchedule,
-            UsageSchedule = subscription.FeeSchedule,
-            EffectiveAtUtc = subscription.CurrentPeriodEndUtc,
-            OfflinePricing = OfflineSubscriptionTerms.NoPricing()
-        };
-
-        await Service().RenewAsync(subscription, CancellationToken.None);
-
-        _transitions.Single().DocumentSource!.DocumentType.Should().Be(
-            FinancialDocumentType.ServiceStatement,
-            because: "the period the new pricing opens is the first one it governs, so its record " +
-                "must already be a statement, not a zero invoice that consumes an invoice number");
-    }
-
-    [Fact]
     public async Task An_offline_trial_converts_to_active_with_a_record_invoice_and_never_to_unpaid()
     {
         var subscription = OfflineSubscription(SubscriptionStatus.Trialing);
@@ -259,38 +215,6 @@ public sealed class OfflineSubscriptionRenewalTests
             because: "a card-free trial with no card goes Unpaid on the card path; an offline one " +
                 "converts, because its money comes by bank transfer");
         transition.DocumentSource.Should().NotBeNull();
-    }
-
-    [Fact]
-    public async Task A_re_pricing_held_for_this_renewal_is_installed_and_invoiced_at_its_new_figure()
-    {
-        var subscription = OfflineSubscription(SubscriptionStatus.Active);
-        subscription.PendingPlanChange = new PendingPlanChange
-        {
-            Plan = subscription.Plan,
-            Price = new PriceSnapshot { CurrencyCode = "CHF", UnitAmountMinor = 12_000 },
-            QuantityItems = [],
-            FeeSchedule = subscription.FeeSchedule,
-            UsageSchedule = subscription.FeeSchedule,
-            EffectiveAtUtc = subscription.CurrentPeriodEndUtc,
-            OfflinePricing = new OfflinePricing
-            {
-                Mode = OfflinePricingMode.Contract,
-                ContractAmountMinor = 12_000,
-                ContractCurrencyCode = "CHF"
-            }
-        };
-
-        await Service().RenewAsync(subscription, CancellationToken.None);
-
-        var transition = _transitions.Single();
-        transition.OfflinePricing!.ContractAmountMinor.Should().Be(
-            12_000,
-            because: "the pricing record is installed in the same write as the price it describes, " +
-                "so the two can never disagree");
-        transition.DocumentSource!.Amounts!.TotalMinor.Should().Be(
-            12_000,
-            because: "the first period after a re-pricing is invoiced at the new figure");
     }
 
     [Fact]
@@ -327,7 +251,6 @@ public sealed class OfflineSubscriptionRenewalTests
         BillingAccountId = "acct-1",
         Status = status,
         CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice,
-        OfflinePricing = new OfflinePricing { Mode = OfflinePricingMode.Catalogue },
         CurrencyCode = "CHF",
         CurrentPeriodStartUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
         CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),

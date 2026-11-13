@@ -1211,15 +1211,14 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     /// <remarks>
     /// Owed when a card subscriber would have been charged at checkout — a positive opening figure —
     /// for the reason a renewal follows the same rule: an invoice is a record of a charge, and an
-    /// offline customer is never handed one a card customer would not have been. A no-price
-    /// subscription is owed a service statement whatever the figure, which is always zero.
+    /// offline customer is never handed one a card customer would not have been.
     /// </remarks>
     private SubscriptionDocumentSource? OfflineOpeningInvoice(
         SubscriptionDetail subscription,
         string correlationId)
     {
         if (!subscription.IsOffline ||
-            (SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription) <= 0 && !subscription.IsNoPrice) ||
+            SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription) <= 0 ||
             SubscriptionFinancialDocumentIssuer.RecomposeInitialCharge(subscription) is not { } amounts)
         {
             return null;
