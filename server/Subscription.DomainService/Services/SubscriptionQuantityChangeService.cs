@@ -545,9 +545,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // takes the ordinary compare-and-set. A band that makes more units cheaper lands here too,
         // and so does a stub-and-annual combination that comes to zero or less.
         //
-        // So does every increase on an offline subscription (spec 006), which is never charged: what
-        // it would have cost is recorded as an invoice in the same write instead. A contract price
-        // carries no per-unit amount, so its increases arrive here at zero and record nothing.
+        // So does every increase on an invoice-billed subscription, which skips the gateway: what it
+        // costs is recorded as an Unpaid invoice in the same write instead.
         if (chargeMinor <= 0 || subscription.IsOffline)
         {
             return await ApplyFreeIncreaseAsync(
@@ -788,14 +787,11 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         var outboxEvent = _events.CreateQuantityChanged(
             subscription, subscription.QuantityItems, target, requestedByName, correlationId);
 
-        // Spec 006: what an offline increase would have charged, recorded in the applying write.
-        // Described at the new quantities, and keyed on the version the versioned write lets succeed
-        // exactly once. A no-price subscription is owed a statement for every applied increase,
-        // whatever the (always zero) figure: it is the only record of the change.
+        // What an offline increase would have charged, recorded in the applying write. Described at
+        // the new quantities, and keyed on the version the versioned write lets succeed exactly once.
         SubscriptionDocumentSource? offlineInvoice = null;
-        var noPriceStatement = subscription.IsNoPrice && subscription.Status != SubscriptionStatus.Trialing;
 
-        if (subscription.IsOffline && ((offlineChargeMinor > 0 && settlement is not null) || noPriceStatement))
+        if (subscription.IsOffline && offlineChargeMinor > 0 && settlement is not null)
         {
             var previousQuantities = subscription.QuantityItems;
             subscription.QuantityItems = target;
@@ -804,10 +800,8 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 subscription,
                 SubscriptionChargeKind.QuantityChange,
                 $"v{subscription.Version}",
-                settlement is null
-                    ? new FinancialDocumentAmounts()
-                    : SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
-                        subscription, settlement, offlineChargeMinor),
+                SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
+                    subscription, settlement, offlineChargeMinor),
                 SubscriptionDocumentSourceFactory.ActorOf(requestedByUserId, requestedByName, null),
                 now,
                 correlationId);

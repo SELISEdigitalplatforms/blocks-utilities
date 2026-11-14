@@ -467,8 +467,8 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
     /// figure come from one calculation and cannot drift apart.
     /// </summary>
     /// <remarks>
-    /// Offline subscriptions (spec 006) count at the price frozen on them — a contract's flat
-    /// amount, or zero for a no-price one — because that is what their invoices state.
+    /// Invoice-billed subscriptions count at the price frozen on them, because that is what their
+    /// invoices state.
     /// </remarks>
     private async Task<(RecurringRevenueReportResponse Summary, List<SubscriptionRunRateEntry> RunRates)>
         SummarizeRecurringRevenueAsync(
@@ -600,12 +600,9 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
 
         foreach (var currencyCode in currencyCodes)
         {
-            // A service statement (spec 006) records terms and bills nothing, so it is neither
-            // revenue nor a billed document.
             var forCurrency = documents
                 .Where(bucket => string.Equals(
                     bucket.CurrencyCode, currencyCode, StringComparison.Ordinal))
-                .Where(bucket => bucket.DocumentType != FinancialDocumentType.ServiceStatement)
                 .ToList();
 
             var subscriptionRevenue = forCurrency
@@ -992,7 +989,6 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             SeatCount = runRate.Seats,
             CurrencyCode = subscription.CurrencyCode,
             CollectionMethod = subscription.CollectionMethod.ToString(),
-            OfflinePricingMode = subscription.OfflinePricing?.Mode.ToString(),
             GrossMonthlyMinor = runRate.GrossMonthlyMinor,
             NetMonthlyMinor = runRate.NetMonthlyMinor,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,

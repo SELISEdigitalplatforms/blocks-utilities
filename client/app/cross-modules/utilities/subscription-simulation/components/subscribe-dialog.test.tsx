@@ -374,10 +374,42 @@ describe("SubscribeDialog", () => {
           quantities: [{ itemKey: "seat", quantity: 1 }],
           organizationId: "org-1",
         }),
+        false,
       );
     });
 
     expect(onSubscribed).toHaveBeenCalledWith(subscription.checkoutUrl);
+  });
+
+  it("posts to the offline route when payment is collected outside Utilities", async () => {
+    previewSubscription.mockResolvedValue(quote);
+    subscribe.mockResolvedValue({ ...subscription, checkoutUrl: null });
+
+    renderDialog();
+    fireEvent.click(screen.getByLabelText("Payment is collected outside Utilities (no card)"));
+    click(/^Preview$/);
+    await waitFor(() => screen.getByTestId("subscribe-quote"));
+    click(/^Subscribe$/);
+
+    await waitFor(() => {
+      expect(subscribe).toHaveBeenCalledWith(
+        expect.objectContaining({ planCode: "professional" }),
+        true,
+      );
+    });
+  });
+
+  it("shows the dialog's error when the offline subscribe is refused", async () => {
+    previewSubscription.mockResolvedValue(quote);
+    subscribe.mockRejectedValue(new Error("Forbidden"));
+
+    renderDialog();
+    fireEvent.click(screen.getByLabelText("Payment is collected outside Utilities (no card)"));
+    click(/^Preview$/);
+    await waitFor(() => screen.getByTestId("subscribe-quote"));
+    click(/^Subscribe$/);
+
+    await waitFor(() => expect(screen.getByText("Forbidden")).toBeInTheDocument());
   });
 
   it("shows a blocker without disabling the preview, but keeps confirm disabled", async () => {

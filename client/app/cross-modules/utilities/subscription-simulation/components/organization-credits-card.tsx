@@ -80,8 +80,7 @@ export const OrganizationCreditsCard = ({
 }: {
   organizationId: string | undefined;
   /**
-   * The organization holds a live subscription paid by bank transfer, so buying is refused (spec
-   * 006) and only the operator's free grant is offered.
+   * The organization holds a live subscription billed by invoice, so buying is refused and only the operator's free grant is offered.
    */
   purchaseRefused?: boolean;
   /** The harness's credit sweeps, for an organization with no subscription to run them from. */

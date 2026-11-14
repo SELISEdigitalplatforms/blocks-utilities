@@ -473,11 +473,6 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
             return await IssueTrialInvoiceAsync(subscription, source, correlationId, cancellationToken);
         }
 
-        if (source.DocumentType == FinancialDocumentType.ServiceStatement)
-        {
-            return await IssueServiceStatementAsync(subscription, source, correlationId, cancellationToken);
-        }
-
         // Nothing produces a banked-credit source any more — no plan change or quantity change
         // banks credit, so SubscriptionDocumentSourceFactory no longer has a method that builds
         // one. This branch is kept to drain the sources written *before* that policy changed.
@@ -826,8 +821,7 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
 
         var document = await ComposeAndIssueAsync(
             subscription,
-            // Spec 006: a no-price subscription never takes an invoice number, its trial included.
-            subscription.IsNoPrice ? FinancialDocumentType.ServiceStatement : FinancialDocumentType.TrialInvoice,
+            FinancialDocumentType.TrialInvoice,
             FinancialDocumentSourceKey.ForTrial(subscription.ItemId, trial.StartsAtUtc),
             trial.StartsAtUtc,
             // Zero throughout, deliberately explicit rather than an absent block: a trial invoice
@@ -869,75 +863,6 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
     }
 
     /// <summary>
-    /// The statement a no-price offline subscription (spec 006) is owed instead of an invoice.
-    /// </summary>
-    /// <remarks>
-    /// Plan, period and quantities, and nothing that looks like money: the price was agreed outside
-    /// Utilities, so any figure here would be one Utilities invented. Its issue date is the event's,
-    /// which is the effective date of the activation, renewal or change it records.
-    /// </remarks>
-    private async Task<SubscriptionFinancialDocument?> IssueServiceStatementAsync(
-        SubscriptionDetail subscription,
-        SubscriptionDocumentSource source,
-        string correlationId,
-        CancellationToken cancellationToken)
-    {
-        var terms = TermsFor(
-            subscription,
-            source,
-            new SubscriptionChargeReference(subscription.ItemId, source.ChargeKind, source.PeriodKey),
-            subscription.ItemId);
-
-        var lines = terms.QuantityItems
-            .Select(item => new FinancialDocumentLine
-            {
-                Description = item.UnitLabel,
-                Quantity = item.Quantity,
-                ItemKey = item.ItemKey
-            })
-            .ToList();
-
-        lines.Insert(0, new FinancialDocumentLine
-        {
-            Description = StatementHeadline(terms.Subject.PlanName, source.ChargeKind)
-        });
-
-        var document = await ComposeAndIssueAsync(
-            subscription,
-            FinancialDocumentType.ServiceStatement,
-            source.SourceKey,
-            source.OccurredAtUtc,
-            new FinancialDocumentAmounts(),
-            lines,
-            source.Period,
-            terms,
-            correlationId,
-            paymentDetailId: null,
-            settlement: null,
-            initiatedBy: source.InitiatedBy,
-            initiatedByUserId: source.InitiatedBy?.UserId,
-            settlementReservationId: null,
-            cancellationToken: cancellationToken);
-
-        if (document is not null)
-        {
-            await ConsumeAsync(subscription, source, cancellationToken);
-        }
-
-        return document;
-    }
-
-    internal static string StatementHeadline(string planName, SubscriptionChargeKind kind) =>
-        kind switch
-        {
-            SubscriptionChargeKind.Initial => $"{planName}, activated",
-            SubscriptionChargeKind.Renewal => $"{planName}, renewed",
-            SubscriptionChargeKind.PlanChange => $"{planName}, plan changed",
-            SubscriptionChargeKind.QuantityChange => $"{planName}, quantities changed",
-            _ => planName
-        };
-
-    /// <summary>
     /// The document for an opening period that activated with nothing due — a price discounted to
     /// zero, or one that was already zero.
     /// </summary>
@@ -961,7 +886,7 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
         }
 
         // The source's own kind: an opening period that activated with nothing due is Initial, and
-        // an offline subscription's renewal (spec 006) freezes its figures here for the same reason
+        // an invoice-billed subscription's renewal freezes its figures here for the same reason
         // — there is no payment to read them off — so it is described as the renewal it was.
         var kind = source.ChargeKind;
 
@@ -995,7 +920,7 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
                 subscription,
                 source.Period,
                 opening,
-                // An offline overage (spec 006) is broken down per meter exactly as a charged one:
+                // An invoice-billed overage is broken down per meter exactly as a charged one:
                 // the usage invoice it was rated into is read the same way, payment or not.
                 kind == SubscriptionChargeKind.Usage
                     ? await MeteredLinesAsync(subscription, terms, source.Period, amounts, cancellationToken)
@@ -1004,8 +929,8 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
             terms,
             correlationId,
             paymentDetailId: null,
-            // Null for an opening period or a renewal; an offline plan or quantity change (spec
-            // 006) carries its two-sided breakdown so the invoice explains the proration the way a
+            // Null for an opening period or a renewal; an invoice-billed plan or quantity change
+            // carries its two-sided breakdown so the invoice explains the proration the way a
             // card settlement's does.
             settlement: source.Settlement,
             initiatedBy: source.InitiatedBy,
@@ -1300,6 +1225,11 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
             OrganizationId = subscription.OrganizationId,
             SubscriptionId = subscription.ItemId,
             PaymentDetailId = paymentDetailId,
+            PaymentStatus = documentType == FinancialDocumentType.CreditNote
+                || paymentDetailId is { Length: > 0 }
+                || amounts.TotalMinor <= 0
+                    ? FinancialDocumentPaymentStatus.Paid
+                    : FinancialDocumentPaymentStatus.Unpaid,
             RefundId = refundId,
             SettlementReservationId = settlementReservationId,
             OriginalDocumentId = originalDocument?.ItemId,
@@ -1592,7 +1522,7 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
         RecomposeOpening(subscription).Amounts;
 
     /// <summary>
-    /// The breakdown of a charge that was priced but never collected — an offline renewal (spec 006).
+    /// The breakdown of a charge that was priced but never collected — an invoice-billed renewal.
     /// </summary>
     /// <remarks>
     /// The same split a card renewal hands the gateway and the gateway stores on the payment, read
@@ -1756,8 +1686,8 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
     }
 
     /// <summary>
-    /// The breakdown of a plan or quantity change that was priced but never collected — an offline
-    /// subscription's (spec 006).
+    /// The breakdown of a plan or quantity change that was priced but never collected — an
+    /// invoice-billed subscription's.
     /// </summary>
     /// <remarks>
     /// The arithmetic <see cref="SettlementAmounts"/> applies to a settled charge, with the total the

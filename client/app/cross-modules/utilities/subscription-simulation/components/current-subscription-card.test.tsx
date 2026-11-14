@@ -345,7 +345,7 @@ describe("CurrentSubscriptionCard provider name", () => {
 });
 
 /**
- * Spec 006 AC-22: an organization billed by bank transfer sees that it is, and is never offered a
+ * An organization billed by invoice sees that it is, and is never offered a
  * card -- every one of those prompts would only earn a 409 from the server.
  */
 describe("CurrentSubscriptionCard for a subscription billed by invoice", () => {
@@ -354,8 +354,6 @@ describe("CurrentSubscriptionCard for a subscription billed by invoice", () => {
     status: "Unpaid",
     hasPaymentMethod: false,
     collectionMethod: "OfflineInvoice",
-    offlinePricingMode: "Contract",
-    contractAmountMinor: 50_000,
     checkoutUrl: "https://checkout.example/session",
     pendingCheckout: {
       purpose: "PaymentMethodSetup",
@@ -380,64 +378,23 @@ describe("CurrentSubscriptionCard for a subscription billed by invoice", () => {
     expect(screen.getByRole("button", { name: /change plan/i })).toBeInTheDocument();
   });
 
-  it("states the contract price and the pricing the next renewal installs", () => {
-    renderCard({
-      ...offline,
-      status: "Active",
-      pendingOfflinePricingMode: "Contract",
-      pendingContractAmountMinor: 60_000,
-    });
-
-    const pricing = screen.getByTestId("offline-pricing");
-    expect(pricing).toHaveTextContent(/500/);
-    expect(pricing).toHaveTextContent(/from the next renewal.*600/);
-  });
-
-  it("shows a contract price as one flat amount, never per quantity item", () => {
-    renderCard({ ...offline, status: "Active", quantities: [{ itemKey: "user", quantity: 3 }] });
-
-    expect(screen.queryByText(/per user/i)).not.toBeInTheDocument();
-  });
-
-  const repricing = {
-    targetPlanCode: "professional",
-    targetPlanName: "Professional",
-    targetPriceId: "price-1",
-    interval: "Month",
-    intervalCount: 1,
-    quantities: [],
-    requestedAtUtc: "2026-08-10T00:00:00Z",
-    effectiveAtUtc: "2026-09-01T00:00:00Z",
-  } as const;
-
-  it("does not offer the subscriber a way to withdraw an operator's re-price", () => {
-    renderCard({
-      ...offline,
-      status: "Active",
-      pendingOfflinePricingMode: "Contract",
-      pendingContractAmountMinor: 60_000,
-      pendingPlanChange: { ...repricing, quantities: [], scheduledByOperator: true },
-    });
-
-    expect(screen.queryByTestId("pending-plan-change")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /keep current plan/i })).not.toBeInTheDocument();
-  });
-
   it("still shows an offline subscriber's own scheduled change", () => {
     renderCard({
       ...offline,
       status: "Active",
-      pendingOfflinePricingMode: "Catalogue",
-      pendingPlanChange: { ...repricing, quantities: [], targetPlanCode: "enterprise", targetPlanName: "Enterprise", scheduledByOperator: false },
+      pendingPlanChange: {
+        targetPlanCode: "enterprise",
+        targetPlanName: "Enterprise",
+        targetPriceId: "price-1",
+        interval: "Month",
+        intervalCount: 1,
+        quantities: [],
+        requestedAtUtc: "2026-08-10T00:00:00Z",
+        effectiveAtUtc: "2026-09-01T00:00:00Z",
+      },
     });
 
     expect(screen.getByTestId("pending-plan-change")).toBeInTheDocument();
-  });
-
-  it("says a no-price subscription is priced under contract rather than showing a zero", () => {
-    renderCard({ ...offline, status: "Active", offlinePricingMode: "None", contractAmountMinor: null });
-
-    expect(screen.getByTestId("offline-pricing")).toHaveTextContent("Priced under your contract");
   });
 
   it("shows no badge for a card subscription", () => {

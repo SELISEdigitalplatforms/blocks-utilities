@@ -100,8 +100,8 @@ public sealed class SubscriptionReportsController : ControllerBase
         StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
     /// <param name="collectionMethod">
-    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c> to isolate card-collected or bank-transfer
-    /// subscriptions (spec 006); omit for both.
+    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c> to isolate card-collected or invoiced
+    /// subscriptions; omit for both.
     /// </param>
     /// <param name="cancellationToken">Aborts the read.</param>
     public async Task<IActionResult> GetRecurringRevenue(

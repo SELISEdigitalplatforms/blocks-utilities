@@ -32,7 +32,7 @@ public sealed class SubscriptionSimulationSummary
 {
     public string SubscriptionStatus { get; init; } = string.Empty;
 
-    /// <summary><c>OfflineInvoice</c> for a bank-transfer subscription (spec 006), which renews with no payment.</summary>
+    /// <summary><c>OfflineInvoice</c> for an invoice-billed subscription, which renews with no gateway payment.</summary>
     public string CollectionMethod { get; init; } = string.Empty;
 
     public DateTime? CurrentPeriodEndUtc { get; init; }

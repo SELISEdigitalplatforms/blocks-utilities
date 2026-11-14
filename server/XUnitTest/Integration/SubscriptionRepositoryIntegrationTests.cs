@@ -124,7 +124,7 @@ public sealed class SubscriptionRepositoryIntegrationTests
     }
 
     /// <summary>
-    /// Spec 006: an offline renewal collects nothing, so its record invoice can only be recovered
+    /// An invoice-billed renewal collects nothing, so its record invoice can only be recovered
     /// from the obligation the transition itself wrote. Only the real update can show the period
     /// and the obligation land together.
     /// </summary>

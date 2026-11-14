@@ -412,8 +412,8 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
         if (subscription.IsOffline)
         {
             return (null,
-                $"{periodsClosed} usage period(s) closed; the overage was recorded as an invoice " +
-                "payable by bank transfer (spec 006). Nothing was charged.");
+                $"{periodsClosed} usage period(s) closed; the overage was billed by invoice; " +
+                "nothing is charged.");
         }
 
         return (null, succeeded switch
@@ -777,11 +777,11 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
     }
 
     private const string OfflineRenewalNote =
-        "Offline subscription (spec 006): the renewal ran without calling the payment gateway and " +
-        "recorded its invoice or service statement. Check state for the document.";
+        "Offline subscription: the renewal ran without calling the payment gateway and " +
+        "recorded its invoice. Check state for the document.";
 
     /// <summary>
-    /// Refuses a scripted payment outcome for an offline subscription (spec 006).
+    /// Refuses a scripted payment outcome for an offline subscription.
     /// </summary>
     /// <remarks>
     /// An offline renewal or overage never calls the gateway, so an outcome scripted for it would
@@ -795,7 +795,7 @@ public sealed class SubscriptionSimulationService : ISubscriptionSimulationServi
             ? Fail<T>(
                 PaymentFailureKind.Conflict,
                 "subscription_simulation_offline_no_payment",
-                "This subscription is billed by bank transfer and is never charged, so there is no " +
+                "This subscription is billed by invoice and is never charged, so there is no " +
                     "payment outcome to script. Omit paymentOutcome.",
                 correlationId)
             : null;

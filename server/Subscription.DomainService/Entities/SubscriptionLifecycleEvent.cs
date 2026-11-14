@@ -124,19 +124,10 @@ public sealed class SubscriptionLifecycleEvent
     public int? FromSeatNumber { get; set; }
 
     /// <summary>
-    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c> (spec 006), so a consumer can tell a
-    /// bank-transfer contract from a card subscription without reading it back.
+    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c>, so a consumer can tell an invoice-billed
+    /// subscription from a card one without reading it back.
     /// </summary>
     public string? CollectionMethod { get; set; }
-
-    /// <summary>
-    /// The pricing an offline re-pricing installs at <see cref="EffectiveAtUtc"/>:
-    /// <c>Catalogue</c>, <c>Contract</c> or <c>None</c>.
-    /// </summary>
-    public string? OfflinePricingMode { get; set; }
-
-    /// <summary>The contract's flat net amount per interval, for a <c>Contract</c> re-pricing.</summary>
-    public long? ContractAmountMinor { get; set; }
 
     /// <summary>When a scheduled change takes effect.</summary>
     public DateTime? EffectiveAtUtc { get; set; }

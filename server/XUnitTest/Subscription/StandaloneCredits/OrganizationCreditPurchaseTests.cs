@@ -468,7 +468,7 @@ public sealed class OrganizationCreditPurchaseTests
             new OrganizationGrantCreditsRequest { MeterKey = "ai", Quantity = 25, Reason = "Contract allowance" },
             "corr-3", CancellationToken.None);
 
-        preview.ErrorCode.Should().Be("subscription_offline_collection", "spec 006 AC-23");
+        preview.ErrorCode.Should().Be("subscription_offline_collection");
         purchase.ErrorCode.Should().Be(
             "subscription_offline_collection",
             "a bank-transfer customer's card on file must never be charged for credits");

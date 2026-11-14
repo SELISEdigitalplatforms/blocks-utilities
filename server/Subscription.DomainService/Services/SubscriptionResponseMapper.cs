@@ -72,12 +72,6 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             PurchasedByUserId = subscription.PurchasedBy?.UserId,
             PurchasedByName = subscription.PurchasedBy?.Name,
             CollectionMethod = subscription.CollectionMethod.ToString(),
-            OfflinePricingMode = subscription.OfflinePricing?.Mode.ToString(),
-            ContractAmountMinor = subscription.OfflinePricing?.ContractAmountMinor,
-            PendingOfflinePricingMode = subscription.PendingPlanChange?.OfflinePricing?.Mode.ToString(),
-            PendingContractAmountMinor = subscription.PendingPlanChange?.OfflinePricing?.ContractAmountMinor,
-            ActivatedByUserId = subscription.ActivatedBy?.UserId,
-            ActivatedByName = subscription.ActivatedBy?.Name,
             Status = subscription.Status.ToString(),
             PlanCode = subscription.Plan.Code,
             PlanName = subscription.Plan.DisplayName,
@@ -135,8 +129,7 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
                             pendingPlan.Plan.QuantityItems))
                     ],
                     RequestedAtUtc = pendingPlan.RequestedAtUtc,
-                    EffectiveAtUtc = pendingPlan.EffectiveAtUtc,
-                    ScheduledByOperator = pendingPlan.ScheduledByOperator
+                    EffectiveAtUtc = pendingPlan.EffectiveAtUtc
                 }
                 : null,
             CurrentTier = QuantityResponseMapper.Tier(band.Tier),

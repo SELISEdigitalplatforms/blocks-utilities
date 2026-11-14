@@ -119,6 +119,7 @@ public sealed class SubscriptionFinancialDocumentRepository :
         string? subscriptionId,
         FinancialDocumentType? documentType,
         FinancialDocumentStatus? status,
+        FinancialDocumentPaymentStatus? paymentStatus,
         DateTime? issuedFromUtc,
         DateTime? issuedToUtc,
         int pageSize,
@@ -152,6 +153,14 @@ public sealed class SubscriptionFinancialDocumentRepository :
         if (status is { } documentStatus)
         {
             filters.Add(builder.Eq(document => document.Status, documentStatus));
+        }
+
+        if (paymentStatus is { } payment)
+        {
+            // Paid is "not Unpaid": a document stored before the field existed has no value at all.
+            filters.Add(payment == FinancialDocumentPaymentStatus.Unpaid
+                ? builder.Eq(document => document.PaymentStatus, FinancialDocumentPaymentStatus.Unpaid)
+                : builder.Ne(document => document.PaymentStatus, FinancialDocumentPaymentStatus.Unpaid));
         }
 
         if (issuedFromUtc is { } from)
@@ -247,6 +256,37 @@ public sealed class SubscriptionFinancialDocumentRepository :
                     document => document.Delivery.State,
                     FinancialDocumentDeliveryState.Generated)
                 .Set(document => document.Delivery.LastErrorCode, null)
+                .Set(document => document.LastUpdatedDateUtc, generatedAtUtc),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryReplacePdfAsync(
+        string tenantId,
+        string documentId,
+        string storageId,
+        string contentHash,
+        long contentLength,
+        DateTime generatedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Collection(tenantId).UpdateOneAsync(
+            Builders<SubscriptionFinancialDocument>.Filter.And(
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.TenantId,
+                    tenantId),
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.ItemId,
+                    documentId),
+                Builders<SubscriptionFinancialDocument>.Filter.Ne(
+                    document => document.Delivery.StorageId,
+                    null)),
+            Builders<SubscriptionFinancialDocument>.Update
+                .Set(document => document.Delivery.StorageId, storageId)
+                .Set(document => document.Delivery.ContentHash, contentHash)
+                .Set(document => document.Delivery.ContentLength, contentLength)
+                .Set(document => document.Delivery.GeneratedAtUtc, generatedAtUtc)
                 .Set(document => document.LastUpdatedDateUtc, generatedAtUtc),
             cancellationToken: cancellationToken);
 
@@ -477,6 +517,36 @@ public sealed class SubscriptionFinancialDocumentRepository :
                 .Set(document => document.Status, status)
                 .Set(document => document.LastUpdatedDateUtc, DateTime.UtcNow),
             cancellationToken: cancellationToken);
+
+    public async Task<bool> TryRecordPaymentAsync(
+        string tenantId,
+        string documentId,
+        DateTime paidAtUtc,
+        string? reference,
+        string? recordedByUserId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Collection(tenantId).UpdateOneAsync(
+            Builders<SubscriptionFinancialDocument>.Filter.And(
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.TenantId,
+                    tenantId),
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.ItemId,
+                    documentId),
+                Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.PaymentStatus,
+                    FinancialDocumentPaymentStatus.Unpaid)),
+            Builders<SubscriptionFinancialDocument>.Update
+                .Set(document => document.PaymentStatus, FinancialDocumentPaymentStatus.Paid)
+                .Set(document => document.PaidAtUtc, paidAtUtc)
+                .Set(document => document.PaymentReference, reference)
+                .Set(document => document.PaymentRecordedByUserId, recordedByUserId)
+                .Set(document => document.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount > 0;
+    }
 
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {

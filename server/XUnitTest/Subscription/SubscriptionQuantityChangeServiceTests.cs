@@ -1157,13 +1157,12 @@ public sealed class SubscriptionQuantityChangeServiceTests
                 It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()),
             Times.Never,
-            "spec 006: extra seats on a bank-transfer contract are invoiced, never charged");
+            "extra seats on an invoiced subscription are invoiced, never charged");
 
     [Fact]
     public async Task An_offline_increase_grants_the_seats_and_records_a_prorated_invoice_without_charging()
     {
         _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        _subscription.OfflinePricing = new OfflinePricing { Mode = OfflinePricingMode.Catalogue };
         CaptureOfflineInvoice();
 
         var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
@@ -1177,47 +1176,5 @@ public sealed class SubscriptionQuantityChangeServiceTests
         _offlineInvoice.Amounts!.TotalMinor.Should().BeGreaterThan(0);
         _offlineInvoice.QuantityItems.Single().Quantity.Should().Be(
             5, because: "the invoice describes the subscription at its new seat count");
-    }
-
-    [Fact]
-    public async Task A_contract_priced_increase_grants_the_seats_and_records_nothing()
-    {
-        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        _subscription.OfflinePricing = new OfflinePricing
-        {
-            Mode = OfflinePricingMode.Contract,
-            ContractAmountMinor = 40_000,
-            ContractCurrencyCode = "CHF"
-        };
-        OfflineSubscriptionTerms.ApplyContract(
-            _subscription.Price, _subscription.QuantityItems, _subscription.OfflinePricing);
-        CaptureOfflineInvoice();
-
-        var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
-
-        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
-        VerifyNeverCharged();
-        _offlineInvoice.Should().BeNull(
-            because: "spec 006 AC-15: a contract is one flat amount whatever the seats, so adding " +
-                "one changes nothing anybody owes");
-    }
-
-    [Fact]
-    public async Task A_no_price_increase_grants_the_seats_and_records_a_service_statement()
-    {
-        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        _subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
-        OfflineSubscriptionTerms.ApplyNoPrice(_subscription.Price, _subscription.QuantityItems);
-        CaptureOfflineInvoice();
-
-        var result = await Service().ChangeAsync("sub-1", Request(5), "corr-1", default);
-
-        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
-        VerifyNeverCharged();
-        _offlineInvoice!.DocumentType.Should().Be(
-            FinancialDocumentType.ServiceStatement,
-            because: "spec 006 AC-14: the price is agreed outside Utilities, so the change is " +
-                "recorded as terms rather than skipped as a zero invoice would be");
-        _offlineInvoice.QuantityItems.Single().Quantity.Should().Be(5);
     }
 }

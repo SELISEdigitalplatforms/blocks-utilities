@@ -69,9 +69,6 @@ public sealed class SubscriptionContextResolver : ISubscriptionContextResolver
                 context.ActorId,
                 context.UserId,
                 context.UserName,
-                context.Email)
-            {
-                CallerIsConsole = organization.RequestNamedTheOrganization
-            });
+                context.Email));
     }
 }

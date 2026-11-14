@@ -1,4 +1,4 @@
-import { AlertCircle, CalendarClock, CreditCard, ExternalLink, History, Inbox } from "lucide-react";
+import { AlertCircle, CalendarClock, CreditCard, ExternalLink, History, Inbox, Landmark } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
@@ -10,10 +10,19 @@ import {
   type QuantityDiscountTier,
   type SimulatedSubscription,
 } from "../models/subscription-simulation.model";
-import { describeOfflinePricing } from "../utilities/offline-pricing";
-import { BilledByInvoiceBadge } from "./offline-pricing-fields";
 import { SubscriptionStatusBadge } from "./subscription-status-badge";
 import { useT } from "@seliseblocks/genesis-os";
+
+/** Shown wherever the customer's subscription is: it is paid by bank transfer and never takes a card. */
+const BilledByInvoiceBadge = () => {
+  const { t } = useT("utilities.subscription-simulation");
+  return (
+    <Badge variant="secondary" className="font-normal" data-testid="billed-by-invoice">
+      <Landmark className="mr-1 h-3 w-3" />
+      {t("OFFLINE_PRICING.BILLED_BY_INVOICE")}
+    </Badge>
+  );
+};
 
 const formatDate = (isoDate: string | null) =>
   isoDate ? new Date(isoDate).toLocaleString() : "—";
@@ -120,13 +129,9 @@ export const CurrentSubscriptionCard = ({
     );
   }
 
-  // Paid by bank transfer (spec 006): never charged and takes no card, so not one card prompt below
+  // Billed by invoice: never charged and takes no card, so not one card prompt below
   // applies -- the server answers 409 to each of them anyway.
   const offline = isOfflineSubscription(subscription);
-
-  // A change the console scheduled (a re-price, or an operator's plan change) is not the
-  // subscriber's to withdraw -- the server refuses it -- and the pricing line below says when it applies.
-  const operatorChange = subscription.pendingPlanChange?.scheduledByOperator === true;
 
   // A session already open -- from any of the three cases below -- always wins over starting a
   // new one, so a subscriber part-way through Stripe sees where to finish it rather than a button
@@ -175,11 +180,7 @@ export const CurrentSubscriptionCard = ({
               unitAmountMinor: subscription.unitAmountMinor,
               interval: subscription.interval,
               intervalCount: subscription.intervalCount,
-              // A contract price is one flat amount whatever the quantities (spec 006), never "per user".
-              quantityItemKey:
-                subscription.offlinePricingMode === "Contract"
-                  ? null
-                  : (subscription.quantities[0]?.itemKey ?? null),
+              quantityItemKey: subscription.quantities[0]?.itemKey ?? null,
             })}
           </p>
         </div>
@@ -263,15 +264,6 @@ export const CurrentSubscriptionCard = ({
           <CalendarClock className="h-3.5 w-3.5" />
           {t("CURRENT_SUBSCRIPTION_CARD.CURRENT_PERIOD_ENDS", { currentPeriodEndUtc: formatDate(subscription.currentPeriodEndUtc) })}
         </span>
-        {offline && (
-          <span data-testid="offline-pricing">
-            {describeOfflinePricing(t, subscription.offlinePricingMode, subscription.contractAmountMinor, subscription.currencyCode)}
-            {subscription.pendingOfflinePricingMode &&
-              ` · ${t("OFFLINE_PRICING.FROM_NEXT_RENEWAL", {
-                pricing: describeOfflinePricing(t, subscription.pendingOfflinePricingMode, subscription.pendingContractAmountMinor, subscription.currencyCode),
-              })}`}
-          </span>
-        )}
         {subscription.trialEndsAtUtc && (
           <span>{t("CURRENT_SUBSCRIPTION_CARD.TRIAL_ENDS", { trialEndsAtUtc: formatDate(subscription.trialEndsAtUtc) })}</span>
         )}
@@ -315,7 +307,7 @@ export const CurrentSubscriptionCard = ({
       {/* A plan change already booked, shown for the same reason the reduction below is: without
           it a reload shows the current plan with nothing to say a different one is coming, and no
           way to call it off. The subscriber keeps this plan, at this price, until the date shown. */}
-      {subscription.pendingPlanChange && !operatorChange && (
+      {subscription.pendingPlanChange && (
         <div
           className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-300 bg-warning-50 p-2.5 text-xs"
           data-testid="pending-plan-change"

@@ -18,8 +18,7 @@ namespace Subscription.DomainService.Services;
 /// a <see cref="PendingPriceTerms"/> and its announcement in one compare-and-set, so a subscriber
 /// is never repriced without having been told.
 /// <para>
-/// Left alone: offline subscriptions, whose terms are negotiated per contract (spec 006); a
-/// subscription already cancelling, which will not renew; and one with its own plan change
+/// Left alone: a subscription already cancelling, which will not renew; and one with its own plan change
 /// scheduled, which is leaving this price and was quoted the terms it is moving onto.
 /// </para>
 /// <para>
@@ -121,8 +120,7 @@ public sealed class ExistingSubscriberPriceTerms
         // ordinary, and failing them over it would leave a gap the operator cannot see.
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            if (subscription.IsOffline ||
-                subscription.CancelAtPeriodEnd ||
+            if (subscription.CancelAtPeriodEnd ||
                 subscription.PendingPlanChange is not null ||
                 subscription.Price.PriceId != priceId)
             {

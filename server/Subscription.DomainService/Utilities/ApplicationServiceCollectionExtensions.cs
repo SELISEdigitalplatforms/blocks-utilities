@@ -239,10 +239,6 @@ public static class ApplicationServiceCollectionExtensions
         services.AddTransient<
             IValidator<CreateSubscriptionRequest>,
             CreateSubscriptionRequestValidator>();
-        services.AddTransient<
-            IValidator<ActivateOfflineSubscriptionRequest>,
-            ActivateOfflineSubscriptionRequestValidator>();
-        services.AddTransient<IValidator<OfflinePricingRequest>, OfflinePricingRequestValidator>();
         services.AddTransient<IValidator<CreateDiscountRequest>, CreateDiscountRequestValidator>();
         services.AddTransient<IValidator<UpdateDiscountRequest>, UpdateDiscountRequestValidator>();
         services.AddTransient<
@@ -264,6 +260,7 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<PreviewUsageOverageRequest>,
             PreviewUsageOverageRequestValidator>();
         services.AddTransient<IValidator<CreditPurchaseRequest>, CreditPurchaseRequestValidator>();
+        services.AddTransient<IValidator<RecordFinancialDocumentPaymentRequest>, RecordFinancialDocumentPaymentRequestValidator>();
         services.AddTransient<IValidator<CreateMeterCatalogueEntryRequest>, CreateMeterCatalogueEntryRequestValidator>();
         services.AddTransient<IValidator<UpdateMeterCatalogueEntryRequest>, UpdateMeterCatalogueEntryRequestValidator>();
         services.AddTransient<IValidator<CreditOfferRequest>, CreditOfferRequestValidator>();

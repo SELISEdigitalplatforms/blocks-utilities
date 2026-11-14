@@ -159,7 +159,7 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
                 document => document.IssuedAtUtc, toUtc));
 
         // Card documents are matched as "not offline" rather than "AutomaticCharge": every document
-        // issued before spec 006 has no such field, and is a card document all the same.
+        // issued before the field existed has none, and is a card document all the same.
         if (collectionMethod is { } method)
         {
             filter &= method == SubscriptionCollectionMethod.OfflineInvoice

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Options;
+﻿using FluentValidation;
+using Microsoft.Extensions.Options;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
@@ -8,6 +9,7 @@ using Subscription.DomainService.Requests;
 using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Responses;
 using Subscription.DomainService.Utilities;
+using Subscription.DomainService.Validators;
 
 namespace Subscription.DomainService.Services;
 
@@ -20,6 +22,8 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
     private readonly ISubscriptionFinancialDocumentRepository _documents;
     private readonly IFinancialDocumentFileStore _files;
     private readonly IOptions<PaymentOptions> _paymentOptions;
+    private readonly IValidator<RecordFinancialDocumentPaymentRequest> _paymentValidator;
+    private readonly ISubscriptionFinancialDocumentDeliveryService? _delivery;
     private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
 
@@ -28,13 +32,17 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
         ISubscriptionFinancialDocumentRepository documents,
         IFinancialDocumentFileStore files,
         IOptions<PaymentOptions> paymentOptions,
+        IValidator<RecordFinancialDocumentPaymentRequest> paymentValidator,
         ISubscriptionWorkScheduler? scheduler = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionFinancialDocumentDeliveryService? delivery = null)
     {
         _context = context;
         _documents = documents;
         _files = files;
         _paymentOptions = paymentOptions;
+        _paymentValidator = paymentValidator;
+        _delivery = delivery;
         _scheduler = scheduler;
         _time = time ?? TimeProvider.System;
     }
@@ -129,6 +137,93 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
                 ResendGeneration = reopening.Generation,
                 Status = status
             },
+            correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>>
+        RecordPaymentAsync(
+            string documentId,
+            RecordFinancialDocumentPaymentRequest request,
+            string correlationId,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var invalid = await SubscriptionValidation.CheckAsync<
+            RecordFinancialDocumentPaymentRequest,
+            SubscriptionFinancialDocumentResponse>(
+            _paymentValidator,
+            request,
+            "subscription_request_invalid",
+            "The payment is invalid.",
+            correlationId,
+            cancellationToken);
+
+        if (invalid is not null)
+        {
+            return invalid;
+        }
+
+        var resolution = await _context.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+
+        if (resolution.Context is not { } context)
+        {
+            return resolution.ToFailure<SubscriptionFinancialDocumentResponse>(correlationId);
+        }
+
+        var document = await _documents.GetAsync(context.TenantId, documentId, cancellationToken);
+
+        // One answer for absent and for another organization's, as for the PDF.
+        if (document is null ||
+            !string.Equals(document.OrganizationId, context.OrganizationId, StringComparison.Ordinal))
+        {
+            return SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>.Failure(
+                PaymentFailureKind.NotFound,
+                "financial_document_not_found",
+                "No such financial document.",
+                correlationId);
+        }
+
+        if (document.DocumentType == FinancialDocumentType.CreditNote)
+        {
+            return SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "financial_document_not_collectable",
+                "A credit note is not collected, so no payment can be recorded against it.",
+                correlationId);
+        }
+
+        if (document.PaymentStatus == FinancialDocumentPaymentStatus.Unpaid)
+        {
+            var recorded = await _documents.TryRecordPaymentAsync(
+                context.TenantId,
+                documentId,
+                request.PaidAtUtc is { } paidAt
+                    ? RecordFinancialDocumentPaymentRequestValidator.AsUtc(paidAt)
+                    : _time.GetUtcNow().UtcDateTime,
+                request.Reference?.Trim(),
+                context.UserId,
+                cancellationToken);
+
+            // Re-read whatever the update returned: on a lost race the stored values are the other
+            // writer's, and the pre-read snapshot would still say Unpaid.
+            document = await _documents.GetAsync(context.TenantId, documentId, cancellationToken)
+                ?? document;
+
+            // The stored PDF still says Unpaid. Replace it, quietly: no mail, and a renderer outage
+            // costs only a stale PDF -- the API and console already show Paid.
+            if (recorded && _delivery is not null)
+            {
+                await _delivery.RerenderStoredPdfAsync(context.TenantId, documentId, cancellationToken);
+            }
+        }
+
+        // Already paid, or paid by a concurrent call: the first recording stands.
+        return SubscriptionOperationResult<SubscriptionFinancialDocumentResponse>.Success(
+            Map(document, request.OrganizationId),
             correlationId);
     }
 
@@ -228,6 +323,7 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
             request.SubscriptionId,
             request.DocumentType,
             request.Status,
+            request.PaymentStatus,
             request.IssuedFromUtc?.ToUniversalTime(),
             request.IssuedToUtc?.ToUniversalTime(),
             request.PageSize,
@@ -343,6 +439,10 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
             DocumentNumber = document.DocumentNumber,
             DocumentType = document.DocumentType.ToString(),
             Status = document.Status.ToString(),
+            PaymentStatus = document.PaymentStatus.ToString(),
+            PaidAtUtc = document.PaidAtUtc,
+            PaymentReference = document.PaymentReference,
+            OrganizationId = document.OrganizationId,
             CollectionMethod = document.CollectionMethod.ToString(),
             IssuedAtUtc = document.IssuedAtUtc,
             SubscriptionId = document.SubscriptionId,

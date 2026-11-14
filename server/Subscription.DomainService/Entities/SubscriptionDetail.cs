@@ -54,7 +54,7 @@ public sealed class SubscriptionDetail
         SubscriptionStatus.Incomplete;
 
     /// <summary>
-    /// How this subscription's money is collected. Set at creation, never changed. See spec 006.
+    /// How this subscription's money is collected. Set at creation, never changed.
     /// </summary>
     /// <remarks>
     /// Absent on every subscription written before offline billing existed, which deserializes to
@@ -62,32 +62,9 @@ public sealed class SubscriptionDetail
     /// </remarks>
     public SubscriptionCollectionMethod CollectionMethod { get; set; }
 
-    /// <summary>
-    /// The pricing an operator chose when activating an offline subscription. Null for every
-    /// <see cref="SubscriptionCollectionMethod.AutomaticCharge"/> subscription.
-    /// </summary>
-    public OfflinePricing? OfflinePricing { get; set; }
-
-    /// <summary>
-    /// The operator who activated an offline subscription on the organization's behalf.
-    /// </summary>
-    /// <remarks>
-    /// Kept apart from <see cref="PurchasedBy"/>, which stays null for an offline activation: the
-    /// operator bought nothing, and the documents and the one-trial rule that read the buyer must
-    /// not name someone from the console as the customer.
-    /// </remarks>
-    public FinancialDocumentPerson? ActivatedBy { get; set; }
-
     /// <summary>Whether this subscription is billed outside Utilities and must never be charged.</summary>
     [BsonIgnore]
     public bool IsOffline => CollectionMethod == SubscriptionCollectionMethod.OfflineInvoice;
-
-    /// <summary>
-    /// Whether the price is agreed outside Utilities entirely (spec 006), so every document this
-    /// subscription owes is a service statement with no amounts rather than an invoice.
-    /// </summary>
-    [BsonIgnore]
-    public bool IsNoPrice => IsOffline && OfflinePricing?.Mode == OfflinePricingMode.None;
 
     /// <summary>
     /// Fixed for the life of the subscription. Refunds must return in the currency they

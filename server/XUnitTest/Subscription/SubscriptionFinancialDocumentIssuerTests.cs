@@ -768,31 +768,6 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
-    public async Task A_no_price_trial_is_stated_without_taking_an_invoice_number()
-    {
-        var subscription = Subscribed(item =>
-        {
-            item.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-            item.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
-            item.Trial = new TrialTerms
-            {
-                StartsAtUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
-                EndsAtUtc = new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc)
-            };
-        });
-
-        Owing(subscription, SubscriptionDocumentSourceFactory.ForTrial(subscription, null, "corr-1")!);
-
-        await Issuer().IssueForSubscriptionAsync(TenantId, SubscriptionId, "corr-1", CancellationToken.None);
-
-        var document = _documents.Documents.Single();
-        document.DocumentType.Should().Be(
-            FinancialDocumentType.ServiceStatement,
-            because: "spec 006 AC-3: a no-price subscription never consumes an invoice number");
-        document.Trial.Should().NotBeNull(because: "the statement still states the trial's terms");
-    }
-
-    [Fact]
     public async Task A_subscription_with_no_trial_gets_no_trial_invoice()
     {
         var subscription = Subscribed();
@@ -901,10 +876,10 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
 
         var document = _documents.Documents.Single();
         document.DocumentType.Should().Be(FinancialDocumentType.Invoice);
-        document.PaymentDetailId.Should().BeNull(because: "spec 006: nothing was collected");
+        document.PaymentDetailId.Should().BeNull(because: "nothing was collected");
         document.CollectionMethod.Should().Be(
             SubscriptionCollectionMethod.OfflineInvoice,
-            because: "the rendered invoice reads this to say 'Payable by bank transfer' rather than 'Paid'");
+            because: "the invoice is issued with PaymentStatus Unpaid rather than Paid");
         document.Amounts.TotalMinor.Should().Be(
             54_050,
             because: "the customer's own invoice is written from this figure, tax included");
@@ -913,42 +888,81 @@ public sealed class SubscriptionFinancialDocumentIssuerTests
     }
 
     [Fact]
-    public async Task A_no_price_renewal_is_issued_as_a_service_statement_with_no_amounts()
+    public async Task An_invoice_backed_by_a_payment_is_issued_paid()
+    {
+        Subscribed();
+        SettledRenewal();
+
+        var document = await Issuer().IssueDocumentForPaymentAsync(
+            TenantId, "pay-1", "corr-1", CancellationToken.None);
+
+        document!.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Paid);
+    }
+
+    [Fact]
+    public async Task An_offline_invoice_with_an_amount_is_issued_unpaid()
     {
         var subscription = Subscribed();
         subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        subscription.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
-
         Owing(
             subscription,
             SubscriptionDocumentSourceFactory.ForOfflineCharge(
                 subscription,
                 SubscriptionChargeKind.Renewal,
                 "2026-09",
-                new FinancialDocumentAmounts(),
+                new FinancialDocumentAmounts { GrossSubtotalMinor = 50_000, NetSubtotalMinor = 50_000, TotalMinor = 50_000 },
                 null,
                 SettledAt,
                 "corr-1"));
 
-        (await Issuer().IssueForSubscriptionAsync(
-            TenantId, SubscriptionId, "corr-1", CancellationToken.None))
-            .Should().Be(1);
+        await Issuer().IssueForSubscriptionAsync(TenantId, SubscriptionId, "corr-1", CancellationToken.None);
+
+        _documents.Documents.Single().PaymentStatus.Should().Be(
+            FinancialDocumentPaymentStatus.Unpaid,
+            because: "nothing was collected and something is owed");
+    }
+
+    [Fact]
+    public async Task A_zero_amount_document_is_issued_paid()
+    {
+        var subscription = Subscribed();
+        subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        Owing(
+            subscription,
+            SubscriptionDocumentSourceFactory.ForOfflineCharge(
+                subscription,
+                SubscriptionChargeKind.Renewal,
+                "2026-09",
+                new FinancialDocumentAmounts { TotalMinor = 0 },
+                null,
+                SettledAt,
+                "corr-1"));
+
+        await Issuer().IssueForSubscriptionAsync(TenantId, SubscriptionId, "corr-1", CancellationToken.None);
 
         var document = _documents.Documents.Single();
-        document.DocumentType.Should().Be(
-            FinancialDocumentType.ServiceStatement,
-            because: "spec 006: a contract priced outside Utilities is recorded, never invoiced");
-        document.Amounts.TotalMinor.Should().Be(0);
-        document.Lines.Should().OnlyContain(
-            line => line.AmountMinor == 0 && line.UnitAmountMinor == null,
-            because: "a statement must carry no figure Utilities could have invented");
-        document.Lines[0].Description.Should().EndWith("renewed");
-        _numbers.Verify(
-            numbers => numbers.AllocateAsync(
-                TenantId, FinancialDocumentType.ServiceStatement, It.IsAny<int>(), It.IsAny<CancellationToken>()),
-            Times.Once,
-            "the statement is numbered from its own sequence, never taking an invoice number");
-        _consumed.Should().BeEmpty(because: "an issued statement settles its obligation");
+        document.DocumentType.Should().Be(FinancialDocumentType.Invoice);
+        document.PaymentStatus.Should().Be(
+            FinancialDocumentPaymentStatus.Paid,
+            because: "there is nothing to pay");
+    }
+
+    [Fact]
+    public async Task A_credit_note_is_always_paid()
+    {
+        Subscribed();
+        SettledRenewal();
+        var issuer = Issuer();
+        var invoice = await issuer.IssueDocumentForPaymentAsync(TenantId, "pay-1", "corr-1", CancellationToken.None);
+        // Forced Unpaid so the credit note cannot pass by inheriting its original's state.
+        invoice!.PaymentStatus = FinancialDocumentPaymentStatus.Unpaid;
+        RefundedBy(959.30m, PaymentStatuses.Refunded, refundedTotal: 959.30m);
+
+        var creditNote = await issuer.IssueRefundCreditNoteAsync(
+            TenantId, "pay-1", "refund-1", "corr-2", CancellationToken.None);
+
+        creditNote!.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Paid);
+        invoice.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Unpaid);
     }
 
     [Fact]

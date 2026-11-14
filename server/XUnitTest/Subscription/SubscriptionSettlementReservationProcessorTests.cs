@@ -410,7 +410,7 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent raised,
                     CancellationToken _, SubscriptionDocumentSource? _,
-                    PendingAnnualPeriod? _, OfflinePricing? _) => announced = raised)
+                    PendingAnnualPeriod? _) => announced = raised)
             .ReturnsAsync(true);
 
         GivenPayment(ChargeKey, PaymentStatuses.Captured);
@@ -518,7 +518,7 @@ public sealed class SubscriptionSettlementReservationProcessorTests
                     List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
                     PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
                     CancellationToken _, SubscriptionDocumentSource? _,
-                    PendingAnnualPeriod? annual, OfflinePricing? _) => installed = annual)
+                    PendingAnnualPeriod? annual) => installed = annual)
             .ReturnsAsync(true);
 
         GivenPayment(ChargeKey, PaymentStatuses.Captured);

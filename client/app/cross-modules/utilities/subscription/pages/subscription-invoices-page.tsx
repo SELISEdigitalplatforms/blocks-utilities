@@ -1,10 +1,18 @@
 import { useT } from "@seliseblocks/genesis-os";
 import { useState } from "react";
-import { AlertTriangle, Download, FileText, Loader2, RotateCw } from "lucide-react";
+import { AlertTriangle, Banknote, Download, FileText, Loader2, RotateCw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui-kits/dialog/dialog";
 import { Input } from "@/components/ui-kits/input/input";
 import { Label } from "@/components/ui-kits/label/label";
 import {
@@ -24,11 +32,13 @@ import {
 import {
   downloadFinancialDocumentPdf,
   useFinancialDocuments,
+  useRecordFinancialDocumentPayment,
   useResendFinancialDocument,
 } from "../hooks/use-financial-documents";
 import { useOrganizationScope } from "../hooks/use-organization-scope";
 import { useSubscriptionLink } from "../hooks/use-subscription-link";
 import type {
+  FinancialDocumentPaymentStatus,
   FinancialDocumentStatus,
   FinancialDocumentType,
   SubscriptionFinancialDocument,
@@ -47,6 +57,10 @@ import {
 const badgeVariant = (document: SubscriptionFinancialDocument) => {
   if (document.documentType === "CreditNote") {
     return "secondary" as const;
+  }
+
+  if (document.paymentStatus === "Unpaid") {
+    return "destructive" as const;
   }
 
   return document.status === "Issued" ? ("default" as const) : ("outline" as const);
@@ -70,7 +84,32 @@ export const DocumentRow = ({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const { mutateAsync: resend, isPending: resending } = useResendFinancialDocument();
+  const { mutateAsync: recordPayment, isPending: recording } = useRecordFinancialDocumentPayment();
+  const [paying, setPaying] = useState(false);
+  const [reference, setReference] = useState("");
   const { t } = useT("utilities.subscription.pages");
+
+  const canRecordPayment = document.paymentStatus === "Unpaid" && document.documentType !== "CreditNote";
+
+  const confirmPayment = async () => {
+    try {
+      await recordPayment({
+        documentId: document.documentId,
+        reference: reference.trim() || undefined,
+        organizationId,
+      });
+      toast({ variant: "success", title: t("INVOICES_PAGE.PAYMENT_RECORDED") });
+      setPaying(false);
+      setReference("");
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: t("INVOICES_PAGE.PAYMENT_FAILED"),
+        description:
+          error instanceof Error ? error.message : t("INVOICES_PAGE.SOMETHING_WENT_WRONG"),
+      });
+    }
+  };
 
   const retry = async () => {
     try {
@@ -139,11 +178,19 @@ export const DocumentRow = ({
         </div>
 
         <div className="flex items-center gap-3">
-          {/* A statement states no amount; a zero here would read as "free". */}
-          {document.documentType !== "ServiceStatement" && (
-            <span className="whitespace-nowrap text-lg font-semibold">
-              {formatMoney(document.amounts.totalMinor, document.currencyCode)}
-            </span>
+          <span className="whitespace-nowrap text-lg font-semibold">
+            {formatMoney(document.amounts.totalMinor, document.currencyCode)}
+          </span>
+          {canRecordPayment && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaying(true)}
+              data-testid={`record-payment-${document.documentNumber}`}
+            >
+              <Banknote className="mr-2 h-4 w-4" />
+              {t("INVOICES_PAGE.RECORD_PAYMENT")}
+            </Button>
           )}
           <Button variant="ghost" size="sm" onClick={() => setOpen((value) => !value)}>
             {open ? t("INVOICES_PAGE.HIDE_DETAIL") : t("INVOICES_PAGE.SHOW_DETAIL")}
@@ -286,28 +333,26 @@ export const DocumentRow = ({
             </div>
           )}
 
-          {document.documentType !== "ServiceStatement" && (
-            <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {t("INVOICES_PAGE.AMOUNTS")}
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("INVOICES_PAGE.AMOUNTS")}
+            </p>
+            <table className="w-full max-w-sm text-sm">
+              <tbody>
+                {documentAmountRows(document.amounts, document.currencyCode).map((row) => (
+                  <tr key={row.label} className={row.isTotal ? "border-t font-medium" : undefined}>
+                    <td className="py-1 pr-6 text-muted-foreground">{row.label}</td>
+                    <td className="py-1 text-right">{row.amount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!amountsReconcile(document.amounts) && (
+              <p className="mt-2 text-xs text-amber-700" data-testid="amounts-warning">
+                {t("INVOICES_PAGE.AMOUNTS_WARNING")}
               </p>
-              <table className="w-full max-w-sm text-sm">
-                <tbody>
-                  {documentAmountRows(document.amounts, document.currencyCode).map((row) => (
-                    <tr key={row.label} className={row.isTotal ? "border-t font-medium" : undefined}>
-                      <td className="py-1 pr-6 text-muted-foreground">{row.label}</td>
-                      <td className="py-1 text-right">{row.amount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!amountsReconcile(document.amounts) && (
-                <p className="mt-2 text-xs text-amber-700" data-testid="amounts-warning">
-                  {t("INVOICES_PAGE.AMOUNTS_WARNING")}
-                </p>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
             <p>
@@ -332,6 +377,43 @@ export const DocumentRow = ({
           </div>
         </div>
       )}
+
+      <Dialog open={paying} onOpenChange={(value) => {
+          if (recording) return;
+          setPaying(value);
+          if (!value) setReference("");
+        }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("INVOICES_PAGE.RECORD_PAYMENT")}</DialogTitle>
+            <DialogDescription>
+              {t("INVOICES_PAGE.RECORD_PAYMENT_DESCRIPTION", { number: document.documentNumber })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`payment-reference-${document.documentId}`}>
+              {t("INVOICES_PAGE.PAYMENT_REFERENCE")}
+            </Label>
+            <Input
+              id={`payment-reference-${document.documentId}`}
+              value={reference}
+              onChange={(event) => setReference(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={recording} onClick={() => {
+                setPaying(false);
+                setReference("");
+              }}>
+              {t("INVOICES_PAGE.CANCEL")}
+            </Button>
+            <Button disabled={recording} onClick={confirmPayment}>
+              {recording && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("INVOICES_PAGE.RECORD_PAYMENT")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };
@@ -348,6 +430,7 @@ export const SubscriptionInvoicesPage = () => {
   const subscriptionLink = useSubscriptionLink();
   const [documentType, setDocumentType] = useState<string>(ANY_DOCUMENT_FILTER);
   const [status, setStatus] = useState<string>(ANY_DOCUMENT_FILTER);
+  const [paymentStatus, setPaymentStatus] = useState<string>(ANY_DOCUMENT_FILTER);
   const [issuedFrom, setIssuedFrom] = useState("");
   const [issuedTo, setIssuedTo] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
@@ -360,6 +443,10 @@ export const SubscriptionInvoicesPage = () => {
         ? null
         : (documentType as FinancialDocumentType),
     status: status === ANY_DOCUMENT_FILTER ? null : (status as FinancialDocumentStatus),
+    paymentStatus:
+      paymentStatus === ANY_DOCUMENT_FILTER
+        ? null
+        : (paymentStatus as FinancialDocumentPaymentStatus),
     // Sent as instants because the server compares against issue timestamps. The end of the range is
     // pushed to the end of its day, so "to 31 December" includes documents issued that afternoon.
     issuedFromUtc: issuedFrom ? `${issuedFrom}T00:00:00Z` : null,
@@ -383,7 +470,7 @@ export const SubscriptionInvoicesPage = () => {
         icon={<FileText className="h-6 w-6" />}
       />
 
-      <Card className="grid gap-4 p-4 sm:grid-cols-4">
+      <Card className="grid gap-4 p-4 sm:grid-cols-5">
         <div className="flex flex-col gap-2">
           <Label>{t("INVOICES_PAGE.DOCUMENT_TYPE")}</Label>
           <Select
@@ -418,6 +505,23 @@ export const SubscriptionInvoicesPage = () => {
                   {option.label}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label>{t("INVOICES_PAGE.PAYMENT_STATUS_FILTER")}</Label>
+          <Select
+            value={paymentStatus}
+            onValueChange={(value) => changeFilter(() => setPaymentStatus(value))}
+          >
+            <SelectTrigger aria-label={t("INVOICES_PAGE.PAYMENT_STATUS_FILTER")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY_DOCUMENT_FILTER}>{t("INVOICES_PAGE.PAYMENT_ANY")}</SelectItem>
+              <SelectItem value="Paid">{t("INVOICES_PAGE.PAID")}</SelectItem>
+              <SelectItem value="Unpaid">{t("INVOICES_PAGE.UNPAID")}</SelectItem>
             </SelectContent>
           </Select>
         </div>

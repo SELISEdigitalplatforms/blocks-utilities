@@ -134,9 +134,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await AuditAsync(subscription, "Started", "InProgress", null, null, null,
             subscription.DunningAttemptCount + 1, cancellationToken);
 
-        // An offline subscription (spec 006) is paid under a contract outside Utilities. It has no
-        // card to look for, and must never be moved to Unpaid for lacking one: the period simply
-        // opens, and what it would have cost is recorded instead of collected.
+        // An invoice-billed subscription skips the gateway. It has no card to look for, and must
+        // never be moved to Unpaid for lacking one: the period simply opens, and an Unpaid invoice
+        // records what it costs.
         BillingAccount? account = null;
 
         if (!subscription.IsOffline)
@@ -259,13 +259,6 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             subscription.QuantityItems = pendingPlan.QuantityItems;
             subscription.FeeSchedule = pendingPlan.FeeSchedule;
             subscription.UsageSchedule = pendingPlan.UsageSchedule;
-
-            // Spec 006: a re-pricing takes effect at this boundary, so the document this renewal
-            // owes is the one the new pricing calls for — a statement once it has no price.
-            if (pendingPlan.OfflinePricing is { } offlinePricing)
-            {
-                subscription.OfflinePricing = offlinePricing;
-            }
         }
 
         // A discount or tax edit an operator extended to this subscriber, announced for this
@@ -776,9 +769,6 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // Due means spent, applied or not: a subscriber a plan change moved off the price
                 // has nothing left for these terms to apply to.
                 ClearPendingPriceTerms = duePriceTerms is not null,
-                // Spec 006: a scheduled change says which kind of figure its price is, installed
-                // with the price itself so the two can never disagree.
-                OfflinePricing = appliedPlanChange?.OfflinePricing,
                 FeeSchedule = appliedPlanChange?.FeeSchedule,
                 UsageSchedule = appliedPlanChange?.UsageSchedule,
                 ClearPendingPlanChange = appliedPlanChange is not null,
@@ -899,7 +889,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
     }
 
     /// <summary>
-    /// The record invoice an offline renewal owes, or null when it owes none. See spec 006.
+    /// The Unpaid invoice an invoice-billed renewal owes, or null when it owes none.
     /// </summary>
     /// <remarks>
     /// Owed exactly when a card renewal would have raised a charge — a positive amount. A period
@@ -918,8 +908,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         BillingPeriod period,
         PeriodCharge charge)
     {
-        // A no-price subscription is owed a statement for every renewal, at a figure always zero.
-        if (!subscription.IsOffline || (charge.AmountMinor <= 0 && !subscription.IsNoPrice))
+        if (!subscription.IsOffline || charge.AmountMinor <= 0)
         {
             return null;
         }

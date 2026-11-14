@@ -8,6 +8,7 @@ import type {
   FinancialDocumentQuery,
   ResendFinancialDocumentResponse,
   SubscriptionBillingProfile,
+  SubscriptionFinancialDocument,
   SubscriptionFinancialDocumentPage,
   SubscriptionMerchantProfile,
   UpdateBillingProfileRequest,
@@ -45,6 +46,7 @@ const documentQuery = (query: FinancialDocumentQuery): string => {
   if (query.subscriptionId) params.set("subscriptionId", query.subscriptionId);
   if (query.documentType) params.set("documentType", query.documentType);
   if (query.status) params.set("status", query.status);
+  if (query.paymentStatus) params.set("paymentStatus", query.paymentStatus);
   if (query.issuedFromUtc) params.set("issuedFromUtc", query.issuedFromUtc);
   if (query.issuedToUtc) params.set("issuedToUtc", query.issuedToUtc);
   if (query.organizationId) params.set("organizationId", query.organizationId);
@@ -167,6 +169,22 @@ class SubscriptionBillingService {
 
     if (!response.success || !response.data) {
       throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_BILLING_SERVICE.DOCUMENT_COULD_NOT_BE_RESENT"));
+    }
+
+    return response.data;
+  }
+
+  /** Records that an invoice was paid outside the system. Console only; idempotent on an already-paid invoice. */
+  async recordDocumentPayment(
+    documentId: string,
+    body: { reference?: string; organizationId?: string },
+  ): Promise<SubscriptionFinancialDocument> {
+    const response = await serviceInstances.utitlitiesService.post<
+      SubscriptionApiResponse<SubscriptionFinancialDocument>
+    >(`${SUBSCRIPTION_INVOICES_ENDPOINT}/${encodeURIComponent(documentId)}/payment`, body);
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_BILLING_SERVICE.PAYMENT_COULD_NOT_BE_RECORDED"));
     }
 
     return response.data;

@@ -66,8 +66,6 @@ export interface PendingPlanChange {
   quantities: SubscriptionQuantity[];
   requestedAtUtc: string;
   effectiveAtUtc: string;
-  /** Scheduled by the console (spec 006 re-price or operator plan change); only the console may withdraw it. */
-  scheduledByOperator?: boolean;
 }
 
 export interface SimulatedSubscription {
@@ -140,53 +138,13 @@ export interface SimulatedSubscription {
    */
   providerName: string | null;
   /**
-   * `"OfflineInvoice"` for a subscription paid by bank transfer under a contract (spec 006): never
+   * `"OfflineInvoice"` for a subscription billed by invoice: never
    * charged, takes no card, so every card prompt is hidden for it. Absent from an older server.
    */
   collectionMethod?: CollectionMethod;
-  /** How an offline subscription's recurring amount is priced. Null for a card subscription. */
-  offlinePricingMode?: OfflinePricingMode | null;
-  /** The flat net amount per interval, `"Contract"` pricing only. */
-  contractAmountMinor?: number | null;
-  /** The pricing the next renewal installs, when a re-pricing or plan change scheduled one. */
-  pendingOfflinePricingMode?: OfflinePricingMode | null;
-  pendingContractAmountMinor?: number | null;
 }
 
 export type CollectionMethod = "AutomaticCharge" | "OfflineInvoice";
-
-export type OfflinePricingMode = "Catalogue" | "Contract" | "None";
-
-/**
- * The server binds the request's mode by number (its enum has no string converter), while every
- * response names it -- so requests send these and responses are read as {@link OfflinePricingMode}.
- */
-export const OFFLINE_PRICING_MODE_VALUE: Record<OfflinePricingMode, number> = {
-  Catalogue: 0,
-  Contract: 1,
-  None: 2,
-};
-
-export interface OfflinePricingRequest {
-  mode: number;
-  contractAmountMinor?: number;
-  contractCurrencyCode?: string;
-}
-
-export interface ActivateOfflineSubscriptionRequest {
-  organizationId: string;
-  planCode: string;
-  priceId: string;
-  quantities: SubscriptionQuantity[];
-  timeZoneId: string;
-  discountCode?: string;
-  pricing: OfflinePricingRequest;
-}
-
-export interface OfflineRepricingRequest {
-  organizationId: string;
-  pricing: OfflinePricingRequest;
-}
 
 export const isOfflineSubscription = (
   subscription: Pick<SimulatedSubscription, "collectionMethod"> | null | undefined,

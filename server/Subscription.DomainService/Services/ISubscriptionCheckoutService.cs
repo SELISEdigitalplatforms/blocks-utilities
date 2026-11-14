@@ -11,7 +11,8 @@ public interface ISubscriptionCheckoutService
     Task<SubscriptionOperationResult<SubscriptionResponse>> SubscribeAsync(
         CreateSubscriptionRequest request,
         string correlationId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool offline = false);
 
     /// <param name="organizationId">
     /// An organization named by the caller, if any. Trusted only for the platform console — see
@@ -41,19 +42,6 @@ public interface ISubscriptionCheckoutService
     /// before its first paid period, and this is how the subscriber provides it — without ending
     /// the trial, shortening it, or charging anything.
     /// </remarks>
-    /// <summary>
-    /// An operator activating a paid plan for an organization that pays by bank transfer, with no
-    /// card and no checkout. See spec 006.
-    /// </summary>
-    /// <remarks>
-    /// Console only: an organization cannot put itself on a paid plan without paying, whatever
-    /// permissions its token carries.
-    /// </remarks>
-    Task<SubscriptionOperationResult<SubscriptionResponse>> ActivateOfflineAsync(
-        ActivateOfflineSubscriptionRequest request,
-        string correlationId,
-        CancellationToken cancellationToken);
-
     Task<SubscriptionOperationResult<SubscriptionResponse>> StartPaymentMethodSetupAsync(
         string subscriptionId,
         string? organizationId,

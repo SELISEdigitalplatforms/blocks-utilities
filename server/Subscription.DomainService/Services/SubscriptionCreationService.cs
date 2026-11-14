@@ -125,29 +125,17 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         CreateSubscriptionRequest request,
         SubscriptionContext context,
         string correlationId,
-        CancellationToken cancellationToken) =>
-        CreateCoreAsync(request, context, offline: null, correlationId, cancellationToken);
-
-    /// <inheritdoc />
-    public Task<SubscriptionOperationResult<SubscriptionDetail>> CreateOfflineAsync(
-        CreateSubscriptionRequest request,
-        OfflinePricing pricing,
-        SubscriptionContext context,
-        string correlationId,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(pricing);
-
-        return CreateCoreAsync(request, context, pricing, correlationId, cancellationToken);
-    }
+        CancellationToken cancellationToken,
+        bool offline = false) =>
+        CreateCoreAsync(request, context, offline, correlationId, cancellationToken);
 
     /// <param name="offline">
-    /// The pricing an operator chose for an offline subscription; null for every card subscriber.
+    /// Whether the subscription is billed by invoice outside Utilities; false for every card subscriber.
     /// </param>
     private async Task<SubscriptionOperationResult<SubscriptionDetail>> CreateCoreAsync(
         CreateSubscriptionRequest request,
         SubscriptionContext context,
-        OfflinePricing? offline,
+        bool offline,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -182,7 +170,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             plan,
             price,
             preview: false,
-            offline: offline is not null,
+            offline: offline,
             cancellationToken);
 
         if (profileMissing.Count > 0)
@@ -346,7 +334,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             cancellationToken);
 
         var built = await BuildSubscriptionAsync(
-            request, context, plan, price, preview: true, offline: null, correlationId, cancellationToken);
+            request, context, plan, price, preview: true, offline: false, correlationId, cancellationToken);
 
         if (!built.Result.IsSuccess)
         {
@@ -599,31 +587,10 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         Plan plan,
         Price price,
         bool preview,
-        OfflinePricing? offline,
+        bool offline,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        if (offline is { Mode: OfflinePricingMode.Contract } &&
-            CalendarBillingAlignment.IsCalendarAligned(
-                price.BillingAlignment,
-                price.Interval,
-                price.IntervalCount,
-                price.CalendarStubBaseUnitAmountMinor) &&
-            CalendarBillingAlignment.NeedsStubBasePrice(price.Interval, price.IntervalCount))
-        {
-            // A calendar-aligned yearly price buys its opening stub at a separate monthly base
-            // price. A flat contract total has no monthly equivalent anyone agreed to, and deriving
-            // one would be inventing a price. Refused until a contract says what its stub costs.
-            return new SubscriptionBuildOutcome(
-                Failure(
-                    PaymentFailureKind.Validation,
-                    "subscription_offline_contract_calendar_unsupported",
-                    "A contract price cannot be used with a calendar-aligned yearly price. " +
-                        "Choose an anniversary-billed price, or catalogue pricing.",
-                    correlationId),
-                null);
-        }
-
         var discount = await ResolveDiscountAsync(request, context, plan, price, correlationId, cancellationToken);
         if (!discount.IsSuccess)
         {
@@ -751,7 +718,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // An offline subscription never reaches a provider, so a tenant whose card configuration is
         // broken can still put a contract customer on a plan. Its billing account is pinned to no
         // configuration, which is what keeps any later card path from finding one to charge.
-        if (_readiness is not null && offline is null)
+        if (_readiness is not null && !offline)
         {
             readinessResult = await _readiness.CheckAsync(
                 context.TenantId, context.OrganizationId, providerName, cancellationToken);
@@ -832,11 +799,9 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             now,
             correlationId);
 
-        if (offline is not null)
+        if (offline)
         {
-            // Before ApplyPeriods, which freezes the opening charge from the price snapshot: a
-            // contract amount applied any later would leave the first invoice at the catalogue figure.
-            OfflineSubscriptionTerms.Apply(subscription, offline);
+            subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
         }
 
         if (!preview && _directory is not null)
@@ -848,9 +813,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
             // A token with no name claim leaves the buyer captured as their bare id, and every
             // document the worker later issues for them prints "Initiated by" that id. Asked here,
-            // on the buyer's own sign-in, because the worker has no token to ask with. For an
-            // offline activation the signed-in person is the operator, so it is their name.
-            if ((subscription.PurchasedBy ?? subscription.ActivatedBy) is { } buyer &&
+            // on the buyer's own sign-in, because the worker has no token to ask with.
+            if (subscription.PurchasedBy is { } buyer &&
                 (string.IsNullOrWhiteSpace(buyer.Name) ||
                  string.Equals(buyer.Name, buyer.UserId, StringComparison.Ordinal)) &&
                 await _directory.FindSelfAsync(cancellationToken) is { } self)

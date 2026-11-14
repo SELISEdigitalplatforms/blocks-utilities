@@ -447,36 +447,27 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
-    public void An_offline_invoice_says_it_is_payable_by_bank_transfer_and_never_that_it_was_paid()
+    public void An_unpaid_offline_invoice_says_it_is_unpaid()
     {
         var html = Render(document =>
-            document.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice);
+        {
+            document.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+            document.PaymentStatus = FinancialDocumentPaymentStatus.Unpaid;
+        });
 
         html.Should().Contain(
-            "<tr><th>Status</th><td>Payable by bank transfer</td></tr>",
-            because: "spec 006: Utilities never learns whether a bank-transfer contract was paid, " +
-                "so an invoice saying 'Paid' would tell the customer they owe nothing");
+            "<tr><th>Status</th><td>Unpaid</td></tr>",
+            because: "a bank-transfer invoice that has not been paid must not say it was");
         html.Should().NotContain("<td>Paid</td>");
     }
 
     [Fact]
-    public void A_service_statement_states_the_terms_and_prints_no_money_at_all()
+    public void A_paid_offline_invoice_says_it_is_paid()
     {
         var html = Render(document =>
-        {
-            document.DocumentType = FinancialDocumentType.ServiceStatement;
-            document.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        });
+            document.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice);
 
-        html.Should().Contain("<div class=\"kind\">Service statement</div>");
-        html.Should().Contain("<tr><th>Status</th><td>Priced under your contract</td></tr>");
-        html.Should().NotContain(
-            "CHF",
-            because: "spec 006: the price was agreed outside Utilities, so any figure on the " +
-                "statement would be one nobody agreed to");
-        html.Should().NotContain("<th class=\"num\">Price</th>");
-        html.Should().NotContain("class=\"totals\"");
-        html.Should().NotContain("Payable by bank transfer", because: "a statement asks for no payment");
+        html.Should().Contain("<tr><th>Status</th><td>Paid</td></tr>");
     }
 
     [Fact]

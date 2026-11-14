@@ -265,7 +265,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
 
         (await TotalAsync(null)).Should().Be(
             15_000,
-            "spec 006: overage a contract customer owes by bank transfer is billed revenue too");
+            "overage an invoice-billed customer owes is billed revenue too");
         (await TotalAsync(SubscriptionCollectionMethod.OfflineInvoice)).Should().Be(3_000);
         (await TotalAsync(SubscriptionCollectionMethod.AutomaticCharge)).Should().Be(12_000);
     }
@@ -279,7 +279,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
 
         await InsertDocumentsAsync(offline, Document(tenantId, "CHF", FinancialDocumentType.Invoice, March, 10_000));
 
-        // Stored without the field, as every document issued before spec 006 is.
+        // Stored without the field, as every document issued before the field existed is.
         await _fixture.Collection<BsonDocument>(FinancialDocuments)
             .UpdateManyAsync(
                 Builders<BsonDocument>.Filter.And(

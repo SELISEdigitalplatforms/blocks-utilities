@@ -54,6 +54,22 @@ export const useResendFinancialDocument = () => {
   });
 };
 
+/** Records an out-of-system payment against an invoice, then refreshes the list. */
+export const useRecordFinancialDocumentPayment = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (variables: { documentId: string; reference?: string; organizationId?: string }) =>
+      subscriptionBillingService.recordDocumentPayment(variables.documentId, {
+        reference: variables.reference,
+        organizationId: variables.organizationId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["subscription-financial-documents"] });
+    },
+  });
+};
+
 /**
  * Downloads one document's PDF and hands it to the browser.
  *

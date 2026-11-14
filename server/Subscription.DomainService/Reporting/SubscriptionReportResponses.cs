@@ -416,13 +416,10 @@ public sealed class SubscriptionRosterRowResponse
     public string CurrencyCode { get; init; } = string.Empty;
 
     /// <summary>
-    /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for a bank-transfer contract (spec 006),
+    /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for a subscription billed by invoice,
     /// whose figures are invoiced, never collected.
     /// </summary>
     public string CollectionMethod { get; init; } = string.Empty;
-
-    /// <summary><c>Catalogue</c>, <c>Contract</c> or <c>None</c> for an offline subscription; null otherwise.</summary>
-    public string? OfflinePricingMode { get; init; }
 
     public long GrossMonthlyMinor { get; init; }
 

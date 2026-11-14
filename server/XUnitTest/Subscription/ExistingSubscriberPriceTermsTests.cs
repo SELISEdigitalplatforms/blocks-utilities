@@ -76,22 +76,33 @@ public sealed class ExistingSubscriberPriceTermsTests
     }
 
     [Fact]
-    public async Task Offline_cancelling_and_departing_subscribers_are_left_alone()
+    public async Task Cancelling_and_departing_subscribers_are_left_alone()
     {
-        var offline = OnPrice("sub-offline");
-        offline.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
         var cancelling = OnPrice("sub-cancelling");
         cancelling.CancelAtPeriodEnd = true;
         var departing = OnPrice("sub-departing");
         departing.PendingPlanChange = new PendingPlanChange { EffectiveAtUtc = December1 };
-        _onPrice = [offline, cancelling, departing];
+        _onPrice = [cancelling, departing];
 
         var result = await ExtendDiscountAsync(new DateTime(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc), 1500);
 
-        result.Skipped.Should().Be(3);
+        result.Skipped.Should().Be(2);
         _written.Should().BeEmpty(
-            "a negotiated contract, a subscription that will not renew, and one leaving this price " +
-            "were none of them quoted these terms");
+            "a subscription that will not renew and one leaving this price " +
+            "were neither of them quoted these terms");
+    }
+
+    [Fact]
+    public async Task An_offline_subscription_follows_a_price_terms_change_like_a_card_one()
+    {
+        var offline = OnPrice("sub-offline");
+        offline.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        _onPrice = [offline];
+
+        var result = await ExtendDiscountAsync(new DateTime(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc), 1500);
+
+        result.Skipped.Should().Be(0);
+        result.Scheduled.Should().Be(1);
     }
 
     [Fact]

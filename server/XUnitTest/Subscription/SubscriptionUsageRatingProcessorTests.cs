@@ -129,30 +129,6 @@ public sealed class SubscriptionUsageRatingProcessorTests
     }
 
     [Fact]
-    public async Task A_no_price_subscriptions_overage_is_rated_and_kept_but_never_owed()
-    {
-        var noPrice = NewSubscription("sub-1");
-        noPrice.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        noPrice.OfflinePricing = OfflineSubscriptionTerms.NoPricing();
-        _due = [noPrice];
-        _usage
-            .Setup(repository => repository.ListCountersAsync(
-                TenantId, "sub-1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([NewCounter("screening", 700)]);
-
-        await Processor().CloseDuePeriodsAsync(TenantId, CancellationToken.None);
-
-        _createdInvoice!.State.Should().Be(
-            SubscriptionUsageInvoiceState.NoCharge,
-            because: "spec 006 AC-16: overage under a contract priced outside Utilities is never " +
-                "invoiced, so nothing may ever pick it up to charge or record");
-        _createdInvoice.NextAttemptAtUtc.Should().BeNull();
-        _createdInvoice.Lines.Should().ContainSingle(
-            line => line.MeterKey == "screening",
-            because: "the usage itself is still rated and kept as the record of what was used");
-    }
-
-    [Fact]
     public async Task A_period_with_overage_creates_a_pending_invoice_priced_across_meters()
     {
         _due = [NewSubscription("sub-1")];

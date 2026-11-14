@@ -11,6 +11,10 @@ using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
+using Subscription.DomainService.Validators;
+using Microsoft.Extensions.Logging.Abstractions;
+using Subscription.DomainService.Messaging;
+using Payment.DomainService.Services;
 
 namespace XUnitTest.Subscription;
 
@@ -107,21 +111,22 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
     }
 
     [Fact]
-    public async Task A_record_invoice_says_it_is_payable_by_bank_transfer_rather_than_passing_for_a_paid_one()
+    public async Task A_payment_status_filter_narrows_the_list_and_an_old_document_counts_as_paid()
     {
-        var offline = await StoredAsync("INV-2026-000001", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-        offline.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
-        await StoredAsync("INV-2026-000002", new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
+        var unpaid = await StoredAsync("INV-2026-000001", new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        unpaid.PaymentStatus = FinancialDocumentPaymentStatus.Unpaid;
+        await StoredAsync("INV-2026-000002", new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc)); // default: Paid
 
-        var result = await Service().ListAsync(
-            new GetFinancialDocumentsRequest(),
-            "corr-1",
-            CancellationToken.None);
+        var paid = await Service().ListAsync(
+            new GetFinancialDocumentsRequest { PaymentStatus = FinancialDocumentPaymentStatus.Paid }, "corr-1", CancellationToken.None);
+        var open = await Service().ListAsync(
+            new GetFinancialDocumentsRequest { PaymentStatus = FinancialDocumentPaymentStatus.Unpaid }, "corr-1", CancellationToken.None);
 
-        result.Value!.Items.Select(item => (item.DocumentNumber, item.CollectionMethod))
-            .Should().BeEquivalentTo(
-                [("INV-2026-000002", "AutomaticCharge"), ("INV-2026-000001", "OfflineInvoice")],
-                because: "both are Issued, and only this field stops a console calling a bank-transfer invoice paid when nothing was collected");
+        paid.Value!.Items.Select(i => i.DocumentNumber).Should().Equal(
+            ["INV-2026-000002"],
+            because: "Paid is everything that is not Unpaid, so a document written before the field existed still lists as paid");
+        open.Value!.Items.Select(i => (i.DocumentNumber, i.PaymentStatus, i.OrganizationId))
+            .Should().Equal(("INV-2026-000001", "Unpaid", OrganizationId));
     }
 
     [Fact]
@@ -633,7 +638,157 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
             .ReturnsAsync(SubscriptionContextResolution.Resolved(
                 new SubscriptionContext(TenantId, ConsoleOrganizationId, "actor-1", "user-7")));
 
-    private ISubscriptionFinancialDocumentHistoryService Service() =>
+    private sealed class FixedTime(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private static readonly DateTime Now = new(2026, 5, 5, 8, 0, 0, DateTimeKind.Utc);
+
+    private async Task<SubscriptionFinancialDocument> UnpaidAsync(
+        FinancialDocumentType type = FinancialDocumentType.Invoice,
+        string organizationId = OrganizationId)
+    {
+        var document = await StoredAsync(
+            "INV-2026-000009",
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            organizationId,
+            type);
+        document.PaymentStatus = FinancialDocumentPaymentStatus.Unpaid;
+        return document;
+    }
+
+    [Fact]
+    public async Task Recording_a_payment_moves_an_unpaid_invoice_to_paid_with_the_reference_and_actor()
+    {
+        var document = await UnpaidAsync();
+        var paidAt = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = " TRF-42 ", PaidAtUtc = paidAt },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PaymentStatus.Should().Be("Paid");
+        result.Value.PaidAtUtc.Should().Be(paidAt);
+        result.Value.PaymentReference.Should().Be("TRF-42");
+        document.PaymentRecordedByUserId.Should().Be("user-7");
+    }
+
+    [Fact]
+    public async Task Recording_a_payment_twice_returns_the_paid_invoice_unchanged()
+    {
+        var document = await UnpaidAsync();
+        var paidAt = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        var service = Service();
+        await service.RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = "TRF-42", PaidAtUtc = paidAt },
+            "corr-1",
+            CancellationToken.None);
+
+        var second = await service.RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = "TRF-99", PaidAtUtc = Now },
+            "corr-2",
+            CancellationToken.None);
+
+        second.IsSuccess.Should().BeTrue();
+        second.Value!.PaymentReference.Should().Be("TRF-42");
+        second.Value.PaidAtUtc.Should().Be(paidAt);
+    }
+
+    [Fact]
+    public async Task A_payment_cannot_be_recorded_on_a_credit_note()
+    {
+        var document = await UnpaidAsync(FinancialDocumentType.CreditNote);
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("financial_document_not_collectable");
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+    }
+
+    [Fact]
+    public async Task A_payment_on_another_organizations_document_is_not_found()
+    {
+        var document = await UnpaidAsync(organizationId: OtherOrganizationId);
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("financial_document_not_found");
+        document.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Unpaid);
+    }
+
+    [Fact]
+    public async Task Losing_the_race_to_record_a_payment_returns_the_winners_paid_invoice()
+    {
+        var firstPaidAt = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        var stale = await UnpaidAsync();
+        var winner = await StoredAsync("INV-2026-000009", stale.IssuedAtUtc);
+        winner.ItemId = stale.ItemId;
+        winner.PaymentStatus = FinancialDocumentPaymentStatus.Paid;
+        winner.PaymentReference = "TRF-42";
+        winner.PaidAtUtc = firstPaidAt;
+
+        var repository = new Mock<ISubscriptionFinancialDocumentRepository>();
+        repository
+            .SetupSequence(r => r.GetAsync(TenantId, stale.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(stale)
+            .ReturnsAsync(winner);
+        repository
+            .Setup(r => r.TryRecordPaymentAsync(
+                TenantId, stale.ItemId, It.IsAny<DateTime>(), It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        var service = new SubscriptionFinancialDocumentHistoryService(
+            _context.Object,
+            repository.Object,
+            _files.Object,
+            Options.Create(new PaymentOptions { ConsoleOrganizationId = ConsoleOrganizationId }),
+            new RecordFinancialDocumentPaymentRequestValidator(new FixedTime(Now)),
+            _scheduler.Object,
+            new FixedTime(Now));
+
+        var result = await service.RecordPaymentAsync(
+            stale.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = "TRF-99" },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PaymentStatus.Should().Be("Paid");
+        result.Value.PaymentReference.Should().Be("TRF-42");
+        result.Value.PaidAtUtc.Should().Be(firstPaidAt);
+    }
+
+    [Fact]
+    public async Task A_payment_with_no_date_is_recorded_at_now()
+    {
+        var document = await UnpaidAsync();
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest(),
+            "corr-1",
+            CancellationToken.None);
+
+        result.Value!.PaidAtUtc.Should().Be(Now);
+    }
+
+    private ISubscriptionFinancialDocumentHistoryService Service(
+        ISubscriptionFinancialDocumentDeliveryService? delivery = null) =>
         new SubscriptionFinancialDocumentHistoryService(
             _context.Object,
             _documents,
@@ -642,7 +797,116 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
             {
                 ConsoleOrganizationId = ConsoleOrganizationId
             }),
-            _scheduler.Object);
+            new RecordFinancialDocumentPaymentRequestValidator(new FixedTime(Now)),
+            _scheduler.Object,
+            new FixedTime(Now),
+            delivery);
+
+    private (ISubscriptionFinancialDocumentDeliveryService Delivery, Mock<IFinancialDocumentPdfRenderer> Renderer)
+        RealDelivery()
+    {
+        var renderer = new Mock<IFinancialDocumentPdfRenderer>();
+        var logo = new Mock<IFinancialDocumentLogoResolver>();
+        logo.Setup(l => l.ResolveAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FinancialDocumentLogoResolution.None);
+        var currency = new Mock<ICurrencyMinorUnitResolver>();
+        currency
+            .Setup(c => c.TryConvertBack(It.IsAny<long>(), It.IsAny<string>(), out It.Ref<decimal>.IsAny))
+            .Returns((long minor, string _, out decimal amount) => { amount = minor / 100m; return true; });
+        _files
+            .Setup(f => f.SaveAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        return (
+            new SubscriptionFinancialDocumentDeliveryService(
+                _documents,
+                renderer.Object,
+                _files.Object,
+                logo.Object,
+                currency.Object,
+                new Mock<Blocks.Genesis.IMessageClient>().Object,
+                Options.Create(new SubscriptionOptions()),
+                NullLogger<SubscriptionFinancialDocumentDeliveryService>.Instance),
+            renderer);
+    }
+
+    private async Task<SubscriptionFinancialDocument> UnpaidWithStoredPdfAsync()
+    {
+        var document = await UnpaidAsync();
+        document.Delivery.StorageId = "old-pdf";
+        document.Delivery.ContentHash = "old";
+        document.Delivery.State = FinancialDocumentDeliveryState.Delivered;
+        return document;
+    }
+
+    [Fact]
+    public async Task Recording_a_payment_re_renders_the_stored_pdf_once_and_replaces_it()
+    {
+        var document = await UnpaidWithStoredPdfAsync();
+        var (delivery, renderer) = RealDelivery();
+        renderer
+            .Setup(r => r.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Encoding.UTF8.GetBytes("%PDF paid"));
+
+        var result = await Service(delivery).RecordPaymentAsync(
+            document.ItemId, new RecordFinancialDocumentPaymentRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        renderer.Verify(r => r.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        document.Delivery.StorageId.Should().NotBe("old-pdf");
+        document.Delivery.State.Should().Be(FinancialDocumentDeliveryState.Delivered);
+        document.Delivery.MailMessageId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_renderer_failure_still_returns_the_paid_document_and_keeps_the_old_pdf()
+    {
+        var document = await UnpaidWithStoredPdfAsync();
+        var (delivery, renderer) = RealDelivery();
+        renderer
+            .Setup(r => r.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("renderer down"));
+
+        var result = await Service(delivery).RecordPaymentAsync(
+            document.ItemId, new RecordFinancialDocumentPaymentRequest(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PaymentStatus.Should().Be("Paid");
+        document.Delivery.StorageId.Should().Be("old-pdf");
+    }
+
+    [Fact]
+    public async Task A_payment_reference_over_200_characters_is_refused()
+    {
+        var document = await UnpaidAsync();
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { Reference = new string('x', 201) },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_request_invalid");
+        result.FailureKind.Should().Be(PaymentFailureKind.Validation);
+        document.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Unpaid);
+    }
+
+    [Fact]
+    public async Task A_payment_dated_in_the_future_is_refused()
+    {
+        var document = await UnpaidAsync();
+
+        var result = await Service().RecordPaymentAsync(
+            document.ItemId,
+            new RecordFinancialDocumentPaymentRequest { PaidAtUtc = Now.AddHours(1) },
+            "corr-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_request_invalid");
+        document.PaymentStatus.Should().Be(FinancialDocumentPaymentStatus.Unpaid);
+    }
 
     private async Task<SubscriptionFinancialDocument> StoredAsync(
         string documentNumber,

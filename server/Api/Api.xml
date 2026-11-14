@@ -1282,18 +1282,13 @@
             </para>
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionsController.ActivateOffline(Subscription.DomainService.Requests.ActivateOfflineSubscriptionRequest,System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionsController.ActivateOffline(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)">
             <summary>
-            Activates a paid plan for an organization that pays by bank transfer, with no card and no
-            checkout. Spec 006.
+            Activates a paid plan for an organization billed by invoice, with no card and no
+            checkout.
             </summary>
             <remarks>
-            Same permission as an ordinary subscribe, <c>subscription::manage</c>. What keeps an
-            organization from granting itself a paid plan without paying is the service, not the
-            permission: it refuses any caller but the platform console
-            (<c>subscription_offline_console_only</c>). The subscription is never charged; each period it renews on schedule and issues a
-            record invoice marked "Payable by bank transfer". The organization's billing profile must be
-            complete, because every one of those invoices is addressed to it.
+            Same request as Subscribe; the route is the option, the permission is the gate.
             </remarks>
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.String,System.Threading.CancellationToken)">
@@ -1367,30 +1362,6 @@
             An upgrade is charged immediately for the prorated difference; a downgrade is credited
             toward future renewals rather than refunded. A trial has paid nothing yet, so its plan
             simply swaps with no charge or credit either way.
-            </remarks>
-        </member>
-        <member name="M:Api.Controllers.SubscriptionsController.ChangePlanOffline(System.String,Subscription.DomainService.Requests.OfflinePlanChangeRequest,System.Threading.CancellationToken)">
-            <summary>
-            Moves an offline subscription onto another plan at the pricing the operator names. Spec 006.
-            </summary>
-            <remarks>
-            Console only: the service refuses any other caller, whatever its permission. The
-            organization's own <c>PUT …/plan</c> always
-            lands on the target's catalogue price; this route lets an operator name a contract price for
-            the new plan instead. Timing and proration are the ordinary change's: an upgrade applies now
-            and records a prorated invoice, a downgrade waits for the end of the paid period. Nothing is
-            ever charged.
-            </remarks>
-        </member>
-        <member name="M:Api.Controllers.SubscriptionsController.RepriceOffline(System.String,Subscription.DomainService.Requests.OfflineRepricingRequest,System.Threading.CancellationToken)">
-            <summary>
-            Re-prices an offline subscription from its next renewal. Spec 006.
-            </summary>
-            <remarks>
-            Console only: the service refuses any other caller, whatever its permission. The current
-            period is untouched; the next
-            renewal installs the new pricing, which <c>pendingOfflinePricingMode</c> shows until then. A
-            second re-pricing before that replaces the first.
             </remarks>
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.WithdrawCancellation(System.String,System.String,System.Threading.CancellationToken)">
@@ -1539,6 +1510,11 @@
             document's, so a resend cannot behave differently from a first attempt.
             </para>
             </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.RecordInvoicePayment(System.String,Subscription.DomainService.Requests.RecordFinancialDocumentPaymentRequest,System.Threading.CancellationToken)">
+            <summary>
+            Records that an invoice was paid outside the card flow, for example by bank transfer.
+            </summary>
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetInvoiceHistory(Subscription.DomainService.Requests.GetFinancialDocumentsRequest,System.Threading.CancellationToken)">
             <summary>

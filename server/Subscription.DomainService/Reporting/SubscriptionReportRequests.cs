@@ -78,7 +78,7 @@ public sealed class GetBucketedReportRequest
     public string? Granularity { get; set; }
 
     /// <summary>
-    /// Narrows the revenue report to card-collected or bank-transfer (spec 006) subscriptions.
+    /// Narrows the revenue report to card-collected or invoice-billed subscriptions.
     /// </summary>
     /// <remarks>
     /// Revenue only. The trend reads daily captures that keep no such split, so it refuses the

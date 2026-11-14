@@ -15,7 +15,6 @@ import {
 } from "../constants/subscription-simulation.constants";
 import { subscriptionApiFailure } from "../../subscription/utilities/subscription-api-failure";
 import type {
-  ActivateOfflineSubscriptionRequest,
   AssignMemberRequest,
   CancelSubscriptionRequest,
   DiscountCodePreview,
@@ -26,7 +25,6 @@ import type {
   EntitlementsSnapshot,
   HeldPlace,
   MeterUsage,
-  OfflineRepricingRequest,
   PreviewUsageOverageRequest,
   RecordUsageRequest,
   RecordUsageResult,
@@ -201,11 +199,11 @@ class SubscriptionSimulationService {
     }
   }
 
-  async subscribe(request: SubscribeToPlanRequest): Promise<SimulatedSubscription> {
+  async subscribe(request: SubscribeToPlanRequest, offline = false): Promise<SimulatedSubscription> {
     try {
       const response = await serviceInstances.utitlitiesService.post<
         SimulationApiResponse<SimulatedSubscription>
-      >(SUBSCRIPTIONS_ENDPOINT, request);
+      >(offline ? `${SUBSCRIPTIONS_ENDPOINT}/offline` : SUBSCRIPTIONS_ENDPOINT, request);
 
       if (!response.success || !response.data) {
         throw operationError(response, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));
@@ -214,58 +212,6 @@ class SubscriptionSimulationService {
       return response.data;
     } catch (error) {
       throw operationError(error, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));
-    }
-  }
-
-  /**
-   * Activates a plan for an organization that pays by bank transfer (spec 006): no card, no
-   * checkout, and it comes back already live. Same permission as an ordinary subscribe; the
-   * server refuses any caller but the platform console.
-   */
-  async activateOffline(
-    request: ActivateOfflineSubscriptionRequest,
-  ): Promise<SimulatedSubscription> {
-    return this.sendOffline(
-      () =>
-        serviceInstances.utitlitiesService.post<SimulationApiResponse<SimulatedSubscription>>(
-          `${SUBSCRIPTIONS_ENDPOINT}/offline`,
-          request,
-        ),
-      "SUBSCRIPTION_SIMULATION_SERVICE.OFFLINE_ACTIVATION_FAILED",
-    );
-  }
-
-  /**
-   * Schedules new pricing for an offline subscription. The current period keeps what it was
-   * invoiced at; the next renewal installs this, which `pendingOfflinePricingMode` shows until then.
-   */
-  async repriceOffline(
-    subscriptionId: string,
-    request: OfflineRepricingRequest,
-  ): Promise<SimulatedSubscription> {
-    return this.sendOffline(
-      () =>
-        serviceInstances.utitlitiesService.put<SimulationApiResponse<SimulatedSubscription>>(
-          `${SUBSCRIPTIONS_ENDPOINT}/${encodeURIComponent(subscriptionId)}/offline/pricing`,
-          request,
-        ),
-      "SUBSCRIPTION_SIMULATION_SERVICE.OFFLINE_REPRICING_FAILED",
-    );
-  }
-
-  private async sendOffline(
-    send: () => Promise<SimulationApiResponse<SimulatedSubscription>>,
-    fallbackKey: string,
-  ): Promise<SimulatedSubscription> {
-    const fallback = tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, fallbackKey);
-    try {
-      const response = await send();
-      if (!response.success || !response.data) {
-        throw operationError(response, fallback);
-      }
-      return response.data;
-    } catch (error) {
-      throw operationError(error, fallback);
     }
   }
 

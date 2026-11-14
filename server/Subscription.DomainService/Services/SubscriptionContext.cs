@@ -26,17 +26,6 @@ public sealed record SubscriptionContext(
     string? UserEmail = null)
 {
     /// <summary>
-    /// Whether the caller is the platform console acting on an organization it named.
-    /// </summary>
-    /// <remarks>
-    /// False by default, so everything that builds a context without asking is treated as an
-    /// organization acting on itself. The operations only an operator may perform for a customer —
-    /// offline activation (spec 006) — refuse unless this is true, rather than trusting that a
-    /// caller who reached them must have been the console.
-    /// </remarks>
-    public bool CallerIsConsole { get; init; }
-
-    /// <summary>
     /// How a notification email names the caller: their name, else their address, else nobody.
     /// </summary>
     /// <remarks>
