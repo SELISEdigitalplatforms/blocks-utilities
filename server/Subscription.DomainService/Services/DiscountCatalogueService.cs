@@ -19,6 +19,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     private readonly TimeProvider _time;
     private readonly ICampaignRedemptionRepository? _redemptions;
     private readonly ISubscriptionAuditTrail? _audit;
+    private readonly ICreditOfferRepository? _offers;
 
     public DiscountCatalogueService(
         ISubscriptionDiscountRepository discounts,
@@ -28,8 +29,10 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         IValidator<UpdateDiscountRequest> updateValidator,
         TimeProvider? time = null,
         ICampaignRedemptionRepository? redemptions = null,
-        ISubscriptionAuditTrail? audit = null)
+        ISubscriptionAuditTrail? audit = null,
+        ICreditOfferRepository? offers = null)
     {
+        _offers = offers;
         _discounts = discounts;
         _catalogue = catalogue;
         _context = context;
@@ -48,17 +51,17 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         // question: the console authoring a discount for a customer had its restrictions validated
         // against the console's own catalogue, where that customer's plans do not appear.
         var resolution = await _context.ResolveAsync(
-            correlationId, request.OrganizationId, cancellationToken);
+            correlationId, request.OrganizationId, cancellationToken).ConfigureAwait(false);
         if (!resolution.IsSuccess) return resolution.ToFailure<DiscountResponse>(correlationId);
         var invalid = await SubscriptionValidation.CheckAsync<CreateDiscountRequest, DiscountResponse>(
             _createValidator, request, "subscription_discount_invalid", "The discount is invalid.",
-            correlationId, cancellationToken);
+            correlationId, cancellationToken).ConfigureAwait(false);
         if (invalid is not null) return invalid;
 
         var context = resolution.Context!;
 
         var applicability = await CheckApplicabilityAsync(
-            request, context.TenantId, context.OrganizationId, correlationId, cancellationToken);
+            request, context.TenantId, context.OrganizationId, correlationId, cancellationToken).ConfigureAwait(false);
         if (applicability is not null) return applicability;
 
         var campaign = BuildCampaignTerms(request, out var campaignInvalid);
@@ -98,22 +101,22 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             Campaign = campaign!
         };
 
-        if (!await _discounts.TryCreateAsync(discount, cancellationToken))
+        if (!await _discounts.TryCreateAsync(discount, cancellationToken).ConfigureAwait(false))
             return SubscriptionOperationResult<DiscountResponse>.Failure(
                 PaymentFailureKind.Conflict, "subscription_discount_exists",
                 "A discount with this code already exists at this scope.", correlationId);
-        await AuditAsync("CreateDiscount", context, discount.ItemId, correlationId, cancellationToken);
+        await AuditAsync("CreateDiscount", context, discount.ItemId, correlationId, cancellationToken).ConfigureAwait(false);
         return SubscriptionOperationResult<DiscountResponse>.Success(Map(discount), correlationId);
     }
 
     public async Task<SubscriptionOperationResult<DiscountResponse>> GetAsync(
         string discountId, string? organizationId, string correlationId, CancellationToken cancellationToken)
     {
-        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken);
+        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken).ConfigureAwait(false);
         if (!resolution.IsSuccess) return resolution.ToFailure<DiscountResponse>(correlationId);
         var context = resolution.Context!;
 
-        var item = await _discounts.FindByIdAsync(context.TenantId, discountId, cancellationToken);
+        var item = await _discounts.FindByIdAsync(context.TenantId, discountId, cancellationToken).ConfigureAwait(false);
 
         // Visible to this caller means owned by the caller's own scope or unscoped/tenant-wide --
         // the same rule ListAsync already applies, restated here because a lookup by id has no
@@ -124,7 +127,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
                 "The discount does not exist.", correlationId);
 
         return SubscriptionOperationResult<DiscountResponse>.Success(
-            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken)), correlationId);
+            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken).ConfigureAwait(false)), correlationId);
     }
 
     public async Task<SubscriptionOperationResult<DiscountResponse>> UpdateAsync(
@@ -134,16 +137,16 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken);
+        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken).ConfigureAwait(false);
         if (!resolution.IsSuccess) return resolution.ToFailure<DiscountResponse>(correlationId);
         var context = resolution.Context!;
 
         var invalid = await SubscriptionValidation.CheckAsync<UpdateDiscountRequest, DiscountResponse>(
             _updateValidator, request, "subscription_discount_invalid", "The discount is invalid.",
-            correlationId, cancellationToken);
+            correlationId, cancellationToken).ConfigureAwait(false);
         if (invalid is not null) return invalid;
 
-        var existing = await _discounts.FindByIdAsync(context.TenantId, discountId, cancellationToken);
+        var existing = await _discounts.FindByIdAsync(context.TenantId, discountId, cancellationToken).ConfigureAwait(false);
         if (existing is null || !VisibleTo(existing, context.OrganizationId))
             return SubscriptionOperationResult<DiscountResponse>.Failure(
                 PaymentFailureKind.NotFound, "subscription_discount_not_found",
@@ -156,7 +159,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         // non-nullable and cannot represent "tenant-wide", which is why the scope is passed
         // straight through rather than rebuilding a context around it.
         var applicability = await CheckApplicabilityAsync(
-            request, context.TenantId, existing.OrganizationId, correlationId, cancellationToken);
+            request, context.TenantId, existing.OrganizationId, correlationId, cancellationToken).ConfigureAwait(false);
         if (applicability is not null) return applicability;
 
         var campaign = BuildCampaignTerms(request, out var campaignInvalid);
@@ -188,13 +191,13 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         };
         existing.Campaign = campaign!;
 
-        if (!await _discounts.TryUpdateAsync(existing, request.ExpectedVersion, cancellationToken))
+        if (!await _discounts.TryUpdateAsync(existing, request.ExpectedVersion, cancellationToken).ConfigureAwait(false))
         {
             // Distinguishing "gone since you read it" from "somebody else edited it" needs another
             // read: TryUpdateAsync's filter cannot tell the two apart, because a document that no
             // longer matches the version filter looks identical whether the row vanished or just
             // moved on.
-            var stillThere = await _discounts.FindByIdAsync(context.TenantId, discountId, cancellationToken);
+            var stillThere = await _discounts.FindByIdAsync(context.TenantId, discountId, cancellationToken).ConfigureAwait(false);
             return stillThere is null
                 ? SubscriptionOperationResult<DiscountResponse>.Failure(
                     PaymentFailureKind.NotFound, "subscription_discount_not_found",
@@ -205,9 +208,9 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
                     correlationId);
         }
 
-        await AuditAsync("UpdateDiscount", context, existing.ItemId, correlationId, cancellationToken);
+        await AuditAsync("UpdateDiscount", context, existing.ItemId, correlationId, cancellationToken).ConfigureAwait(false);
         return SubscriptionOperationResult<DiscountResponse>.Success(
-            Map(existing, await CountsAsync(context.TenantId, existing.ItemId, cancellationToken)), correlationId);
+            Map(existing, await CountsAsync(context.TenantId, existing.ItemId, cancellationToken).ConfigureAwait(false)), correlationId);
     }
 
     /// <summary>
@@ -338,7 +341,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             tenantId,
             organizationId,
             PlanCatalogueFilter.Active,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         var unknownPlan = request.ApplicablePlanCodes.Find(code =>
             !plans.Any(plan => string.Equals(plan.Code, code, StringComparison.Ordinal)));
@@ -348,7 +351,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             return Invalid($"No plan with the code '{unknownPlan}' is available here.", correlationId);
         }
 
-        var meters = CheckMeterKeys(request, plans);
+        var meters = await CheckMeterKeysAsync(request, plans, tenantId, organizationId, cancellationToken).ConfigureAwait(false);
         if (meters is not null)
         {
             return Invalid(meters, correlationId);
@@ -356,7 +359,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
 
         foreach (var priceId in request.ApplicablePriceIds)
         {
-            var price = await _catalogue.GetPriceAsync(tenantId, priceId, cancellationToken);
+            var price = await _catalogue.GetPriceAsync(tenantId, priceId, cancellationToken).ConfigureAwait(false);
 
             // Unlike ListPlansAsync, GetPriceAsync does not filter by status -- it exists to look
             // up one specific id regardless of whether it can still be sold, which every other
@@ -415,23 +418,39 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     /// The same reason the plan and price restrictions are checked: a code limited to a meter
     /// nobody can buy credits for is a code that can never be redeemed, and the refusal at
     /// purchase time would not tell its author why. Read against the catalogue, so a meter whose
-    /// credits are only for sale on an older snapshot is not counted.
+    /// credits are only for sale on an older snapshot is not counted. A standalone credit offer
+    /// (spec 005) counts too, but only for a code that names no plan: a standalone purchase has
+    /// no plan, so a plan-limited code can never be redeemed on one.
     /// </remarks>
-    private static string? CheckMeterKeys(ICampaignDiscountRequest request, IReadOnlyList<Plan> plans)
+    private async Task<string?> CheckMeterKeysAsync(
+        ICampaignDiscountRequest request,
+        IReadOnlyList<Plan> plans,
+        string tenantId,
+        string? organizationId,
+        CancellationToken cancellationToken)
     {
         var eligible = request.ApplicablePlanCodes.Count == 0
             ? plans
             : [.. plans.Where(plan =>
                 request.ApplicablePlanCodes.Contains(plan.Code, StringComparer.Ordinal))];
 
-        var unknown = request.ApplicableMeterKeys.Find(key => !eligible.Any(plan =>
-            plan.Meters.Exists(meter =>
+        foreach (var key in request.ApplicableMeterKeys)
+        {
+            var onPlan = eligible.Any(plan => plan.Meters.Exists(meter =>
                 meter.IsPurchasable &&
-                string.Equals(meter.MeterKey, key, StringComparison.Ordinal))));
+                string.Equals(meter.MeterKey, key, StringComparison.Ordinal)));
 
-        return unknown is null
-            ? null
-            : $"No plan this code applies to sells credits for the meter '{unknown}'.";
+            if (onPlan ||
+                (request.ApplicablePlanCodes.Count == 0 && _offers is not null &&
+                 await _offers.ResolveAsync(tenantId, organizationId, key, cancellationToken).ConfigureAwait(false) is not null))
+            {
+                continue;
+            }
+
+            return $"No plan or credit offer this code applies to sells credits for the meter '{key}'.";
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -527,38 +546,38 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     public async Task<SubscriptionOperationResult<IReadOnlyList<DiscountResponse>>> ListAsync(
         string? organizationId, string correlationId, CancellationToken cancellationToken)
     {
-        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken);
+        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken).ConfigureAwait(false);
         if (!resolution.IsSuccess) return resolution.ToFailure<IReadOnlyList<DiscountResponse>>(correlationId);
         var context = resolution.Context!;
-        var items = await _discounts.ListAsync(context.TenantId, context.OrganizationId, cancellationToken);
+        var items = await _discounts.ListAsync(context.TenantId, context.OrganizationId, cancellationToken).ConfigureAwait(false);
         var responses = await Task.WhenAll(items.Select(async item =>
-            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken))));
+            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken).ConfigureAwait(false)))).ConfigureAwait(false);
         return SubscriptionOperationResult<IReadOnlyList<DiscountResponse>>.Success(responses, correlationId);
     }
 
     public async Task<SubscriptionOperationResult<DiscountResponse>> ArchiveAsync(
         string discountId, string? organizationId, string correlationId, CancellationToken cancellationToken)
     {
-        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken);
+        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken).ConfigureAwait(false);
         if (!resolution.IsSuccess) return resolution.ToFailure<DiscountResponse>(correlationId);
         var context = resolution.Context!;
-        var item = (await _discounts.ListAsync(context.TenantId, context.OrganizationId, cancellationToken))
+        var item = (await _discounts.ListAsync(context.TenantId, context.OrganizationId, cancellationToken).ConfigureAwait(false))
             .FirstOrDefault(discount => discount.ItemId == discountId);
-        if (item is null || !await _discounts.TryArchiveAsync(context.TenantId, discountId, cancellationToken))
+        if (item is null || !await _discounts.TryArchiveAsync(context.TenantId, discountId, cancellationToken).ConfigureAwait(false))
             return SubscriptionOperationResult<DiscountResponse>.Failure(
                 PaymentFailureKind.NotFound, "subscription_discount_not_found",
                 "The discount does not exist or is already retired.", correlationId);
         item.Status = CatalogueStatus.Archived;
-        await AuditAsync("ArchiveDiscount", context, item.ItemId, correlationId, cancellationToken);
+        await AuditAsync("ArchiveDiscount", context, item.ItemId, correlationId, cancellationToken).ConfigureAwait(false);
         return SubscriptionOperationResult<DiscountResponse>.Success(
-            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken)), correlationId);
+            Map(item, await CountsAsync(context.TenantId, item.ItemId, cancellationToken).ConfigureAwait(false)), correlationId);
     }
 
     private async Task<CampaignRedemptionCounts> CountsAsync(
         string tenantId, string discountId, CancellationToken cancellationToken) =>
         _redemptions is null
             ? new CampaignRedemptionCounts(0, 0, 0)
-            : await _redemptions.CountAsync(tenantId, discountId, cancellationToken);
+            : await _redemptions.CountAsync(tenantId, discountId, cancellationToken).ConfigureAwait(false);
 
     private Task AuditAsync(
         string operation,
@@ -583,11 +602,17 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
 
     private DiscountResponse Map(Discount item, CampaignRedemptionCounts? counts = null) => new()
     {
-        DiscountId = item.ItemId, OrganizationId = item.OrganizationId, Code = item.Code,
-        DisplayName = item.DisplayName, Kind = item.Terms.Kind.ToString(),
-        PercentBasisPoints = item.Terms.PercentBasisPoints, AmountMinor = item.Terms.AmountMinor,
-        CurrencyCode = item.CurrencyCode, DurationPeriods = item.Terms.DurationPeriods,
-        StartsAtUtc = item.Terms.StartsAtUtc, ExpiresAtUtc = item.Terms.ExpiresAtUtc,
+        DiscountId = item.ItemId,
+        OrganizationId = item.OrganizationId,
+        Code = item.Code,
+        DisplayName = item.DisplayName,
+        Kind = item.Terms.Kind.ToString(),
+        PercentBasisPoints = item.Terms.PercentBasisPoints,
+        AmountMinor = item.Terms.AmountMinor,
+        CurrencyCode = item.CurrencyCode,
+        DurationPeriods = item.Terms.DurationPeriods,
+        StartsAtUtc = item.Terms.StartsAtUtc,
+        ExpiresAtUtc = item.Terms.ExpiresAtUtc,
         ApplicablePlanCodes = [.. item.ApplicablePlanCodes],
         ApplicablePriceIds = [.. item.ApplicablePriceIds],
         Scope = item.Scope.ToString(),
