@@ -139,6 +139,42 @@ public sealed class SubscriptionsController : ControllerBase
     }
 
     /// <summary>
+    /// Activates a paid plan for an organization billed by invoice, with no card and no
+    /// checkout.
+    /// </summary>
+    /// <remarks>
+    /// Same request as Subscribe; the route is the option, the permission is the gate.
+    /// </remarks>
+    [HttpPost("offline")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage-offline")]
+    public async Task<IActionResult> ActivateOffline(
+        [FromBody] CreateSubscriptionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _checkout.SubscribeAsync(
+            request,
+            correlationId,
+            cancellationToken,
+            offline: true);
+
+        await AuditAsync("ActivateOffline", request.OrganizationId, result.Value?.SubscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.RecurringAmountMinor, result.Value?.CurrencyCode, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
     /// The caller's own subscription, or nothing if they have none.
     /// </summary>
     /// <remarks>
@@ -782,6 +818,38 @@ public sealed class SubscriptionsController : ControllerBase
         var correlationId = HttpContext.TraceIdentifier;
 
         var result = await _documents.ResendAsync(documentId, correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Records that an invoice was paid outside the card flow, for example by bank transfer.
+    /// </summary>
+    [HttpPost("invoices/{documentId}/payment")]
+    [ProducesResponseType(
+        typeof(ApiResponse<SubscriptionFinancialDocumentResponse>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription::manage-invoice")]
+    public async Task<IActionResult> RecordInvoicePayment(
+        string documentId,
+        [FromBody] RecordFinancialDocumentPaymentRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        request ??= new();
+
+        var result = await _documents.RecordPaymentAsync(
+            documentId,
+            request,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync("RecordInvoicePayment", request.OrganizationId, result.Value?.SubscriptionId,
+            result.IsSuccess, result.ErrorCode, result.FailureKind.ToString(), correlationId,
+            result.Value?.Amounts.TotalMinor, result.Value?.CurrencyCode, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }

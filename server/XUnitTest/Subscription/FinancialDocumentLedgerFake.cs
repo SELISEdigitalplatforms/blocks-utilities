@@ -81,17 +81,23 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         string? subscriptionId,
         FinancialDocumentType? documentType,
         FinancialDocumentStatus? status,
+        FinancialDocumentPaymentStatus? paymentStatus,
         DateTime? issuedFromUtc,
         DateTime? issuedToUtc,
         int pageSize,
         FinancialDocumentCursor? after,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool standaloneCreditsOnly = false)
     {
         var matching = _documents
             .Where(item => item.TenantId == tenantId && item.OrganizationId == organizationId)
             .Where(item => subscriptionId is null || item.SubscriptionId == subscriptionId)
+            .Where(item => subscriptionId is not null || !standaloneCreditsOnly || item.SubscriptionId.Length == 0)
             .Where(item => documentType is null || item.DocumentType == documentType)
             .Where(item => status is null || item.Status == status)
+            .Where(item => paymentStatus is null ||
+                (paymentStatus == FinancialDocumentPaymentStatus.Unpaid) ==
+                (item.PaymentStatus == FinancialDocumentPaymentStatus.Unpaid))
             .Where(item => issuedFromUtc is null || item.IssuedAtUtc >= issuedFromUtc)
             .Where(item => issuedToUtc is null || item.IssuedAtUtc <= issuedToUtc)
             .OrderByDescending(item => item.IssuedAtUtc)
@@ -284,5 +290,52 @@ public sealed class FinancialDocumentLedgerFake : ISubscriptionFinancialDocument
         }
 
         return Task.CompletedTask;
+    }
+
+    public Task<bool> TryReplacePdfAsync(
+        string tenantId,
+        string documentId,
+        string storageId,
+        string contentHash,
+        long contentLength,
+        DateTime generatedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var document = _documents.FirstOrDefault(item => item.ItemId == documentId);
+
+        if (document is null || document.Delivery.StorageId is not { Length: > 0 })
+        {
+            return Task.FromResult(false);
+        }
+
+        document.Delivery.StorageId = storageId;
+        document.Delivery.ContentHash = contentHash;
+        document.Delivery.ContentLength = contentLength;
+        document.Delivery.GeneratedAtUtc = generatedAtUtc;
+
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> TryRecordPaymentAsync(
+        string tenantId,
+        string documentId,
+        DateTime paidAtUtc,
+        string? reference,
+        string? recordedByUserId,
+        CancellationToken cancellationToken)
+    {
+        var document = _documents.FirstOrDefault(item => item.ItemId == documentId);
+
+        if (document is null || document.PaymentStatus != FinancialDocumentPaymentStatus.Unpaid)
+        {
+            return Task.FromResult(false);
+        }
+
+        document.PaymentStatus = FinancialDocumentPaymentStatus.Paid;
+        document.PaidAtUtc = paidAtUtc;
+        document.PaymentReference = reference;
+        document.PaymentRecordedByUserId = recordedByUserId;
+
+        return Task.FromResult(true);
     }
 }

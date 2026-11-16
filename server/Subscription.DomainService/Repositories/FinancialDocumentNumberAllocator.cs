@@ -67,8 +67,12 @@ public sealed class FinancialDocumentNumberAllocator : IFinancialDocumentNumberA
     /// second is <c>INV-2026-000002</c> can see they have all of them. A separate series would make
     /// their invoice numbering start at 1 twice.
     /// </remarks>
-    private static string PrefixFor(FinancialDocumentType documentType) =>
-        documentType == FinancialDocumentType.CreditNote ? "CRN" : "INV";
+    internal static string PrefixFor(FinancialDocumentType documentType) =>
+        documentType switch
+        {
+            FinancialDocumentType.CreditNote => "CRN",
+            _ => "INV"
+        };
 
     private IMongoCollection<BsonDocument> Collection(string tenantId) =>
         SubscriptionCollections.Of<BsonDocument>(

@@ -1,7 +1,14 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The catalogue meter picker (spec 005) reads the organization scope from the URL and the
+// catalogue through React Query. Neither matters to the pricing step's own behaviour, and an
+// empty catalogue renders no picker at all, so both are stubbed rather than wrapping every
+// harness in a router and a query client.
+vi.mock("../../hooks/use-organization-scope", () => ({ useOrganizationScope: () => undefined }));
+vi.mock("../../hooks/use-meter-catalogue", () => ({ useMeterCatalogue: () => ({ data: [] }) }));
 import { FormProvider, useForm, type Resolver } from "react-hook-form";
 
 import { defaultSubscriptionPriceFormValues } from "../../schemas/subscription-price.schema";

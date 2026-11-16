@@ -29,7 +29,7 @@ export const describeDocumentType = (documentType: string): string => {
  * other way. Saying "Paid" on either would be wrong in a way somebody would eventually act on.
  */
 export const describeDocumentStatus = (
-  document: Pick<SubscriptionFinancialDocument, "documentType" | "status">,
+  document: Pick<SubscriptionFinancialDocument, "documentType" | "status" | "paymentStatus">,
 ): string => {
   if (document.documentType === "TrialInvoice") {
     return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_NO_PAYMENT_DUE");
@@ -37,6 +37,10 @@ export const describeDocumentStatus = (
 
   if (document.documentType === "CreditNote") {
     return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_CREDITED");
+  }
+
+  if (document.paymentStatus === "Unpaid") {
+    return tSubscription("FINANCIAL_DOCUMENT_FORMAT.STATUS_UNPAID");
   }
 
   switch (document.status) {

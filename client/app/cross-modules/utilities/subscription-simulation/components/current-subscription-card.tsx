@@ -1,16 +1,28 @@
-import { AlertCircle, CalendarClock, CreditCard, ExternalLink, History, Inbox } from "lucide-react";
+import { AlertCircle, CalendarClock, CreditCard, ExternalLink, History, Inbox, Landmark } from "lucide-react";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { Button } from "@/components/ui-kits/button/button";
 import { Card } from "@/components/ui-kits/card/card";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { formatPrice } from "../../subscription/utilities/subscription-format";
 import { describePendingMove } from "../utilities/plan-change-label";
-import type {
-  QuantityDiscountTier,
-  SimulatedSubscription,
+import {
+  isOfflineSubscription,
+  type QuantityDiscountTier,
+  type SimulatedSubscription,
 } from "../models/subscription-simulation.model";
 import { SubscriptionStatusBadge } from "./subscription-status-badge";
 import { useT } from "@seliseblocks/genesis-os";
+
+/** Shown wherever the customer's subscription is: it is paid by bank transfer and never takes a card. */
+const BilledByInvoiceBadge = () => {
+  const { t } = useT("utilities.subscription-simulation");
+  return (
+    <Badge variant="secondary" className="font-normal" data-testid="billed-by-invoice">
+      <Landmark className="mr-1 h-3 w-3" />
+      {t("OFFLINE_PRICING.BILLED_BY_INVOICE")}
+    </Badge>
+  );
+};
 
 const formatDate = (isoDate: string | null) =>
   isoDate ? new Date(isoDate).toLocaleString() : "—";
@@ -117,26 +129,32 @@ export const CurrentSubscriptionCard = ({
     );
   }
 
+  // Billed by invoice: never charged and takes no card, so not one card prompt below
+  // applies -- the server answers 409 to each of them anyway.
+  const offline = isOfflineSubscription(subscription);
+
   // A session already open -- from any of the three cases below -- always wins over starting a
   // new one, so a subscriber part-way through Stripe sees where to finish it rather than a button
   // that would open a second, competing session.
-  const pendingSetupUrl = subscription.pendingCheckout?.checkoutUrl ?? null;
+  const pendingSetupUrl = offline ? null : (subscription.pendingCheckout?.checkoutUrl ?? null);
 
   // Card-free trial that has not added one yet. hasPaymentMethod is read from the account, not
   // guessed from the status: a card-required trial reaching Trialing already collected one, and a
   // card-free trial may have added one voluntarily, so status alone cannot say whether this is
   // still owed.
   const canAddPaymentMethod =
+    !offline &&
     !pendingSetupUrl &&
     subscription.status === "Trialing" &&
     subscription.hasPaymentMethod === false;
 
   // Lost paid access for want of a card, and this is the one thing that gets it back.
-  const canRecover = !pendingSetupUrl && subscription.status === "Unpaid";
+  const canRecover = !offline && !pendingSetupUrl && subscription.status === "Unpaid";
 
   // A card on file that the subscriber wants to swap -- expiring, or cancelled by the issuer. The
   // same session as "Add payment method"; the card it stores replaces the current default.
   const canChangePaymentMethod =
+    !offline &&
     !pendingSetupUrl &&
     CHANGEABLE_STATUSES.has(subscription.status) &&
     subscription.hasPaymentMethod === true;
@@ -148,6 +166,7 @@ export const CurrentSubscriptionCard = ({
           <div className="flex items-center gap-2">
             <h3 className="font-semibold">{subscription.planName}</h3>
             <SubscriptionStatusBadge status={subscription.status} />
+            {offline && <BilledByInvoiceBadge />}
             {formatProviderName(subscription.providerName) && (
               <Badge variant="secondary" className="font-normal">
                 {formatProviderName(subscription.providerName)}
@@ -171,7 +190,7 @@ export const CurrentSubscriptionCard = ({
             <History className="mr-2 h-3.5 w-3.5" />
             {t("CURRENT_SUBSCRIPTION_CARD.AUDIT_TRAIL")}
           </Button>
-          {subscription.checkoutUrl && (
+          {!offline && subscription.checkoutUrl && (
             <Button size="sm" asChild>
               <a href={subscription.checkoutUrl} target="_blank" rel="noreferrer">
                 {t("CURRENT_SUBSCRIPTION_CARD.CONTINUE_CHECKOUT")}

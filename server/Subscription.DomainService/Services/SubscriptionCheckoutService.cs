@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using FluentValidation;
+using Microsoft.Extensions.Logging;
 using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Requests;
@@ -97,7 +98,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
     public async Task<SubscriptionOperationResult<SubscriptionResponse>> SubscribeAsync(
         CreateSubscriptionRequest request,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool offline = false)
     {
         var resolution = await _contextResolver.ResolveAsync(
             correlationId,
@@ -115,11 +117,13 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             request,
             context,
             correlationId,
-            cancellationToken);
+            cancellationToken,
+            offline);
 
         if (!created.IsSuccess)
         {
-            if (string.Equals(
+            if (!offline &&
+                string.Equals(
                     created.ErrorCode,
                     "subscription_already_active",
                     StringComparison.Ordinal))
@@ -140,6 +144,12 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         }
 
         var subscription = created.Value!;
+
+        // Invoiced outside Utilities: never a checkout and never a card, whatever the opening figure.
+        if (offline)
+        {
+            return await StartWithoutPaymentAsync(subscription, context, correlationId, cancellationToken);
+        }
 
         // The figure fixed when the subscription was built, so the charge raised here is the one
         // the customer was quoted — and the same expression the purchase preview reports, so the
@@ -675,6 +685,17 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                 correlationId);
         }
 
+        if (subscription.IsOffline)
+        {
+            // An invoice-billed subscription never charges a card, so offering to take one tells the
+            // customer something untrue.
+            return Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_offline_collection",
+                "This subscription is billed by invoice, so it does not take a payment method.",
+                correlationId);
+        }
+
         // Unpaid is deliberately allowed through to the same session a trial uses to add a card.
         // The confirmation this session produces goes through SubscriptionActivationProcessor,
         // which charges the overdue period the moment the card is adopted and only then restores
@@ -1088,13 +1109,19 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             ? SubscriptionConstants.SubscriptionTrialStarted
             : SubscriptionConstants.SubscriptionActivated;
 
+        var openingInvoice = target == SubscriptionStatus.Active
+            ? OfflineOpeningInvoice(subscription, correlationId)
+            : null;
+
         var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
             new SubscriptionTransition(SubscriptionStatus.Incomplete, target)
             {
                 ActivatedAtUtc = DateTime.UtcNow,
-                Event = _events.Create(subscription, eventType, correlationId)
+                Event = _events.Create(subscription, eventType, correlationId),
+                // In the activating write: nothing else would ever rediscover it.
+                DocumentSource = openingInvoice
             },
             cancellationToken);
 
@@ -1128,6 +1155,11 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
                     context.UserId,
                     context.UserName,
                     context.UserEmail));
+        }
+
+        if (openingInvoice is not null && _documents is not null)
+        {
+            await _documents.RequestPendingAsync(subscription, correlationId, cancellationToken);
         }
 
         if (_usageProjections is not null)
@@ -1170,6 +1202,35 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
         return SubscriptionOperationResult<SubscriptionResponse>.Success(
             await _mapper.ToResponseAsync(
                 _billingAccounts, subscription, null, null, cancellationToken),
+            correlationId);
+    }
+
+    /// <summary>
+    /// The Unpaid invoice an invoice-billed subscription's opening period owes, or null.
+    /// </summary>
+    /// <remarks>
+    /// Owed when a card subscriber would have been charged at checkout — a positive opening figure —
+    /// for the reason a renewal follows the same rule: an invoice is a record of a charge, and an
+    /// offline customer is never handed one a card customer would not have been.
+    /// </remarks>
+    private SubscriptionDocumentSource? OfflineOpeningInvoice(
+        SubscriptionDetail subscription,
+        string correlationId)
+    {
+        if (!subscription.IsOffline ||
+            SubscriptionAmountCalculator.InitialChargeAmountMinor(subscription) <= 0 ||
+            SubscriptionFinancialDocumentIssuer.RecomposeInitialCharge(subscription) is not { } amounts)
+        {
+            return null;
+        }
+
+        return SubscriptionDocumentSourceFactory.ForOfflineCharge(
+            subscription,
+            SubscriptionChargeKind.Initial,
+            periodKey: null,
+            amounts,
+            subscription.PurchasedBy,
+            _time.GetUtcNow().UtcDateTime,
             correlationId);
     }
 

@@ -994,6 +994,61 @@ public sealed class SubscriptionUsageRatingProcessorTests
             Times.Once);
     }
 
+    /// <summary>
+    /// Spec 006: a bank-transfer customer's overage is recorded as an invoice, never charged, and
+    /// never retried or abandoned for lacking a card.
+    /// </summary>
+    [Fact]
+    public async Task An_offline_overage_is_recorded_as_an_invoice_and_never_charged()
+    {
+        _dueInvoices = [NewInvoice()];
+        var offline = NewSubscription("sub-1");
+        offline.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync(TenantId, "sub-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(offline);
+        _usageInvoices
+            .Setup(repository => repository.TryMarkRecordedOfflineAsync(
+                TenantId, "inv-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var order = new List<string>();
+        SubscriptionDocumentSource? recorded = null;
+        _subscriptions
+            .Setup(repository => repository.TryAppendDocumentSourceAsync(
+                TenantId, "sub-1", It.IsAny<SubscriptionDocumentSource>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, SubscriptionDocumentSource source, CancellationToken _) =>
+            {
+                recorded = source;
+                order.Add("record");
+            })
+            .ReturnsAsync(true);
+        _usageInvoices
+            .Setup(repository => repository.TryMarkRecordedOfflineAsync(
+                TenantId, "inv-1", It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("settle"))
+            .ReturnsAsync(true);
+
+        await Processor().ChargeDueInvoicesAsync(TenantId, CancellationToken.None);
+
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the customer pays this contract by bank transfer, so a card on file is never charged");
+        recorded!.ChargeKind.Should().Be(SubscriptionChargeKind.Usage);
+        recorded.Amounts!.TotalMinor.Should().Be(2_000);
+        order.Should().Equal(
+            ["record", "settle"],
+            because: "settling first could leave an invoice marked done that nobody ever documents");
+        _usageInvoices.Verify(
+            repository => repository.TryMarkChargedAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "charged would claim money moved");
+    }
+
     [Fact]
     public async Task A_declined_charge_reschedules_short_of_the_attempt_ceiling()
     {

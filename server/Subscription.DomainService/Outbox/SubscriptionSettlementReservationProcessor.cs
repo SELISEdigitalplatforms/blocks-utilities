@@ -155,6 +155,14 @@ public sealed class SubscriptionSettlementReservationProcessor : ISubscriptionSe
     {
         var payment = await FindChargeAsync(subscription, reservation, cancellationToken);
 
+        if (payment is null && subscription.IsOffline)
+        {
+            // Spec 006: an offline subscription takes no reservation, and is never charged by a
+            // replay of one if it somehow holds it — a card on file must stay untouched.
+            return await ReleaseAsync(
+                subscription, reservation, "an offline subscription is never charged", cancellationToken);
+        }
+
         if (payment is null)
         {
             // A Stripe invoice is recorded only once paid, so its missing record is not the same

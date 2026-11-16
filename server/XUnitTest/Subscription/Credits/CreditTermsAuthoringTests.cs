@@ -367,6 +367,30 @@ public sealed class CreditTermsAuthoringTests
     }
 
     [Fact]
+    public async Task A_credit_code_may_name_a_meter_sold_only_by_a_standalone_offer()
+    {
+        var request = CreditCode();
+        request.ApplicableMeterKeys = ["sms"];
+
+        var result = await CatalogueService(out _, OffersFor("sms")).CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task A_plan_limited_credit_code_cannot_name_a_meter_sold_only_by_a_standalone_offer()
+    {
+        var request = CreditCode();
+        request.ApplicablePlanCodes = ["pro"];
+        request.ApplicableMeterKeys = ["sms"];
+
+        var result = await CatalogueService(out _, OffersFor("sms")).CreateAsync(request, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse("a standalone purchase has no plan, so a plan-limited code never redeems on it");
+        result.ErrorMessage.Should().Contain("sms");
+    }
+
+    [Fact]
     public async Task A_credit_code_is_stored_with_its_scope_and_meters()
     {
         var request = CreditCode();
@@ -466,7 +490,17 @@ public sealed class CreditTermsAuthoringTests
             new CurrencyMinorUnitResolver(options.Object));
     }
 
-    private static DiscountCatalogueService CatalogueService(out Func<Discount> created)
+    private static ICreditOfferRepository OffersFor(string meterKey)
+    {
+        var offers = new Mock<ICreditOfferRepository>();
+        offers
+            .Setup(repository => repository.ResolveAsync(TenantId, OrganizationId, meterKey, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CreditOffer { TenantId = TenantId, MeterKey = meterKey, Enabled = true });
+        return offers.Object;
+    }
+
+    private static DiscountCatalogueService CatalogueService(
+        out Func<Discount> created, ICreditOfferRepository? offers = null)
     {
         var discounts = new Mock<ISubscriptionDiscountRepository>();
         var catalogue = new Mock<ISubscriptionCatalogueRepository>();
@@ -515,6 +549,7 @@ public sealed class CreditTermsAuthoringTests
             catalogue.Object,
             contextResolver.Object,
             new CreateDiscountRequestValidator(),
-            new UpdateDiscountRequestValidator());
+            new UpdateDiscountRequestValidator(),
+            offers: offers);
     }
 }

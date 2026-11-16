@@ -33,6 +33,7 @@ import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscriptio
 import { METER_QUANTITY_MAX_SCALE, stepFor } from "../../utilities/meter-quantity";
 import { RichText } from "../rich-text";
 import { CardListItem, CardListShell } from "./card-list-shell";
+import { CatalogueMeterPicker } from "./catalogue-meter-picker";
 import { StepHeading } from "./step-heading";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { MeterPaceFields } from "./meter-pace-fields";
@@ -274,6 +275,15 @@ export const StepPricingModel = ({
         >
           {meters.fields.map((field, index) => (
             <CardListItem key={field.id} onRemove={() => meters.remove(index)}>
+              <CatalogueMeterPicker
+                onPick={(picked) => {
+                  setValue(`meters.${index}.meterKey`, picked.meterKey, { shouldDirty: true });
+                  setValue(`meters.${index}.displayName`, picked.displayName, { shouldDirty: true });
+                  setValue(`meters.${index}.unitLabel`, picked.unitLabel, { shouldDirty: true });
+                  setValue(`meters.${index}.aggregation`, picked.aggregation, { shouldDirty: true });
+                  setValue(`meters.${index}.quantityScale`, picked.quantityScale, { shouldDirty: true });
+                }}
+              />
               <FormField
                 control={control}
                 name={`meters.${index}.displayName`}

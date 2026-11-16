@@ -16,7 +16,7 @@ The module never writes email text. **No template for the purpose and language m
 | Family | Purposes | Sent by | Delivered through |
 | --- | --- | --- | --- |
 | [Financial documents](#financial-documents) | `subscription_invoice`, `subscription_trial_invoice`, `subscription_credit_note` | `SubscriptionFinancialDocumentDeliveryService` | Worker work queue, `FinancialDocumentDelivery` work type |
-| [Billing-contact notices](#billing-contact-notices) | `subscription_quantity_changed`, `subscription_plan_changed`, `subscription_cancellation_requested`, `subscription_canceled`, `subscription_cancellation_withdrawn` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
+| [Billing-contact notices](#billing-contact-notices) | `subscription_quantity_changed`, `subscription_plan_changed`, `subscription_cancellation_requested`, `subscription_canceled`, `subscription_cancellation_withdrawn`, `subscription_price_terms_changed` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
 | [Member notices](#member-notices) | `subscription_member_assigned`, `subscription_member_removed` | `SubscriptionNotificationEmailService` | same consumer |
 | [Usage warning](#usage-warning) | `subscription_usage_threshold` | `UsageThresholdEmailService` | same consumer |
 | [Card expiry](#card-expiry) | `subscription_payment_method_expiring` | `PaymentMethodExpiryEmailService` | Worker work queue, `PaymentMethodExpiryNotice` work type |
@@ -198,7 +198,7 @@ for <strong>{{Total}}</strong> against your {{PlanName}} subscription. The docum
 
 ## Billing-contact notices
 
-Five emails to the billing contact of the subscription, one per kind of change. Each is converted
+Six emails to the billing contact of the subscription, one per kind of change. Each is converted
 from a lifecycle event the worker reads off `blocks_subscription_lifecycle_topic`.
 
 | Purpose | Lifecycle event | Sent when |
@@ -208,9 +208,11 @@ from a lifecycle event the worker reads off `blocks_subscription_lifecycle_topic
 | `subscription_cancellation_requested` | `SubscriptionCancellationRequested` | Someone cancels for the end of the paid period. |
 | `subscription_canceled` | `SubscriptionCanceled` | The subscription ends: an immediate cancel, or a scheduled one reaching its date (the cancellation-effective processor). |
 | `subscription_cancellation_withdrawn` | `SubscriptionCancellationWithdrawn` | A scheduled cancellation is undone. |
+| `subscription_price_terms_changed` | `SubscriptionPriceTermsChangeScheduled` | An operator saves a discount or tax edit with `ApplyToExistingSubscribers`. Raised per subscriber on the price, in the same write that schedules `PendingPriceTerms`. Offline subscriptions, ones cancelling at period end, and ones with their own plan change scheduled are skipped. |
 
 Nothing is sent when a decrease or plan change is merely *scheduled*; the email goes out when it
-happens. When a cancellation takes effect every seat is released, but members get no
+happens. `subscription_price_terms_changed` is the exception: it is the notice, so it is sent when
+the change is scheduled and nothing further is sent when the renewal applies it. When a cancellation takes effect every seat is released, but members get no
 `subscription_member_removed`; this family's `subscription_canceled` is the notice.
 
 **Recipient.** The billing account's `BillingEmail`. The account is read at send time, so an
@@ -219,7 +221,7 @@ address changed after the event still receives it.
 **Language.** First non-empty of: the billing profile's *Email language*, the language given when
 the subscription was created, `en-US`. Read at send time, so a change reaches the very next email.
 
-**Placeholders.** Every purpose sends all eight keys in the body; the subject gets the same set
+**Placeholders.** Every purpose sends all fourteen keys in the body; the subject gets the same set
 **minus `CancellationReason`**, because subject values are placed raw and the reason is free text
 typed by the canceller.
 
@@ -233,6 +235,9 @@ typed by the canceller.
 | `EffectiveDate` | `yyyy-MM-dd` in the subscription's billing timezone. The day access ends for a cancellation request or a cancel; the day the change took effect for a quantity or plan change; **empty** for a withdrawal. | all but withdrawn |
 | `ActorName` | Who asked for it. For a change carried out at renewal, the person who scheduled it. | all; empty when system-initiated |
 | `CancellationReason` | The reason the canceller typed. **Body only.** | cancellation requested, canceled |
+| `PreviousDiscount`, `NewDiscount` | The automatic discount before and from `EffectiveDate`, invariant `0.##%` (`8%`, `8.25%`); `0%` for none. | price terms changed |
+| `PreviousTaxRate`, `NewTaxRate` | The tax rate before and after, in the same form. | price terms changed |
+| `PreviousTaxMode`, `NewTaxMode` | `Inclusive` or `Exclusive`; empty when that side has no tax. | price terms changed |
 
 **Full payload example** (`subscription_plan_changed`):
 
@@ -249,7 +254,10 @@ typed by the canceller.
     "PreviousPlanName": "Team",
     "ActorName": "Sam Rivera",
     "QuantityChanges": "",
-    "EffectiveDate": "2026-10-15"
+    "EffectiveDate": "2026-10-15",
+    "PreviousDiscount": "", "NewDiscount": "",
+    "PreviousTaxRate": "", "NewTaxRate": "",
+    "PreviousTaxMode": "", "NewTaxMode": ""
   },
   "BodyDataContext": {
     "DisplayName": "Dana Keller",
@@ -259,7 +267,10 @@ typed by the canceller.
     "ActorName": "Sam Rivera",
     "QuantityChanges": "",
     "EffectiveDate": "2026-10-15",
-    "CancellationReason": ""
+    "CancellationReason": "",
+    "PreviousDiscount": "", "NewDiscount": "",
+    "PreviousTaxRate": "", "NewTaxRate": "",
+    "PreviousTaxMode": "", "NewTaxMode": ""
   },
   "CorrelationId": "<lifecycle EventId>"
 }
@@ -274,6 +285,10 @@ What changes per purpose, everything else staying as above:
 | `subscription_cancellation_requested` | `""` | `""` | last day of access | typed reason |
 | `subscription_canceled` | `""` | `""` | last day of access | typed reason |
 | `subscription_cancellation_withdrawn` | `""` | `""` | `""` | `""` |
+| `subscription_price_terms_changed` | `""` | `""` | renewal that first bills the new terms | `""` |
+
+`subscription_price_terms_changed` also fills the six price-terms keys; every other purpose sends
+them empty.
 
 **Starter templates.** `{{CancellationReason}}` is body-only; a subject that names it is rejected.
 `{{ActorName}}` is empty for a change the system made, so it is kept out of the subject.

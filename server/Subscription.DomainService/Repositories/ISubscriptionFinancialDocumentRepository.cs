@@ -63,17 +63,20 @@ public interface ISubscriptionFinancialDocumentRepository
     /// </summary>
     /// <param name="subscriptionId">Narrow to one subscription, or null for all of them.</param>
     /// <param name="documentType">Narrow to one kind, or null for all of them.</param>
+    /// <param name="standaloneCreditsOnly">Only documents with no subscription: standalone credit invoices (spec 005).</param>
     Task<FinancialDocumentPage> ListAsync(
         string tenantId,
         string organizationId,
         string? subscriptionId,
         FinancialDocumentType? documentType,
         FinancialDocumentStatus? status,
+        FinancialDocumentPaymentStatus? paymentStatus,
         DateTime? issuedFromUtc,
         DateTime? issuedToUtc,
         int pageSize,
         FinancialDocumentCursor? after,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool standaloneCreditsOnly = false);
 
     /// <summary>
     /// Documents whose PDF or email is still outstanding, oldest first.
@@ -98,6 +101,23 @@ public interface ISubscriptionFinancialDocumentRepository
     /// would break the one guarantee the hash exists to give.
     /// </returns>
     Task<bool> TryRecordPdfAsync(
+        string tenantId,
+        string documentId,
+        string storageId,
+        string contentHash,
+        long contentLength,
+        DateTime generatedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Replaces an already-stored PDF with a fresh render, leaving the mail fields and delivery state
+    /// untouched.
+    /// </summary>
+    /// <remarks>
+    /// Only for re-rendering after a payment is recorded, so the stored copy says Paid. Never used
+    /// for the first render, which stays permanent via <see cref="TryRecordPdfAsync"/>.
+    /// </remarks>
+    Task<bool> TryReplacePdfAsync(
         string tenantId,
         string documentId,
         string storageId,
@@ -182,6 +202,18 @@ public interface ISubscriptionFinancialDocumentRepository
         string tenantId,
         string documentId,
         FinancialDocumentStatus status,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves an unpaid document to paid. Returns false when it was not unpaid, so a second recording
+    /// cannot overwrite the first one's date or reference.
+    /// </summary>
+    Task<bool> TryRecordPaymentAsync(
+        string tenantId,
+        string documentId,
+        DateTime paidAtUtc,
+        string? reference,
+        string? recordedByUserId,
         CancellationToken cancellationToken);
 }
 

@@ -123,6 +123,46 @@ public sealed class SubscriptionLifecycleEvent
     /// <summary>Set on a move: the seat the credits came from, or null for the shared pool.</summary>
     public int? FromSeatNumber { get; set; }
 
+    /// <summary>
+    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c>, so a consumer can tell an invoice-billed
+    /// subscription from a card one without reading it back.
+    /// </summary>
+    public string? CollectionMethod { get; set; }
+
+    /// <summary>When a scheduled change takes effect.</summary>
+    public DateTime? EffectiveAtUtc { get; set; }
+
+    /// <summary>
+    /// Set on an extended discount or tax edit: the terms billed until <see cref="EffectiveAtUtc"/>.
+    /// </summary>
+    public PriceTerms? PreviousPriceTerms { get; set; }
+
+    /// <summary>Set on an extended discount or tax edit: the terms billed from then on.</summary>
+    public PriceTerms? PriceTerms { get; set; }
+
+    /// <summary>Set on an organization credit purchase (spec 005): the purchase record.</summary>
+    public string? CreditPurchaseId { get; set; }
+
+    /// <summary>Set on an organization credit purchase: the meter's name as the invoice shows it.</summary>
+    public string? MeterDisplayName { get; set; }
+
+    /// <summary>Set on an organization credit purchase: what was charged, in minor units.</summary>
+    public long? CreditTotalMinor { get; set; }
+
+    public string? CurrencyCode { get; set; }
+
+    /// <summary>Set on organization credit events: when the grant's credits lapse, or null for never.</summary>
+    public DateTime? CreditExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// Set on an organization credit purchase: the account whose billing contact is mailed the
+    /// confirmation. Cleared with the payload once the event is published.
+    /// </summary>
+    public string? BillingAccountId { get; set; }
+
+    /// <summary>Set on an organization credit purchase that bought a pack.</summary>
+    public string? PackCode { get; set; }
+
     public string CorrelationId { get; set; } = string.Empty;
 
     public DateTime OccurredAtUtc { get; set; }

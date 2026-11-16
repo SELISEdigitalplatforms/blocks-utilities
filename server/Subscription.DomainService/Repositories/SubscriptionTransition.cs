@@ -172,6 +172,12 @@ public sealed record SubscriptionTransition(
     public bool ClearPendingPlanChange { get; init; }
 
     /// <summary>
+    /// Whether to discard the extended discount or tax edit, because this renewal installed it in
+    /// <see cref="Price"/> or found the subscriber had already moved off its price.
+    /// </summary>
+    public bool ClearPendingPriceTerms { get; init; }
+
+    /// <summary>
     /// Whether this transition must not happen while a quantity increase is mid-settlement.
     /// </summary>
     /// <remarks>
@@ -217,4 +223,15 @@ public sealed record SubscriptionTransition(
     /// to close.
     /// </remarks>
     public IReadOnlyList<SubscriptionOutboxEvent> AdditionalEvents { get; init; } = [];
+
+    /// <summary>
+    /// A document this transition owes, recorded in the same write.
+    /// </summary>
+    /// <remarks>
+    /// For an invoice-billed subscription, whose renewal collects nothing through the gateway: there is no payment
+    /// left behind for the settled-payment sweep to rediscover the invoice from, so the obligation
+    /// is as atomic as the period it describes or it can be lost — the reason a banked downgrade
+    /// credit records its own inside its compare-and-set.
+    /// </remarks>
+    public SubscriptionDocumentSource? DocumentSource { get; init; }
 }

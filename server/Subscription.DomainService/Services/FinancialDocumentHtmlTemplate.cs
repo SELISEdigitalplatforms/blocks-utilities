@@ -217,6 +217,7 @@ public static class FinancialDocumentHtmlTemplate
         // beside it read as a second, conflicting customer reference.
         AppendMetaRow(html, "Currency", document.CurrencyCode);
         AppendMetaRow(html, $"{title} total", money.Format(document.Amounts.TotalMinor), strong: true);
+
         AppendMetaRow(html, $"{title} number", document.DocumentNumber);
         AppendMetaRow(html, $"{title} date", Date(document.IssuedAtUtc));
 
@@ -288,8 +289,11 @@ public static class FinancialDocumentHtmlTemplate
         html.Append("<div class=\"section\">Details</div>");
         html.Append("<table class=\"lines\"><thead><tr>");
         html.Append("<th>Item</th><th>Description</th><th>Period</th>");
-        html.Append("<th class=\"num\">Qty</th><th class=\"num\">Discount</th>");
-        html.Append("<th class=\"num\">Price</th><th class=\"num\">Value</th></tr></thead><tbody>");
+        html.Append("<th class=\"num\">Qty</th>");
+        html.Append("<th class=\"num\">Discount</th>");
+        html.Append("<th class=\"num\">Price</th><th class=\"num\">Value</th>");
+
+        html.Append("</tr></thead><tbody>");
 
         // The document's period on every line, unless a line covers a period of its own — the year
         // bought alongside a calendar-aligned stub.
@@ -319,7 +323,9 @@ public static class FinancialDocumentHtmlTemplate
                 .Append(line.Quantity is { } quantity
                     ? Escape(MeterQuantity.Describe(quantity))
                     : "&mdash;")
-                .Append("</td><td class=\"num\"></td>");
+                .Append("</td>");
+
+            html.Append("<td class=\"num\"></td>");
             html.Append("<td class=\"num\">")
                 .Append(line.UnitAmountMinor is { } unit ? Escape(money.FormatFigure(unit)) : "&mdash;")
                 .Append("</td>");
@@ -786,6 +792,7 @@ public static class FinancialDocumentHtmlTemplate
         {
             FinancialDocumentType.TrialInvoice => "No payment due",
             FinancialDocumentType.CreditNote => "Credited",
+            _ when document.PaymentStatus == FinancialDocumentPaymentStatus.Unpaid => "Unpaid",
             _ => document.Status switch
             {
                 FinancialDocumentStatus.Refunded => "Paid, since refunded in full",

@@ -134,21 +134,29 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await AuditAsync(subscription, "Started", "InProgress", null, null, null,
             subscription.DunningAttemptCount + 1, cancellationToken);
 
-        var account = await _billingAccounts.GetAsync(
-            subscription.TenantId,
-            subscription.BillingAccountId,
-            cancellationToken);
+        // An invoice-billed subscription skips the gateway. It has no card to look for, and must
+        // never be moved to Unpaid for lacking one: the period simply opens, and an Unpaid invoice
+        // records what it costs.
+        BillingAccount? account = null;
 
-        if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+        if (!subscription.IsOffline)
         {
-            // Retrying without a card to charge is pointless — including a trial that never
-            // took one, which reaches this exact path at its end.
-            await MoveToUnpaidAsync(subscription, "no_payment_method", cancellationToken);
-            await AuditAsync(subscription, "PaymentMethodChecked", "Failed",
-                "no_payment_method", null, null, subscription.DunningAttemptCount + 1,
+            account = await _billingAccounts.GetAsync(
+                subscription.TenantId,
+                subscription.BillingAccountId,
                 cancellationToken);
 
-            return;
+            if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+            {
+                // Retrying without a card to charge is pointless — including a trial that never
+                // took one, which reaches this exact path at its end.
+                await MoveToUnpaidAsync(subscription, "no_payment_method", cancellationToken);
+                await AuditAsync(subscription, "PaymentMethodChecked", "Failed",
+                    "no_payment_method", null, null, subscription.DunningAttemptCount + 1,
+                    cancellationToken);
+
+                return;
+            }
         }
 
         // Which instant the period being charged belongs to. Normally now — but a trial converting
@@ -251,6 +259,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             subscription.QuantityItems = pendingPlan.QuantityItems;
             subscription.FeeSchedule = pendingPlan.FeeSchedule;
             subscription.UsageSchedule = pendingPlan.UsageSchedule;
+        }
+
+        // A discount or tax edit an operator extended to this subscriber, announced for this
+        // boundary. Installed before pricing, exactly like the changes above, so the period it was
+        // announced for is the first one billed on it. Not when a plan change lands here too: that
+        // moves the subscriber onto terms quoted for the price they are moving to, and those win.
+        var duePriceTerms = DuePriceTerms(subscription);
+        var priceTermsApplied = duePriceTerms is not null &&
+            pendingPlan is null &&
+            duePriceTerms.PriceId == subscription.Price.PriceId;
+
+        if (priceTermsApplied)
+        {
+            duePriceTerms!.Terms.ApplyTo(subscription.Price);
         }
 
         // A card-free trial that ends mid-month buys the rest of that month, not all of it. This
@@ -377,7 +399,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             };
         }
 
-        var outcome = charge.AmountMinor <= 0
+        // Nothing is collected for an offline subscription, whatever the amount: the gateway is
+        // never called, so a card that happens to be on the billing account can never be charged.
+        var outcome = subscription.IsOffline || charge.AmountMinor <= 0
             ? SubscriptionOperationResult<string>.Success(string.Empty, subscription.CorrelationId)
             : await _gateway.ChargeAsync(
                 new SubscriptionChargeRequest
@@ -387,10 +411,12 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                     // provider and every organization is charged through it. Falls back for
                     // accounts predating the field, which used the subscriber's.
                     OrganizationId =
-                        account.ProviderOrganizationId ?? subscription.OrganizationId,
+                        account!.ProviderOrganizationId ?? subscription.OrganizationId,
                     SubscriberOrganizationId = subscription.OrganizationId,
                     ProviderName = account.ProviderName,
-                    StoredPaymentMethodId = account.DefaultPaymentMethodId,
+                    // Checked non-blank above for every subscription that reaches the gateway; the
+                    // offline branch around that check hides it from flow analysis.
+                    StoredPaymentMethodId = account.DefaultPaymentMethodId!,
                     ProviderCustomerId = account.ProviderCustomerId,
                     AmountMinor = charge.AmountMinor,
                     // The split as it was calculated, so a renewal invoice can show a subtotal and
@@ -424,7 +450,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 subscription.CorrelationId,
                 cancellationToken);
 
-        await AuditAsync(subscription, "ChargeCompleted",
+        // An offline renewal never reached the gateway, so its trail must not read as a charge.
+        await AuditAsync(subscription, subscription.IsOffline ? "RecordedOffline" : "ChargeCompleted",
             outcome.IsSuccess ? "Succeeded" : "Failed", outcome.ErrorCode,
             charge.AmountMinor, outcome.Value, attemptNumber, cancellationToken);
 
@@ -446,7 +473,9 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 cancellationToken,
                 new AppliedChangeOrigin(previousPlan, previousQuantities),
                 pendingPlan,
-                outgoingUsagePeriod);
+                outgoingUsagePeriod,
+                duePriceTerms,
+                priceTermsApplied);
 
             return;
         }
@@ -612,6 +641,20 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             : null;
 
     /// <summary>
+    /// The extended discount or tax edit this boundary is the one announced for, or null.
+    /// </summary>
+    /// <remarks>
+    /// The same "has its instant passed" test as the two above, and like them applied only on the
+    /// success path: a declined renewal leaves the terms pending, and each dunning retry prices the
+    /// period on them again until one settles.
+    /// </remarks>
+    private static PendingPriceTerms? DuePriceTerms(SubscriptionDetail subscription) =>
+        subscription.PendingPriceTerms is { } pending &&
+        pending.EffectiveAtUtc <= subscription.CurrentPeriodEndUtc
+            ? pending
+            : null;
+
+    /// <summary>
     /// Whether this renewal is a calendar-aligned card-free trial converting to paid, and if so
     /// which period it should charge for.
     /// </summary>
@@ -688,8 +731,12 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         CancellationToken cancellationToken,
         AppliedChangeOrigin origin,
         PendingPlanChange? appliedPlanChange = null,
-        PendingUsagePeriod? outgoingUsagePeriod = null)
+        PendingUsagePeriod? outgoingUsagePeriod = null,
+        PendingPriceTerms? duePriceTerms = null,
+        bool priceTermsApplied = false)
     {
+        var offlineInvoice = OfflineRenewalInvoice(subscription, period, charge);
+
         var applied = await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
             subscription.ItemId,
@@ -715,7 +762,13 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // plan at the old rate, and one that installed both without clearing the schedule
                 // would install them again next period.
                 Plan = appliedPlanChange?.Plan,
-                Price = appliedPlanChange?.Price,
+                // Or the same price on the extended terms it was just billed on — installed and
+                // forgotten in this one write for the same reason, or the next renewal would apply
+                // them again and announce nothing.
+                Price = appliedPlanChange?.Price ?? (priceTermsApplied ? subscription.Price : null),
+                // Due means spent, applied or not: a subscriber a plan change moved off the price
+                // has nothing left for these terms to apply to.
+                ClearPendingPriceTerms = duePriceTerms is not null,
                 FeeSchedule = appliedPlanChange?.FeeSchedule,
                 UsageSchedule = appliedPlanChange?.UsageSchedule,
                 ClearPendingPlanChange = appliedPlanChange is not null,
@@ -755,7 +808,10 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 // hear of one that waited for the period end. In this same write, so the change and
                 // its announcement cannot come apart.
                 AdditionalEvents = AppliedChangeEvents(
-                    subscription, origin, appliedQuantities, appliedPlanChange)
+                    subscription, origin, appliedQuantities, appliedPlanChange),
+                // Spec 006: the record of what this offline period would have cost, in the write
+                // that opens the period — there is no payment for any sweep to find it from later.
+                DocumentSource = offlineInvoice
             },
             cancellationToken);
 
@@ -813,6 +869,15 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 cancellationToken);
         }
 
+        if (_documents is not null && offlineInvoice is not null)
+        {
+            // Only makes the recorded obligation prompt; the repair sweep issues it regardless.
+            await _documents.RequestPendingAsync(
+                subscription,
+                subscription.CorrelationId,
+                cancellationToken);
+        }
+
         _logger.LogInformation(
             "Subscription renewed AttemptNumber={AttemptNumber} PeriodKey={PeriodKey}",
             attemptNumber,
@@ -821,6 +886,51 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         await ScheduleNextRenewalAsync(subscription, period, cancellationToken);
         await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
             paymentDetailId, attemptNumber, cancellationToken);
+    }
+
+    /// <summary>
+    /// The Unpaid invoice an invoice-billed renewal owes, or null when it owes none.
+    /// </summary>
+    /// <remarks>
+    /// Owed exactly when a card renewal would have raised a charge — a positive amount. A period
+    /// discounted to nothing, or a year already invoiced with the opening charge, is invoiced by a
+    /// card subscription never, and by an offline one the same, so the customer is never handed a
+    /// second invoice for money the first one already asked for.
+    /// <para>
+    /// <paramref name="subscription"/> already carries any plan or quantity change this boundary
+    /// applies, so the invoice describes the terms the period was priced on. The period itself is
+    /// the one actually opened rather than one re-derived from its key, so a converting trial's
+    /// stub is stated as the stub it was.
+    /// </para>
+    /// </remarks>
+    private SubscriptionDocumentSource? OfflineRenewalInvoice(
+        SubscriptionDetail subscription,
+        BillingPeriod period,
+        PeriodCharge charge)
+    {
+        if (!subscription.IsOffline || charge.AmountMinor <= 0)
+        {
+            return null;
+        }
+
+        var source = SubscriptionDocumentSourceFactory.ForOfflineCharge(
+            subscription,
+            SubscriptionChargeKind.Renewal,
+            period.Key,
+            SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedCharge(subscription, charge),
+            initiatedBy: null,
+            _time.GetUtcNow().UtcDateTime,
+            subscription.CorrelationId);
+
+        source.Period = new FinancialDocumentPeriod
+        {
+            StartUtc = period.StartUtc,
+            EndUtc = period.EndUtc,
+            TimeZoneId = subscription.FeeSchedule.TimeZoneId,
+            PeriodKey = period.Key
+        };
+
+        return source;
     }
 
     /// <summary>The change events a renewal owes for whatever scheduled change it carries out.</summary>

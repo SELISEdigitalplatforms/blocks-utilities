@@ -36,7 +36,7 @@ namespace Subscription.DomainService.Services;
 /// missing document, which the sweep fixes.
 /// </para>
 /// </remarks>
-public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancialDocumentIssuer
+public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancialDocumentIssuer
 {
     /// <summary>
     /// The sweep marks, named so two passes cannot share one and drag it around.
@@ -99,8 +99,10 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         ISubscriptionUsageInvoiceRepository? usageInvoices = null,
         TimeProvider? time = null,
         IBillingAccountRepository? billingAccounts = null,
-        IStoredPaymentMethodRepository? storedMethods = null)
+        IStoredPaymentMethodRepository? storedMethods = null,
+        ISubscriptionCreditPurchaseRepository? creditPurchases = null)
     {
+        _creditPurchases = creditPurchases;
         _documents = documents;
         _numbers = numbers;
         _profiles = profiles;
@@ -284,9 +286,16 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
     /// A first checkout whose token has not been confirmed yet is the ordinary case of that.
     /// </para>
     /// </remarks>
-    private async Task<FinancialDocumentPaymentCard?> PaymentCardAsync(
+    private Task<FinancialDocumentPaymentCard?> PaymentCardAsync(
         PaymentDetail payment,
         SubscriptionDetail subscription,
+        CancellationToken cancellationToken) =>
+        PaymentCardAsync(payment, subscription.TenantId, subscription.BillingAccountId, cancellationToken);
+
+    private async Task<FinancialDocumentPaymentCard?> PaymentCardAsync(
+        PaymentDetail payment,
+        string tenantId,
+        string? billingAccountId,
         CancellationToken cancellationToken)
     {
         // The card the provider reported on the charge itself is the card that paid, whatever
@@ -314,11 +323,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
 
             if (string.IsNullOrWhiteSpace(methodId) &&
                 _billingAccounts is not null &&
-                !string.IsNullOrWhiteSpace(subscription.BillingAccountId))
+                !string.IsNullOrWhiteSpace(billingAccountId))
             {
                 var account = await _billingAccounts.GetAsync(
-                    subscription.TenantId,
-                    subscription.BillingAccountId,
+                    tenantId,
+                    billingAccountId,
                     cancellationToken).ConfigureAwait(false);
 
                 methodId = account?.DefaultPaymentMethodId;
@@ -330,7 +339,7 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             }
 
             var method = await _storedMethods.GetAsync(
-                subscription.TenantId,
+                tenantId,
                 methodId,
                 cancellationToken).ConfigureAwait(false);
 
@@ -876,16 +885,22 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             return await AbandonAsync(subscription, source, cancellationToken);
         }
 
+        // The source's own kind: an opening period that activated with nothing due is Initial, and
+        // an invoice-billed subscription's renewal freezes its figures here for the same reason
+        // — there is no payment to read them off — so it is described as the renewal it was.
+        var kind = source.ChargeKind;
+
         var terms = TermsFor(
             subscription,
             source,
-            new SubscriptionChargeReference(subscription.ItemId, SubscriptionChargeKind.Initial, null),
+            new SubscriptionChargeReference(subscription.ItemId, kind, source.PeriodKey),
             subscription.ItemId);
 
         // Recomposed again only to recover how the frozen figures split between the stub and the
         // year, and trusted only while it still produces the figures that were frozen. The document
         // states the source's amounts either way; this decides how many lines explain them.
         var opening =
+            kind == SubscriptionChargeKind.Initial &&
             RecomposeOpening(subscription) is { Year: not null, Amounts: { } figures } recomposed &&
             figures.TotalMinor == amounts.TotalMinor &&
             figures.GrossSubtotalMinor == amounts.GrossSubtotalMinor
@@ -900,16 +915,24 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             amounts,
             LinesFor(
                 terms,
-                SubscriptionChargeKind.Initial,
+                kind,
                 amounts,
                 subscription,
                 source.Period,
-                opening),
+                opening,
+                // An invoice-billed overage is broken down per meter exactly as a charged one:
+                // the usage invoice it was rated into is read the same way, payment or not.
+                kind == SubscriptionChargeKind.Usage
+                    ? await MeteredLinesAsync(subscription, terms, source.Period, amounts, cancellationToken)
+                    : null),
             source.Period,
             terms,
             correlationId,
             paymentDetailId: null,
-            settlement: null,
+            // Null for an opening period or a renewal; an invoice-billed plan or quantity change
+            // carries its two-sided breakdown so the invoice explains the proration the way a
+            // card settlement's does.
+            settlement: source.Settlement,
             initiatedBy: source.InitiatedBy,
             initiatedByUserId: source.InitiatedBy?.UserId,
             settlementReservationId: null,
@@ -1202,6 +1225,11 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             OrganizationId = subscription.OrganizationId,
             SubscriptionId = subscription.ItemId,
             PaymentDetailId = paymentDetailId,
+            PaymentStatus = documentType == FinancialDocumentType.CreditNote
+                || paymentDetailId is { Length: > 0 }
+                || amounts.TotalMinor <= 0
+                    ? FinancialDocumentPaymentStatus.Paid
+                    : FinancialDocumentPaymentStatus.Unpaid,
             RefundId = refundId,
             SettlementReservationId = settlementReservationId,
             OriginalDocumentId = originalDocument?.ItemId,
@@ -1225,6 +1253,9 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             Settlement = settlement,
             Lines = lines,
             PaymentCard = paymentCard,
+            // Read live rather than from the source: a subscription's collection method is fixed
+            // for its life, so the live value and the one at the event are always the same.
+            CollectionMethod = subscription.CollectionMethod,
             CorrelationId = correlationId
         };
 
@@ -1491,6 +1522,52 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         RecomposeOpening(subscription).Amounts;
 
     /// <summary>
+    /// The breakdown of a charge that was priced but never collected — an invoice-billed renewal.
+    /// </summary>
+    /// <remarks>
+    /// The same split a card renewal hands the gateway and the gateway stores on the payment, read
+    /// here straight from the <see cref="PeriodCharge"/> because no payment will exist. Kept beside
+    /// <see cref="AmountsFor"/> so the two describe a charge the same way.
+    /// </remarks>
+    internal static FinancialDocumentAmounts AmountsOfUncollectedCharge(
+        SubscriptionDetail subscription,
+        PeriodCharge charge)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        var automaticRate = SubscriptionDiscountPresentation.RateOf(subscription.Price);
+        var quantityRate = QuantityDiscountCalculator.ResolveFrom(
+            subscription.Plan,
+            subscription.Price,
+            subscription.QuantityItems).Tier?.DiscountBasisPoints;
+        var combination = SubscriptionDiscountPresentation.Describe(subscription.Price);
+
+        var (automatic, quantity) = BuiltInDiscountAttribution.Split(
+            charge.BuiltInDiscountMinor,
+            automaticRate,
+            quantityRate,
+            combination);
+
+        return new FinancialDocumentAmounts
+        {
+            GrossSubtotalMinor = charge.GrossAmountMinor,
+            AutomaticDiscountMinor = automatic,
+            QuantityDiscountMinor = quantity,
+            PromotionalDiscountMinor = charge.PromotionalDiscountMinor,
+            NetSubtotalMinor = charge.NetAmountMinor,
+            TaxRateBasisPoints = subscription.Price.TaxRateBasisPoints,
+            TaxMode = SubscriptionTaxPresentation.Describe(subscription.Price),
+            TaxAmountMinor = charge.TaxAmountMinor,
+            CreditAppliedMinor = charge.CreditConsumedMinor,
+            TotalMinor = charge.AmountMinor,
+            AutomaticDiscountBasisPoints = automaticRate,
+            QuantityDiscountBasisPoints = quantityRate,
+            DiscountCombination = combination,
+            PromotionCode = charge.DiscountApplied ? subscription.Discount?.Code : null
+        };
+    }
+
+    /// <summary>
     /// The same recomposition, keeping the halves it was composed from.
     /// </summary>
     /// <remarks>
@@ -1604,6 +1681,40 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
             total = Math.Max(0, settlement.NetSettlementMinor);
         }
 
+        return SettlementAmountsOf(
+            total, settlement, payment.SubscriptionTaxRateBasisPoints, payment.SubscriptionTaxMode);
+    }
+
+    /// <summary>
+    /// The breakdown of a plan or quantity change that was priced but never collected — an
+    /// invoice-billed subscription's.
+    /// </summary>
+    /// <remarks>
+    /// The arithmetic <see cref="SettlementAmounts"/> applies to a settled charge, with the total the
+    /// settlement came to standing in for what a provider took — nothing was taken, and the figure the
+    /// customer is invoiced for is exactly the one the card path would have charged.
+    /// </remarks>
+    internal static FinancialDocumentAmounts AmountsOfUncollectedSettlement(
+        SubscriptionDetail subscription,
+        SubscriptionSettlementBreakdown settlement,
+        long chargeMinor)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(settlement);
+
+        return SettlementAmountsOf(
+            chargeMinor,
+            settlement,
+            subscription.Price.TaxRateBasisPoints,
+            SubscriptionTaxPresentation.Describe(subscription.Price));
+    }
+
+    private static FinancialDocumentAmounts SettlementAmountsOf(
+        long total,
+        SubscriptionSettlementBreakdown settlement,
+        int? taxRateBasisPoints,
+        string? taxMode)
+    {
         var credit = settlement.CreditConsumedMinor;
 
         var (outgoingNet, outgoingTax) = ProratedNetAndTax(settlement.Outgoing);
@@ -1653,8 +1764,8 @@ public sealed class SubscriptionFinancialDocumentIssuer : ISubscriptionFinancial
         {
             GrossSubtotalMinor = net,
             NetSubtotalMinor = net,
-            TaxRateBasisPoints = payment.SubscriptionTaxRateBasisPoints,
-            TaxMode = payment.SubscriptionTaxMode,
+            TaxRateBasisPoints = taxRateBasisPoints,
+            TaxMode = taxMode,
             TaxAmountMinor = tax,
             CreditAppliedMinor = credit,
             TotalMinor = total

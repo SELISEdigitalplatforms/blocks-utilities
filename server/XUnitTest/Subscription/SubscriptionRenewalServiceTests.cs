@@ -1364,6 +1364,73 @@ public sealed class SubscriptionRenewalServiceTests
         EffectiveAtUtc = effectiveAtUtc
     };
 
+    // ---- Applying a discount or tax edit extended to existing subscribers ----------------------
+
+    [Fact]
+    public async Task An_extended_discount_bills_the_renewal_it_was_announced_for()
+    {
+        var subscription = OnPriceWithExtendedDiscount(
+            effectiveAtUtc: new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AutomaticDiscountBasisPoints.Should().Be(1500,
+            "the subscriber was told this renewal is the first on 15% off, and the bill must say so");
+        _charge.AmountMinor.Should().Be(7_565, "15% off 8,900 is 7,565");
+        _transition!.Price!.AutomaticDiscountBasisPoints.Should().Be(1500,
+            "every later renewal continues on the terms this one installed");
+        _transition.ClearPendingPriceTerms.Should().BeTrue(
+            "terms left pending after being installed would be applied and announced again");
+    }
+
+    [Fact]
+    public async Task An_extended_discount_waits_for_the_renewal_it_was_announced_for()
+    {
+        var subscription = OnPriceWithExtendedDiscount(
+            effectiveAtUtc: new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AutomaticDiscountBasisPoints.Should().Be(800,
+            "the subscriber was promised the old terms until October, so September is billed on them");
+        _transition!.Price.Should().BeNull();
+        _transition.ClearPendingPriceTerms.Should().BeFalse(
+            "the change is still owed to the October renewal");
+    }
+
+    [Fact]
+    public async Task An_extended_discount_for_a_price_the_subscriber_has_left_is_dropped()
+    {
+        var subscription = OnPriceWithExtendedDiscount(
+            effectiveAtUtc: new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc));
+        subscription.PendingPriceTerms!.PriceId = "price-they-left";
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AutomaticDiscountBasisPoints.Should().Be(800,
+            "a subscriber who moved price was quoted that price's terms, not the one they left");
+        _transition!.ClearPendingPriceTerms.Should().BeTrue(
+            "there is nothing left for those terms to apply to");
+    }
+
+    /// <summary>8% off today, with 15% extended to them for <paramref name="effectiveAtUtc"/>.</summary>
+    private static SubscriptionDetail OnPriceWithExtendedDiscount(DateTime effectiveAtUtc)
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+
+        subscription.CurrentPeriodEndUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        subscription.Price.PriceId = "price-1";
+        subscription.Price.AutomaticDiscountBasisPoints = 800;
+        subscription.PendingPriceTerms = new PendingPriceTerms
+        {
+            PriceId = "price-1",
+            Terms = new PriceTerms { AutomaticDiscountBasisPoints = 1500 },
+            EffectiveAtUtc = effectiveAtUtc
+        };
+
+        return subscription;
+    }
+
     private sealed class OptionsStub : IOptionsMonitor<SubscriptionOptions>
     {
         public SubscriptionOptions CurrentValue { get; } = new() { DunningMaxAttempts = 4 };

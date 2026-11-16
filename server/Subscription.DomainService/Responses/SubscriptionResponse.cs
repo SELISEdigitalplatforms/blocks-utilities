@@ -16,6 +16,13 @@ public sealed class SubscriptionResponse
     /// <summary>The buyer's name as their identity provider gave it at signup. See <see cref="PurchasedByUserId"/>.</summary>
     public string? PurchasedByName { get; init; }
 
+    /// <summary>
+    /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for a subscription billed by invoice.
+    /// An offline subscription is never charged and takes no card, so a client hides every
+    /// payment-method prompt for it.
+    /// </summary>
+    public string CollectionMethod { get; init; } = string.Empty;
+
     public string Status { get; init; } = string.Empty;
 
     public string PlanCode { get; init; } = string.Empty;
