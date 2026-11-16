@@ -13,6 +13,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Responses;
 using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
@@ -1087,6 +1088,7 @@ public sealed class SubscriptionCheckoutServiceTests
             .ReturnsAsync(subscription);
 
     private CreatePaymentMethodSetupRequest? _setupRequest;
+    private string? _setupKey;
 
     private void GivenSetupSessionOpens(string url = "https://checkout.stripe.com/setup") =>
         _paymentMethodSetups
@@ -1096,7 +1098,7 @@ public sealed class SubscriptionCheckoutServiceTests
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .Callback<CreatePaymentMethodSetupRequest, string, string, CancellationToken>(
-                (request, _, _, _) => _setupRequest = request)
+                (request, key, _, _) => (_setupRequest, _setupKey) = (request, key))
             .ReturnsAsync((CreatePaymentMethodSetupRequest request, string _, string _, CancellationToken _) =>
                 PaymentOperationResult.Success(
                     new PaymentResponse
@@ -1249,11 +1251,8 @@ public sealed class SubscriptionCheckoutServiceTests
 
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be("subscription_not_found");
-        _paymentMethodSetups.Verify(
-            service => service.CreateSetupAsync(
-                It.IsAny<CreatePaymentMethodSetupRequest>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        VerifyNoSessionOpened();
+        VerifyNoBump();
     }
 
     [Theory]
@@ -1272,6 +1271,7 @@ public sealed class SubscriptionCheckoutServiceTests
         result.IsSuccess.Should().BeFalse();
         result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
         result.ErrorCode.Should().Be(expectedCode);
+        VerifyNoBump();
     }
 
     /// <summary>
@@ -1342,10 +1342,7 @@ public sealed class SubscriptionCheckoutServiceTests
             .Setup(repository => repository.GetAsync(
                 TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
-        _links
-            .Setup(repository => repository.FindBySubscriptionAsync(
-                TenantId, _subscription.ItemId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SubscriptionPaymentLink
+        GivenLatestSetupLink(new SubscriptionPaymentLink
             {
                 SubscriptionId = _subscription.ItemId,
                 PaymentDetailId = "pay-abandoned",
@@ -1380,6 +1377,288 @@ public sealed class SubscriptionCheckoutServiceTests
                 It.IsAny<CancellationToken>()),
             Times.Once,
             "the stale link is settled once the replacement is under way");
+    }
+
+    // ---- Replacing a card whose setup completed -----------------------------------------------
+    //
+    // A completed setup leaves its link Applied, and the payment module keeps the consumed
+    // record under that attempt's key. The next session has to be raised under the next key, or
+    // the provider replays the finished one (same request hash) or refuses it with
+    // idempotency_key_reused (plan or billing e-mail changed since). Live case: organisation
+    // A.O.T, Free -> Teams, two 409s on 2026-11-11.
+
+    private void GivenLatestSetupLink(SubscriptionPaymentLink? link) =>
+        _links
+            .Setup(repository => repository.FindLatestSetupLinkAsync(
+                TenantId, _subscription.ItemId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(link);
+
+    private SubscriptionPaymentLink SetupLink(
+        SubscriptionPaymentLinkState state,
+        string paymentDetailId = "pay-setup-0") =>
+        new()
+        {
+            ItemId = "link-" + paymentDetailId,
+            TenantId = TenantId,
+            SubscriptionId = _subscription.ItemId,
+            PaymentDetailId = paymentDetailId,
+            Purpose = SubscriptionPaymentPurpose.PaymentMethodSetup,
+            State = state
+        };
+
+    private void GivenBumpReturns(bool outcome) =>
+        _subscriptions
+            .Setup(repository => repository.TryBumpPaymentMethodSetupAttemptAsync(
+                TenantId,
+                _subscription.ItemId,
+                _subscription.PaymentMethodSetupAttempt,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(outcome);
+
+    private void GivenStripeAccount() =>
+        _billingAccounts
+            .Setup(repository => repository.GetAsync(
+                TenantId, _subscription.BillingAccountId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { ProviderName = PaymentConstants.StripeProvider });
+
+    private void VerifyBump(Func<Times> times) =>
+        _subscriptions.Verify(
+            repository => repository.TryBumpPaymentMethodSetupAttemptAsync(
+                TenantId, _subscription.ItemId, It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            times);
+
+    private void VerifyNoBump() => VerifyBump(Times.Never);
+
+    private void VerifySettle(Func<Times> times) =>
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<SubscriptionPaymentLinkState>(),
+                It.IsAny<CancellationToken>()),
+            times);
+
+    private void VerifySessionOpened(Func<Times> times) =>
+        _paymentMethodSetups.Verify(
+            service => service.CreateSetupAsync(
+                It.IsAny<CreatePaymentMethodSetupRequest>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            times);
+
+    private void VerifyNoSessionOpened() => VerifySessionOpened(Times.Never);
+
+    private Task<SubscriptionOperationResult<SubscriptionResponse>> StartSetup() =>
+        Service().StartPaymentMethodSetupAsync(
+            _subscription.ItemId, OrganizationId, "corr-1", CancellationToken.None);
+
+    [Fact]
+    public async Task A_completed_setup_is_followed_by_a_new_session_under_the_next_key()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        _subscription.PaymentMethodSetupAttempt = 3;
+        _subscription.Plan.DisplayName = "Teams";
+        GivenSubscriptionById(_subscription);
+        GivenStripeAccount();
+        GivenLatestSetupLink(SetupLink(SubscriptionPaymentLinkState.Applied));
+        GivenBumpReturns(true);
+        GivenSetupSessionOpens("https://checkout.stripe.com/replacement");
+
+        var result = await StartSetup();
+
+        result.IsSuccess.Should().BeTrue(
+            "a completed setup must not block the card-replacement journey with " +
+            "idempotency_key_reused or a replay of the consumed session");
+        result.Value!.PendingCheckout!.Purpose.Should().Be("PaymentMethodSetup");
+        result.Value.PendingCheckout.State.Should().Be("Pending");
+        result.Value.PendingCheckout.ErrorCode.Should().BeNull();
+        result.Value.PendingCheckout.CheckoutUrl.Should().Be("https://checkout.stripe.com/replacement");
+        _setupKey.Should().Be(
+            SubscriptionConstants.PaymentMethodSetupKeyFor(_subscription.ItemId, 4),
+            "the new session is raised under the attempt after the one that completed");
+        VerifyBump(Times.Once);
+        VerifySessionOpened(Times.Once);
+        VerifySettle(Times.Never);
+        _links.Verify(
+            repository => repository.TryCreateAsync(
+                It.Is<SubscriptionPaymentLink>(link =>
+                    link.Purpose == SubscriptionPaymentPurpose.PaymentMethodSetup &&
+                    link.State == SubscriptionPaymentLinkState.Pending &&
+                    link.PaymentDetailId == "pay-setup-1"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task A_completed_setup_on_a_trial_leaves_the_trial_untouched()
+    {
+        var endsAt = DateTime.UtcNow.AddDays(10);
+        _subscription.Status = SubscriptionStatus.Trialing;
+        _subscription.Trial = new TrialTerms { EndsAtUtc = endsAt, RequiresPaymentMethod = false };
+        GivenSubscriptionById(_subscription);
+        GivenStripeAccount();
+        GivenLatestSetupLink(SetupLink(SubscriptionPaymentLinkState.Applied));
+        GivenBumpReturns(true);
+        GivenSetupSessionOpens();
+
+        var result = await StartSetup();
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Status.Should().Be("Trialing");
+        _subscription.Trial.EndsAtUtc.Should().Be(endsAt);
+        _subscriptions.Verify(
+            repository => repository.TryTransitionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SubscriptionTransition>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task The_loser_of_the_attempt_race_is_told_the_setup_is_pending()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        GivenSubscriptionById(_subscription);
+        GivenStripeAccount();
+        GivenLatestSetupLink(SetupLink(SubscriptionPaymentLinkState.Applied));
+        GivenBumpReturns(false);
+        GivenSetupSessionOpens();
+
+        var result = await StartSetup();
+
+        result.IsSuccess.Should().BeFalse();
+        result.FailureKind.Should().Be(PaymentFailureKind.Conflict);
+        result.ErrorCode.Should().Be("subscription_checkout_pending");
+        result.ValidationErrors.Should().ContainKey("subscriptionId").WhoseValue.Should().Equal(_subscription.ItemId);
+        VerifyNoSessionOpened();
+        VerifySettle(Times.Never);
+    }
+
+    [Theory]
+    [InlineData(SubscriptionStatus.Active)]
+    [InlineData(SubscriptionStatus.PastDue)]
+    [InlineData(SubscriptionStatus.Unpaid)]
+    public async Task An_abandoned_setup_on_a_running_subscription_is_retried(SubscriptionStatus status)
+    {
+        _subscription.Status = status;
+        GivenSubscriptionById(_subscription);
+        GivenStripeAccount();
+        GivenLatestSetupLink(SetupLink(SubscriptionPaymentLinkState.Abandoned));
+        GivenBumpReturns(true);
+        GivenSetupSessionOpens();
+
+        var result = await StartSetup();
+
+        result.IsSuccess.Should().BeTrue(
+            "the compare-and-set no longer insists on Incomplete, so a running subscription " +
+            "can replace an abandoned session too");
+        VerifyBump(Times.Once);
+        VerifySessionOpened(Times.Once);
+    }
+
+    [Fact]
+    public async Task A_pending_setup_with_a_live_url_is_resumed_not_bumped()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        GivenSubscriptionById(_subscription);
+        GivenStripeAccount();
+        GivenLatestSetupLink(SetupLink(SubscriptionPaymentLinkState.Pending, "pay-live"));
+        _paymentRepository
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, "pay-live", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentDetail
+            {
+                ItemId = "pay-live",
+                PaymentStatus = PaymentStatuses.Processing,
+                RedirectUrl = "https://checkout.stripe.com/live",
+                ExpirationDate = DateTime.UtcNow.AddHours(1)
+            });
+        GivenSetupSessionOpens();
+
+        var result = await StartSetup();
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.PendingCheckout!.CheckoutUrl.Should().Be("https://checkout.stripe.com/live",
+            "a repeat click returns the live session even though an older Applied link exists");
+        VerifyNoBump();
+        VerifyNoSessionOpened();
+    }
+
+    [Fact]
+    public async Task A_pending_setup_with_a_dead_url_is_abandoned_bumped_and_replaced()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        GivenSubscriptionById(_subscription);
+        GivenStripeAccount();
+        GivenLatestSetupLink(SetupLink(SubscriptionPaymentLinkState.Pending, "pay-dead"));
+        _paymentRepository
+            .Setup(repository => repository.GetByIdAsync(
+                TenantId, "pay-dead", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentDetail
+            {
+                ItemId = "pay-dead",
+                PaymentStatus = PaymentStatuses.Processing,
+                RedirectUrl = "https://checkout.stripe.com/dead",
+                ExpirationDate = DateTime.UtcNow.AddMinutes(-1)
+            });
+        GivenBumpReturns(true);
+        GivenSetupSessionOpens();
+
+        var result = await StartSetup();
+
+        result.IsSuccess.Should().BeTrue();
+        VerifyBump(Times.Once);
+        _links.Verify(
+            repository => repository.TrySettleAsync(
+                TenantId, "link-pay-dead", SubscriptionPaymentLinkState.Abandoned,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        VerifySessionOpened(Times.Once);
+    }
+
+    [Fact]
+    public async Task A_subscription_with_only_a_charge_link_starts_at_the_current_attempt()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        _subscription.PaymentMethodSetupAttempt = 0;
+        GivenSubscriptionById(_subscription);
+        GivenStripeAccount();
+        GivenLatestSetupLink(null);
+        GivenSetupSessionOpens();
+
+        var result = await StartSetup();
+
+        result.IsSuccess.Should().BeTrue();
+        _setupKey.Should().Be(
+            SubscriptionConstants.PaymentMethodSetupKeyFor(_subscription.ItemId, 0));
+        VerifyNoBump();
+        VerifySessionOpened(Times.Once);
+    }
+
+    [Fact]
+    public async Task A_provider_failure_after_the_bump_writes_no_link()
+    {
+        _subscription.Status = SubscriptionStatus.Active;
+        GivenSubscriptionById(_subscription);
+        GivenStripeAccount();
+        GivenLatestSetupLink(SetupLink(SubscriptionPaymentLinkState.Applied));
+        GivenBumpReturns(true);
+        _paymentMethodSetups
+            .Setup(service => service.CreateSetupAsync(
+                It.IsAny<CreatePaymentMethodSetupRequest>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PaymentOperationResult.Failure(
+                PaymentFailureKind.Unavailable,
+                "payment_provider_unavailable",
+                "Stripe is unavailable.",
+                "corr-1"));
+
+        var result = await StartSetup();
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("payment_provider_unavailable");
+        _links.Verify(
+            repository => repository.TryCreateAsync(
+                It.IsAny<SubscriptionPaymentLink>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the bumped attempt is simply left behind; the next request bumps again under a key " +
+            "that was never reserved");
     }
 
     private static SubscriptionDetail NewSubscription()

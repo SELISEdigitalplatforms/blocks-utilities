@@ -6,6 +6,8 @@ on:
       - "server/Payment.DomainService/Scheduling/**"
       - "server/Worker/PaymentReconciliationBackgroundService.cs"
       - "server/XUnitTest/Integration/PaymentWorkQueueIntegrationTests.cs"
+      - "server/XUnitTest/Integration/SubscriptionPaymentLinkRepositoryIntegrationTests.cs"
+      - "server/XUnitTest/Integration/SubscriptionRepositoryIntegrationTests.cs"
       - ".github/workflows/payment-scheduling-integration.yml"
   push:
     branches: [dev]
@@ -13,6 +15,8 @@ on:
       - "server/Payment.DomainService/Scheduling/**"
       - "server/Worker/PaymentReconciliationBackgroundService.cs"
       - "server/XUnitTest/Integration/PaymentWorkQueueIntegrationTests.cs"
+      - "server/XUnitTest/Integration/SubscriptionPaymentLinkRepositoryIntegrationTests.cs"
+      - "server/XUnitTest/Integration/SubscriptionRepositoryIntegrationTests.cs"
 
 jobs:
   mongo-integration:
@@ -38,7 +42,7 @@ jobs:
       - name: Run payment queue Mongo integration suite
         run: >-
           dotnet test server/XUnitTest/XUnitTest.csproj --no-restore
-          --filter "FullyQualifiedName~PaymentWorkQueueIntegrationTests"
+          --filter "FullyQualifiedName~PaymentWorkQueueIntegrationTests|FullyQualifiedName~SubscriptionPaymentLinkRepositoryIntegrationTests|FullyQualifiedName~SubscriptionRepositoryIntegrationTests"
           --verbosity minimal
       - name: Verify each work type's retry contract
         run: >-

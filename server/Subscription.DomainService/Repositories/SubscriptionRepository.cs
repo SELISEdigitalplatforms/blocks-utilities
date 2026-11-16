@@ -987,9 +987,11 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.ItemId,
                     subscriptionId),
-                Builders<SubscriptionDetail>.Filter.Eq(
+                // Every status the setup endpoint accepts: a replacement card on a running
+                // subscription bumps too, not only the signup-time setup.
+                Builders<SubscriptionDetail>.Filter.Nin(
                     subscription => subscription.Status,
-                    SubscriptionStatus.Incomplete),
+                    [SubscriptionStatus.Canceled, SubscriptionStatus.IncompleteExpired]),
                 Builders<SubscriptionDetail>.Filter.Eq(
                     subscription => subscription.PaymentMethodSetupAttempt,
                     expectedAttempt)),

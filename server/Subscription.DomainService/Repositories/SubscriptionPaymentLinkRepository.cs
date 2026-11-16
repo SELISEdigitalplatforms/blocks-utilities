@@ -76,6 +76,24 @@ public sealed class SubscriptionPaymentLinkRepository : ISubscriptionPaymentLink
                     subscriptionId)))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<SubscriptionPaymentLink?> FindLatestSetupLinkAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken) =>
+        await Links(tenantId)
+            .Find(Builders<SubscriptionPaymentLink>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionPaymentLink>.Filter.Eq(
+                    link => link.SubscriptionId,
+                    subscriptionId),
+                Builders<SubscriptionPaymentLink>.Filter.Eq(
+                    link => link.Purpose,
+                    SubscriptionPaymentPurpose.PaymentMethodSetup)))
+            .Sort(Builders<SubscriptionPaymentLink>.Sort
+                .Descending(link => link.CreatedAtUtc)
+                .Descending(link => link.ItemId))
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<IReadOnlyList<SubscriptionPaymentLink>> ListDueAsync(
         string tenantId,
         DateTime dueAtUtc,
