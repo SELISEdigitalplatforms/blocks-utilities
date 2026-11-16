@@ -38,9 +38,9 @@ public sealed partial class SubscriptionCreditService
     /// from. Mirrors SubscriptionCheckoutService.ResolveProviderOrganizationId -- see its remarks for
     /// why a null scope on an account pinned to a provider row is kept, not coerced.
     /// </summary>
-    private static string? CheckoutProviderOrganizationId(BillingAccount account, SubscriptionDetail subscription) =>
+    private static string? CheckoutProviderOrganizationId(BillingAccount account, string organizationId) =>
         account.ProviderId is null
-            ? account.ProviderOrganizationId ?? subscription.OrganizationId
+            ? account.ProviderOrganizationId ?? organizationId
             : account.ProviderOrganizationId;
 
     private static SubscriptionOperationResult<CreditPurchaseResponse> CheckoutInProgress(
@@ -71,10 +71,9 @@ public sealed partial class SubscriptionCreditService
     /// Opens the hosted checkout for a purchase recorded at Pending, and moves it to AwaitingPayment.
     /// </summary>
     private async Task<SubscriptionOperationResult<CreditPurchaseResponse>> StartCheckoutAsync(
-        SubscriptionDetail subscription,
-        PlanMeter meter,
         SubscriptionCreditPurchase purchase,
         BillingAccount account,
+        string creditLabel,
         string? reservedDiscountId,
         string correlationId,
         CancellationToken cancellationToken)
@@ -86,7 +85,7 @@ public sealed partial class SubscriptionCreditService
             return await AbandonCheckoutAsync(
                 purchase, reservedDiscountId, PaymentFailureKind.Unavailable,
                 "subscription_billing_account_provider_unavailable",
-                "This subscription's billing account cannot take a payment. Contact support.",
+                "This billing account cannot take a payment. Contact support.",
                 correlationId, cancellationToken);
         }
 
@@ -98,15 +97,15 @@ public sealed partial class SubscriptionCreditService
                 ProviderName = account.ProviderName,
                 ExpectedProviderId = account.ProviderId,
                 OrganizationId = purchase.ProviderOrganizationId,
-                CustomerOrganizationId = subscription.OrganizationId,
+                CustomerOrganizationId = purchase.OrganizationId,
                 // The card this saves is the subscriber's, and the billing account adopts it by
                 // that organization, not by the merchant scope the money is taken under.
-                PaymentMethodOwnerOrganizationId = subscription.OrganizationId,
+                PaymentMethodOwnerOrganizationId = purchase.OrganizationId,
                 CustomerEmail = account.BillingEmail is { Length: > 0 } email ? email : null,
                 Amount = amount,
                 CurrencyCode = purchase.CurrencyCode,
                 OrderId = purchase.OrderId,
-                Description = $"{Format(purchase.Quantity)} {CreditLabel(meter)}",
+                Description = $"{Format(purchase.Quantity)} {creditLabel}",
                 SavePaymentMethod = true,
                 // Later top-ups charge this card with the Subscription model
                 // (RecurringChargeBillingGateway), so it must be saved under it. On Adyen this is
@@ -325,12 +324,12 @@ public sealed partial class SubscriptionCreditService
             return true;
         }
 
-        var subscription = await _subscriptions.GetByIdAsync(purchase.TenantId, purchase.SubscriptionId, cancellationToken);
+        var subscription = await SubscriptionOfAsync(purchase, cancellationToken);
         var outcome = await GrantPaidCheckoutAsync(purchase, payment, subscription, now, correlationId, cancellationToken);
 
-        if (outcome && subscription is not null)
+        if (outcome && BillingAccountOf(purchase, subscription) is { } accountId)
         {
-            await AdoptCardAsync(purchase, subscription, payment, cancellationToken);
+            await AdoptCardAsync(purchase, accountId, payment, cancellationToken);
         }
 
         return outcome;
@@ -362,8 +361,10 @@ public sealed partial class SubscriptionCreditService
         }
 
         // Credits granted into an ended subscription are forfeited the moment they land (PR #695).
-        if (subscription is null ||
-            subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired)
+        // A standalone purchase (spec 005) has no subscription to end.
+        if (!purchase.IsOrganizationOwned &&
+            (subscription is null ||
+             subscription.Status is SubscriptionStatus.Canceled or SubscriptionStatus.IncompleteExpired))
         {
             return await NeedsAttentionAsync(purchase, "subscription_credits_subscription_ended",
                 "The subscription ended before the checkout was paid.", now, cancellationToken);
@@ -451,12 +452,14 @@ public sealed partial class SubscriptionCreditService
     /// </summary>
     private async Task AdoptCardAsync(
         SubscriptionCreditPurchase purchase,
-        SubscriptionDetail subscription,
+        string billingAccountId,
         PaymentDetail payment,
         CancellationToken cancellationToken)
     {
         if (_cardAdopter is null ||
-            await _cardAdopter.AdoptAsync(subscription, payment, onlyIfNoDefault: true, cancellationToken) is not null)
+            await _cardAdopter.AdoptAsync(
+                purchase.TenantId, purchase.OrganizationId, billingAccountId, purchase.SubscriptionId,
+                payment, onlyIfNoDefault: true, cancellationToken) is not null)
         {
             return;
         }
@@ -555,11 +558,11 @@ public sealed partial class SubscriptionCreditService
             var payment = purchase.PaymentId is { Length: > 0 } paymentId
                 ? await _payments.GetByIdAsync(tenantId, paymentId, cancellationToken)
                 : null;
-            var subscription = await _subscriptions.GetByIdAsync(tenantId, purchase.SubscriptionId, cancellationToken);
+            var subscription = await SubscriptionOfAsync(purchase, cancellationToken);
 
-            if (payment is not null && subscription is not null)
+            if (payment is not null && BillingAccountOf(purchase, subscription) is { } accountId)
             {
-                await AdoptCardAsync(purchase, subscription, payment, cancellationToken);
+                await AdoptCardAsync(purchase, accountId, payment, cancellationToken);
             }
 
             if (purchase.CardAdoptedAtUtc is null)

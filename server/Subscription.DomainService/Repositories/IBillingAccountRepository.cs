@@ -47,6 +47,16 @@ public interface IBillingAccountRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// The organization's account with one provider, or null. What a standalone credit purchase
+    /// charges when the organization holds no subscription to read an account id from (spec 005).
+    /// </summary>
+    Task<BillingAccount?> FindByOrganizationAsync(
+        string tenantId,
+        string organizationId,
+        string providerName,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Records the provider's identifiers once a charge has confirmed them.
     /// </summary>
     /// <remarks>

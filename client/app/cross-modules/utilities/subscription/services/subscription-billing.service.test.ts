@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { get, put } = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
+const { get, put, post } = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn() }));
 
 vi.mock("@/lib/http-client", () => ({
-  serviceInstances: { utitlitiesService: { get, put } },
+  serviceInstances: { utitlitiesService: { get, put, post } },
 }));
 
 import { subscriptionBillingService } from "./subscription-billing.service";
@@ -107,5 +107,21 @@ describe("document queries", () => {
     expect(get).toHaveBeenCalledWith(
       "/api/subscriptions/invoices/doc%201/pdf?organizationId=org-9",
     );
+  });
+});
+
+describe("recording a payment", () => {
+  it("posts the reference and organization to the document's payment endpoint", async () => {
+    post.mockResolvedValue(ok({ documentId: "doc/1" }));
+
+    await subscriptionBillingService.recordDocumentPayment("doc/1", {
+      reference: "TRF-42",
+      organizationId: "org-9",
+    });
+
+    expect(post).toHaveBeenCalledWith("/api/subscriptions/invoices/doc%2F1/payment", {
+      reference: "TRF-42",
+      organizationId: "org-9",
+    });
   });
 });

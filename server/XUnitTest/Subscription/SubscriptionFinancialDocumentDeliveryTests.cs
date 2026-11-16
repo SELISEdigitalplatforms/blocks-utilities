@@ -128,6 +128,21 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
         mail.CorrelationId.Should().Be($"document-mail:{document.ItemId}");
     }
 
+    [Theory]
+    [InlineData(FinancialDocumentPaymentStatus.Unpaid, "Unpaid")]
+    [InlineData(FinancialDocumentPaymentStatus.Paid, "Paid")]
+    public async Task The_mail_carries_the_payment_status_the_document_had(
+        FinancialDocumentPaymentStatus status,
+        string expected)
+    {
+        var document = await IssuedAsync();
+        document.PaymentStatus = status;
+
+        await Delivery().DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+
+        _sent.Should().ContainSingle().Which.BodyDataContext["PaymentStatus"].Should().Be(expected);
+    }
+
     [Fact]
     public async Task A_delivered_document_is_never_rendered_or_posted_again()
     {
@@ -485,6 +500,35 @@ public sealed class SubscriptionFinancialDocumentDeliveryTests
 
         first.Should().BeTrue();
         second.Should().BeTrue();
+        _sent.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Re_rendering_replaces_the_stored_pdf_without_mailing_or_changing_delivery()
+    {
+        var document = await IssuedAsync();
+        var delivery = Delivery();
+        await delivery.DeliverAsync(TenantId, document.ItemId, CancellationToken.None);
+        var before = _documents.Documents.Single().Delivery;
+        var oldStorageId = before.StorageId;
+        var emailedAt = before.EmailedAtUtc;
+        var messageId = before.MailMessageId;
+        _renderer
+            .Setup(renderer => renderer.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Encoding.UTF8.GetBytes("%PDF-1.7 now paid"));
+
+        (await delivery.RerenderStoredPdfAsync(TenantId, document.ItemId, CancellationToken.None))
+            .Should().BeTrue();
+
+        var after = _documents.Documents.Single().Delivery;
+        after.StorageId.Should().NotBe(oldStorageId);
+        after.ContentLength.Should().Be(17);
+        after.State.Should().Be(FinancialDocumentDeliveryState.Delivered);
+        after.EmailedAtUtc.Should().Be(emailedAt);
+        after.MailMessageId.Should().Be(messageId);
+        _renderer.Verify(
+            renderer => renderer.RenderAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
         _sent.Should().ContainSingle();
     }
 

@@ -173,6 +173,32 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreatePriceTermsChangeScheduled(
+        SubscriptionDetail subscription,
+        PendingPriceTerms pending,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(pending);
+
+        const string eventType = Utilities.SubscriptionConstants.SubscriptionPriceTermsChangeScheduled;
+        var payload = NewPayload(subscription, eventType);
+        payload.PreviousPriceTerms = PriceTerms.Of(subscription.Price);
+        payload.PriceTerms = pending.Terms;
+        payload.EffectiveAtUtc = pending.EffectiveAtUtc;
+        payload.ActorName = pending.RequestedByName;
+
+        return Build(
+            subscription,
+            eventType,
+            // The version being written over, as for an offline re-pricing: a second edit extended
+            // before the renewal is news of its own and must not be deduplicated into the first.
+            $"{subscription.ItemId}:{eventType}:{subscription.Version}",
+            payload,
+            correlationId,
+            null);
+    }
+
     public SubscriptionOutboxEvent CreateMemberChanged(
         SubscriptionDetail subscription,
         string eventType,
@@ -287,6 +313,7 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
         PlanCode = subscription.Plan.Code,
         PlanName = subscription.Plan.DisplayName,
         Status = subscription.Status.ToString(),
+        CollectionMethod = subscription.CollectionMethod.ToString(),
         // Read off the subscription, which is right for every event whose payload is built from a
         // subscription already carrying the change it describes. A cancellation's is not — see
         // CreateCancellation, which overrides both.

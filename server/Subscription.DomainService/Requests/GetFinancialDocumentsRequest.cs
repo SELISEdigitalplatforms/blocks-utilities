@@ -18,6 +18,8 @@ public sealed class GetFinancialDocumentsRequest
 
     public FinancialDocumentStatus? Status { get; set; }
 
+    public FinancialDocumentPaymentStatus? PaymentStatus { get; set; }
+
     /// <summary>
     /// Inclusive bounds on the issue date. A tax year is the query this exists for, so both ends are
     /// inclusive rather than half-open.
@@ -31,4 +33,10 @@ public sealed class GetFinancialDocumentsRequest
     /// resolution policy.
     /// </summary>
     public string? OrganizationId { get; set; }
+
+    /// <summary>
+    /// Only the invoices of standalone credit purchases (spec 005), which belong to the
+    /// organization and to no subscription. Ignored when a subscription is named.
+    /// </summary>
+    public bool StandaloneCreditsOnly { get; set; }
 }

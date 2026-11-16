@@ -26,6 +26,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     private readonly IPlanResponseMapper _mapper;
     private readonly ISubscriptionAuditTrail _auditTrail;
     private readonly ILogger<PlanCatalogueService> _logger;
+    private readonly ExistingSubscriberPriceTerms _existingSubscribers;
 
     public PlanCatalogueService(
         ISubscriptionCatalogueRepository catalogue,
@@ -36,8 +37,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         IValidator<CreatePriceRequest> priceValidator,
         IPlanResponseMapper mapper,
         ISubscriptionAuditTrail auditTrail,
-        ILogger<PlanCatalogueService> logger)
+        ILogger<PlanCatalogueService> logger,
+        ExistingSubscriberPriceTerms existingSubscribers,
+        IMeterCatalogueService? meterCatalogue = null)
     {
+        _existingSubscribers = existingSubscribers;
+        _meterCatalogue = meterCatalogue;
         _catalogue = catalogue;
         _subscriptions = subscriptions;
         _contextResolver = contextResolver;
@@ -48,6 +53,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         _auditTrail = auditTrail;
         _logger = logger;
     }
+
+    /// <summary>Optional so hosts and tests without a catalogue still author plans; see spec 005.</summary>
+    private readonly IMeterCatalogueService? _meterCatalogue;
 
     public async Task<SubscriptionOperationResult<PlanResponse>> CreatePlanAsync(
         CreatePlanRequest request,
@@ -134,6 +142,14 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(plan.Code),
             correlationId);
+
+        // A meter authored inside a plan joins the catalogue, so a later plan or a credit offer
+        // can pick it (spec 005). After the save: the plan is the product, the catalogue follows it.
+        if (_meterCatalogue is not null)
+        {
+            await _meterCatalogue.EnsureEntriesAsync(
+                context.TenantId, plan.OrganizationId, plan.Meters, cancellationToken);
+        }
 
         return SubscriptionOperationResult<PlanResponse>.Success(
             _mapper.ToResponse(plan, [], predecessorDisplayName: predecessorDisplayName),
@@ -227,6 +243,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             correlationId);
 
         await AdoptNewCreditTermsAsync(context.TenantId, plan.ItemId, edited, correlationId, cancellationToken);
+
+        if (_meterCatalogue is not null)
+        {
+            await _meterCatalogue.EnsureEntriesAsync(
+                context.TenantId, edited.OrganizationId, edited.Meters, cancellationToken);
+        }
 
         return await GetPlanAsync(
             plan.ItemId,
@@ -816,6 +838,30 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                     : AutomaticDiscountCombination.BestDiscount).ToString()),
             correlationId);
 
+        if (request.ApplyToExistingSubscribers)
+        {
+            var combinationToStore = basisPoints > 0
+                ? request.QuantityDiscountCombination ?? AutomaticDiscountCombination.BestDiscount
+                : (AutomaticDiscountCombination?)null;
+
+            // After the catalogue write, so a refused edit is never announced to anybody. A run
+            // that fails part-way leaves the catalogue edited and some subscribers untold, which
+            // the operator repairs by saving the same edit again.
+            await _existingSubscribers.ExtendAsync(
+                context.TenantId,
+                priceId,
+                terms => new PriceTerms
+                {
+                    AutomaticDiscountBasisPoints = basisPoints,
+                    QuantityDiscountCombination = combinationToStore,
+                    TaxRateBasisPoints = terms.TaxRateBasisPoints,
+                    TaxMode = terms.TaxMode
+                },
+                context.ActorName,
+                correlationId,
+                cancellationToken);
+        }
+
         return await GetPlanAsync(
             plan.ItemId,
             context.OrganizationId,
@@ -887,6 +933,24 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 "subscription_price_tax_conflict",
                 "The price changed while its tax configuration was being saved.",
                 correlationId);
+        }
+
+        if (request.ApplyToExistingSubscribers)
+        {
+            // See the discount edit above for why this follows the catalogue write.
+            await _existingSubscribers.ExtendAsync(
+                context.TenantId,
+                priceId,
+                terms => new PriceTerms
+                {
+                    AutomaticDiscountBasisPoints = terms.AutomaticDiscountBasisPoints,
+                    QuantityDiscountCombination = terms.QuantityDiscountCombination,
+                    TaxRateBasisPoints = rate,
+                    TaxMode = modeToStore
+                },
+                context.ActorName,
+                correlationId,
+                cancellationToken);
         }
 
         return await GetPlanAsync(

@@ -202,6 +202,18 @@ plan itself. Versions replaced before this history existed are not recoverable.
 
 Prices are separate documents with their own versions and are not copied into the plan's history.
 
+A second additive step after every plan write: each meter the plan names is added to the meter
+catalogue (`SubscriptionMeterCatalogue`, `IMeterCatalogueService.EnsureEntriesAsync`) at the
+plan's own scope when no entry resolves for its key yet — identity and counting fields only,
+never price or expiry. The catalogue is what a later plan picks meters from and what a standalone
+credit offer (`SubscriptionCreditOffers`, one per meter per scope, resolved like plans: an
+organization's own wins, else the tenant's) sells. An organization buys from an offer with or
+without a subscription; those grants and purchases live in the credit collections with a null
+`SubscriptionId`, and the usage gate spends them in the offer's `SpendOrder`. An organization
+grant carries its own `OutboxEvents`, drained by `OrganizationCreditOutboxProcessor` alongside
+the subscription outbox; the purchase event becomes the `organization_credits_purchased` mail.
+See spec 005.
+
 The code and the organization come from the stored plan, never the request: a code is what
 configuration points at, and a scope change would move the plan out from under whoever can see it.
 Reads still return `hasSubscribers`, so a caller can warn that an edit will not reach existing

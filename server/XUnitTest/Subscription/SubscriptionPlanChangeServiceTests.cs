@@ -2331,4 +2331,111 @@ public sealed class SubscriptionPlanChangeServiceTests
         IntervalCount = 1,
         Status = CatalogueStatus.Active
     };
+
+    // ---- Offline subscriptions -------------------------------------------------------
+    //
+    // Guards an invoiced customer against being charged by Utilities for a plan change.
+
+    private SubscriptionDocumentSource? _offlineInvoice;
+
+    private void Offline()
+    {
+        _subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+
+        _subscriptions
+            .Setup(repository => repository.TryChangePlanAsync(
+                TenantId, "sub-1", It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<PlanSnapshot>(),
+                It.IsAny<PriceSnapshot>(), It.IsAny<List<SubscriptionQuantityItem>>(),
+                It.IsAny<SubscriptionPlanSchedule>(), It.IsAny<PendingUsagePeriod>(),
+                It.IsAny<long>(), It.IsAny<string?>(), It.IsAny<SubscriptionOutboxEvent>(),
+                It.IsAny<CancellationToken>(), It.IsAny<SubscriptionDocumentSource?>(),
+                It.IsAny<PendingAnnualPeriod?>()))
+            .Callback((string _, string _, int _, string? _, PlanSnapshot _, PriceSnapshot _,
+                    List<SubscriptionQuantityItem> _, SubscriptionPlanSchedule _,
+                    PendingUsagePeriod _, long _, string? _, SubscriptionOutboxEvent _,
+                    CancellationToken _, SubscriptionDocumentSource? source,
+                    PendingAnnualPeriod? _) => _offlineInvoice = source)
+            .ReturnsAsync(true);
+    }
+
+    private SubscriptionPlanChangeService OfflineService() => new(
+        _contextResolver.Object,
+        _subscriptions.Object,
+        _catalogue.Object,
+        _billingAccounts.Object,
+        _gateway.Object,
+        new SubscriptionOutboxEventFactory(),
+        _cache.Object,
+        new SubscriptionResponseMapper(),
+        new ChangeSubscriptionPlanRequestValidator(),
+        NullLogger<SubscriptionPlanChangeService>.Instance,
+        _time,
+        billingProfile: _billingProfile.Object);
+
+    private void CurrentPlanInCatalogue()
+    {
+        _subscription.Price.PriceId = "price-1";
+        _catalogue
+            .Setup(repository => repository.FindPlanByCodeAsync(
+                TenantId, OrganizationId, "basic", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Plan
+            {
+                ItemId = "plan-1", TenantId = TenantId, Code = "basic", DisplayName = "Basic",
+                Status = CatalogueStatus.Active
+            });
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Price
+            {
+                ItemId = "price-1", TenantId = TenantId, PlanId = "plan-1", CurrencyCode = "CHF",
+                UnitAmountMinor = 1_000, Interval = BillingInterval.Month, IntervalCount = 1,
+                Status = CatalogueStatus.Active
+            });
+    }
+
+    private void VerifyNeverCharged() =>
+        _gateway.Verify(
+            gateway => gateway.ChargeAsync(
+                It.IsAny<SubscriptionChargeRequest>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "an offline subscription is billed by invoice, so a card on file must " +
+                "never be charged for its plan change");
+
+    [Fact]
+    public async Task An_offline_upgrade_applies_now_with_a_record_invoice_and_charges_nothing()
+    {
+        Offline();
+
+        var result = await OfflineService().ChangePlanAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        VerifyNeverCharged();
+        _reserved.Should().BeNull(because: "nothing is collected, so nothing needs reserving");
+        _offlineInvoice.Should().NotBeNull(
+            because: "the prorated difference is what the customer's own invoice is written from");
+        _offlineInvoice!.ChargeKind.Should().Be(SubscriptionChargeKind.PlanChange);
+        _offlineInvoice.Settlement.Should().NotBeNull(
+            because: "the invoice explains the proration the way a card settlement does");
+        _offlineInvoice.Amounts!.TotalMinor.Should().BeGreaterThan(0);
+        _offlineInvoice.SourceKey.Should().Be(FinancialDocumentSourceKey.ForOfflineCharge(
+            "sub-1", SubscriptionChargeKind.PlanChange, "v3"));
+    }
+
+    [Fact]
+    public async Task An_offline_preview_does_not_ask_for_a_card()
+    {
+        Offline();
+        _account = null;
+
+        var preview = await OfflineService().PreviewPlanChangeAsync(
+            "sub-1", Request(), "corr-1", CancellationToken.None);
+
+        preview.Value!.Blockers.Should().NotContain(
+            blocker => blocker.Code == "subscription_plan_change_no_payment_method",
+            because: "an offline upgrade is invoiced, never charged");
+    }
 }

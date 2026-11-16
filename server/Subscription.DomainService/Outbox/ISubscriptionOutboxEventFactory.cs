@@ -40,6 +40,15 @@ public interface ISubscriptionOutboxEventFactory
         string correlationId);
 
     /// <summary>
+    /// A discount or tax edit extended to this subscriber, announced when it is scheduled. Built
+    /// from the subscription before the write, so its price still carries the terms being replaced.
+    /// </summary>
+    SubscriptionOutboxEvent CreatePriceTermsChangeScheduled(
+        SubscriptionDetail subscription,
+        PendingPriceTerms pending,
+        string correlationId);
+
+    /// <summary>
     /// A plan change. <paramref name="subscription"/>'s own <c>Plan.Code</c> must already be the
     /// new one — this only needs told what it changed <em>from</em>.
     /// </summary>

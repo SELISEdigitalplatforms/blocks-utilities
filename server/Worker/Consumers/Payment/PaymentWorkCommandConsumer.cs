@@ -177,6 +177,14 @@ public sealed class PaymentWorkCommandConsumer :
             await subscriptionOutbox.PublishDueAsync(
                 command.TenantId,
                 CancellationToken.None);
+        // A checkout-paid standalone purchase (spec 005) settled above wrote its event onto the
+        // grant; send it on the same tick, as the subscription events are.
+        if (services.GetService<IOrganizationCreditOutboxProcessor>() is { } organizationCreditOutbox)
+        {
+            publishedSubscriptionEvents += await organizationCreditOutbox.PublishDueAsync(
+                command.TenantId,
+                CancellationToken.None);
+        }
 
         _logger.LogInformation(
             "Payment work command processing completed Phase={Phase} DurationMs={DurationMs} ProcessedWebhookCount={ProcessedWebhookCount} PublishedPaymentEventCount={PublishedPaymentEventCount} PublishedRefundEventCount={PublishedRefundEventCount} TargetedSettlementCount={TargetedSettlementCount} ActivatedSubscriptionCount={ActivatedSubscriptionCount} PublishedSubscriptionEventCount={PublishedSubscriptionEventCount}",

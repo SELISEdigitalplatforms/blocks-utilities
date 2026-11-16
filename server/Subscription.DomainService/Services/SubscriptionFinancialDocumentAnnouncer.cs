@@ -31,6 +31,9 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
 
     public const string SubscriptionWorkKeyPrefix = "subscription:";
 
+    /// <summary>Names a standalone credit purchase record (spec 005), whose aggregate id is the purchase id.</summary>
+    public const string CreditPurchaseWorkKeyPrefix = "credit-purchase:";
+
     private readonly ISubscriptionWorkScheduler _scheduler;
     private readonly ISubscriptionRepository _subscriptions;
     private readonly ILogger<SubscriptionFinancialDocumentAnnouncer> _logger;
@@ -123,6 +126,43 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
             cancellationToken);
     }
 
+    public async Task AnnounceOrganizationCreditPurchaseAsync(
+        SubscriptionCreditPurchase purchase,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(purchase);
+
+        if (string.IsNullOrWhiteSpace(purchase.PaymentId))
+        {
+            return;
+        }
+
+        try
+        {
+            await _scheduler.TryScheduleAsync(
+                SubscriptionWorkType.FinancialDocumentIssue,
+                purchase.TenantId,
+                $"{CreditPurchaseWorkKeyPrefix}{purchase.ItemId}",
+                _time.GetUtcNow().UtcDateTime,
+                correlationId,
+                purchase.ItemId,
+                purchase.OrganizationId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // ponytail: no sweep rediscovers a standalone purchase whose scheduling failed; the
+            // purchase record keeps every figure, so an operator can re-announce it. Add a sweep
+            // over Finalized purchases with no document if this is ever seen.
+            _logger.LogError(
+                exception,
+                "A settled standalone credit purchase could not have its document scheduled " +
+                "PurchaseHash={PurchaseHash}",
+                PaymentLogValue.Hash(purchase.ItemId));
+        }
+    }
+
     public async Task AnnounceTrialAsync(
         SubscriptionDetail subscription,
         string correlationId,
@@ -141,7 +181,7 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
         // subscription owes, so one key covers a trial and anything else recorded beside it.
         await ScheduleAsync(
             subscription,
-            $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}",
+            SubscriptionWorkKey(subscription),
             subscription.ItemId,
             correlationId,
             cancellationToken);
@@ -195,7 +235,7 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
         // AnnounceChargeAsync does would queue work that can never complete.
         await ScheduleAsync(
             subscription,
-            $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}",
+            SubscriptionWorkKey(subscription),
             subscription.ItemId,
             correlationId,
             cancellationToken);
@@ -210,7 +250,7 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
 
         return ScheduleAsync(
             subscription,
-            $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}",
+            SubscriptionWorkKey(subscription),
             subscription.ItemId,
             correlationId,
             cancellationToken);
@@ -251,6 +291,17 @@ public sealed class SubscriptionFinancialDocumentAnnouncer :
                 source.DocumentType);
         }
     }
+
+    /// <summary>
+    /// One occurrence per write of the subscription, not one per subscription.
+    /// </summary>
+    /// <remarks>
+    /// The queue keeps finished work for days and refuses a second item with the same key, so a key
+    /// of the subscription alone made every later request a silent no-op until the repair sweep
+    /// found the obligation. The version still collapses a retried money path onto one item.
+    /// </remarks>
+    private static string SubscriptionWorkKey(SubscriptionDetail subscription) =>
+        $"{SubscriptionWorkKeyPrefix}{subscription.ItemId}:v{subscription.Version}";
 
     private async Task ScheduleAsync(
         SubscriptionDetail subscription,

@@ -224,6 +224,35 @@ describe("billing profile page", () => {
     );
   });
 
+  /**
+   * Found on dev: reached from the menu, the page only ever edited the console's own profile. An
+   * admin "completed" a customer's profile there, and the customer's offline activation was still
+   * refused for an incomplete one.
+   */
+  it("lets an admin choose whose profile to edit, and saves it for that organization", async () => {
+    const mutate = vi.fn();
+    useBillingProfile.mockImplementation((organizationId?: string) => ({
+      data: profile({ organizationId: organizationId ?? "default" }),
+      isLoading: false,
+      error: null,
+    }));
+    useUpdateBillingProfile.mockReturnValue(mutation({ mutate }));
+
+    renderPage();
+
+    const picker = await screen.findByRole("combobox", { name: "Organization" });
+    expect(picker).toHaveTextContent("Your own organization");
+
+    await userEvent.click(picker);
+    await userEvent.click(await screen.findByRole("option", { name: "Northwind" }));
+
+    await waitFor(() => expect(useBillingProfile).toHaveBeenLastCalledWith("org-1"));
+    expect(await screen.findByTestId("profile-scope")).toHaveTextContent("org-1");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save billing profile" }));
+    expect(mutate.mock.calls[0][0]).toMatchObject({ organizationId: "org-1" });
+  });
+
   it("names the organization being edited, and its id", async () => {
     useBillingProfile.mockReturnValue({ data: profile(), isLoading: false, error: null });
     useUpdateBillingProfile.mockReturnValue(mutation());

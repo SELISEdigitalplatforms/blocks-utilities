@@ -447,6 +447,30 @@ public sealed class FinancialDocumentHtmlTemplateTests
     }
 
     [Fact]
+    public void An_unpaid_offline_invoice_says_it_is_unpaid()
+    {
+        var html = Render(document =>
+        {
+            document.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+            document.PaymentStatus = FinancialDocumentPaymentStatus.Unpaid;
+        });
+
+        html.Should().Contain(
+            "<tr><th>Status</th><td>Unpaid</td></tr>",
+            because: "a bank-transfer invoice that has not been paid must not say it was");
+        html.Should().NotContain("<td>Paid</td>");
+    }
+
+    [Fact]
+    public void A_paid_offline_invoice_says_it_is_paid()
+    {
+        var html = Render(document =>
+            document.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice);
+
+        html.Should().Contain("<tr><th>Status</th><td>Paid</td></tr>");
+    }
+
+    [Fact]
     public void The_total_and_its_status_are_facts_in_the_right_column_rather_than_a_headline()
     {
         var html = Render();

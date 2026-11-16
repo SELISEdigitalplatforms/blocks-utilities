@@ -1,21 +1,27 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubscriptionFinancialDocument } from "../models/subscription-billing.model";
 
-const { useFinancialDocuments, downloadFinancialDocumentPdf, useResendFinancialDocument } =
-  vi.hoisted(() => ({
-    useFinancialDocuments: vi.fn(),
-    downloadFinancialDocumentPdf: vi.fn(),
-    useResendFinancialDocument: vi.fn(),
-  }));
+const {
+  useFinancialDocuments,
+  downloadFinancialDocumentPdf,
+  useResendFinancialDocument,
+  useRecordFinancialDocumentPayment,
+} = vi.hoisted(() => ({
+  useFinancialDocuments: vi.fn(),
+  downloadFinancialDocumentPdf: vi.fn(),
+  useResendFinancialDocument: vi.fn(),
+  useRecordFinancialDocumentPayment: vi.fn(),
+}));
 
 vi.mock("../hooks/use-financial-documents", () => ({
   useFinancialDocuments,
   downloadFinancialDocumentPdf,
   useResendFinancialDocument,
+  useRecordFinancialDocumentPayment,
 }));
 
 vi.mock("@blocks-idp/iam/hooks/use-organization", () => ({
@@ -70,6 +76,10 @@ const document = (
     discountCombination: "BestDiscount",
     promotionCode: "launch20",
   },
+  paymentStatus: "Unpaid",
+  paidAtUtc: null,
+  paymentReference: null,
+  organizationId: "org-1",
   settlement: null,
   lines: [
     {
@@ -107,10 +117,10 @@ const listing = (items: SubscriptionFinancialDocument[], hasNextPage = false) =>
   error: null,
 });
 
-const renderPage = () =>
+const renderPage = (url = "/") =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[url]}>
         <SubscriptionInvoicesPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -119,6 +129,10 @@ const renderPage = () =>
 describe("subscription invoices page", () => {
   beforeEach(() => {
     useResendFinancialDocument.mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue({}),
+      isPending: false,
+    });
+    useRecordFinancialDocumentPayment.mockReturnValue({
       mutateAsync: vi.fn().mockResolvedValue({}),
       isPending: false,
     });
@@ -437,6 +451,60 @@ describe("subscription invoices page", () => {
     await waitFor(() =>
       expect(useFinancialDocuments).toHaveBeenLastCalledWith(
         expect.objectContaining({ issuedToUtc: "2026-12-31T23:59:59Z" }),
+      ),
+    );
+  });
+
+  it("offers Record payment only on an unpaid invoice", () => {
+    useFinancialDocuments.mockReturnValue(
+      listing([
+        document({ documentId: "d-unpaid", documentNumber: "INV-UNPAID" }),
+        document({ documentId: "d-paid", documentNumber: "INV-PAID", paymentStatus: "Paid" }),
+        document({
+          documentId: "d-credit",
+          documentNumber: "CN-1",
+          documentType: "CreditNote",
+          paymentStatus: "Unpaid",
+        }),
+      ]),
+    );
+
+    renderPage();
+
+    expect(within(screen.getByTestId("document-INV-UNPAID")).getByRole("button", { name: "Record payment" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("document-INV-PAID")).queryByRole("button", { name: "Record payment" })).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("document-CN-1")).queryByRole("button", { name: "Record payment" })).not.toBeInTheDocument();
+  });
+
+  it("records a payment with the reference", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({});
+    useRecordFinancialDocumentPayment.mockReturnValue({ mutateAsync, isPending: false });
+    useFinancialDocuments.mockReturnValue(listing([document()]));
+
+    renderPage("/?organizationId=org-1");
+    await userEvent.click(screen.getByRole("button", { name: "Record payment" }));
+    await userEvent.type(screen.getByLabelText("Payment reference"), "TRF-42");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Record payment" }));
+
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        documentId: "doc-1",
+        reference: "TRF-42",
+        organizationId: "org-1",
+      }),
+    );
+  });
+
+  it("filters by payment status", async () => {
+    useFinancialDocuments.mockReturnValue(listing([document()]));
+
+    renderPage();
+    await userEvent.click(screen.getByRole("combobox", { name: "Payment status" }));
+    await userEvent.click(screen.getByRole("option", { name: "Unpaid" }));
+
+    await waitFor(() =>
+      expect(useFinancialDocuments).toHaveBeenLastCalledWith(
+        expect.objectContaining({ paymentStatus: "Unpaid" }),
       ),
     );
   });

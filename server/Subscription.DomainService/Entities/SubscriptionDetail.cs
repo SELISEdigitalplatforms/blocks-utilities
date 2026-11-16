@@ -54,6 +54,19 @@ public sealed class SubscriptionDetail
         SubscriptionStatus.Incomplete;
 
     /// <summary>
+    /// How this subscription's money is collected. Set at creation, never changed.
+    /// </summary>
+    /// <remarks>
+    /// Absent on every subscription written before offline billing existed, which deserializes to
+    /// <see cref="SubscriptionCollectionMethod.AutomaticCharge"/> — exactly what they are.
+    /// </remarks>
+    public SubscriptionCollectionMethod CollectionMethod { get; set; }
+
+    /// <summary>Whether this subscription is billed outside Utilities and must never be charged.</summary>
+    [BsonIgnore]
+    public bool IsOffline => CollectionMethod == SubscriptionCollectionMethod.OfflineInvoice;
+
+    /// <summary>
     /// Fixed for the life of the subscription. Refunds must return in the currency they
     /// arrived in, and invoice history that spans currencies cannot be totalled.
     /// </summary>
@@ -211,6 +224,17 @@ public sealed class SubscriptionDetail
     /// </para>
     /// </remarks>
     public PendingPlanChange? PendingPlanChange { get; set; }
+
+    /// <summary>
+    /// A discount or tax edit extended to this subscriber, waiting for the renewal it was announced
+    /// for, if an operator chose to extend one.
+    /// </summary>
+    /// <remarks>
+    /// Independent of the two pending changes above: it blocks neither, and is dropped rather than
+    /// applied when a plan change moves the subscriber off the price first. Absent on every
+    /// subscription written before it existed, which is the same thing as having none.
+    /// </remarks>
+    public PendingPriceTerms? PendingPriceTerms { get; set; }
 
     /// <summary>
     /// An increase reserved but not yet settled, if one is in flight.

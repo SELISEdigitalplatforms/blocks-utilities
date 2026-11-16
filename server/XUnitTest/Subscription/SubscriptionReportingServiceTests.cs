@@ -61,6 +61,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<string>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
@@ -69,6 +70,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<string>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
@@ -405,6 +407,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
@@ -418,6 +421,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([new("CHF", 12_000, 3, Now.Date)]);
 
@@ -436,6 +440,58 @@ public sealed class SubscriptionReportingServiceTests
     }
 
     [Fact]
+    public async Task The_revenue_report_passes_the_collection_method_filter_to_both_sources()
+    {
+        await _service.GetRevenueAsync(
+            new GetBucketedReportRequest { CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice },
+            "correlation-1",
+            CancellationToken.None);
+
+        _reports.Verify(reports => reports.AggregateDocumentRevenueAsync(
+            "tenant-1", It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            SubscriptionCollectionMethod.OfflineInvoice, It.IsAny<CancellationToken>()));
+        _reports.Verify(
+            reports => reports.AggregateOverageRevenueAsync(
+                "tenant-1", It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                SubscriptionCollectionMethod.OfflineInvoice, It.IsAny<CancellationToken>()),
+            "an offline-only report must not mix in overage a card paid for");
+    }
+
+    [Fact]
+    public async Task The_trend_refuses_a_collection_method_filter_it_cannot_honour()
+    {
+        var result = await _service.GetRecurringRevenueTrendAsync(
+            new GetBucketedReportRequest { CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice },
+            "correlation-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be(
+            "subscription_report_query_invalid",
+            "the daily captures keep no per-method split, so a filtered trend would silently be " +
+                "the whole tenant's");
+    }
+
+    [Fact]
+    public async Task Offline_subscriptions_count_in_recurring_revenue_at_their_price_and_can_be_isolated()
+    {
+        var card = Subscription("CHF", 10_000, BillingInterval.Month);
+        var invoiced = Subscription("CHF", 50_000, BillingInterval.Month);
+        invoiced.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        GivenSubscriptions(card, invoiced);
+
+        (await WhenRecurringRevenue()).Currencies.Single().NetMonthlyMinor.Should().Be(
+            60_000,
+            "an offline subscription counts at what it invoices");
+
+        var offline = await _service.GetRecurringRevenueAsync(
+            SubscriptionCollectionMethod.OfflineInvoice, "correlation-1", CancellationToken.None);
+
+        offline.Value!.SubscriptionCount.Should().Be(1);
+        offline.Value.Currencies.Single().NetMonthlyMinor.Should().Be(
+            50_000, "the filter isolates the invoiced book");
+    }
+
+    [Fact]
     public async Task A_currency_present_only_in_overage_still_appears_in_the_revenue_report()
     {
         _reports
@@ -443,6 +499,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([new("CHF", FinancialDocumentType.Invoice, 50_000, 5, Now.Date)]);
 
@@ -451,6 +508,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([new("EUR", 12_000, 3, Now.Date)]);
 
@@ -950,6 +1008,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
@@ -963,6 +1022,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([new("CHF", 5_000, 1, sunday.AddDays(2))]);
 
@@ -1288,7 +1348,7 @@ public sealed class SubscriptionReportingServiceTests
     private async Task<RecurringRevenueReportResponse> WhenRecurringRevenue()
     {
         var result = await _service.GetRecurringRevenueAsync(
-            "correlation-1", CancellationToken.None);
+            null, "correlation-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
 

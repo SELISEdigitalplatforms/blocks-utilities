@@ -1,3 +1,4 @@
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Services;
 
 namespace Subscription.DomainService.Reporting;
@@ -19,6 +20,7 @@ public interface ISubscriptionReportingService
         CancellationToken cancellationToken);
 
     Task<SubscriptionOperationResult<RecurringRevenueReportResponse>> GetRecurringRevenueAsync(
+        SubscriptionCollectionMethod? collectionMethod,
         string correlationId,
         CancellationToken cancellationToken);
 

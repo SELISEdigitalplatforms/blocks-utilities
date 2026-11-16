@@ -137,7 +137,18 @@ export interface SimulatedSubscription {
    * billing account loaded to read it from.
    */
   providerName: string | null;
+  /**
+   * `"OfflineInvoice"` for a subscription billed by invoice: never
+   * charged, takes no card, so every card prompt is hidden for it. Absent from an older server.
+   */
+  collectionMethod?: CollectionMethod;
 }
+
+export type CollectionMethod = "AutomaticCharge" | "OfflineInvoice";
+
+export const isOfflineSubscription = (
+  subscription: Pick<SimulatedSubscription, "collectionMethod"> | null | undefined,
+): boolean => subscription?.collectionMethod === "OfflineInvoice";
 
 /** One meter's terms as the subscriber actually bought them. */
 export interface MeterTerms {
@@ -628,6 +639,10 @@ export interface RecordUsageResult {
   used: number;
   remaining: number;
   overage: number;
+  /** What the organization's standalone credits (spec 005) paid for in this window. */
+  organizationCreditsConsumed?: number;
+  /** What they could still spend, or null when no credit offer exists for the meter. */
+  organizationCreditsRemaining?: number | null;
   replayed: boolean;
   /**
    * The use went past the meter's pace cap on a plan that reports rather than refuses. Set only
@@ -860,6 +875,8 @@ export interface CreditQuote {
   expiresAtUtc: string | null;
   /** "Checkout" when there is no saved card and the buyer pays at the provider's page (spec 003). */
   paymentPath?: "StoredCard" | "Checkout";
+  /** The offer pack this quote is for, when one was named (spec 005). */
+  packCode?: string | null;
 }
 
 export interface CreditGrant {
@@ -898,6 +915,27 @@ export interface GrantCreditsRequest {
   meterKey: string;
   quantity: number;
   seatNumber?: number | null;
+  reason: string;
+}
+
+/** `POST /api/organization-credits/preview` and `POST /api/organization-credits`. See spec 005. */
+export interface OrganizationCreditPurchaseRequest {
+  organizationId?: string;
+  meterKey: string;
+  /** Ignored when `packCode` is given: a pack's quantity is the pack's. */
+  quantity: number;
+  /** One of the offer's packs to buy instead of a free quantity. */
+  packCode?: string;
+  /** Which of the offer's prices to pay: an organization with no subscription has no currency of its own. */
+  currencyCode: string;
+  discountCode?: string;
+  idempotencyKey?: string;
+}
+
+export interface OrganizationGrantCreditsRequest {
+  organizationId?: string;
+  meterKey: string;
+  quantity: number;
   reason: string;
 }
 

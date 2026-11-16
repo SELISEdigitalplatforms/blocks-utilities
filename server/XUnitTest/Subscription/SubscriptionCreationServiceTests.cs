@@ -2483,4 +2483,91 @@ public sealed class SubscriptionCreationServiceTests
         QuantityItemKey = "seat",
         Status = CatalogueStatus.Active
     };
+
+    // ---- Offline activation -----------------------------------------------------------
+
+    [Fact]
+    public async Task An_offline_subscription_keeps_the_buyer_as_buyer()
+    {
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None, offline: true);
+
+        _created!.CollectionMethod.Should().Be(SubscriptionCollectionMethod.OfflineInvoice);
+        _created.PurchasedBy!.UserId.Should().Be("user-1");
+    }
+
+    [Fact]
+    public async Task An_offline_catalogue_price_is_priced_exactly_as_a_card_subscription_would_be()
+    {
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None, offline: true);
+
+        _created!.InitialChargeAmountMinor.Should().Be(
+            8_900 * 12,
+            because: "catalogue pricing means the catalogue's own figure, seats and all");
+    }
+
+    [Fact]
+    public async Task An_offline_activation_does_not_need_a_ready_payment_provider()
+    {
+        var service = ServiceWithMerchantProfile(
+            global::Payment.DomainService.Utilities.PaymentConstants.AdyenOnlineProvider,
+            global::Subscription.DomainService.Enums.SubscriptionPaymentProviderReadiness.NotConfigured);
+
+        var result = await service.CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None, offline: true);
+
+        result.IsSuccess.Should().BeTrue(
+            because: "an offline subscription never reaches a provider, so a tenant's broken card " +
+                "configuration must not stop a contract customer from being switched on");
+    }
+
+    [Fact]
+    public async Task An_offline_activation_requires_a_complete_billing_profile_even_on_a_free_price()
+    {
+        _plan.QuantityItems = [];
+        _catalogue
+            .Setup(repository => repository.GetPriceAsync(TenantId, "price-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                var price = NewPrice();
+                price.UnitAmountMinor = 0;
+                price.QuantityItemKey = null;
+                return price;
+            });
+        _billingProfile
+            .Setup(guard => guard.MissingFieldsAsync(TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["LegalName"]);
+
+        var request = NewRequest();
+        request.Quantities = [];
+
+        var result = await Service().CreateAsync(
+            request, Context(), "corr-1", CancellationToken.None, offline: true);
+
+        result.ErrorCode.Should().Be(
+            "subscription_billing_profile_incomplete",
+            because: "every offline document is a record somebody invoices from, so it must be " +
+                "addressed to someone whatever the price");
+        _created.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_offline_activation_does_not_remember_the_operator_as_an_invoice_initiator()
+    {
+        await Service().CreateAsync(
+            NewRequest(), Context(), "corr-1", CancellationToken.None, offline: true);
+
+        _billingProfile.Verify(
+            guard => guard.RememberInitiatorAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "the operator is from the console, not the customer, and must not appear on the " +
+                "customer's invoices");
+    }
 }

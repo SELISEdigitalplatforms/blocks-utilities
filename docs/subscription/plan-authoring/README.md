@@ -243,6 +243,13 @@ thresholdPercents: 50, 80, 100      ← §10
 rateTables:        CHF bands        ← §9
 ```
 
+**The key comes from the meter catalogue.** Since [spec 005](../../specs/005-standalone-credit-purchase/README.md)
+every meter key is also a catalogue entry — key, name, unit, aggregation, scale, and nothing else.
+Pick an existing one in the builder, or type a new key: it is added to the catalogue when the plan
+is saved, so another plan (or a standalone credit offer) can pick it later. The plan still keeps
+its own copy of those fields, and everything below — allowance, reset, overage, top-up terms — is
+the plan's alone. A plan saved before the catalogue existed keeps working without an entry.
+
 **`includedQuantity` is the only place a plan's free allowance lives.** A rate table never needs a
 zero-cost first band to represent it — only the excess (`usage − includedQuantity`) is ever priced.
 
@@ -269,6 +276,15 @@ A credit purchase whose total (after any code and tax) is above zero but at or b
 does not decline a charge that small: it marks the invoice paid at zero and moves the amount onto the
 customer's balance, which the next invoice collects. Set `minQuantity × unit price` above the floor
 so the smallest purchase on offer can actually be bought.
+
+**Credits sold without a plan.** The `topUp` terms above price credits for *this plan's
+subscribers*. A **credit offer** prices the same meter for any organization, subscribed or not,
+with its own currency list, bounds, tax, expiry (a fixed time after purchase, or never) and a
+`spendOrder` that says whether those credits are spent before or after what the subscription
+provides. Offers are tenant-wide with a per-organization override, the way plans are, and the
+minimum-charge floor above applies to them too. See the
+[spec](../../specs/005-standalone-credit-purchase/README.md) and the API reference's *Standalone
+credits* section.
 
 **Purchases that stuck before this guard.** A purchase in `NeedsAttention` with
 `subscription_invoice_amount_mismatch` and no payment record put its amount on the Stripe customer's
@@ -674,8 +690,15 @@ the plan, so the builder catches it first.
 
 **Prices are immutable in their commercial terms.** Tax metadata and the automatic discount can be
 updated for *future* subscriptions; the amount, interval and alignment cannot change. To reprice,
-add a new price and retire the old one. Existing subscribers keep the terms they were sold either
-way, because a subscription bills from its own snapshot and is never migrated automatically.
+add a new price and retire the old one. By default, existing subscribers keep the terms they were
+sold, because a subscription bills from its own snapshot and is never migrated automatically.
+
+The one opt-in exception is a tax or discount edit saved with **Also apply to existing
+subscribers** (`applyToExistingSubscribers`). Each subscriber on the price is emailed
+(`subscription_price_terms_changed`) and moves to the new terms at the first renewal at least
+`Subscription:PriceTermsNoticeDays` (default 7) away. Offline subscriptions, subscriptions
+cancelling at period end, and subscriptions with their own plan change scheduled are left alone.
+Saving the same edit again is safe, and reaches anyone a failed save missed.
 
 **Editing a plan ends when the first subscriber arrives.** After that the plan is frozen — a
 subscription bills from its own copy of the terms, which an edit cannot reach.

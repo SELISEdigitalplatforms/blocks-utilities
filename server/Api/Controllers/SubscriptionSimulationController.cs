@@ -225,6 +225,54 @@ public sealed class SubscriptionSimulationController : ControllerBase
     }
 
     /// <summary>
+    /// The standalone credits an organization holds outside any subscription (spec 005), for an
+    /// organization that may hold no subscription at all.
+    /// </summary>
+    [HttpGet("organizations/{organizationId}/state")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationStateResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-simulation::read")]
+    public async Task<IActionResult> GetOrganizationState(string organizationId, CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationStateResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        var result = await _simulation.GetOrganizationStateAsync(organizationId, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    /// <summary>Runs the credit purchase recovery and grant maintenance sweeps, then reports the organization's credits.</summary>
+    [HttpPost("organizations/{organizationId}/jobs/run-due")]
+    [ProducesResponseType(typeof(ApiResponse<SubscriptionSimulationJobRunResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-simulation::manage")]
+    public async Task<IActionResult> RunOrganizationDueJobs(
+        string organizationId,
+        [FromBody] RunDueJobsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        if (Disabled<SubscriptionSimulationJobRunResponse>(correlationId) is { } disabled)
+        {
+            return disabled;
+        }
+
+        request.OrganizationId = organizationId;
+        var result = await _simulation.RunOrganizationDueJobsAsync(request, correlationId, cancellationToken);
+
+        return Forbidden(result, correlationId) ?? result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
     /// The allowlisted collections and what the console may do to each, for a caller deciding
     /// what <c>find</c>/<c>update</c> can reach before trying either.
     /// </summary>

@@ -178,6 +178,13 @@ describe("document type and status", () => {
     expect(describeDocumentStatus({ documentType: "Invoice", status: "Refunded" }))
       .toBe("Refunded in full");
   });
+
+  it("reports an unpaid invoice as unpaid and a paid one as paid", () => {
+    const invoice = { documentType: "Invoice", status: "Issued" } as const;
+
+    expect(describeDocumentStatus({ ...invoice, paymentStatus: "Unpaid" })).toBe("Unpaid");
+    expect(describeDocumentStatus({ ...invoice, paymentStatus: "Paid" })).toBe("Paid");
+  });
 });
 
 describe("period", () => {

@@ -2,6 +2,7 @@ using Blocks.Genesis;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using Payment.DomainService.Services;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Messaging;
@@ -24,7 +25,9 @@ public sealed class SubscriptionNotificationEmailServiceTests
     private static readonly string[] AllKeys =
     [
         "DisplayName", "PlanName", "PlanCode", "PreviousPlanName", "ActorName",
-        "QuantityChanges", "EffectiveDate", "CancellationReason"
+        "QuantityChanges", "EffectiveDate", "CancellationReason",
+        "PreviousDiscount", "NewDiscount", "PreviousTaxRate", "NewTaxRate",
+        "PreviousTaxMode", "NewTaxMode"
     ];
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
@@ -33,6 +36,7 @@ public sealed class SubscriptionNotificationEmailServiceTests
     private readonly Mock<IMailDeliveryReporter> _reports = new();
     private readonly Mock<ISubscriptionAssignmentRepository> _assignments = new();
     private readonly Mock<ISubscriptionBillingProfileRepository> _profiles = new();
+    private readonly Mock<ICurrencyMinorUnitResolver> _currency = new();
     private readonly List<MailDeliveryReportRequest> _recorded = [];
     private ConsumerMessage<SendMail>? _queued;
 
@@ -126,6 +130,39 @@ public sealed class SubscriptionNotificationEmailServiceTests
     }
 
     [Fact]
+    public async Task An_extended_price_change_tells_the_subscriber_both_terms_and_the_local_day_it_starts()
+    {
+        var lifecycleEvent = Event(SubscriptionConstants.SubscriptionPriceTermsChangeScheduled);
+        lifecycleEvent.PreviousPriceTerms = new PriceTerms
+        {
+            AutomaticDiscountBasisPoints = 800,
+            TaxRateBasisPoints = 810,
+            TaxMode = TaxMode.Exclusive
+        };
+        lifecycleEvent.PriceTerms = new PriceTerms
+        {
+            AutomaticDiscountBasisPoints = 1500,
+            TaxRateBasisPoints = 825,
+            TaxMode = TaxMode.Inclusive
+        };
+        // The renewal at midnight starting 1 December in Zurich, as billing stores it.
+        lifecycleEvent.EffectiveAtUtc = new DateTime(2026, 11, 30, 23, 0, 0, DateTimeKind.Utc);
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        _queued!.Payload.Purpose.Should().Be(SubscriptionConstants.PriceTermsChangedMailPurpose);
+        var body = _queued.Payload.BodyDataContext;
+        body["PreviousDiscount"].Should().Be("8%");
+        body["NewDiscount"].Should().Be("15%");
+        body["PreviousTaxRate"].Should().Be("8.1%");
+        body["NewTaxRate"].Should().Be("8.25%",
+            "a rate is quoted as configured, not rounded to a figure the bill will not match");
+        body["NewTaxMode"].Should().Be("Inclusive");
+        body["EffectiveDate"].Should().Be("2026-12-01",
+            "the subscriber is told the local day of the renewal that first bills the new terms");
+    }
+
+    [Fact]
     public async Task A_requested_cancellation_states_the_local_day_access_ends()
     {
         var lifecycleEvent = Event(SubscriptionConstants.SubscriptionCancellationRequested);
@@ -199,6 +236,81 @@ public sealed class SubscriptionNotificationEmailServiceTests
             report.Outcome == MailDeliveryReportOutcome.NotAttempted &&
             report.ErrorCode == "billing_email_missing");
     }
+
+    // ---- standalone credit purchase confirmation (spec 005) -----------------------------------
+
+    [Fact]
+    public async Task A_paid_standalone_credit_purchase_mails_the_charged_accounts_billing_contact_every_figure()
+    {
+        _accounts
+            .Setup(repository => repository.GetAsync("tenant-1", "account-9", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BillingAccount { BillingEmail = "Buyer@Example.com", BillingName = "Grace Hopper", Language = "de-CH" });
+        long minorInOne = 100;
+        decimal major = 8.65m;
+        _currency.Setup(currency => currency.TryConvert(1m, "USD", out minorInOne)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(865, "USD", out major)).Returns(true);
+
+        await Service().SendAsync(CreditPurchase(), CancellationToken.None);
+
+        _queued.Should().NotBeNull("credits paid for outright deserve a confirmation, not only an invoice");
+        _queued!.Payload.Purpose.Should().Be(SubscriptionConstants.OrganizationCreditsPurchasedMailPurpose);
+        _queued.Payload.To.Should().Equal(["buyer@example.com"]);
+        _queued.Payload.Language.Should().Be("de-CH", "the account's language, with no profile to override it");
+        _queued.Payload.BodyDataContext.Should().Equal(new Dictionary<string, string>
+        {
+            ["DisplayName"] = "Grace Hopper",
+            ["MeterName"] = "AI",
+            ["MeterKey"] = "ai",
+            ["Quantity"] = "500",
+            ["PackCode"] = "starter",
+            ["Amount"] = "8.65",
+            ["AmountMinor"] = "865",
+            ["Currency"] = "USD",
+            ["ExpiresOn"] = "2026-12-06"
+        }, "every key, every time, so no tenant template can meet a missing placeholder");
+        _queued.Payload.SubjectDataContext.Should().Equal(_queued.Payload.BodyDataContext);
+        _subscriptions.VerifyNoOtherCalls();
+        _recorded.Should().ContainSingle().Which.Should().Match<MailDeliveryReportRequest>(report =>
+            report.Outcome == MailDeliveryReportOutcome.Published &&
+            report.SubjectId == "org-1:k1" &&
+            report.OrganizationId == "organization-1");
+    }
+
+    [Fact]
+    public async Task A_credit_purchase_whose_account_cannot_be_mailed_is_reported_rather_than_sent_nowhere()
+    {
+        var lifecycleEvent = CreditPurchase();
+        lifecycleEvent.BillingAccountId = "account-gone";
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        _queued.Should().BeNull();
+        _recorded.Should().ContainSingle().Which.Should().Match<MailDeliveryReportRequest>(report =>
+            report.Outcome == MailDeliveryReportOutcome.NotAttempted &&
+            report.ErrorCode == "billing_email_missing" &&
+            report.SubjectId == "org-1:k1");
+    }
+
+    private static SubscriptionLifecycleEvent CreditPurchase() => new()
+    {
+        EventId = "event-1",
+        EventType = SubscriptionConstants.OrganizationCreditsPurchased,
+        TenantId = "tenant-1",
+        OrganizationId = "organization-1",
+        SubscriptionId = string.Empty,
+        MeterKey = "ai",
+        MeterDisplayName = "AI",
+        CreditGrantId = "g1",
+        CreditPurchaseId = "org-1:k1",
+        CreditQuantity = 500,
+        CreditRemaining = 500,
+        CreditTotalMinor = 865,
+        CurrencyCode = "USD",
+        BillingAccountId = "account-9",
+        PackCode = "starter",
+        CreditExpiresAtUtc = new DateTime(2026, 12, 6, 23, 30, 0, DateTimeKind.Utc),
+        OccurredAtUtc = new DateTime(2026, 11, 6, 9, 0, 0, DateTimeKind.Utc)
+    };
 
     [Theory]
     [InlineData(SubscriptionConstants.UsageThresholdReached)]
@@ -348,7 +460,8 @@ public sealed class SubscriptionNotificationEmailServiceTests
         NullLogger<SubscriptionNotificationEmailService>.Instance,
         _reports.Object,
         _assignments.Object,
-        _profiles.Object);
+        _profiles.Object,
+        _currency.Object);
 
     private static SubscriptionDetail Subscription(string timeZoneId = "Europe/Zurich") => new()
     {

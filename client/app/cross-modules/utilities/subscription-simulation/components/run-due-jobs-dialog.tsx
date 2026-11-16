@@ -26,6 +26,8 @@ const getWorkTypes = (): { value: SimulationWorkType; label: string }[] => [
   { value: "UsagePeriodClosure", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.USAGE_PERIOD_CLOSURE") },
   { value: "UsageInvoiceCharge", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.USAGE_INVOICE_CHARGE") },
   { value: "OutboxPublication", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.OUTBOX_PUBLICATION") },
+  { value: "CreditPurchaseRecovery", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.CREDIT_PURCHASE_RECOVERY") },
+  { value: "CreditGrantMaintenance", label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "RUN_DUE_JOBS_DIALOG.CREDIT_GRANT_MAINTENANCE") },
 ];
 
 export const RunDueJobsDialog = ({

@@ -415,6 +415,12 @@ public sealed class SubscriptionRosterRowResponse
 
     public string CurrencyCode { get; init; } = string.Empty;
 
+    /// <summary>
+    /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for a subscription billed by invoice,
+    /// whose figures are invoiced, never collected.
+    /// </summary>
+    public string CollectionMethod { get; init; } = string.Empty;
+
     public long GrossMonthlyMinor { get; init; }
 
     public long NetMonthlyMinor { get; init; }

@@ -199,11 +199,11 @@ class SubscriptionSimulationService {
     }
   }
 
-  async subscribe(request: SubscribeToPlanRequest): Promise<SimulatedSubscription> {
+  async subscribe(request: SubscribeToPlanRequest, offline = false): Promise<SimulatedSubscription> {
     try {
       const response = await serviceInstances.utitlitiesService.post<
         SimulationApiResponse<SimulatedSubscription>
-      >(SUBSCRIPTIONS_ENDPOINT, request);
+      >(offline ? `${SUBSCRIPTIONS_ENDPOINT}/offline` : SUBSCRIPTIONS_ENDPOINT, request);
 
       if (!response.success || !response.data) {
         throw operationError(response, tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_SERVICE.THE_SUBSCRIPTION_COULD_NOT_BE_3"));

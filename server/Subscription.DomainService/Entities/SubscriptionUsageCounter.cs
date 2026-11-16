@@ -89,6 +89,12 @@ public sealed class SubscriptionUsageCounter
     /// </remarks>
     public decimal PurchasedConsumed { get; set; }
 
+    /// <summary>
+    /// The part of <see cref="PurchasedConsumed"/> that the organization's own standalone credits
+    /// paid for (spec 005). Reporting only: the allowance arithmetic reads the total.
+    /// </summary>
+    public decimal OrganizationCreditsConsumed { get; set; }
+
     /// <summary>Threshold percentages already reported. The deduplication authority for alerts.</summary>
     public List<int> NotifiedThresholds { get; set; } = [];
 

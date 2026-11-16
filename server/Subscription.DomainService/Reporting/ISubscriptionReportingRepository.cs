@@ -46,17 +46,24 @@ public interface ISubscriptionReportingRepository
     /// Financial document totals over a window, grouped by UTC issue day, currency and document
     /// type.
     /// </summary>
+    /// <param name="collectionMethod">Null for every document; otherwise only those issued under it.</param>
     Task<IReadOnlyList<DocumentRevenueBucket>> AggregateDocumentRevenueAsync(
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken);
 
-    /// <summary>Charged usage-invoice totals over a window, grouped by UTC day and currency.</summary>
+    /// <summary>
+    /// Settled usage-invoice totals over a window, grouped by UTC day and currency: charged ones,
+    /// and invoice-billed ones recorded as owed.
+    /// </summary>
+    /// <param name="collectionMethod">Null for both; otherwise only the matching settlement.</param>
     Task<IReadOnlyList<OverageRevenueBucket>> AggregateOverageRevenueAsync(
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken);
 
     /// <summary>

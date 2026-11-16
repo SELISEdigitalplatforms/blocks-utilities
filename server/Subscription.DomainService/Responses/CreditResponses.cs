@@ -47,6 +47,9 @@ public sealed class CreditQuoteResponse
     /// billing account has no card and the buyer is sent to the provider's page to pay (spec 003).
     /// </summary>
     public string PaymentPath { get; init; } = nameof(Enums.CreditPaymentPath.StoredCard);
+
+    /// <summary>The offer pack this quote is for, when one was named (spec 005).</summary>
+    public string? PackCode { get; init; }
 }
 
 /// <summary>One grant of credits, with what is left of it.</summary>

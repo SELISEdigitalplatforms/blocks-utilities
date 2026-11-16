@@ -11,7 +11,8 @@ public interface ISubscriptionCheckoutService
     Task<SubscriptionOperationResult<SubscriptionResponse>> SubscribeAsync(
         CreateSubscriptionRequest request,
         string correlationId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool offline = false);
 
     /// <param name="organizationId">
     /// An organization named by the caller, if any. Trusted only for the platform console — see

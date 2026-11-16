@@ -13,5 +13,12 @@ public enum SubscriptionUsageInvoiceState
     NoCharge = 2,
 
     /// <summary>Every retry was spent without success. Terminal.</summary>
-    Abandoned = 3
+    Abandoned = 3,
+
+    /// <summary>
+    /// Owed by an invoice-billed subscription: recorded as an Unpaid invoice, never charged.
+    /// Terminal. Distinct from <see cref="Charged"/>, which would claim money moved, and from
+    /// <see cref="NoCharge"/>, which would claim nothing was owed.
+    /// </summary>
+    RecordedOffline = 4
 }

@@ -386,7 +386,9 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         // Gated on the timing rather than on the amount: a scheduled cadence change can settle to
         // a positive figure and still take nothing now, and demanding a card for it would block a
         // change that is not going to charge anybody for weeks.
-        if (timing == PlanChangeTiming.Immediate && chargeMinor > 0)
+        // Not for an invoice-billed subscription: it skips the gateway and gets an Unpaid invoice,
+        // so a missing card blocks nothing.
+        if (timing == PlanChangeTiming.Immediate && chargeMinor > 0 && !r.Subscription.IsOffline)
         {
             var account = await _billingAccounts.GetAsync(
                 r.Subscription.TenantId,
@@ -849,6 +851,19 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 initiatedByName: requestedByName);
         }
 
+        if (subscription.IsOffline)
+        {
+            // Billed by invoice. The upgrade applies now exactly as a
+            // card one would once charged, with no reservation and no gateway call; what it would
+            // have charged is recorded as an invoice in the same write instead.
+            return await ApplyAsync(
+                subscription, newPlan, newPrice, quantities, newSchedule,
+                outcome.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
+                SettlementCharge.BreakdownOf(outcome), requestedByUserId,
+                initiatedByName: requestedByName,
+                offlineChargeMinor: outcome.ChargeMinor);
+        }
+
         var account = await _billingAccounts.GetAsync(
             subscription.TenantId,
             subscription.BillingAccountId,
@@ -1036,6 +1051,19 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 stubUpgrade.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
                 SettlementCharge.BreakdownOf(stubUpgrade), requestedByUserId, replacementAnnual,
                 initiatedByName: requestedByName);
+        }
+
+        if (subscription.IsOffline)
+        {
+            // The combined stub-and-year settlement is recorded as an invoice in the
+            // applying write instead of charged. The replacement year stands as prepaid, exactly as
+            // the card path leaves it once its charge settles.
+            return await ApplyAsync(
+                subscription, newPlan, newPrice, quantities, compositeSchedule,
+                stubUpgrade.NewCreditBalanceMinor, null, null, correlationId, cancellationToken,
+                SettlementCharge.BreakdownOf(stubUpgrade), requestedByUserId, replacementAnnual,
+                initiatedByName: requestedByName,
+                offlineChargeMinor: stubUpgrade.ChargeMinor);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -1226,7 +1254,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             EffectiveAtUtc = effectiveAtUtc,
             RequestedByUserId = requestedByUserId,
             RequestedByName = requestedByName,
-            ExpectedVersion = subscription.Version
+            ExpectedVersion = subscription.Version,
         };
 
         if (!await _subscriptions.TrySetPendingPlanChangeAsync(
@@ -1288,7 +1316,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
         SubscriptionSettlementBreakdown? settlement = null,
         string? initiatedByUserId = null,
         PendingAnnualPeriod? replacementPendingAnnualPeriod = null,
-        string? initiatedByName = null)
+        string? initiatedByName = null,
+        long offlineChargeMinor = 0)
     {
         var previousPlanCode = subscription.Plan.Code;
         var previousPlanName = subscription.Plan.DisplayName;
@@ -1322,6 +1351,26 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             subscription.PendingAnnualPeriod = replacementPendingAnnualPeriod;
         }
 
+        // What an offline change would have charged, recorded in the applying write. Keyed on the
+        // version the change was applied against, which the versioned write lets succeed exactly
+        // once — the same guarantee a banked downgrade credit relies on.
+        var offlineInvoice = subscription.IsOffline && offlineChargeMinor > 0 && settlement is not null
+            ? SubscriptionDocumentSourceFactory.ForOfflineCharge(
+                subscription,
+                SubscriptionChargeKind.PlanChange,
+                $"v{expectedVersion}",
+                SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
+                    subscription, settlement, offlineChargeMinor),
+                SubscriptionDocumentSourceFactory.ActorOf(initiatedByUserId, initiatedByName, null),
+                _time.GetUtcNow().UtcDateTime,
+                correlationId)
+            : null;
+
+        if (offlineInvoice is not null)
+        {
+            offlineInvoice.Settlement = settlement;
+        }
+
         var outboxEvent = _events.CreatePlanChanged(
             subscription,
             previousPlanCode,
@@ -1342,6 +1391,7 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             paymentDetailId,
             outboxEvent,
             cancellationToken,
+            documentSource: offlineInvoice,
             replacementPendingAnnualPeriod: replacementPendingAnnualPeriod);
 
         if (!applied)
@@ -1396,6 +1446,12 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             initiatedByUserId,
             correlationId,
             cancellationToken);
+
+        if (offlineInvoice is not null && _announcer is not null)
+        {
+            // Only makes the recorded obligation prompt; the repair sweep issues it regardless.
+            await _announcer.RequestPendingAsync(subscription, correlationId, cancellationToken);
+        }
 
         _logger.LogInformation(
             "Subscription plan changed TenantId={TenantId} SubscriptionId={SubscriptionId} " +
