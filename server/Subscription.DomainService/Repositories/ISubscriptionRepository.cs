@@ -340,7 +340,9 @@ public interface ISubscriptionRepository
     /// <remarks>
     /// Compare-and-set on the attempt itself rather than the version: two tabs retrying at once
     /// must produce one increment, and the loser is told so rather than opening a third session
-    /// under a number that is already taken.
+    /// under a number that is already taken. Accepts every status the setup endpoint does
+    /// (anything but Canceled and IncompleteExpired): a completed setup is followed by a new
+    /// session too, so the attempt advances on running subscriptions, not only at signup.
     /// </remarks>
     Task<bool> TryBumpPaymentMethodSetupAttemptAsync(
         string tenantId,

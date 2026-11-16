@@ -167,8 +167,10 @@ public static class SubscriptionConstants
     /// <remarks>
     /// Carries the attempt number for the same reason a dunning retry does: a hosted session that
     /// expired cannot be reopened, so a second attempt has to be a new session, and the provider
-    /// would replay the first one under the first key. Derived rather than random so a crash
-    /// between opening the session and recording the link to it can still find it.
+    /// would replay the first one under the first key. The same holds for a session that
+    /// completed: the payment module keeps the consumed record under its key, so replacing a
+    /// stored card needs the next attempt too. Derived rather than random so a crash between
+    /// opening the session and recording the link to it can still find it.
     /// </remarks>
     public static string PaymentMethodSetupKeyFor(string subscriptionId, int attempt) =>
         DeterministicKey($"sub-setup:{subscriptionId}:{attempt}");

@@ -3490,7 +3490,8 @@ POST /api/subscriptions
             <table>
               <thead><tr><th>Status</th><th>What supplying a card does</th></tr></thead>
               <tbody>
-                <tr><td><code>Trialing</code></td><td class="prose">Stores it. Does not end the trial, shorten it, or charge anything — the trial runs exactly as it would have. Refused with <code>payment_method_already_stored</code> if one is already on file.</td></tr>
+                <tr><td><code>Trialing</code></td><td class="prose">Stores it. Does not end the trial, shorten it, or charge anything — the trial runs exactly as it would have.</td></tr>
+                <tr><td><code>Trialing</code>, <code>Active</code>, <code>PastDue</code> with a completed setup</td><td class="prose">Opens a new session so the card on file can be replaced. The new card becomes the default once the session completes; the previous one stays listed until it is removed.</td></tr>
                 <tr><td><code>Incomplete</code> (card-required trial's own setup)</td><td class="prose">Returns the same pending session rather than opening a second one, or opens a fresh one if the last has expired.</td></tr>
                 <tr><td><code>Unpaid</code></td><td class="prose">Stores it, then charges the overdue first period immediately. Access is restored only if that charge succeeds — a decline leaves the subscription exactly <code>Unpaid</code>, open to another attempt, never granted early.</td></tr>
               </tbody>
@@ -3535,7 +3536,7 @@ POST /api/subscriptions
           <p>
             <code>200</code> · <code>404</code> not found, or not the caller's ·
             <code>409</code> <code>subscription_not_collectable</code> ended ·
-            <code>409</code> <code>payment_method_already_stored</code> ·
+            <code>409</code> <code>subscription_checkout_pending</code> another request is opening one ·
             <code>401</code> unauthenticated.
           </p>
         </div>
