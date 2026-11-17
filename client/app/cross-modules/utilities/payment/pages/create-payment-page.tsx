@@ -199,7 +199,9 @@ export const CreatePaymentPage = () => {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
+                          {/* eslint-disable-next-line no-restricted-syntax -- product name */}
                           <SelectItem value="ADYEN-ONLINE">Adyen</SelectItem>
+                          {/* eslint-disable-next-line no-restricted-syntax -- product name */}
                           <SelectItem value="STRIPE">Stripe</SelectItem>
                         </SelectContent>
                       </Select>

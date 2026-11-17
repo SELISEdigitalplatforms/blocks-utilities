@@ -14,14 +14,14 @@ describe("PaymentStatusBadge language", () => {
     expect(screen.getByText("Authorized")).toBeInTheDocument();
   });
 
-  it("shows German text when a German dictionary is registered", () => {
-    useI18nStore.getState().setRemote("de", "utilities.payment", {
-      "PAYMENT_STATUS_BADGE.AUTHORIZED": "Autorisiert",
+  it("shows the project language when its dictionary is registered", () => {
+    useI18nStore.getState().setRemote("xx", "utilities.payment", {
+      "PAYMENT_STATUS_BADGE.AUTHORIZED": "[xx] Authorized",
     });
-    useAppSettingsStore.getState().setSettings({ language: "de" });
+    useAppSettingsStore.getState().setSettings({ language: "xx" });
 
     render(<PaymentStatusBadge status="AUTHORIZED" />);
 
-    expect(screen.getByText("Autorisiert")).toBeInTheDocument();
+    expect(screen.getByText("[xx] Authorized")).toBeInTheDocument();
   });
 });

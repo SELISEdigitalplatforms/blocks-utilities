@@ -292,6 +292,7 @@ export const SubscriptionBillingProfilePage = () => {
               id="legalName"
               value={form.legalName}
               onChange={(event) => set("legalName")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="Northwind Trading AG"
             />
             <p className="text-xs text-muted-foreground">
@@ -305,6 +306,7 @@ export const SubscriptionBillingProfilePage = () => {
               id="displayName"
               value={form.displayName}
               onChange={(event) => set("displayName")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="Northwind"
             />
             <p className="text-xs text-muted-foreground">
@@ -318,6 +320,7 @@ export const SubscriptionBillingProfilePage = () => {
               id="billingContactName"
               value={form.billingContactName}
               onChange={(event) => set("billingContactName")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="Ada Byron"
             />
           </div>
@@ -329,6 +332,7 @@ export const SubscriptionBillingProfilePage = () => {
               type="email"
               value={form.billingContactEmail}
               onChange={(event) => set("billingContactEmail")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="billing@northwind.example"
             />
             <p className="text-xs text-muted-foreground">
@@ -344,6 +348,7 @@ export const SubscriptionBillingProfilePage = () => {
               value={form.billingContactLanguage}
               onChange={(event) => set("billingContactLanguage")(event.target.value)}
               maxLength={35}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="en-US"
             />
             <datalist id="billingContactLanguageOptions">
@@ -364,6 +369,7 @@ export const SubscriptionBillingProfilePage = () => {
               id="line1"
               value={form.line1}
               onChange={(event) => set("line1")(event.target.value)}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="1 Bahnhofstrasse"
             />
             <Input
