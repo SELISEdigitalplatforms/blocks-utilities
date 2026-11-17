@@ -227,6 +227,106 @@ public sealed class UsageRecordingServiceTests
         _ledger[1].CompensatesRecordId.Should().Be(_ledger[0].ItemId);
     }
 
+    // ------------------------------------------------------------------ release
+
+    [Fact]
+    public async Task Releasing_a_booked_use_puts_the_balance_back_once()
+    {
+        FindsRecordsInTheLedger();
+        await Service().RecordAsync(NewRequest("booking-1"), "corr-1", CancellationToken.None);
+
+        var released = await Service().ReleaseAsync(Release("booking-1"), "corr-2", CancellationToken.None);
+
+        released.IsSuccess.Should().BeTrue(released.ErrorMessage);
+        released.Value!.Used.Should().Be(0);
+        released.Value.Replayed.Should().BeFalse();
+        _ledger.Should().HaveCount(2);
+        _ledger[1].EntryType.Should().Be(UsageEntryType.Reversal);
+        _ledger[1].Delta.Should().Be(-1);
+        _ledger[1].CompensatesRecordId.Should().Be(_ledger[0].ItemId);
+        _ledger[1].RecordedByUserId.Should().Be("user-1", "the user's own row is rebuilt from their entries");
+
+        var again = await Service().ReleaseAsync(Release("booking-1"), "corr-3", CancellationToken.None);
+
+        again.Value!.Replayed.Should().BeTrue("a retried release must not give the use back twice");
+        _balance.Should().Be(0);
+        _ledger.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Releasing_a_refused_use_changes_nothing()
+    {
+        FindsRecordsInTheLedger();
+        _subscription.Plan.Meters[0].OverageAllowed = false;
+        _balance = 500;
+        var request = NewRequest("booking-1");
+        request.Enforce = true;
+        await Service().RecordAsync(request, "corr-1", CancellationToken.None);
+
+        var released = await Service().ReleaseAsync(Release("booking-1"), "corr-2", CancellationToken.None);
+
+        released.Value!.Replayed.Should().BeTrue("the refusal already reversed it");
+        _balance.Should().Be(500);
+    }
+
+    [Fact]
+    public async Task Releasing_an_unknown_key_is_not_found()
+    {
+        FindsRecordsInTheLedger();
+
+        var released = await Service().ReleaseAsync(Release("never-booked"), "corr-1", CancellationToken.None);
+
+        released.ErrorCode.Should().Be("subscription_usage_record_not_found");
+        _ledger.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_release_racing_its_own_booking_is_refused_for_a_retry()
+    {
+        FindsRecordsInTheLedger();
+        await Service().RecordAsync(NewRequest("booking-1"), "corr-1", CancellationToken.None);
+        _closures
+            .Setup(repository => repository.IsClaimActiveAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<string>(), "booking-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var released = await Service().ReleaseAsync(Release("booking-1"), "corr-2", CancellationToken.None);
+
+        released.ErrorCode.Should().Be("subscription_usage_release_in_progress");
+        _balance.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_use_whose_period_is_billed_cannot_be_released()
+    {
+        FindsRecordsInTheLedger();
+        await Service().RecordAsync(NewRequest("booking-1"), "corr-1", CancellationToken.None);
+        _closures
+            .Setup(repository => repository.TryAcquireClaimAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<string>(), "booking-1:reversal", It.IsAny<DateTime>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UsageClaimOutcome.Rejected);
+
+        var released = await Service().ReleaseAsync(Release("booking-1"), "corr-2", CancellationToken.None);
+
+        released.ErrorCode.Should().Be("subscription_usage_release_period_closed");
+        _balance.Should().Be(1);
+        _ledger.Should().ContainSingle();
+    }
+
+    private void FindsRecordsInTheLedger() =>
+        _usage
+            .Setup(repository => repository.FindRecordByKeyAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string subscriptionId, string key, CancellationToken _) =>
+                _ledger.Find(record => record.SubscriptionId == subscriptionId && record.IdempotencyKey == key));
+
+    private static ReleaseUsageRequest Release(string idempotencyKey) => new()
+    {
+        MeterKey = "screening",
+        IdempotencyKey = idempotencyKey
+    };
+
     [Fact]
     public async Task Recording_publishes_this_users_own_delta_alongside_the_aggregate()
     {
