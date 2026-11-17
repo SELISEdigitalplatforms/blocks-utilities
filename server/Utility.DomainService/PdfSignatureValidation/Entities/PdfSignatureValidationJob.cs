@@ -110,13 +110,29 @@ namespace Utility.DomainService.PdfSignatureValidation.Entities
 
         public string? SignerSubject { get; set; }
 
+        public string? SignerName { get; set; }
+
+        /// <summary>DSS's eIDAS qualification, e.g. <c>QESig</c>, <c>AdESig-QC</c>, <c>AdESig</c>, <c>N/A</c>.</summary>
+        public string? Qualification { get; set; }
+
+        public string? QualificationDescription { get; set; }
+
         public DateTime? ClaimedSigningTime { get; set; }
 
         public DateTime? BestSignatureTime { get; set; }
+
+        public DateTime? MaximumValidityTime { get; set; }
+
+        public DateTime? SigningCertificateValidFrom { get; set; }
+
+        public DateTime? SigningCertificateValidUntil { get; set; }
 
         /// <summary><c>DssDictionary</c>, <c>Cms</c> or <c>None</c>.</summary>
         public string? RevocationOrigin { get; set; }
 
         public bool CoversWholeDocument { get; set; }
+
+        /// <summary>Readable names of the signing certificate's chain, signer first.</summary>
+        public IReadOnlyList<string> CertificateChain { get; init; } = [];
     }
 }
