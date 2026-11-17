@@ -1,6 +1,9 @@
+using System.Text.Json.Serialization;
+
 namespace Subscription.DomainService.Enums;
 
 /// <summary>The unit a fixed credit lifetime is counted in. See <c>CreditExpiryDuration</c>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CreditExpiryUnit
 {
     Hour = 0,

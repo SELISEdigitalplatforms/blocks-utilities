@@ -124,6 +124,8 @@ export interface UpdateMerchantProfileRequest {
 
 export type FinancialDocumentType = "Invoice" | "TrialInvoice" | "CreditNote";
 
+export type FinancialDocumentPaymentStatus = "Paid" | "Unpaid";
+
 export type FinancialDocumentStatus = "Issued" | "PartiallyRefunded" | "Refunded";
 
 /**
@@ -194,6 +196,12 @@ export interface SubscriptionFinancialDocument {
   documentNumber: string;
   documentType: FinancialDocumentType;
   status: FinancialDocumentStatus;
+  paymentStatus: FinancialDocumentPaymentStatus;
+  paidAtUtc?: string | null;
+  paymentReference?: string | null;
+  organizationId: string;
+  /** How the subscription is collected; {@link paymentStatus} says whether this document is paid. */
+  collectionMethod?: "AutomaticCharge" | "OfflineInvoice";
   issuedAtUtc: string;
   subscriptionId: string;
   currencyCode: string;
@@ -267,6 +275,7 @@ export interface FinancialDocumentQuery {
   subscriptionId?: string | null;
   documentType?: FinancialDocumentType | null;
   status?: FinancialDocumentStatus | null;
+  paymentStatus?: FinancialDocumentPaymentStatus | null;
   issuedFromUtc?: string | null;
   issuedToUtc?: string | null;
   organizationId?: string;

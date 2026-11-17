@@ -37,6 +37,28 @@ public sealed class RecurringRevenueSnapshot
 
     public List<RecurringRevenueSnapshotCurrency> Currencies { get; set; } = [];
 
+    /// <summary>
+    /// Whether <see cref="Firms"/> was recorded. False on every capture taken before it was.
+    /// </summary>
+    /// <remarks>
+    /// A flag rather than "the list is empty", because an empty list is also what a tenant with no
+    /// paying firms captures. Without it, comparing an older capture to a newer one would report
+    /// every firm as new, or every firm as lost.
+    /// </remarks>
+    public bool CapturedFirms { get; set; }
+
+    /// <summary>
+    /// Each firm's run-rate on the day, one row per organization and currency.
+    /// </summary>
+    /// <remarks>
+    /// What lets two captures be compared firm by firm, which is the only way to split a change in
+    /// run-rate into new, expansion, contraction and churn. Embedded in the day's document rather
+    /// than stored as rows of its own, so a capture is still one write. The ceiling is the 16 MB
+    /// document limit, around a hundred thousand firms; past that the rows move to a collection
+    /// keyed by day.
+    /// </remarks>
+    public List<RecurringRevenueSnapshotFirm> Firms { get; set; } = [];
+
     public static string KeyFor(string tenantId, DateTime dayUtc) =>
         string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
@@ -50,6 +72,19 @@ public sealed class RecurringRevenueSnapshotCurrency
     public string CurrencyCode { get; set; } = string.Empty;
 
     public long GrossMonthlyMinor { get; set; }
+
+    public long NetMonthlyMinor { get; set; }
+
+    public long SubscriptionCount { get; set; }
+}
+
+/// <summary>One organization's run-rate in one currency within a capture.</summary>
+[BsonIgnoreExtraElements]
+public sealed class RecurringRevenueSnapshotFirm
+{
+    public string OrganizationId { get; set; } = string.Empty;
+
+    public string CurrencyCode { get; set; } = string.Empty;
 
     public long NetMonthlyMinor { get; set; }
 

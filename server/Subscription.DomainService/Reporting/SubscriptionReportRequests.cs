@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Subscription.DomainService.Enums;
 
 namespace Subscription.DomainService.Reporting;
 
@@ -75,6 +76,37 @@ public sealed class GetBucketedReportRequest
         "Bucket size: 'day', 'week' (Monday-start) or 'month'. Defaults to 'month'. Any other " +
         "value is refused rather than guessed at.")]
     public string? Granularity { get; set; }
+
+    /// <summary>
+    /// Narrows the revenue report to card-collected or invoice-billed subscriptions.
+    /// </summary>
+    /// <remarks>
+    /// Revenue only. The trend reads daily captures that keep no such split, so it refuses the
+    /// filter rather than answering a narrower question with the whole tenant's figures.
+    /// </remarks>
+    [Description(
+        "Revenue report only: 'AutomaticCharge' or 'OfflineInvoice' to isolate card-collected or " +
+        "bank-transfer subscriptions. Omit for both. The trend refuses it.")]
+    public SubscriptionCollectionMethod? CollectionMethod { get; set; }
+}
+
+/// <summary>
+/// The window a recurring revenue movement covers.
+/// </summary>
+public sealed class GetRecurringRevenueMovementRequest
+{
+    /// <summary>Inclusive. Defaults to the first instant of the current UTC month.</summary>
+    [Description(
+        "Start of the window, inclusive. Opening run-rate is the capture in force at this " +
+        "instant. Defaults to the first instant of the current UTC month.")]
+    public DateTime? FromUtc { get; set; }
+
+    /// <summary>Exclusive. Defaults to the first instant of the next UTC month.</summary>
+    [Description(
+        "End of the window, exclusive. Closing run-rate is the latest capture before it, so a " +
+        "window still running closes on today's capture. Defaults to the first instant of the " +
+        "next UTC month. The window may not exceed 366 days.")]
+    public DateTime? ToUtc { get; set; }
 }
 
 /// <summary>

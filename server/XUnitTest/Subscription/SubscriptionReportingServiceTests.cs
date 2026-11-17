@@ -61,6 +61,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<string>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
@@ -69,6 +70,7 @@ public sealed class SubscriptionReportingServiceTests
                 It.IsAny<string>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
@@ -405,6 +407,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
@@ -418,6 +421,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([new("CHF", 12_000, 3, Now.Date)]);
 
@@ -436,6 +440,58 @@ public sealed class SubscriptionReportingServiceTests
     }
 
     [Fact]
+    public async Task The_revenue_report_passes_the_collection_method_filter_to_both_sources()
+    {
+        await _service.GetRevenueAsync(
+            new GetBucketedReportRequest { CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice },
+            "correlation-1",
+            CancellationToken.None);
+
+        _reports.Verify(reports => reports.AggregateDocumentRevenueAsync(
+            "tenant-1", It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+            SubscriptionCollectionMethod.OfflineInvoice, It.IsAny<CancellationToken>()));
+        _reports.Verify(
+            reports => reports.AggregateOverageRevenueAsync(
+                "tenant-1", It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                SubscriptionCollectionMethod.OfflineInvoice, It.IsAny<CancellationToken>()),
+            "an offline-only report must not mix in overage a card paid for");
+    }
+
+    [Fact]
+    public async Task The_trend_refuses_a_collection_method_filter_it_cannot_honour()
+    {
+        var result = await _service.GetRecurringRevenueTrendAsync(
+            new GetBucketedReportRequest { CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice },
+            "correlation-1",
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be(
+            "subscription_report_query_invalid",
+            "the daily captures keep no per-method split, so a filtered trend would silently be " +
+                "the whole tenant's");
+    }
+
+    [Fact]
+    public async Task Offline_subscriptions_count_in_recurring_revenue_at_their_price_and_can_be_isolated()
+    {
+        var card = Subscription("CHF", 10_000, BillingInterval.Month);
+        var invoiced = Subscription("CHF", 50_000, BillingInterval.Month);
+        invoiced.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        GivenSubscriptions(card, invoiced);
+
+        (await WhenRecurringRevenue()).Currencies.Single().NetMonthlyMinor.Should().Be(
+            60_000,
+            "an offline subscription counts at what it invoices");
+
+        var offline = await _service.GetRecurringRevenueAsync(
+            SubscriptionCollectionMethod.OfflineInvoice, "correlation-1", CancellationToken.None);
+
+        offline.Value!.SubscriptionCount.Should().Be(1);
+        offline.Value.Currencies.Single().NetMonthlyMinor.Should().Be(
+            50_000, "the filter isolates the invoiced book");
+    }
+
+    [Fact]
     public async Task A_currency_present_only_in_overage_still_appears_in_the_revenue_report()
     {
         _reports
@@ -443,6 +499,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([new("CHF", FinancialDocumentType.Invoice, 50_000, 5, Now.Date)]);
 
@@ -451,6 +508,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([new("EUR", 12_000, 3, Now.Date)]);
 
@@ -950,6 +1008,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
@@ -963,6 +1022,7 @@ public sealed class SubscriptionReportingServiceTests
                 "tenant-1",
                 It.IsAny<DateTime>(),
                 It.IsAny<DateTime>(),
+                It.IsAny<SubscriptionCollectionMethod?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([new("CHF", 5_000, 1, sunday.AddDays(2))]);
 
@@ -1096,6 +1156,169 @@ public sealed class SubscriptionReportingServiceTests
             Times.Never);
     }
 
+    [Fact]
+    public void Movement_splits_the_change_into_new_expansion_contraction_and_churn_that_reconcile()
+    {
+        var opening = Captured(
+            Now.Date.AddDays(-7),
+            ("firm-a", 100), ("firm-b", 200), ("firm-c", 300));
+        var closing = Captured(
+            Now.Date,
+            ("firm-a", 150), ("firm-b", 120), ("firm-d", 400));
+
+        var currency = SubscriptionReportingService
+            .Movement(Now.Date.AddDays(-7), Now.Date.AddDays(1), opening, closing, true)
+            .Currencies.Single();
+
+        currency.OpeningNetMonthlyMinor.Should().Be(600);
+        currency.ClosingNetMonthlyMinor.Should().Be(670);
+        currency.ChangeNetMonthlyMinor.Should().Be(70);
+        currency.NewNetMonthlyMinor.Should().Be(400, "firm-d was not paying at opening");
+        currency.NewFirmCount.Should().Be(1);
+        currency.ExpansionNetMonthlyMinor.Should().Be(50, "firm-a went from 100 to 150");
+        currency.ContractionNetMonthlyMinor.Should().Be(80, "firm-b went from 200 to 120");
+        currency.ChurnedNetMonthlyMinor.Should().Be(300, "firm-c was paying 300 and has gone");
+        currency.ChurnedFirmCount.Should().Be(1);
+        (currency.OpeningNetMonthlyMinor
+                + currency.NewNetMonthlyMinor!.Value
+                + currency.ExpansionNetMonthlyMinor!.Value
+                - currency.ContractionNetMonthlyMinor!.Value
+                - currency.ChurnedNetMonthlyMinor!.Value)
+            .Should().Be(
+                currency.ClosingNetMonthlyMinor,
+                "the four movements must explain the change exactly, or the dashboard shows " +
+                "rows that do not add up to the headline");
+    }
+
+    [Fact]
+    public void A_capture_taken_before_firms_were_recorded_gives_totals_without_a_breakdown()
+    {
+        var opening = Captured(Now.Date.AddDays(-7), ("firm-a", 100));
+        opening.CapturedFirms = false;
+        opening.Firms = [];
+
+        var closing = Captured(Now.Date, ("firm-a", 100), ("firm-b", 50));
+
+        var movement = SubscriptionReportingService.Movement(
+            Now.Date.AddDays(-7), Now.Date.AddDays(1), opening, closing, true);
+
+        movement.BreakdownAvailable.Should().BeFalse();
+        movement.Currencies.Single().ChangeNetMonthlyMinor.Should().Be(50);
+        movement.Currencies.Single().NewNetMonthlyMinor.Should().BeNull(
+            "an empty firm list on an old capture would otherwise report every firm as new");
+    }
+
+    [Fact]
+    public async Task A_window_opening_before_the_first_capture_starts_from_it_and_says_so()
+    {
+        var first = Captured(Now.Date.AddDays(-3), ("firm-a", 100));
+        var latest = Captured(Now.Date, ("firm-a", 100), ("firm-b", 50));
+
+        _reports
+            .Setup(reports => reports.FindRecurringRevenueSnapshotAsync(
+                "tenant-1",
+                It.IsAny<DateTime>(),
+                It.IsAny<DateTime>(),
+                false,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(first);
+
+        _reports
+            .Setup(reports => reports.FindRecurringRevenueSnapshotAsync(
+                "tenant-1",
+                It.IsAny<DateTime>(),
+                It.Is<DateTime>(to => to > Now),
+                true,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(latest);
+
+        var result = await _service.GetRecurringRevenueMovementAsync(
+            new GetRecurringRevenueMovementRequest(),
+            "correlation-1",
+            CancellationToken.None);
+
+        var movement = result.Value!;
+
+        movement.CoversWholeWindow.Should().BeFalse(
+            "the month began before captures did, so the figure is a change since the first " +
+            "capture and the dashboard must be able to say so");
+        movement.OpeningDayUtc.Should().Be(first.DayUtc);
+        movement.ClosingDayUtc.Should().Be(latest.DayUtc);
+        movement.Currencies.Single().NewNetMonthlyMinor.Should().Be(50);
+    }
+
+    [Fact]
+    public async Task No_capture_at_all_returns_an_empty_movement_rather_than_a_zero_change()
+    {
+        var result = await _service.GetRecurringRevenueMovementAsync(
+            new GetRecurringRevenueMovementRequest(),
+            "correlation-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.OpeningDayUtc.Should().BeNull();
+        result.Value.Currencies.Should().BeEmpty(
+            "a zero change would claim the run-rate held steady when nothing was measured");
+    }
+
+    [Fact]
+    public async Task The_capture_records_one_row_per_firm_with_its_subscriptions_summed()
+    {
+        var second = Subscription("CHF", 5_000, BillingInterval.Month);
+        var otherFirm = Subscription("CHF", 7_000, BillingInterval.Month);
+        otherFirm.OrganizationId = "org-2";
+
+        GivenSubscriptions(Subscription("CHF", 10_000, BillingInterval.Month), second, otherFirm);
+
+        RecurringRevenueSnapshot? saved = null;
+
+        _reports
+            .Setup(reports => reports.SaveRecurringRevenueSnapshotAsync(
+                It.IsAny<RecurringRevenueSnapshot>(), It.IsAny<CancellationToken>()))
+            .Callback<RecurringRevenueSnapshot, CancellationToken>((snapshot, _) => saved = snapshot)
+            .Returns(Task.CompletedTask);
+
+        await _service.CaptureRecurringRevenueSnapshotAsync("tenant-1", CancellationToken.None);
+
+        saved!.CapturedFirms.Should().BeTrue();
+        saved.Firms.Select(firm => (firm.OrganizationId, firm.NetMonthlyMinor, firm.SubscriptionCount))
+            .Should().Equal(
+                [("org-1", 15_000L, 2L), ("org-2", 7_000L, 1L)],
+                "a firm with two subscriptions is one firm, so adding a second plan is expansion " +
+                "and not a new customer");
+        saved.Firms.Sum(firm => firm.NetMonthlyMinor).Should().Be(
+            saved.Currencies.Single().NetMonthlyMinor,
+            "the firm rows must add up to the total they are compared against");
+    }
+
+    private static RecurringRevenueSnapshot Captured(
+        DateTime dayUtc,
+        params (string OrganizationId, long NetMonthlyMinor)[] firms) =>
+        new()
+        {
+            TenantId = "tenant-1",
+            DayUtc = dayUtc,
+            SubscriptionCount = firms.Length,
+            CapturedFirms = true,
+            Currencies =
+            [
+                new RecurringRevenueSnapshotCurrency
+                {
+                    CurrencyCode = "CHF",
+                    GrossMonthlyMinor = firms.Sum(firm => firm.NetMonthlyMinor),
+                    NetMonthlyMinor = firms.Sum(firm => firm.NetMonthlyMinor),
+                    SubscriptionCount = firms.Length
+                }
+            ],
+            Firms = [.. firms.Select(firm => new RecurringRevenueSnapshotFirm
+            {
+                OrganizationId = firm.OrganizationId,
+                CurrencyCode = "CHF",
+                NetMonthlyMinor = firm.NetMonthlyMinor,
+                SubscriptionCount = 1
+            })]
+        };
+
     private static RecurringRevenueSnapshot Snapshot(DateTime dayUtc, long netMonthlyMinor) =>
         new()
         {
@@ -1125,7 +1348,7 @@ public sealed class SubscriptionReportingServiceTests
     private async Task<RecurringRevenueReportResponse> WhenRecurringRevenue()
     {
         var result = await _service.GetRecurringRevenueAsync(
-            "correlation-1", CancellationToken.None);
+            null, "correlation-1", CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
 

@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using Blocks.Genesis;
 using MongoDB.Driver;
 using Subscription.DomainService.Entities;
@@ -24,11 +24,11 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
 
         await Records(tenantId).Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateUsageRecordIndexes(),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         await Counters(tenantId).Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateUsageCounterIndexes(),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         _indexedTenants.TryAdd(tenantId, 0);
     }
@@ -41,10 +41,10 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
 
         try
         {
-            await EnsureIndexesAsync(record.TenantId, cancellationToken);
+            await EnsureIndexesAsync(record.TenantId, cancellationToken).ConfigureAwait(false);
 
             await Records(record.TenantId)
-                .InsertOneAsync(record, cancellationToken: cancellationToken);
+                .InsertOneAsync(record, cancellationToken: cancellationToken).ConfigureAwait(false);
 
             return true;
         }
@@ -117,7 +117,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 IsUpsert = true,
                 ReturnDocument = ReturnDocument.After
             },
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<SubscriptionUsageCounter> ApplyDeltaAsync(
@@ -160,7 +160,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 IsUpsert = true,
                 ReturnDocument = ReturnDocument.After
             },
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<SubscriptionUsageCounter?> GetCounterAsync(
@@ -171,7 +171,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             .Find(Builders<SubscriptionUsageCounter>.Filter.Eq(
                 counter => counter.ItemId,
                 counterId))
-            .FirstOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
     public async Task<IReadOnlyDictionary<string, SubscriptionUsageCounter>> GetCountersAsync(
         string tenantId,
@@ -193,7 +193,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 Builders<SubscriptionUsageCounter>.Filter.In(
                     counter => counter.ItemId,
                     counterIds)))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         // Keyed on the id the caller asked with, so a caller holding a meter and period can find its
         // counter without re-composing anything.
@@ -219,7 +219,23 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 Builders<SubscriptionUsageCounter>.Filter.Eq(
                     counter => counter.PeriodKey,
                     periodKey)))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+    public async Task<SubscriptionUsageCounter?> AddOrganizationCreditsConsumedAsync(
+        string tenantId,
+        string counterId,
+        decimal delta,
+        CancellationToken cancellationToken) =>
+        await Counters(tenantId).FindOneAndUpdateAsync(
+            Builders<SubscriptionUsageCounter>.Filter.Eq(counter => counter.ItemId, counterId),
+            Builders<SubscriptionUsageCounter>.Update
+                .Inc(counter => counter.OrganizationCreditsConsumed, delta)
+                .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
+            new FindOneAndUpdateOptions<SubscriptionUsageCounter>
+            {
+                ReturnDocument = ReturnDocument.After
+            },
+            cancellationToken).ConfigureAwait(false);
 
     public async Task<SubscriptionUsageCounter?> AddPurchasedConsumedAsync(
         string tenantId,
@@ -235,7 +251,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             {
                 ReturnDocument = ReturnDocument.After
             },
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
     public async Task<bool> TryClearThresholdsAsync(
         string tenantId,
@@ -248,7 +264,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             Builders<SubscriptionUsageCounter>.Update
                 .PullAll(counter => counter.NotifiedThresholds, clearedThresholds)
                 .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return result.ModifiedCount == 1;
     }
@@ -278,10 +294,20 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             Builders<SubscriptionUsageCounter>.Update.Push(
                 counter => counter.NotifiedThresholds,
                 thresholdPercent),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return result.ModifiedCount == 1;
     }
+
+    public Task SetCreditTakesAsync(
+        string tenantId,
+        string recordId,
+        IReadOnlyList<UsageCreditTake> takes,
+        CancellationToken cancellationToken) =>
+        Records(tenantId).UpdateOneAsync(
+            Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.ItemId, recordId),
+            Builders<SubscriptionUsageRecord>.Update.Set(record => record.CreditTakes, [.. takes]),
+            cancellationToken: cancellationToken);
 
     public async Task<SubscriptionUsageRecord?> FindRecordByKeyAsync(
         string tenantId,
@@ -299,7 +325,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 Builders<SubscriptionUsageRecord>.Filter.Eq(
                     record => record.IdempotencyKey,
                     idempotencyKey)))
-            .FirstOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
     public async Task<(decimal Balance, long RecordCount)> SummariseLedgerAsync(
         string tenantId,
@@ -323,7 +349,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                     record => record.PeriodKey,
                     periodKey)))
             .Project(record => record.Delta)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         return (records.Sum(), records.Count);
     }
@@ -342,7 +368,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.MeterKey, meterKey),
                 Builders<SubscriptionUsageRecord>.Filter.Eq(record => record.PeriodKey, periodKey)))
             .Project(record => new { record.SeatNumber, record.Delta })
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         return [.. records
             .GroupBy(record => record.SeatNumber)
@@ -375,7 +401,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                     record => record.RecordedByUserId,
                     userId)))
             .Project(record => record.Delta)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         return (records.Sum(), records.Count);
     }
@@ -403,9 +429,9 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                     record => record.PeriodKey,
                     periodKey),
                 Builders<SubscriptionUsageRecord>.Filter.Ne(record => record.RecordedByUserId, null)),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        var result = await userIds.ToListAsync(cancellationToken);
+        var result = await userIds.ToListAsync(cancellationToken).ConfigureAwait(false);
 
         // Whoever recorded with no user in context wrote it as null, not empty — RecordedByUserId is
         // nullable and Ne(null) above lets an empty string through if one was ever stored. Filtered
@@ -435,7 +461,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 .Set(counter => counter.Balance, balance)
                 .Set(counter => counter.AppliedRecordCount, appliedRecordCount)
                 .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return result.ModifiedCount == 1;
     }
@@ -462,7 +488,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
                 .Set(counter => counter.LimitSnapshot, allowance)
                 .Set(counter => counter.NotifiedThresholds, retainedThresholds.ToList())
                 .Set(counter => counter.LastUpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return result.ModifiedCount == 1;
     }
@@ -501,7 +527,7 @@ public sealed class SubscriptionUsageRepository : ISubscriptionUsageRepository
             .Find(filter)
             .SortByDescending(record => record.OccurredAtUtc)
             .Limit(limit)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private IMongoCollection<SubscriptionUsageRecord> Records(string tenantId) =>

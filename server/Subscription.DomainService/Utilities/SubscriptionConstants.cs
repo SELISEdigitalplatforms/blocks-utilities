@@ -38,6 +38,12 @@ public static class SubscriptionConstants
     public const string PlanChangedMailPurpose = "subscription_plan_changed";
     public const string CancellationRequestedMailPurpose = "subscription_cancellation_requested";
     public const string CanceledMailPurpose = "subscription_canceled";
+
+    /// <summary>
+    /// Sent when an operator extends a discount or tax edit to a subscriber already on the price, so
+    /// they hear of the new terms before the renewal that bills them.
+    /// </summary>
+    public const string PriceTermsChangedMailPurpose = "subscription_price_terms_changed";
     public const string CancellationWithdrawnMailPurpose = "subscription_cancellation_withdrawn";
 
     /// <summary>
@@ -49,6 +55,12 @@ public static class SubscriptionConstants
     /// <summary>Sent to the person given or losing a seat, rather than to the billing contact.</summary>
     public const string MemberAssignedMailPurpose = "subscription_member_assigned";
     public const string MemberRemovedMailPurpose = "subscription_member_removed";
+
+    /// <summary>
+    /// Sent to the billing contact when an organization's standalone credit purchase is paid for
+    /// (spec 005), on top of the invoice mail the document path sends.
+    /// </summary>
+    public const string OrganizationCreditsPurchasedMailPurpose = "organization_credits_purchased";
 
     public const string SubscriptionCreated = "SubscriptionCreated";
     public const string SubscriptionTrialStarted =
@@ -71,6 +83,11 @@ public static class SubscriptionConstants
 
     public const string SubscriptionQuantityChanged = "SubscriptionQuantityChanged";
 
+    /// <summary>
+    /// An operator extended a discount or tax edit to this subscriber, effective at a later renewal.
+    /// </summary>
+    public const string SubscriptionPriceTermsChangeScheduled = "SubscriptionPriceTermsChangeScheduled";
+
     /// <summary>A person was given, or lost, a seat on a user-wise subscription.</summary>
     public const string SubscriptionMemberAssigned = "SubscriptionMemberAssigned";
     public const string SubscriptionMemberReleased = "SubscriptionMemberReleased";
@@ -90,11 +107,13 @@ public static class SubscriptionConstants
         {
             [SubscriptionQuantityChanged] = QuantityChangedMailPurpose,
             [SubscriptionPlanChanged] = PlanChangedMailPurpose,
+            [SubscriptionPriceTermsChangeScheduled] = PriceTermsChangedMailPurpose,
             [SubscriptionCancellationRequested] = CancellationRequestedMailPurpose,
             [SubscriptionCanceled] = CanceledMailPurpose,
             [SubscriptionCancellationWithdrawn] = CancellationWithdrawnMailPurpose,
             [SubscriptionMemberAssigned] = MemberAssignedMailPurpose,
-            [SubscriptionMemberReleased] = MemberRemovedMailPurpose
+            [SubscriptionMemberReleased] = MemberRemovedMailPurpose,
+            [OrganizationCreditsPurchased] = OrganizationCreditsPurchasedMailPurpose
         };
 
     /// <summary>
@@ -148,8 +167,10 @@ public static class SubscriptionConstants
     /// <remarks>
     /// Carries the attempt number for the same reason a dunning retry does: a hosted session that
     /// expired cannot be reopened, so a second attempt has to be a new session, and the provider
-    /// would replay the first one under the first key. Derived rather than random so a crash
-    /// between opening the session and recording the link to it can still find it.
+    /// would replay the first one under the first key. The same holds for a session that
+    /// completed: the payment module keeps the consumed record under its key, so replacing a
+    /// stored card needs the next attempt too. Derived rather than random so a crash between
+    /// opening the session and recording the link to it can still find it.
     /// </remarks>
     public static string PaymentMethodSetupKeyFor(string subscriptionId, int attempt) =>
         DeterministicKey($"sub-setup:{subscriptionId}:{attempt}");
@@ -225,6 +246,21 @@ public static class SubscriptionConstants
     public static string CreditPurchaseOrderIdFor(string subscriptionId, string token) =>
         $"{OrderIdPrefix}{subscriptionId}:{CreditPurchaseSegment}:{token}";
 
+    /// <summary>
+    /// The order id of a standalone credit purchase (spec 005). Its own prefix, so
+    /// <see cref="SubscriptionOrderId.Parse"/> reads it as no subscription charge at all and the
+    /// settled-charge sweep never goes looking for a subscription that does not exist. The token
+    /// sits last, where <c>GrantIdFor</c> reads it from either form.
+    /// </summary>
+    public const string OrganizationCreditOrderIdPrefix = "orgcredit:";
+
+    /// <remarks>
+    /// No organization id: the payment module caps an order id at 80 characters, and a GUID
+    /// organization id pushed this form to 82. The purchase record carries the organization.
+    /// </remarks>
+    public static string OrganizationCreditPurchaseOrderIdFor(string token) =>
+        $"{OrganizationCreditOrderIdPrefix}{CreditPurchaseSegment}:{token}";
+
     /// <summary>The idempotency key a credit purchase is charged under. One per purchase record.</summary>
     public static string CreditPurchaseChargeKeyFor(string purchaseId) =>
         DeterministicKey($"sub-credit:{purchaseId}");
@@ -233,6 +269,11 @@ public static class SubscriptionConstants
     public const string SubscriptionCreditsGranted = "SubscriptionCreditsGranted";
     public const string SubscriptionCreditsMoved = "SubscriptionCreditsMoved";
     public const string SubscriptionCreditsExhausted = "SubscriptionCreditsExhausted";
+
+    /// <summary>Standalone credits an organization holds outside any subscription (spec 005).</summary>
+    public const string OrganizationCreditsPurchased = "OrganizationCreditsPurchased";
+    public const string OrganizationCreditsGranted = "OrganizationCreditsGranted";
+    public const string OrganizationCreditsExhausted = "OrganizationCreditsExhausted";
 
     /// <summary>
     /// Spellings written before the settlement kinds were distinguished and before the ids were

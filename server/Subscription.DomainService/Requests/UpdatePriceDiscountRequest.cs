@@ -8,7 +8,8 @@ namespace Subscription.DomainService.Requests;
 /// <remarks>
 /// A price's commercial terms are immutable once it exists, because every subscription sold on it
 /// references them. This is the deliberate exception, alongside tax: it reaches future snapshots and
-/// future moves onto the price only, and nobody already subscribed is repriced by it.
+/// future moves onto the price, and reaches subscribers already on it only when
+/// <see cref="ApplyToExistingSubscribers"/> says so.
 /// </remarks>
 public sealed class UpdatePriceDiscountRequest
 {
@@ -28,4 +29,14 @@ public sealed class UpdatePriceDiscountRequest
     /// there is then nothing for it to combine with.
     /// </summary>
     public AutomaticDiscountCombination? QuantityDiscountCombination { get; set; }
+
+    /// <summary>
+    /// Whether subscribers already on this price move to the new terms too, from their first
+    /// renewal at least <c>Subscription:PriceTermsNoticeDays</c> away, each told by email.
+    /// </summary>
+    /// <remarks>
+    /// False by default, which is the behaviour every caller had before this existed: nobody already
+    /// subscribed is repriced. See <c>ExistingSubscriberPriceTerms</c> for who is left alone.
+    /// </remarks>
+    public bool ApplyToExistingSubscribers { get; set; }
 }

@@ -16,6 +16,19 @@ public interface ISubscriptionPaymentLinkRepository
         string paymentDetailId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The newest card-collection link of one subscription, or null when it has never opened one.
+    /// </summary>
+    /// <remarks>
+    /// Newest by <see cref="SubscriptionPaymentLink.CreatedAtUtc"/>, ties broken by item id, so
+    /// the answer is deterministic once a completed setup and its replacement coexist. An
+    /// unordered first match could hand back the completed one and open a third live session.
+    /// </remarks>
+    Task<SubscriptionPaymentLink?> FindLatestSetupLinkAsync(
+        string tenantId,
+        string subscriptionId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionPaymentLink?> FindBySubscriptionAsync(
         string tenantId,
         string subscriptionId,

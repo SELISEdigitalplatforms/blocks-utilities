@@ -1,3 +1,4 @@
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Services;
 
 namespace Subscription.DomainService.Reporting;
@@ -19,6 +20,7 @@ public interface ISubscriptionReportingService
         CancellationToken cancellationToken);
 
     Task<SubscriptionOperationResult<RecurringRevenueReportResponse>> GetRecurringRevenueAsync(
+        SubscriptionCollectionMethod? collectionMethod,
         string correlationId,
         CancellationToken cancellationToken);
 
@@ -29,6 +31,15 @@ public interface ISubscriptionReportingService
         GetBucketedReportRequest request,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// How the run-rate changed across a window, split into new, expansion, contraction and churn.
+    /// </summary>
+    Task<SubscriptionOperationResult<RecurringRevenueMovementResponse>>
+        GetRecurringRevenueMovementAsync(
+            GetRecurringRevenueMovementRequest request,
+            string correlationId,
+            CancellationToken cancellationToken);
 
     /// <summary>
     /// Captures today's run-rate for a tenant unless today already has one.

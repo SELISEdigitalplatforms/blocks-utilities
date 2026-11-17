@@ -123,6 +123,46 @@ public sealed class SubscriptionRepositoryIntegrationTests
         stored.Version.Should().Be(2);
     }
 
+    /// <summary>
+    /// An invoice-billed renewal collects nothing, so its record invoice can only be recovered
+    /// from the obligation the transition itself wrote. Only the real update can show the period
+    /// and the obligation land together.
+    /// </summary>
+    [Fact]
+    public async Task A_transition_records_its_document_obligation_in_the_same_write_as_the_period()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-offline", SubscriptionStatus.Active);
+
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        var periodEnd = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var transition = new SubscriptionTransition(SubscriptionStatus.Active, SubscriptionStatus.Active)
+        {
+            CurrentPeriodEndUtc = periodEnd,
+            DocumentSource = new SubscriptionDocumentSource
+            {
+                SourceKey = $"offline:{subscription.ItemId}:Renewal:2026-09",
+                DocumentType = FinancialDocumentType.Invoice,
+                ChargeKind = SubscriptionChargeKind.Renewal,
+                PeriodKey = "2026-09",
+                Amounts = new FinancialDocumentAmounts { GrossSubtotalMinor = 8_900, TotalMinor = 8_900 }
+            }
+        };
+
+        (await _subscriptions.TryTransitionAsync(
+            tenantId, subscription.ItemId, transition, CancellationToken.None)).Should().BeTrue();
+
+        var stored = await _subscriptions.GetByIdAsync(tenantId, subscription.ItemId, CancellationToken.None);
+
+        stored!.CurrentPeriodEndUtc.Should().Be(periodEnd);
+        stored.PendingDocumentSources.Should().ContainSingle(
+            source => source.SourceKey == $"offline:{subscription.ItemId}:Renewal:2026-09" &&
+                source.Amounts!.TotalMinor == 8_900,
+            because: "the obligation lands with the period it describes, or nothing would ever " +
+                "issue the customer's invoice for it");
+    }
+
     [Fact]
     public async Task A_scheduled_cancellation_persists_whether_it_may_be_escalated()
     {
@@ -1005,6 +1045,84 @@ public sealed class SubscriptionRepositoryIntegrationTests
                 tenantId, subscription.ItemId, outboxEvent,
                 CancellationToken.None))
             .Should().BeFalse();
+    }
+
+    // ---- Counting card-collection attempts -------------------------------------------------
+    //
+    // The attempt is part of the idempotency key a setup session is raised under. Replacing a
+    // stored card happens on a running subscription, so the compare-and-set must accept every
+    // status the endpoint does, and still let exactly one of two racing tabs win.
+
+    [Theory]
+    [InlineData(SubscriptionStatus.Incomplete)]
+    [InlineData(SubscriptionStatus.Trialing)]
+    [InlineData(SubscriptionStatus.Active)]
+    [InlineData(SubscriptionStatus.PastDue)]
+    [InlineData(SubscriptionStatus.Unpaid)]
+    public async Task A_collectable_subscription_bumps_its_setup_attempt(SubscriptionStatus status)
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-bump", status);
+        subscription.PaymentMethodSetupAttempt = 2;
+        subscription.LastUpdatedDateUtc = DateTime.UtcNow.AddDays(-1);
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        (await _subscriptions.TryBumpPaymentMethodSetupAttemptAsync(
+            tenantId, subscription.ItemId, 2, CancellationToken.None)).Should().BeTrue();
+
+        var stored = await _subscriptions.GetByIdAsync(tenantId, subscription.ItemId, CancellationToken.None);
+        stored!.PaymentMethodSetupAttempt.Should().Be(3);
+        stored.LastUpdatedDateUtc.Should().BeAfter(subscription.LastUpdatedDateUtc);
+    }
+
+    [Theory]
+    [InlineData(SubscriptionStatus.Canceled)]
+    [InlineData(SubscriptionStatus.IncompleteExpired)]
+    public async Task An_ended_subscription_never_bumps_its_setup_attempt(SubscriptionStatus status)
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-ended", status);
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        (await _subscriptions.TryBumpPaymentMethodSetupAttemptAsync(
+            tenantId, subscription.ItemId, 0, CancellationToken.None)).Should().BeFalse();
+
+        var stored = await _subscriptions.GetByIdAsync(tenantId, subscription.ItemId, CancellationToken.None);
+        stored!.PaymentMethodSetupAttempt.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_stale_expected_attempt_changes_nothing()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-stale", SubscriptionStatus.Active);
+        subscription.PaymentMethodSetupAttempt = 4;
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        (await _subscriptions.TryBumpPaymentMethodSetupAttemptAsync(
+            tenantId, subscription.ItemId, 3, CancellationToken.None)).Should().BeFalse();
+
+        var stored = await _subscriptions.GetByIdAsync(tenantId, subscription.ItemId, CancellationToken.None);
+        stored!.PaymentMethodSetupAttempt.Should().Be(4);
+    }
+
+    [Fact]
+    public async Task Only_one_of_two_concurrent_setup_attempt_bumps_wins()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var subscription = NewSubscription(tenantId, "org-race", SubscriptionStatus.Active);
+        await _subscriptions.TryCreateAsync(subscription, CancellationToken.None);
+
+        var outcomes = await Task.WhenAll(
+            _subscriptions.TryBumpPaymentMethodSetupAttemptAsync(
+                tenantId, subscription.ItemId, 0, CancellationToken.None),
+            _subscriptions.TryBumpPaymentMethodSetupAttemptAsync(
+                tenantId, subscription.ItemId, 0, CancellationToken.None));
+
+        outcomes.Count(won => won).Should().Be(1,
+            "two tabs replacing a card at once must open one session, not two");
+        var stored = await _subscriptions.GetByIdAsync(tenantId, subscription.ItemId, CancellationToken.None);
+        stored!.PaymentMethodSetupAttempt.Should().Be(1);
     }
 
     private static SubscriptionDetail NewSubscription(

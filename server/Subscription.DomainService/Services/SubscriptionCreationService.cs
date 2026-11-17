@@ -121,9 +121,21 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// </remarks>
     private readonly ISubscriptionBillingProfileGuard? _billingProfile;
 
-    public async Task<SubscriptionOperationResult<SubscriptionDetail>> CreateAsync(
+    public Task<SubscriptionOperationResult<SubscriptionDetail>> CreateAsync(
         CreateSubscriptionRequest request,
         SubscriptionContext context,
+        string correlationId,
+        CancellationToken cancellationToken,
+        bool offline = false) =>
+        CreateCoreAsync(request, context, offline, correlationId, cancellationToken);
+
+    /// <param name="offline">
+    /// Whether the subscription is billed by invoice outside Utilities; false for every card subscriber.
+    /// </param>
+    private async Task<SubscriptionOperationResult<SubscriptionDetail>> CreateCoreAsync(
+        CreateSubscriptionRequest request,
+        SubscriptionContext context,
+        bool offline,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -158,6 +170,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             plan,
             price,
             preview: false,
+            offline: offline,
             cancellationToken);
 
         if (profileMissing.Count > 0)
@@ -178,7 +191,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         }
 
         var built = await BuildSubscriptionAsync(
-            request, context, plan, price, preview: false, correlationId, cancellationToken);
+            request, context, plan, price, preview: false, offline, correlationId, cancellationToken);
 
         if (!built.Result.IsSuccess)
         {
@@ -317,10 +330,11 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             plan,
             price,
             preview: true,
+            offline: false,
             cancellationToken);
 
         var built = await BuildSubscriptionAsync(
-            request, context, plan, price, preview: true, correlationId, cancellationToken);
+            request, context, plan, price, preview: true, offline: false, correlationId, cancellationToken);
 
         if (!built.Result.IsSuccess)
         {
@@ -573,6 +587,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         Plan plan,
         Price price,
         bool preview,
+        bool offline,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -700,7 +715,10 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // only decides whether to fail, never what to persist.
         SubscriptionPaymentProviderReadinessResult? readinessResult = null;
 
-        if (_readiness is not null)
+        // An offline subscription never reaches a provider, so a tenant whose card configuration is
+        // broken can still put a contract customer on a plan. Its billing account is pinned to no
+        // configuration, which is what keeps any later card path from finding one to charge.
+        if (_readiness is not null && !offline)
         {
             readinessResult = await _readiness.CheckAsync(
                 context.TenantId, context.OrganizationId, providerName, cancellationToken);
@@ -781,12 +799,29 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             now,
             correlationId);
 
+        if (offline)
+        {
+            subscription.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        }
+
         if (!preview && _directory is not null)
         {
             // Best-effort: the directory never throws, and a name IAM will not give leaves the
             // documents printing the organization id, which is what they printed before.
             subscription.OrganizationName = await _directory.FindOrganizationNameAsync(
                 context.OrganizationId, cancellationToken);
+
+            // A token with no name claim leaves the buyer captured as their bare id, and every
+            // document the worker later issues for them prints "Initiated by" that id. Asked here,
+            // on the buyer's own sign-in, because the worker has no token to ask with.
+            if (subscription.PurchasedBy is { } buyer &&
+                (string.IsNullOrWhiteSpace(buyer.Name) ||
+                 string.Equals(buyer.Name, buyer.UserId, StringComparison.Ordinal)) &&
+                await _directory.FindSelfAsync(cancellationToken) is { } self)
+            {
+                buyer.Name = self.DisplayName;
+                buyer.Email ??= self.Email;
+            }
         }
 
         if (!ApplyPeriods(subscription, now, calendarAligned, out var stubCharge))
@@ -1940,10 +1975,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         Plan plan,
         Price price,
         bool preview,
+        bool offline,
         CancellationToken cancellationToken)
     {
+        // An offline subscription is always held to it, free price or not: every document it
+        // produces is a record somebody else invoices from, and one addressed to nobody is useless.
         if (_billingProfile is null ||
-            (price.UnitAmountMinor <= 0 && plan.QuantityItems.Count == 0))
+            (!offline && price.UnitAmountMinor <= 0 && plan.QuantityItems.Count == 0))
         {
             return [];
         }
@@ -1953,7 +1991,9 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             context.OrganizationId,
             cancellationToken);
 
-        if (missing.Count == 0 && !preview)
+        // Not for an offline activation: the caller is an operator from the console, and
+        // remembering them would put somebody from another organization on the customer's invoices.
+        if (missing.Count == 0 && !preview && !offline)
         {
             // Whoever starts a subscription is, by acting, somebody an invoice may have to name.
             await _billingProfile.RememberInitiatorAsync(

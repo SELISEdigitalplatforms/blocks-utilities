@@ -35,6 +35,16 @@ public interface ISubscriptionFinancialDocumentDeliveryService
         int? attempt = null);
 
     /// <summary>
+    /// Re-renders and replaces the stored PDF, without sending any mail or touching the delivery
+    /// state. Used after a payment is recorded so the stored copy shows the new status.
+    /// </summary>
+    /// <returns>True when the stored PDF was replaced. Never throws; false leaves the old PDF.</returns>
+    Task<bool> RerenderStoredPdfAsync(
+        string tenantId,
+        string documentId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Delivers every document in the tenant whose PDF or email never completed.
     /// </summary>
     /// <returns>How many were delivered.</returns>

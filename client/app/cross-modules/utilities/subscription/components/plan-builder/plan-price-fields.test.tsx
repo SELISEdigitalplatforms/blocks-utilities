@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FormProvider, useForm } from "react-hook-form";
 import type { ReactNode } from "react";
 import type { PlanPrice } from "../../models/subscription-plan.model";
@@ -244,6 +244,42 @@ describe("PlanPriceFields", () => {
     // field further down the form.
     expect(screen.getByLabelText(/Automatic discount for €12\.00/)).toHaveValue(8);
     expect(screen.getByRole("button", { name: /Save discount/ })).toBeInTheDocument();
+  });
+
+  it("leaves existing subscribers alone unless the author says otherwise", async () => {
+    const onUpdatePriceDiscount = vi.fn(async () => {});
+    render(
+      <Harness>
+        <PlanPriceFields
+          isEditing
+          existingPrices={[price({ automaticDiscountBasisPoints: 800 })]}
+          onUpdatePriceDiscount={onUpdatePriceDiscount}
+        />
+      </Harness>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /Save discount/ }));
+
+    // Unticked is the promise every edit made before this existed: nobody subscribed is repriced.
+    expect(onUpdatePriceDiscount).toHaveBeenCalledWith("price-1", 8, "BestDiscount", false);
+  });
+
+  it("extends a discount edit to existing subscribers once the box is ticked", async () => {
+    const onUpdatePriceDiscount = vi.fn(async () => {});
+    render(
+      <Harness>
+        <PlanPriceFields
+          isEditing
+          existingPrices={[price({ automaticDiscountBasisPoints: 800 })]}
+          onUpdatePriceDiscount={onUpdatePriceDiscount}
+        />
+      </Harness>,
+    );
+
+    await userEvent.click(screen.getByLabelText(/Also apply to existing subscribers/));
+    await userEvent.click(screen.getByRole("button", { name: /Save discount/ }));
+
+    expect(onUpdatePriceDiscount).toHaveBeenCalledWith("price-1", 8, "BestDiscount", true);
   });
 
   it("says nothing about existing prices while creating", () => {

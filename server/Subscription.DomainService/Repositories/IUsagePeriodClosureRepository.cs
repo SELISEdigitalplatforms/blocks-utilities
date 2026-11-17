@@ -207,6 +207,17 @@ public interface IUsagePeriodClosureRepository
         string periodKey,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Whether the write under this one idempotency key is still <c>Active</c>: admitted and not yet
+    /// settled. A claim leaves Active only after every write the recording makes has landed.
+    /// </summary>
+    Task<bool> IsClaimActiveAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
+        string idempotencyKey,
+        CancellationToken cancellationToken);
+
     /// <summary>Active or mid-release claims which have stopped making progress.</summary>
     Task<IReadOnlyList<UsagePeriodClaim>> ListStaleClaimsAsync(
         string tenantId,

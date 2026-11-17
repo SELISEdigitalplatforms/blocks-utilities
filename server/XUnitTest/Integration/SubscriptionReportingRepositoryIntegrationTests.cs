@@ -202,7 +202,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             tenantId,
             March.Date,
             March.Date.AddDays(7),
-            CancellationToken.None);
+            null, CancellationToken.None);
 
         buckets.Where(bucket =>
                 bucket.CurrencyCode == "CHF" &&
@@ -241,11 +241,99 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             tenantId,
             March.Date,
             March.Date.AddDays(7),
-            CancellationToken.None);
+            null, CancellationToken.None);
 
         buckets.Single().TotalMinor.Should().Be(
             12_000,
             "a pending invoice is money hoped for, not money earned");
+    }
+
+    [Fact]
+    public async Task Overage_recorded_for_a_bank_transfer_contract_counts_and_the_filter_separates_it()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+
+        await InsertUsageInvoicesAsync(
+            UsageInvoice(tenantId, SubscriptionUsageInvoiceState.Charged, March, 12_000),
+            UsageInvoice(tenantId, SubscriptionUsageInvoiceState.RecordedOffline, March, 3_000),
+            UsageInvoice(tenantId, SubscriptionUsageInvoiceState.NoCharge, March, 99_000));
+
+        async Task<long> TotalAsync(SubscriptionCollectionMethod? method) =>
+            (await _reports.AggregateOverageRevenueAsync(
+                tenantId, March.Date, March.Date.AddDays(7), method, CancellationToken.None))
+                .Sum(bucket => bucket.TotalMinor);
+
+        (await TotalAsync(null)).Should().Be(
+            15_000,
+            "overage an invoice-billed customer owes is billed revenue too");
+        (await TotalAsync(SubscriptionCollectionMethod.OfflineInvoice)).Should().Be(3_000);
+        (await TotalAsync(SubscriptionCollectionMethod.AutomaticCharge)).Should().Be(12_000);
+    }
+
+    [Fact]
+    public async Task A_document_from_before_offline_billing_is_a_card_document_to_the_filter()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var offline = Document(tenantId, "CHF", FinancialDocumentType.Invoice, March, 50_000);
+        offline.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+
+        await InsertDocumentsAsync(offline, Document(tenantId, "CHF", FinancialDocumentType.Invoice, March, 10_000));
+
+        // Stored without the field, as every document issued before the field existed is.
+        await _fixture.Collection<BsonDocument>(FinancialDocuments)
+            .UpdateManyAsync(
+                Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.Eq("TenantId", tenantId),
+                    Builders<BsonDocument>.Filter.Eq("CollectionMethod", 0)),
+                Builders<BsonDocument>.Update.Unset("CollectionMethod"));
+
+        var card = await _reports.AggregateDocumentRevenueAsync(
+            tenantId, March.Date, March.Date.AddDays(7),
+            SubscriptionCollectionMethod.AutomaticCharge, CancellationToken.None);
+
+        card.Sum(bucket => bucket.TotalMinor).Should().Be(
+            10_000,
+            "a document with no collection method predates offline billing and was paid by card");
+    }
+
+    [Fact]
+    public async Task Captures_are_found_by_position_with_their_firms_and_listed_without_them()
+    {
+        var tenantId = MongoIntegrationFixture.NewTenantId();
+        var day = March.Date;
+
+        foreach (var offset in new[] { 0, 3, 6 })
+        {
+            var snapshot = RunRate(tenantId, day.AddDays(offset), 1_000 * (offset + 1));
+            snapshot.CapturedFirms = true;
+            snapshot.Firms =
+            [
+                new RecurringRevenueSnapshotFirm
+                {
+                    OrganizationId = "org-1",
+                    CurrencyCode = "CHF",
+                    NetMonthlyMinor = 1_000 * (offset + 1),
+                    SubscriptionCount = 1
+                }
+            ];
+
+            await _reports.SaveRecurringRevenueSnapshotAsync(snapshot, CancellationToken.None);
+        }
+
+        var latest = await _reports.FindRecurringRevenueSnapshotAsync(
+            tenantId, day, day.AddDays(5), latest: true, CancellationToken.None);
+        var earliest = await _reports.FindRecurringRevenueSnapshotAsync(
+            tenantId, day.AddDays(1), day.AddDays(7), latest: false, CancellationToken.None);
+        var listed = await _reports.ListRecurringRevenueSnapshotsAsync(
+            tenantId, day, day.AddDays(7), CancellationToken.None);
+
+        latest!.DayUtc.Should().Be(day.AddDays(3), "the window excludes its end");
+        latest.CapturedFirms.Should().BeTrue();
+        latest.Firms.Single().NetMonthlyMinor.Should().Be(4_000);
+        earliest!.DayUtc.Should().Be(day.AddDays(3));
+        listed.Should().HaveCount(3);
+        listed.Should().AllSatisfy(snapshot => snapshot.Firms.Should().BeEmpty(
+            "the trend reads only totals and must not pull every firm of every day"));
     }
 
     [Fact]
@@ -565,7 +653,7 @@ public sealed class SubscriptionReportingRepositoryIntegrationTests
             "collection in the module");
 
         await _reports.AggregateDocumentRevenueAsync(
-            tenantId, March.Date, March.Date.AddDays(1), CancellationToken.None);
+            tenantId, March.Date, March.Date.AddDays(1), null, CancellationToken.None);
 
         var documentIndexes = await IndexNamesAsync<SubscriptionFinancialDocument>(
             FinancialDocuments);

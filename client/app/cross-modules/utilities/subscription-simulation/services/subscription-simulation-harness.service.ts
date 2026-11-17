@@ -13,6 +13,7 @@ import type {
   SubscriptionSimulationDataPolicyResponse,
   SubscriptionSimulationDataQueryResponse,
   SubscriptionSimulationJobRunResponse,
+  SubscriptionSimulationOrganizationState,
   UpdateDataFieldRequest,
 } from "../models/subscription-simulation-harness.model";
 import { tStatic } from "@seliseblocks/genesis-os";
@@ -158,6 +159,26 @@ class SubscriptionSimulationHarnessService {
   ): Promise<SubscriptionSimulationJobRunResponse> {
     return this.post(
       `${this.subscriptionPath(subscriptionId)}/jobs/run-due`,
+      request,
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DUE_BACKGROUND_WORK_COULD"),
+    );
+  }
+
+  /** The standalone credits of an organization that may hold no subscription at all (spec 005). */
+  async getOrganizationState(organizationId: string): Promise<SubscriptionSimulationOrganizationState> {
+    return this.get(
+      `${SIMULATION_HARNESS_ENDPOINT}/organizations/${encodeURIComponent(organizationId)}/state`,
+      tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_ORGANIZATION_CREDITS_COULD_NOT"),
+    );
+  }
+
+  /** Runs the credit sweeps, which cover subscription and standalone purchases alike. */
+  async runOrganizationDueJobs(
+    organizationId: string,
+    request: RunDueJobsRequest,
+  ): Promise<SubscriptionSimulationJobRunResponse> {
+    return this.post(
+      `${SIMULATION_HARNESS_ENDPOINT}/organizations/${encodeURIComponent(organizationId)}/jobs/run-due`,
       request,
       tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIPTION_SIMULATION_HARNESS_SERVICE.THE_DUE_BACKGROUND_WORK_COULD"),
     );

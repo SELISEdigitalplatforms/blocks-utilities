@@ -62,6 +62,16 @@ public sealed class CreditRedemptionAndOrderIdTests
         orderId.Length.Should().BeLessThanOrEqualTo(80, "the payment module refuses longer order ids");
     }
 
+    [Fact]
+    public void An_organization_credit_order_id_is_no_subscription_charge_and_fits_the_limit()
+    {
+        var orderId = SubscriptionConstants.OrganizationCreditPurchaseOrderIdFor(Guid.NewGuid().ToString("N"));
+
+        SubscriptionOrderId.Parse(orderId).SubscriptionId.Should().BeNull(
+            "the subscription charge sweeps must never go looking for a subscription behind it");
+        orderId.Length.Should().BeLessThanOrEqualTo(80, "the payment module refuses longer order ids");
+    }
+
     [Theory]
     [InlineData(CreditPurchaseStatus.Charged)]
     [InlineData(CreditPurchaseStatus.Finalized)]

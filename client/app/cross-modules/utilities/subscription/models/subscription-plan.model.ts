@@ -555,12 +555,19 @@ export interface UpdateSubscriptionPriceDiscountRequest {
   /** Zero clears the discount. */
   automaticDiscountBasisPoints?: number;
   quantityDiscountCombination?: "BestDiscount" | "Additive";
+  /**
+   * Also moves subscribers already on the price to the new terms, from their first renewal at least
+   * the configured notice period away, each told by email. Omitted, nobody subscribed is repriced.
+   */
+  applyToExistingSubscribers?: boolean;
 }
 
 export interface UpdateSubscriptionPriceTaxRequest {
   organizationId?: string;
   taxRateBasisPoints?: number;
   taxMode?: "Exclusive" | "Inclusive";
+  /** See {@link UpdateSubscriptionPriceDiscountRequest.applyToExistingSubscribers}. */
+  applyToExistingSubscribers?: boolean;
 }
 
 /**

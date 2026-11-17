@@ -7,8 +7,7 @@ namespace Utility.DomainService.Drive;
 /// Bound from the <c>Drive</c> section of <c>appsettings*.json</c>. Nothing here is a secret:
 /// the two secret values (Entra client secret, token encryption key) live in Blocks Secrets and
 /// are named by id in <see cref="ClientSecretSecretId"/> and
-/// <see cref="TokenEncryptionKeySecretId"/>, the same way <c>GeolocationApiKeySecretId</c> names
-/// the geolocation key. See <see cref="Service.DriveSecrets"/>.
+/// <see cref="TokenEncryptionKeySecretId"/>. See <see cref="Service.DriveSecrets"/>.
 /// </remarks>
 public sealed class DriveOptions
 {

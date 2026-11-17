@@ -18,6 +18,16 @@ public interface IMemberDirectory
 
     /// <summary>The organization's display name, or null when IAM could not or would not say.</summary>
     Task<string?> FindOrganizationNameAsync(string organizationId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The caller themselves, from IAM's own-account endpoint, or null when IAM could not say.
+    /// </summary>
+    /// <remarks>
+    /// For naming the buyer at signup when their token carried no name. Not
+    /// <see cref="FindUserAsync"/>: reading a user by id needs IAM's users permission, which a buyer
+    /// rarely holds, while reading one's own account needs only a sign-in.
+    /// </remarks>
+    Task<MemberContact?> FindSelfAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>What the member emails need to know about a person.</summary>

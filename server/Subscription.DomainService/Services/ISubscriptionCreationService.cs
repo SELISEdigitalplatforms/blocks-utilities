@@ -1,4 +1,5 @@
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 
@@ -18,7 +19,8 @@ public interface ISubscriptionCreationService
         CreateSubscriptionRequest request,
         SubscriptionContext context,
         string correlationId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool offline = false);
 
     /// <summary>
     /// What <see cref="CreateAsync"/> would charge and when it would renew, without storing

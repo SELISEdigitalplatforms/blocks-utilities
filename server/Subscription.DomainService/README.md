@@ -202,6 +202,18 @@ plan itself. Versions replaced before this history existed are not recoverable.
 
 Prices are separate documents with their own versions and are not copied into the plan's history.
 
+A second additive step after every plan write: each meter the plan names is added to the meter
+catalogue (`SubscriptionMeterCatalogue`, `IMeterCatalogueService.EnsureEntriesAsync`) at the
+plan's own scope when no entry resolves for its key yet — identity and counting fields only,
+never price or expiry. The catalogue is what a later plan picks meters from and what a standalone
+credit offer (`SubscriptionCreditOffers`, one per meter per scope, resolved like plans: an
+organization's own wins, else the tenant's) sells. An organization buys from an offer with or
+without a subscription; those grants and purchases live in the credit collections with a null
+`SubscriptionId`, and the usage gate spends them in the offer's `SpendOrder`. An organization
+grant carries its own `OutboxEvents`, drained by `OrganizationCreditOutboxProcessor` alongside
+the subscription outbox; the purchase event becomes the `organization_credits_purchased` mail.
+See spec 005.
+
 The code and the organization come from the stored plan, never the request: a code is what
 configuration points at, and a scope change would move the plan out from under whoever can see it.
 Reads still return `hasSubscribers`, so a caller can warn that an edit will not reach existing
@@ -1708,11 +1720,15 @@ Two things behave differently from a charge:
 - **Failure is not fatal.** A declined charge ends the subscription; nothing was refused here, so
   it stays `Incomplete` and another attempt is free to succeed. The staleness sweep still expires
   it if nobody comes back.
-- **An expired session is replaced.** A hosted session cannot be reopened and the provider would
-  replay it under the key that opened it, so a retry mints a new one —
-  `SubscriptionConstants.PaymentMethodSetupKeyFor` carries an attempt number, bumped by a
-  compare-and-set so two tabs retrying at once produce one session. An expired *charge* is still
-  a conflict: raising a second one is how the same money gets taken twice.
+- **An expired or completed session is followed by a new one.** A hosted session cannot be
+  reopened and the provider would replay it under the key that opened it, so a retry mints a new
+  one — `SubscriptionConstants.PaymentMethodSetupKeyFor` carries an attempt number, bumped by a
+  compare-and-set so two tabs retrying at once produce one session. The same bump follows a
+  session that *completed*: the payment module keeps the consumed record under its key, so
+  replacing a stored card on a running subscription raises the next attempt and leaves the
+  completed link as it is. The endpoint decides from the newest setup link of the subscription,
+  because a completed link and its replacement coexist from then on. An expired *charge* is
+  still a conflict: raising a second one is how the same money gets taken twice.
 
 Cancelling while a setup is outstanding settles its link, so completing the card form afterwards
 cannot start a subscription somebody has cancelled.

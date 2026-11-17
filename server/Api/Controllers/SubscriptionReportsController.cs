@@ -3,6 +3,7 @@ using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Payment.DomainService.Responses;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Reporting;
 
 namespace Api.Controllers;
@@ -92,16 +93,25 @@ public sealed class SubscriptionReportsController : ControllerBase
     [HttpGet("recurring-revenue")]
     [ProducesResponseType(
         typeof(ApiResponse<RecurringRevenueReportResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(
         typeof(ApiResponse<RecurringRevenueReportResponse>),
         StatusCodes.Status503ServiceUnavailable)]
     [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
-    public async Task<IActionResult> GetRecurringRevenue(CancellationToken cancellationToken)
+    /// <param name="collectionMethod">
+    /// <c>AutomaticCharge</c> or <c>OfflineInvoice</c> to isolate card-collected or invoiced
+    /// subscriptions; omit for both.
+    /// </param>
+    /// <param name="cancellationToken">Aborts the read.</param>
+    public async Task<IActionResult> GetRecurringRevenue(
+        [FromQuery] SubscriptionCollectionMethod? collectionMethod,
+        CancellationToken cancellationToken)
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _reports.GetRecurringRevenueAsync(correlationId, cancellationToken);
+        var result = await _reports.GetRecurringRevenueAsync(
+            collectionMethod, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);
     }
@@ -135,6 +145,41 @@ public sealed class SubscriptionReportsController : ControllerBase
         var correlationId = HttpContext.TraceIdentifier;
 
         var result = await _reports.GetRecurringRevenueTrendAsync(
+            request, correlationId, cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// How the recurring run-rate changed across a window: new, expansion, contraction and churn.
+    /// </summary>
+    /// <remarks>
+    /// Compares the capture in force when the window opens with the latest one before it closes,
+    /// firm by firm, so the four movements reconcile exactly to the change. Pass this week's,
+    /// this month's or this year's bounds for the matching dashboard figure.
+    /// <para>
+    /// Captures began before they recorded firms. A window that opens on such a capture returns
+    /// the totals with <c>breakdownAvailable</c> false, and one that opens before the first
+    /// capture starts from the first one with <c>coversWholeWindow</c> false.
+    /// </para>
+    /// </remarks>
+    [HttpGet("recurring-revenue/movement")]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueMovementResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueMovementResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<RecurringRevenueMovementResponse>),
+        StatusCodes.Status503ServiceUnavailable)]
+    [ProtectedEndPoint("blocks-utilities::subscription-report::read")]
+    public async Task<IActionResult> GetRecurringRevenueMovement(
+        [FromQuery] GetRecurringRevenueMovementRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _reports.GetRecurringRevenueMovementAsync(
             request, correlationId, cancellationToken);
 
         return result.ToActionResult(correlationId);

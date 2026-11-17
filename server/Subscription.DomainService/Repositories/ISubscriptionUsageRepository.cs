@@ -1,4 +1,4 @@
-﻿using Subscription.DomainService.Entities;
+using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Repositories;
 
@@ -57,6 +57,17 @@ public interface ISubscriptionUsageRepository
     /// Moves how much of a window's balance credits paid for, and returns the counter after the
     /// move. Null when the counter does not exist.
     /// </summary>
+    /// <summary>
+    /// Moves how much of a window's balance the organization's standalone credits paid for
+    /// (spec 005). Beside, not instead of, <see cref="AddPurchasedConsumedAsync"/>, which carries
+    /// the total the allowance arithmetic reads.
+    /// </summary>
+    Task<SubscriptionUsageCounter?> AddOrganizationCreditsConsumedAsync(
+        string tenantId,
+        string counterId,
+        decimal delta,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionUsageCounter?> AddPurchasedConsumedAsync(
         string tenantId,
         string counterId,
@@ -116,6 +127,13 @@ public interface ISubscriptionUsageRepository
         string tenantId,
         string counterId,
         int thresholdPercent,
+        CancellationToken cancellationToken);
+
+    /// <summary>Stores which credit grants a ledger entry drew from. See <see cref="SubscriptionUsageRecord.CreditTakes"/>.</summary>
+    Task SetCreditTakesAsync(
+        string tenantId,
+        string recordId,
+        IReadOnlyList<UsageCreditTake> takes,
         CancellationToken cancellationToken);
 
     Task<SubscriptionUsageRecord?> FindRecordByKeyAsync(

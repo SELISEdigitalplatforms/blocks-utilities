@@ -131,6 +131,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
 
     public async Task<SubscriptionOperationResult<RecurringRevenueReportResponse>>
         GetRecurringRevenueAsync(
+            SubscriptionCollectionMethod? collectionMethod,
             string correlationId,
             CancellationToken cancellationToken)
     {
@@ -141,9 +142,11 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             return resolution.ToFailure<RecurringRevenueReportResponse>(correlationId);
         }
 
+        var (summary, _) = await SummarizeRecurringRevenueAsync(
+            context.TenantId, collectionMethod, cancellationToken);
+
         return SubscriptionOperationResult<RecurringRevenueReportResponse>.Success(
-            await SummarizeRecurringRevenueAsync(context.TenantId, cancellationToken),
-            correlationId);
+            summary, correlationId);
     }
 
     public async Task<SubscriptionOperationResult<RecurringRevenueTrendResponse>>
@@ -161,6 +164,17 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
                 out var granularityFailure))
         {
             return granularityFailure!.ToFailure<RecurringRevenueTrendResponse>();
+        }
+
+        if (request.CollectionMethod is not null)
+        {
+            // The captures keep no per-method split; answering with the whole tenant would be a
+            // wrong answer presented as a filtered one.
+            return Invalid<RecurringRevenueTrendResponse>(
+                correlationId,
+                nameof(request.CollectionMethod),
+                "The trend cannot be filtered by collection method. Use the live recurring " +
+                    "revenue report or the revenue report.");
         }
 
         if (!TryResolveWindow(
@@ -247,7 +261,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             return false;
         }
 
-        var summary = await SummarizeRecurringRevenueAsync(tenantId, cancellationToken);
+        var (summary, runRates) = await SummarizeRecurringRevenueAsync(tenantId, null, cancellationToken);
 
         await _reports.SaveRecurringRevenueSnapshotAsync(
             new RecurringRevenueSnapshot
@@ -263,6 +277,18 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
                         GrossMonthlyMinor = currency.GrossMonthlyMinor,
                         NetMonthlyMinor = currency.NetMonthlyMinor,
                         SubscriptionCount = currency.SubscriptionCount
+                    })],
+                CapturedFirms = true,
+                Firms = [.. runRates
+                    .GroupBy(entry => (entry.OrganizationId, entry.CurrencyCode))
+                    .OrderBy(group => group.Key.OrganizationId, StringComparer.Ordinal)
+                    .ThenBy(group => group.Key.CurrencyCode, StringComparer.Ordinal)
+                    .Select(group => new RecurringRevenueSnapshotFirm
+                    {
+                        OrganizationId = group.Key.OrganizationId,
+                        CurrencyCode = group.Key.CurrencyCode,
+                        NetMonthlyMinor = group.Sum(entry => entry.NetMonthlyMinor),
+                        SubscriptionCount = group.LongCount()
                     })]
             },
             cancellationToken);
@@ -270,16 +296,191 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
         return true;
     }
 
+    public async Task<SubscriptionOperationResult<RecurringRevenueMovementResponse>>
+        GetRecurringRevenueMovementAsync(
+            GetRecurringRevenueMovementRequest request,
+            string correlationId,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!TryResolveWindow(
+                request.FromUtc,
+                request.ToUtc,
+                correlationId,
+                nameof(request.FromUtc),
+                out var window,
+                out var windowFailure))
+        {
+            return windowFailure!.ToFailure<RecurringRevenueMovementResponse>();
+        }
+
+        var resolution = await _context.ResolveAsync(correlationId, null, cancellationToken);
+
+        if (resolution.Context is not { } context)
+        {
+            return resolution.ToFailure<RecurringRevenueMovementResponse>(correlationId);
+        }
+
+        var tenantId = context.TenantId;
+        var beginning = DateTime.MinValue.ToUniversalTime();
+
+        // In force at the start means the latest capture on or before it; the tick turns the
+        // query's exclusive upper bound into an inclusive one.
+        var opening = await _reports.FindRecurringRevenueSnapshotAsync(
+            tenantId, beginning, window.FromUtc.AddTicks(1), latest: true, cancellationToken);
+
+        var coversWholeWindow = opening is not null;
+
+        // History that starts mid-window still answers "since when we started counting".
+        opening ??= await _reports.FindRecurringRevenueSnapshotAsync(
+            tenantId, window.FromUtc, window.ToUtc, latest: false, cancellationToken);
+
+        var closing = await _reports.FindRecurringRevenueSnapshotAsync(
+            tenantId, beginning, window.ToUtc, latest: true, cancellationToken);
+
+        return SubscriptionOperationResult<RecurringRevenueMovementResponse>.Success(
+            Movement(window.FromUtc, window.ToUtc, opening, closing, coversWholeWindow),
+            correlationId);
+    }
+
+    /// <summary>
+    /// Compares two captures firm by firm. Pure, so the reconciliation can be tested directly.
+    /// </summary>
+    public static RecurringRevenueMovementResponse Movement(
+        DateTime fromUtc,
+        DateTime toUtc,
+        RecurringRevenueSnapshot? opening,
+        RecurringRevenueSnapshot? closing,
+        bool coversWholeWindow)
+    {
+        if (opening is null || closing is null)
+        {
+            return new RecurringRevenueMovementResponse { FromUtc = fromUtc, ToUtc = toUtc };
+        }
+
+        var breakdown = opening.CapturedFirms && closing.CapturedFirms;
+
+        var currencyCodes = opening.Currencies.Select(currency => currency.CurrencyCode)
+            .Concat(closing.Currencies.Select(currency => currency.CurrencyCode))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal);
+
+        var currencies = new List<RecurringRevenueMovementCurrencyResponse>();
+
+        foreach (var code in currencyCodes)
+        {
+            var openingTotal = opening.Currencies
+                .Where(currency => currency.CurrencyCode == code)
+                .Sum(currency => currency.NetMonthlyMinor);
+            var closingTotal = closing.Currencies
+                .Where(currency => currency.CurrencyCode == code)
+                .Sum(currency => currency.NetMonthlyMinor);
+
+            if (!breakdown)
+            {
+                currencies.Add(new RecurringRevenueMovementCurrencyResponse
+                {
+                    CurrencyCode = code,
+                    OpeningNetMonthlyMinor = openingTotal,
+                    ClosingNetMonthlyMinor = closingTotal,
+                    ChangeNetMonthlyMinor = closingTotal - openingTotal
+                });
+
+                continue;
+            }
+
+            var before = FirmsIn(opening, code);
+            var after = FirmsIn(closing, code);
+
+            long newAmount = 0, expansion = 0, contraction = 0, churned = 0;
+            long newCount = 0, expansionCount = 0, contractionCount = 0, churnedCount = 0;
+
+            foreach (var (organizationId, amount) in after)
+            {
+                if (!before.TryGetValue(organizationId, out var previous))
+                {
+                    newAmount += amount;
+                    newCount++;
+                }
+                else if (amount > previous)
+                {
+                    expansion += amount - previous;
+                    expansionCount++;
+                }
+                else if (amount < previous)
+                {
+                    contraction += previous - amount;
+                    contractionCount++;
+                }
+            }
+
+            foreach (var (organizationId, amount) in before)
+            {
+                if (!after.ContainsKey(organizationId))
+                {
+                    churned += amount;
+                    churnedCount++;
+                }
+            }
+
+            currencies.Add(new RecurringRevenueMovementCurrencyResponse
+            {
+                CurrencyCode = code,
+                OpeningNetMonthlyMinor = openingTotal,
+                ClosingNetMonthlyMinor = closingTotal,
+                ChangeNetMonthlyMinor = closingTotal - openingTotal,
+                NewNetMonthlyMinor = newAmount,
+                NewFirmCount = newCount,
+                ExpansionNetMonthlyMinor = expansion,
+                ExpansionFirmCount = expansionCount,
+                ContractionNetMonthlyMinor = contraction,
+                ContractionFirmCount = contractionCount,
+                ChurnedNetMonthlyMinor = churned,
+                ChurnedFirmCount = churnedCount
+            });
+        }
+
+        return new RecurringRevenueMovementResponse
+        {
+            FromUtc = fromUtc,
+            ToUtc = toUtc,
+            OpeningDayUtc = opening.DayUtc,
+            ClosingDayUtc = closing.DayUtc,
+            CoversWholeWindow = coversWholeWindow,
+            BreakdownAvailable = breakdown,
+            Currencies = currencies
+        };
+    }
+
+    private static Dictionary<string, long> FirmsIn(RecurringRevenueSnapshot snapshot, string code) =>
+        snapshot.Firms
+            .Where(firm => firm.CurrencyCode == code)
+            .GroupBy(firm => firm.OrganizationId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Sum(firm => firm.NetMonthlyMinor),
+                StringComparer.Ordinal);
+
     /// <summary>
     /// The live run-rate, shared by the report and the daily capture so the trend and today's
     /// figure come from one calculation and cannot drift apart.
     /// </summary>
-    private async Task<RecurringRevenueReportResponse> SummarizeRecurringRevenueAsync(
+    /// <remarks>
+    /// Invoice-billed subscriptions count at the price frozen on them, because that is what their
+    /// invoices state.
+    /// </remarks>
+    private async Task<(RecurringRevenueReportResponse Summary, List<SubscriptionRunRateEntry> RunRates)>
+        SummarizeRecurringRevenueAsync(
         string tenantId,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken)
     {
-        var subscriptions = await _reports.ListByStatusAsync(
-            tenantId, LiveStatuses, cancellationToken);
+        var subscriptions = (await _reports.ListByStatusAsync(
+                tenantId, LiveStatuses, cancellationToken))
+            .Where(subscription => collectionMethod is not { } method ||
+                subscription.CollectionMethod == method)
+            .ToList();
 
         var nowUtc = _time.GetUtcNow().UtcDateTime;
 
@@ -304,11 +505,13 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             })
             .ToList();
 
-        return new RecurringRevenueReportResponse
-        {
-            SubscriptionCount = subscriptions.Count,
-            Currencies = currencies
-        };
+        return (
+            new RecurringRevenueReportResponse
+            {
+                SubscriptionCount = subscriptions.Count,
+                Currencies = currencies
+            },
+            runRates);
     }
 
     public async Task<SubscriptionOperationResult<RevenueReportResponse>> GetRevenueAsync(
@@ -346,10 +549,10 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
         }
 
         var documents = await _reports.AggregateDocumentRevenueAsync(
-            context.TenantId, window.FromUtc, window.ToUtc, cancellationToken);
+            context.TenantId, window.FromUtc, window.ToUtc, request.CollectionMethod, cancellationToken);
 
         var overage = await _reports.AggregateOverageRevenueAsync(
-            context.TenantId, window.FromUtc, window.ToUtc, cancellationToken);
+            context.TenantId, window.FromUtc, window.ToUtc, request.CollectionMethod, cancellationToken);
 
         // Both sources arrive per day, so each bucket is the same summary over a subset. Folding
         // here instead of in the query keeps one pipeline per source for all three sizes.
@@ -721,6 +924,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             nowUtc);
 
         return new SubscriptionRunRateEntry(
+            subscription.OrganizationId,
             subscription.CurrencyCode,
             SubscriptionRunRate.BillableSeats(subscription.Price, subscription.QuantityItems),
             SubscriptionRunRate.MonthlyAmountMinor(
@@ -784,6 +988,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             SeatTier = SubscriptionRunRate.TierFor(runRate.Seats).Name,
             SeatCount = runRate.Seats,
             CurrencyCode = subscription.CurrencyCode,
+            CollectionMethod = subscription.CollectionMethod.ToString(),
             GrossMonthlyMinor = runRate.GrossMonthlyMinor,
             NetMonthlyMinor = runRate.NetMonthlyMinor,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
@@ -941,6 +1146,7 @@ public sealed class SubscriptionReportingService : ISubscriptionReportingService
             new Dictionary<string, string[]> { [field] = [message] });
 
     private sealed record SubscriptionRunRateEntry(
+        string OrganizationId,
         string CurrencyCode,
         long Seats,
         long GrossMonthlyMinor,

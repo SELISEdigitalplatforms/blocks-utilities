@@ -27,6 +27,8 @@ public sealed class IamMemberDirectory : IMemberDirectory
     private const string DefaultOrganizationId = "default";
     private const string DefaultOrganizationName = "Default";
     private const string MyOrganizationsId = "my";
+    private const string IamPath = "api/iam";
+    private const string MeId = "me";
 
     /// <summary>
     /// Kept short: this runs inside an administrator's request, once per person named, and a slow
@@ -37,23 +39,35 @@ public sealed class IamMemberDirectory : IMemberDirectory
     private readonly IHttpService _httpService;
     private readonly IOptionsMonitor<PaymentOptions> _options;
     private readonly ILogger<IamMemberDirectory> _logger;
+    private readonly ICallerToken? _callerToken;
 
+    /// <param name="callerToken">
+    /// Where the caller's token is read from. Optional so a test can supply it through the context;
+    /// absent, only <see cref="BlocksContext.OAuthToken"/> is read, which Genesis 4.5.5 leaves empty —
+    /// see <see cref="CallerToken"/>.
+    /// </param>
     public IamMemberDirectory(
         IHttpService httpService,
         IOptionsMonitor<PaymentOptions> options,
-        ILogger<IamMemberDirectory> logger)
+        ILogger<IamMemberDirectory> logger,
+        ICallerToken? callerToken = null)
     {
         _httpService = httpService;
         _options = options;
         _logger = logger;
+        _callerToken = callerToken;
     }
 
     public async Task<MemberContact?> FindUserAsync(
         string userId,
-        CancellationToken cancellationToken)
-    {
-        var reply = await GetAsync<IamUserReply>(UsersPath, userId, cancellationToken);
+        CancellationToken cancellationToken) =>
+        ContactOf(await GetAsync<IamUserReply>(UsersPath, userId, cancellationToken));
 
+    public async Task<MemberContact?> FindSelfAsync(CancellationToken cancellationToken) =>
+        ContactOf(await GetAsync<IamUserReply>(IamPath, MeId, cancellationToken));
+
+    private static MemberContact? ContactOf(IamUserReply? reply)
+    {
         // An empty "data" is how IAM says the person is not in the caller's organization.
         if (reply?.Data is not { Email: { Length: > 0 } email } user || string.IsNullOrWhiteSpace(email))
         {
@@ -104,10 +118,16 @@ public sealed class IamMemberDirectory : IMemberDirectory
             return null;
         }
 
-        var token = BlocksContext.GetContext()?.OAuthToken;
+        var token = _callerToken?.Current() ?? BlocksContext.GetContext()?.OAuthToken;
 
         if (string.IsNullOrWhiteSpace(token))
         {
+            // Logged, because this used to fail here silently on every request: the names and
+            // emails it was meant to find simply never appeared, with nothing to say why.
+            _logger.LogWarning(
+                "IAM lookup skipped Path={Path} Reason=caller_token_unavailable",
+                path);
+
             return null;
         }
 

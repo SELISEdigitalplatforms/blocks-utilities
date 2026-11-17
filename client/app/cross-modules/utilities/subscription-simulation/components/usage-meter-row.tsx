@@ -183,6 +183,14 @@ export const UsageMeterRow = ({
     return t("USAGE_METER_ROW.USED_THIS_PERIOD", { used: current.used, included: current.included, units });
   };
   const periodLine = describePeriod();
+  // Standalone credits (spec 005) beside the plan's figure, only where an offer sells them.
+  const organizationCreditsLine =
+    current?.organizationCreditsRemaining != null
+      ? t("USAGE_METER_ROW.ORGANIZATION_CREDITS", {
+          remaining: current.organizationCreditsRemaining.toLocaleString(),
+          consumed: (current.organizationCreditsConsumed ?? 0).toLocaleString(),
+        })
+      : null;
   const consumeLabels = {
     idle: t("USAGE_METER_ROW.CONSUME"),
     checking: t("USAGE_METER_ROW.CHECKING"),
@@ -204,6 +212,7 @@ export const UsageMeterRow = ({
         </p>
         <p className="text-xs text-muted-foreground">
           {periodLine}
+          {organizationCreditsLine ? ` · ${organizationCreditsLine}` : null}
         </p>
         {lastResult && (
           <p

@@ -34,6 +34,21 @@ public sealed class SubscriptionFinancialDocumentResponse
 
     public string Status { get; init; } = string.Empty;
 
+    public string PaymentStatus { get; init; } = string.Empty;
+
+    public DateTime? PaidAtUtc { get; init; }
+
+    public string? PaymentReference { get; init; }
+
+    public string OrganizationId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// <c>AutomaticCharge</c>, or <c>OfflineInvoice</c> for an invoice-billed subscription. The
+    /// status alone cannot tell a reader which. This field says how the subscription is collected;
+    /// <c>PaymentStatus</c> says whether this document was paid.
+    /// </summary>
+    public string CollectionMethod { get; init; } = string.Empty;
+
     public DateTime IssuedAtUtc { get; init; }
 
     public string SubscriptionId { get; init; } = string.Empty;

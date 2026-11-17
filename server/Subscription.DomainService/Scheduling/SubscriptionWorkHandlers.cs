@@ -448,6 +448,32 @@ public sealed class FinancialDocumentIssueWorkHandler : ISubscriptionWorkHandler
             return SubscriptionWorkOutcome.Completed();
         }
 
+        if (work.WorkKey.StartsWith(
+                SubscriptionFinancialDocumentAnnouncer.CreditPurchaseWorkKeyPrefix,
+                StringComparison.Ordinal))
+        {
+            // A standalone credit purchase (spec 005): the aggregate is the purchase record, which
+            // holds every figure the invoice states. Judged the way a payment item is below.
+            var purchaseResult = await _issuer.IssueForCreditPurchaseAsync(
+                work.TenantId,
+                work.AggregateId,
+                work.CorrelationId,
+                cancellationToken);
+
+            if (purchaseResult.IsSettledDecision)
+            {
+                return SubscriptionWorkOutcome.Completed();
+            }
+
+            return purchaseResult.Outcome == FinancialDocumentIssueOutcome.PaymentNotSettled
+                ? SubscriptionWorkOutcome.Retry(
+                    "subscription_document_payment_not_settled",
+                    "The payment this document would describe has not settled yet.")
+                : SubscriptionWorkOutcome.Permanent(
+                    "subscription_document_purchase_unrecognized",
+                    $"No document could be issued for this credit purchase: {purchaseResult.Outcome}.");
+        }
+
         // Not completed whatever the answer, which is what this used to do. This item names one
         // payment that our own announcement said was a subscription charge, so "no document" is only
         // finished business for the reasons that are genuinely finished. Completing the rest left the
@@ -566,8 +592,19 @@ public sealed class FinancialDocumentDeliveryWorkHandler : ISubscriptionWorkHand
 public sealed class OutboxPublicationWorkHandler : ISubscriptionWorkHandler
 {
     private readonly ISubscriptionOutboxProcessor _outbox;
+    private readonly IOrganizationCreditOutboxProcessor? _organizationCredits;
 
-    public OutboxPublicationWorkHandler(ISubscriptionOutboxProcessor outbox) => _outbox = outbox;
+    /// <param name="organizationCredits">
+    /// Spec 005. The organization's events live on its grants rather than a subscription, so the
+    /// one sweep drains both outboxes. Optional for a host without standalone credits.
+    /// </param>
+    public OutboxPublicationWorkHandler(
+        ISubscriptionOutboxProcessor outbox,
+        IOrganizationCreditOutboxProcessor? organizationCredits = null)
+    {
+        _outbox = outbox;
+        _organizationCredits = organizationCredits;
+    }
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.OutboxPublication;
 
@@ -576,6 +613,11 @@ public sealed class OutboxPublicationWorkHandler : ISubscriptionWorkHandler
         CancellationToken cancellationToken)
     {
         await _outbox.PublishDueAsync(work.TenantId, cancellationToken);
+
+        if (_organizationCredits is not null)
+        {
+            await _organizationCredits.PublishDueAsync(work.TenantId, cancellationToken);
+        }
 
         return SubscriptionWorkOutcome.Completed();
     }

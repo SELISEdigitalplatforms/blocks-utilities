@@ -145,6 +145,7 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
@@ -156,6 +157,17 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
                 document => document.IssuedAtUtc, fromUtc),
             Builders<SubscriptionFinancialDocument>.Filter.Lt(
                 document => document.IssuedAtUtc, toUtc));
+
+        // Card documents are matched as "not offline" rather than "AutomaticCharge": every document
+        // issued before the field existed has none, and is a card document all the same.
+        if (collectionMethod is { } method)
+        {
+            filter &= method == SubscriptionCollectionMethod.OfflineInvoice
+                ? Builders<SubscriptionFinancialDocument>.Filter.Eq(
+                    document => document.CollectionMethod, SubscriptionCollectionMethod.OfflineInvoice)
+                : Builders<SubscriptionFinancialDocument>.Filter.Ne(
+                    document => document.CollectionMethod, SubscriptionCollectionMethod.OfflineInvoice);
+        }
 
         var grouped = await Documents(tenantId)
             .Aggregate()
@@ -189,6 +201,7 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
@@ -196,10 +209,19 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
         // Dated by when the invoice was last written rather than when it was created: a usage
         // invoice is created pending and becomes revenue only when it settles, which can be a
         // retry cycle later and belongs in the window it settled in.
+        //
+        // The settled state already says how it was collected: a usage invoice is charged only on
+        // a card subscription and recorded only on an offline one, so the filter is a state.
+        SubscriptionUsageInvoiceState[] settled = collectionMethod switch
+        {
+            SubscriptionCollectionMethod.AutomaticCharge => [SubscriptionUsageInvoiceState.Charged],
+            SubscriptionCollectionMethod.OfflineInvoice => [SubscriptionUsageInvoiceState.RecordedOffline],
+            _ => [SubscriptionUsageInvoiceState.Charged, SubscriptionUsageInvoiceState.RecordedOffline]
+        };
+
         var filter = Builders<SubscriptionUsageInvoice>.Filter.And(
             Builders<SubscriptionUsageInvoice>.Filter.Eq(invoice => invoice.TenantId, tenantId),
-            Builders<SubscriptionUsageInvoice>.Filter.Eq(
-                invoice => invoice.State, SubscriptionUsageInvoiceState.Charged),
+            Builders<SubscriptionUsageInvoice>.Filter.In(invoice => invoice.State, settled),
             Builders<SubscriptionUsageInvoice>.Filter.Gte(
                 invoice => invoice.LastUpdatedDateUtc, fromUtc),
             Builders<SubscriptionUsageInvoice>.Filter.Lt(
@@ -486,10 +508,37 @@ public sealed class SubscriptionReportingRepository : ISubscriptionReportingRepo
             Builders<RecurringRevenueSnapshot>.Filter.Gte(snapshot => snapshot.DayUtc, fromUtc),
             Builders<RecurringRevenueSnapshot>.Filter.Lt(snapshot => snapshot.DayUtc, toUtc));
 
+        // The per-firm rows are left behind: the trend reads only totals, and a year of daily
+        // captures each carrying every firm would move the whole book over the wire for a chart.
         return await Snapshots(tenantId)
             .Find(filter)
+            .Project<RecurringRevenueSnapshot>(
+                Builders<RecurringRevenueSnapshot>.Projection.Exclude(snapshot => snapshot.Firms))
             .SortBy(snapshot => snapshot.DayUtc)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<RecurringRevenueSnapshot?> FindRecurringRevenueSnapshotAsync(
+        string tenantId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        bool latest,
+        CancellationToken cancellationToken)
+    {
+        var filter = Builders<RecurringRevenueSnapshot>.Filter.And(
+            Builders<RecurringRevenueSnapshot>.Filter.Eq(snapshot => snapshot.TenantId, tenantId),
+            Builders<RecurringRevenueSnapshot>.Filter.Gte(snapshot => snapshot.DayUtc, fromUtc),
+            Builders<RecurringRevenueSnapshot>.Filter.Lt(snapshot => snapshot.DayUtc, toUtc));
+
+        var sort = latest
+            ? Builders<RecurringRevenueSnapshot>.Sort.Descending(snapshot => snapshot.DayUtc)
+            : Builders<RecurringRevenueSnapshot>.Sort.Ascending(snapshot => snapshot.DayUtc);
+
+        return await Snapshots(tenantId)
+            .Find(filter)
+            .Sort(sort)
+            .Limit(1)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task SaveRecurringRevenueSnapshotAsync(

@@ -19,7 +19,7 @@ namespace Subscription.DomainService.Entities;
 [BsonIgnoreExtraElements]
 public sealed class SubscriptionCreditPurchase
 {
-    /// <summary><c>{subscriptionId}:{idempotencyKey}</c>.</summary>
+    /// <summary><c>{subscriptionId}:{idempotencyKey}</c>, or <c>{organizationId}:{idempotencyKey}</c> for a standalone purchase.</summary>
     [BsonId]
     public string ItemId { get; set; } = string.Empty;
 
@@ -27,7 +27,30 @@ public sealed class SubscriptionCreditPurchase
 
     public string OrganizationId { get; set; } = string.Empty;
 
-    public string SubscriptionId { get; set; } = string.Empty;
+    /// <summary>Null for a purchase from a credit offer, which the organization holds outside any subscription (spec 005).</summary>
+    public string? SubscriptionId { get; set; }
+
+    public bool IsOrganizationOwned => string.IsNullOrEmpty(SubscriptionId);
+
+    /// <summary>The offer a standalone purchase was quoted from, and its version at the time.</summary>
+    public string? OfferId { get; set; }
+
+    public long OfferVersion { get; set; }
+
+    /// <summary>The offer pack bought, when the purchase named one; its quantity is then the pack's.</summary>
+    public string? PackCode { get; set; }
+
+    /// <summary>
+    /// The meter's name when quoted, for the charge description and the invoice line of a purchase
+    /// with no plan snapshot to read it from later. Null on a subscription purchase.
+    /// </summary>
+    public string? MeterDisplayName { get; set; }
+
+    /// <summary>
+    /// The billing account charged or whose card a checkout saves. Recorded so a paid checkout can
+    /// be adopted onto it without a subscription to find it through. Null on purchases before spec 005.
+    /// </summary>
+    public string? BillingAccountId { get; set; }
 
     public string IdempotencyKey { get; set; } = string.Empty;
 
@@ -139,4 +162,8 @@ public sealed class SubscriptionCreditPurchase
 
     public static string CreateId(string subscriptionId, string idempotencyKey) =>
         $"{subscriptionId}:{idempotencyKey}";
+
+    /// <summary>Keyed on the organization: ids are GUIDs, so this cannot collide with a subscription's.</summary>
+    public static string CreateOrganizationId(string organizationId, string idempotencyKey) =>
+        $"{organizationId}:{idempotencyKey}";
 }

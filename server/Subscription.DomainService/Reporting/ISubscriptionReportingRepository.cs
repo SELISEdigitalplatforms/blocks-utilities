@@ -46,24 +46,45 @@ public interface ISubscriptionReportingRepository
     /// Financial document totals over a window, grouped by UTC issue day, currency and document
     /// type.
     /// </summary>
+    /// <param name="collectionMethod">Null for every document; otherwise only those issued under it.</param>
     Task<IReadOnlyList<DocumentRevenueBucket>> AggregateDocumentRevenueAsync(
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken);
 
-    /// <summary>Charged usage-invoice totals over a window, grouped by UTC day and currency.</summary>
+    /// <summary>
+    /// Settled usage-invoice totals over a window, grouped by UTC day and currency: charged ones,
+    /// and invoice-billed ones recorded as owed.
+    /// </summary>
+    /// <param name="collectionMethod">Null for both; otherwise only the matching settlement.</param>
     Task<IReadOnlyList<OverageRevenueBucket>> AggregateOverageRevenueAsync(
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        SubscriptionCollectionMethod? collectionMethod,
         CancellationToken cancellationToken);
 
-    /// <summary>Recurring revenue captures whose day falls in the window, oldest first.</summary>
+    /// <summary>
+    /// Recurring revenue captures whose day falls in the window, oldest first, without their
+    /// per-firm rows.
+    /// </summary>
     Task<IReadOnlyList<RecurringRevenueSnapshot>> ListRecurringRevenueSnapshotsAsync(
         string tenantId,
         DateTime fromUtc,
         DateTime toUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The latest or the earliest capture whose day falls in the window, with its per-firm rows.
+    /// Null when the window holds none.
+    /// </summary>
+    Task<RecurringRevenueSnapshot?> FindRecurringRevenueSnapshotAsync(
+        string tenantId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        bool latest,
         CancellationToken cancellationToken);
 
     /// <summary>Writes a capture, replacing any already held for the same day.</summary>

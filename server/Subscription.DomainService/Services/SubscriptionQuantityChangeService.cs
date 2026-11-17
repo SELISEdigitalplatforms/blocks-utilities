@@ -544,7 +544,10 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         // Nothing to reserve against: an increase that costs nothing cannot be half-paid, so it
         // takes the ordinary compare-and-set. A band that makes more units cheaper lands here too,
         // and so does a stub-and-annual combination that comes to zero or less.
-        if (chargeMinor <= 0)
+        //
+        // So does every increase on an invoice-billed subscription, which skips the gateway: what it
+        // costs is recorded as an Unpaid invoice in the same write instead.
+        if (chargeMinor <= 0 || subscription.IsOffline)
         {
             return await ApplyFreeIncreaseAsync(
                 subscription,
@@ -559,7 +562,9 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 settlementBreakdown,
                 correlationId,
                 cancellationToken,
-                replacementAnnual);
+                replacementAnnual,
+                offlineChargeMinor: subscription.IsOffline ? chargeMinor : 0,
+                requestedByUserId: requestedByUserId);
         }
 
         var account = await _billingAccounts.GetAsync(
@@ -775,10 +780,35 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
         SubscriptionSettlementBreakdown? settlement,
         string correlationId,
         CancellationToken cancellationToken,
-        PendingAnnualPeriod? replacementPendingAnnualPeriod = null)
+        PendingAnnualPeriod? replacementPendingAnnualPeriod = null,
+        long offlineChargeMinor = 0,
+        string? requestedByUserId = null)
     {
         var outboxEvent = _events.CreateQuantityChanged(
             subscription, subscription.QuantityItems, target, requestedByName, correlationId);
+
+        // What an offline increase would have charged, recorded in the applying write. Described at
+        // the new quantities, and keyed on the version the versioned write lets succeed exactly once.
+        SubscriptionDocumentSource? offlineInvoice = null;
+
+        if (subscription.IsOffline && offlineChargeMinor > 0 && settlement is not null)
+        {
+            var previousQuantities = subscription.QuantityItems;
+            subscription.QuantityItems = target;
+
+            offlineInvoice = SubscriptionDocumentSourceFactory.ForOfflineCharge(
+                subscription,
+                SubscriptionChargeKind.QuantityChange,
+                $"v{subscription.Version}",
+                SubscriptionFinancialDocumentIssuer.AmountsOfUncollectedSettlement(
+                    subscription, settlement, offlineChargeMinor),
+                SubscriptionDocumentSourceFactory.ActorOf(requestedByUserId, requestedByName, null),
+                now,
+                correlationId);
+            offlineInvoice.Settlement = settlement;
+
+            subscription.QuantityItems = previousQuantities;
+        }
 
         // No credit note, because no credit is banked. An increase reaching a cheaper volume band
         // used to hand the difference back as credit; it now applies at zero and leaves the balance
@@ -798,9 +828,16 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
                 null,
                 outboxEvent,
                 cancellationToken,
+                documentSource: offlineInvoice,
                 replacementPendingAnnualPeriod: replacementPendingAnnualPeriod))
         {
             return VersionConflict(correlationId);
+        }
+
+        if (offlineInvoice is not null && _announcer is not null)
+        {
+            // Only makes the recorded obligation prompt; the repair sweep issues it regardless.
+            await _announcer.RequestPendingAsync(subscription, correlationId, cancellationToken);
         }
 
         if (replacementPendingAnnualPeriod is not null)

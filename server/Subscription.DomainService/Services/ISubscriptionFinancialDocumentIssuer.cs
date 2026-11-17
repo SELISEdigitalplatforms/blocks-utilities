@@ -43,6 +43,16 @@ public interface ISubscriptionFinancialDocumentIssuer
     /// queue that drains while issuing nothing is the production failure this design exists to
     /// remove, in a form that is harder to see.
     /// </remarks>
+    /// <summary>
+    /// Issues the invoice for a standalone credit purchase (spec 005), composed from the purchase
+    /// record rather than from a subscription. Idempotent on the payment's source key.
+    /// </summary>
+    Task<FinancialDocumentIssueResult> IssueForCreditPurchaseAsync(
+        string tenantId,
+        string purchaseId,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     Task<FinancialDocumentIssueResult> IssueForPaymentAsync(
         string tenantId,
         string paymentDetailId,

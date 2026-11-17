@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Payment.DomainService.Utilities;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Reporting;
 using Subscription.DomainService.Repositories;
@@ -103,11 +104,14 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<
             ISubscriptionCreditPurchaseRepository,
             SubscriptionCreditPurchaseRepository>();
+        services.AddSingleton<IMeterCatalogueRepository, MeterCatalogueRepository>();
+        services.AddSingleton<ICreditOfferRepository, CreditOfferRepository>();
         services.AddSingleton<
             ISubscriptionAssignmentRepository,
             SubscriptionAssignmentRepository>();
         services.AddScoped<ISubscriptionMemberService, SubscriptionMemberService>();
-        // Scoped: it forwards the caller's own token, read from the request's context.
+        // Scoped: it forwards the caller's own token, read off the request by ICallerToken.
+        services.TryAddScoped<ICallerToken, CallerToken>();
         services.AddScoped<IMemberDirectory, IamMemberDirectory>();
         services.AddScoped<
             ISubscriberSubscriptionResolver,
@@ -256,6 +260,12 @@ public static class ApplicationServiceCollectionExtensions
             IValidator<PreviewUsageOverageRequest>,
             PreviewUsageOverageRequestValidator>();
         services.AddTransient<IValidator<CreditPurchaseRequest>, CreditPurchaseRequestValidator>();
+        services.AddTransient<IValidator<RecordFinancialDocumentPaymentRequest>, RecordFinancialDocumentPaymentRequestValidator>();
+        services.AddTransient<IValidator<CreateMeterCatalogueEntryRequest>, CreateMeterCatalogueEntryRequestValidator>();
+        services.AddTransient<IValidator<UpdateMeterCatalogueEntryRequest>, UpdateMeterCatalogueEntryRequestValidator>();
+        services.AddTransient<IValidator<CreditOfferRequest>, CreditOfferRequestValidator>();
+        services.AddTransient<IValidator<OrganizationCreditPurchaseRequest>, OrganizationCreditPurchaseRequestValidator>();
+        services.AddTransient<IValidator<OrganizationGrantCreditsRequest>, OrganizationGrantCreditsRequestValidator>();
         services.AddTransient<IValidator<GrantCreditsRequest>, GrantCreditsRequestValidator>();
         services.AddTransient<IValidator<MoveCreditsRequest>, MoveCreditsRequestValidator>();
 
@@ -263,10 +273,14 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionContextResolver,
             SubscriptionContextResolver>();
+        services.AddScoped<ExistingSubscriberPriceTerms>();
         services.AddScoped<IPlanCatalogueService, PlanCatalogueService>();
         services.AddScoped<IDiscountCatalogueService, DiscountCatalogueService>();
+        services.AddScoped<IMeterCatalogueService, MeterCatalogueService>();
+        services.AddScoped<ICreditOfferService, CreditOfferService>();
         services.AddScoped<ISubscriptionCreditService, SubscriptionCreditService>();
         services.AddScoped<CreditLedger>();
+        services.AddScoped<OrganizationBillingAccountResolver>();
         services.AddScoped<BillingAccountCardAdopter>();
         services.AddScoped<
             ISubscriptionBillingProfileService,
@@ -373,6 +387,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             ISubscriptionOutboxProcessor,
             SubscriptionOutboxProcessor>();
+        services.AddScoped<
+            IOrganizationCreditOutboxProcessor,
+            OrganizationCreditOutboxProcessor>();
         // Registered as themselves — SubscriptionBillingGatewayResolver picks between them by
         // provider name, so neither is the ISubscriptionBillingGateway DI entry on its own.
         services.AddScoped<RecurringChargeBillingGateway>();

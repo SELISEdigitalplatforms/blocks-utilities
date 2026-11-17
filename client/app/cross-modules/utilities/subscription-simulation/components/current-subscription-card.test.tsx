@@ -343,3 +343,63 @@ describe("CurrentSubscriptionCard provider name", () => {
     expect(screen.queryByText("Stripe")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * An organization billed by invoice sees that it is, and is never offered a
+ * card -- every one of those prompts would only earn a 409 from the server.
+ */
+describe("CurrentSubscriptionCard for a subscription billed by invoice", () => {
+  const offline: SimulatedSubscription = {
+    ...baseSubscription,
+    status: "Unpaid",
+    hasPaymentMethod: false,
+    collectionMethod: "OfflineInvoice",
+    checkoutUrl: "https://checkout.example/session",
+    pendingCheckout: {
+      purpose: "PaymentMethodSetup",
+      state: "Pending",
+      errorCode: null,
+      checkoutUrl: "https://checkout.example/setup",
+    },
+  };
+
+  it("shows the badge and offers no card prompt of any kind", () => {
+    renderCard(offline);
+
+    expect(screen.getByTestId("billed-by-invoice")).toHaveTextContent("Billed by invoice");
+    expect(screen.queryByRole("button", { name: /payment method|change card|continue subscription/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /checkout|card setup/i })).not.toBeInTheDocument();
+  });
+
+  it("hides the change-card prompt even with a card on file, since it would never be charged", () => {
+    renderCard({ ...offline, status: "Active", hasPaymentMethod: true, checkoutUrl: null, pendingCheckout: null });
+
+    expect(screen.queryByRole("button", { name: /change card/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /change plan/i })).toBeInTheDocument();
+  });
+
+  it("still shows an offline subscriber's own scheduled change", () => {
+    renderCard({
+      ...offline,
+      status: "Active",
+      pendingPlanChange: {
+        targetPlanCode: "enterprise",
+        targetPlanName: "Enterprise",
+        targetPriceId: "price-1",
+        interval: "Month",
+        intervalCount: 1,
+        quantities: [],
+        requestedAtUtc: "2026-08-10T00:00:00Z",
+        effectiveAtUtc: "2026-09-01T00:00:00Z",
+      },
+    });
+
+    expect(screen.getByTestId("pending-plan-change")).toBeInTheDocument();
+  });
+
+  it("shows no badge for a card subscription", () => {
+    renderCard({ ...baseSubscription, collectionMethod: "AutomaticCharge" });
+
+    expect(screen.queryByTestId("billed-by-invoice")).not.toBeInTheDocument();
+  });
+});

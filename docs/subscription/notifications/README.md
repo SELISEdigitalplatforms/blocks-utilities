@@ -7,7 +7,7 @@ The subscription module never writes email text. It publishes a mail request wit
 a **language** and a set of **values**. The platform mail module then picks your template by
 purpose and language and fills in the values. If you don't create a template, no email is sent.
 
-## The eight emails
+## The nine emails
 
 | Purpose | Sent when | To |
 | --- | --- | --- |
@@ -16,12 +16,14 @@ purpose and language and fills in the values. If you don't create a template, no
 | `subscription_cancellation_requested` | Someone cancels for the end of the paid period | Billing contact |
 | `subscription_canceled` | A subscription ends: an immediate cancel, or a scheduled one reaching its date | Billing contact |
 | `subscription_cancellation_withdrawn` | A scheduled cancellation is undone | Billing contact |
+| `subscription_price_terms_changed` | An administrator edits a price's discount or tax and ticks **Also apply to existing subscribers**. Sent to every subscriber on that price when the edit is saved, ahead of the renewal that first bills it | Billing contact |
 | `subscription_member_assigned` | An administrator gives someone a seat on a per-person subscription | That person |
 | `subscription_member_removed` | An administrator takes a seat back | That person |
 | `subscription_payment_method_expiring` | The card a billing account charges expires within `PaymentMethodExpiryNoticeDays` (default 30). Sent once per card expiry by the worker sweep | Billing contact |
 
 Nothing is sent when a decrease or plan change is merely *scheduled*. The email goes out when it
-happens. When a cancellation takes effect, every seat is released, but the members get no
+happens. The one exception is `subscription_price_terms_changed`, which exists to give notice: it
+goes out when the change is scheduled, and nothing further is sent when the renewal applies it. When a cancellation takes effect, every seat is released, but the members get no
 `subscription_member_removed`; the billing contact's `subscription_canceled` is the notice.
 
 ## Placeholders
@@ -29,7 +31,7 @@ happens. When a cancellation takes effect, every seat is released, but the membe
 Every key below is **always sent**, as an empty string when it does not apply. Write `{{Key}}` in
 the template.
 
-**Billing-contact emails** (the first five):
+**Billing-contact emails** (the first five, and `subscription_price_terms_changed`):
 
 | Key | Value |
 | --- | --- |
@@ -40,6 +42,13 @@ the template.
 | `EffectiveDate` | `yyyy-MM-dd`, in the subscription's own timezone. For a cancellation, the day access ends; for a change, the day it took effect; empty for a withdrawal |
 | `ActorName` | Who asked for it. For a change carried out later at renewal, the person who scheduled it |
 | `CancellationReason` | Cancellations: the reason the canceller typed. **Body only**; it is never available in the subject |
+| `PreviousDiscount`, `NewDiscount` | Price terms changes: the automatic discount before and from `EffectiveDate`, as `8%` or `8.25%`; `0%` for none |
+| `PreviousTaxRate`, `NewTaxRate` | Price terms changes: the tax rate before and after, in the same form |
+| `PreviousTaxMode`, `NewTaxMode` | Price terms changes: `Inclusive` or `Exclusive`, so the template can word it; empty when there is no tax |
+
+For `subscription_price_terms_changed`, `EffectiveDate` is the renewal that first bills the new
+terms: the first one at least `Subscription:PriceTermsNoticeDays` (default 7) after the edit.
+Subscribers whose next renewal is closer than that renew once more on the old terms.
 
 **Card expiry email** (`subscription_payment_method_expiring`):
 

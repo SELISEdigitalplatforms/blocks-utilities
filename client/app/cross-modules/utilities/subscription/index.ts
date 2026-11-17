@@ -6,3 +6,5 @@ export { SubscriptionDiscountsPage } from "./pages/subscription-discounts-page";
 export { SubscriptionBillingProfilePage } from "./pages/subscription-billing-profile-page";
 export { SubscriptionMerchantProfilePage } from "./pages/subscription-merchant-profile-page";
 export { SubscriptionInvoicesPage } from "./pages/subscription-invoices-page";
+export { MeterCataloguePage } from "./pages/meter-catalogue-page";
+export { CreditOffersPage } from "./pages/credit-offers-page";

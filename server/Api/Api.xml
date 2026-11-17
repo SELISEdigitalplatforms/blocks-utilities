@@ -4,6 +4,23 @@
         <name>Api</name>
     </assembly>
     <members>
+        <member name="T:Api.Controllers.CreditOffersController">
+            <summary>
+            Standalone credit offers (spec 005): what an organization pays for a meter's credits bought
+            outside any plan, one offer per meter per scope.
+            </summary>
+            <remarks>
+            Authored under the plan permissions, like the catalogue. Buying from an offer is on
+            <see cref="T:Api.Controllers.OrganizationCreditsController"/>, under the subscription manage permission, because
+            that spends the organization's money.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.CreditOffersController.Get(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>The offer the named scope is served for one meter: its override when it has one, otherwise the tenant's.</summary>
+        </member>
+        <member name="M:Api.Controllers.CreditOffersController.Update(System.String,Subscription.DomainService.Requests.CreditOfferRequest,System.String,System.Threading.CancellationToken)">
+            <summary>Replaces the offer's terms at exactly the named scope and raises its version.</summary>
+        </member>
         <member name="T:Api.Controllers.DocumentConversionsController">
             <summary>
             Converting word-processing documents (.doc, .docx, .rtf, .odt, ...) into PDF.
@@ -395,6 +412,64 @@
             Get visitor's preferred language from Accept-Language header.
             </summary>
             <returns>The Accept-Language header value</returns>
+        </member>
+        <member name="T:Api.Controllers.MeterCatalogueController">
+            <summary>
+            The meter catalogue (spec 005): the meters a tenant counts, named once so plans and credit
+            offers refer to the same thing.
+            </summary>
+            <remarks>
+            Gated by the plan authoring permissions, because the same people author both and a meter is
+            half a plan. <c>organizationId</c> is honoured only for the platform console and selects the
+            organization override being read or written; omitted, the console addresses the tenant-wide
+            entry.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.MeterCatalogueController.List(System.String,System.Threading.CancellationToken)">
+            <summary>The tenant's meters plus the named organization's overrides.</summary>
+        </member>
+        <member name="M:Api.Controllers.MeterCatalogueController.Get(System.String,System.String,System.Threading.CancellationToken)">
+            <summary>One meter as seen from the named scope: its override when it has one, otherwise the tenant's.</summary>
+        </member>
+        <member name="M:Api.Controllers.MeterCatalogueController.Update(System.String,Subscription.DomainService.Requests.UpdateMeterCatalogueEntryRequest,System.String,System.Threading.CancellationToken)">
+            <summary>Edits, or archives by setting <c>status</c> to Archived, the entry at exactly the named scope.</summary>
+        </member>
+        <member name="T:Api.Controllers.OrganizationCreditsController">
+            <summary>
+            Buying, granting and listing the standalone credits an organization holds outside any
+            subscription, and the invoices those purchases produced. See spec 005.
+            </summary>
+            <remarks>
+            Its own controller beside <see cref="T:Api.Controllers.SubscriptionCreditsController"/> rather than more routes
+            under a subscription, because there may be no subscription: that is the point. The same
+            permission as a subscription purchase, for the same reason — buying spends the organization's
+            money and granting gives credits away. <c>organizationId</c> is honoured only for the platform
+            console; everyone else acts on their own organization.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.Preview(Subscription.DomainService.Requests.OrganizationCreditPurchaseRequest,System.Threading.CancellationToken)">
+            <summary>What buying from the organization's offer would cost, in the currency named. Changes nothing.</summary>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.Purchase(Subscription.DomainService.Requests.OrganizationCreditPurchaseRequest,System.Threading.CancellationToken)">
+            <summary>
+            Buys standalone credits: charges the organization's saved card once, or opens a hosted
+            checkout when it has none, and grants the credits to the organization.
+            </summary>
+            <remarks>
+            <c>idempotencyKey</c> is required. Sending the same key and the same request again returns
+            the first result with <c>replayed</c> set, and never charges a second time; the same key
+            with a different request is refused. The invoice is issued in the background once the
+            payment settles, and appears under <c>organization-credits/invoices</c>.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.ListGrants(System.String,System.String,System.Nullable{Subscription.DomainService.Enums.CreditGrantStatus},System.Threading.CancellationToken)">
+            <summary>The organization's standalone grants, newest first, with their status as it is now.</summary>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.Grant(Subscription.DomainService.Requests.OrganizationGrantCreditsRequest,System.Threading.CancellationToken)">
+            <summary>Gives the organization standalone credits without a charge. The reason is required and kept.</summary>
+        </member>
+        <member name="M:Api.Controllers.OrganizationCreditsController.ListInvoices(Subscription.DomainService.Requests.GetFinancialDocumentsRequest,System.Threading.CancellationToken)">
+            <summary>The invoices for the organization's standalone credit purchases, newest first.</summary>
         </member>
         <member name="M:Api.Controllers.PaymentMethodsController.GetStoredPaymentMethods(System.String,System.Threading.CancellationToken)">
             <param name="organizationId">
@@ -989,7 +1064,8 @@
         <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePriceDiscount(System.String,Subscription.DomainService.Requests.UpdatePriceDiscountRequest,System.Threading.CancellationToken)">
             <summary>
             Sets or clears the automatic discount on a price. Future subscriptions and future moves onto
-            this price only — nobody already on it is repriced.
+            this price only, unless <c>applyToExistingSubscribers</c> is set — then everyone already on it
+            is emailed and moves to it at their first renewal at least the notice period away.
             </summary>
         </member>
         <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePlan(System.String,System.String,System.Threading.CancellationToken)">
@@ -1067,7 +1143,7 @@
             </para>
             </remarks>
         </member>
-        <member name="M:Api.Controllers.SubscriptionReportsController.GetRecurringRevenue(System.Threading.CancellationToken)">
+        <member name="M:Api.Controllers.SubscriptionReportsController.GetRecurringRevenue(System.Nullable{Subscription.DomainService.Enums.SubscriptionCollectionMethod},System.Threading.CancellationToken)">
             <summary>
             Monthly and annual run-rate, by currency and seat tier.
             </summary>
@@ -1094,6 +1170,21 @@
             <para>
             History begins on the day captures began. Before that nothing was kept that a past run-rate
             could be rebuilt from, and a bucket with no capture is absent rather than zero.
+            </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionReportsController.GetRecurringRevenueMovement(Subscription.DomainService.Reporting.GetRecurringRevenueMovementRequest,System.Threading.CancellationToken)">
+            <summary>
+            How the recurring run-rate changed across a window: new, expansion, contraction and churn.
+            </summary>
+            <remarks>
+            Compares the capture in force when the window opens with the latest one before it closes,
+            firm by firm, so the four movements reconcile exactly to the change. Pass this week's,
+            this month's or this year's bounds for the matching dashboard figure.
+            <para>
+            Captures began before they recorded firms. A window that opens on such a capture returns
+            the totals with <c>breakdownAvailable</c> false, and one that opens before the first
+            capture starts from the first one with <c>coversWholeWindow</c> false.
             </para>
             </remarks>
         </member>
@@ -1189,6 +1280,15 @@
             show the price and the obstacle together. Genuine input errors (an unknown plan, price or
             discount code) still fail with the same codes <see cref="M:Api.Controllers.SubscriptionsController.Subscribe(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)"/> returns.
             </para>
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionsController.ActivateOffline(Subscription.DomainService.Requests.CreateSubscriptionRequest,System.Threading.CancellationToken)">
+            <summary>
+            Activates a paid plan for an organization billed by invoice, with no card and no
+            checkout.
+            </summary>
+            <remarks>
+            Same request as Subscribe; the route is the option, the permission is the gate.
             </remarks>
         </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetCurrent(System.String,System.Threading.CancellationToken)">
@@ -1411,6 +1511,11 @@
             </para>
             </remarks>
         </member>
+        <member name="M:Api.Controllers.SubscriptionsController.RecordInvoicePayment(System.String,Subscription.DomainService.Requests.RecordFinancialDocumentPaymentRequest,System.Threading.CancellationToken)">
+            <summary>
+            Records that an invoice was paid outside the card flow, for example by bank transfer.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.SubscriptionsController.GetInvoiceHistory(Subscription.DomainService.Requests.GetFinancialDocumentsRequest,System.Threading.CancellationToken)">
             <summary>
             Lists the calling organization's invoices, trial invoices and credit notes, newest first.
@@ -1469,6 +1574,15 @@
             here goes to the real payment gateway.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.GetOrganizationState(System.String,System.Threading.CancellationToken)">
+            <summary>
+            The standalone credits an organization holds outside any subscription (spec 005), for an
+            organization that may hold no subscription at all.
+            </summary>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionSimulationController.RunOrganizationDueJobs(System.String,Subscription.DomainService.Simulation.RunDueJobsRequest,System.Threading.CancellationToken)">
+            <summary>Runs the credit purchase recovery and grant maintenance sweeps, then reports the organization's credits.</summary>
+        </member>
         <member name="M:Api.Controllers.SubscriptionSimulationController.GetDataPolicy">
             <summary>
             The allowlisted collections and what the console may do to each, for a caller deciding
@@ -1507,6 +1621,9 @@
             Metered usage. Served under <c>/api/subscription-usage</c>.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.#ctor(Subscription.DomainService.Services.IUsageRecordingService,Subscription.DomainService.Services.ISubscriptionUsageOveragePreviewService)">
+            <inheritdoc/>
+        </member>
         <member name="M:Api.Controllers.SubscriptionUsageController.Record(Subscription.DomainService.Requests.RecordUsageRequest,System.Threading.CancellationToken)">
             <summary>
             Records usage and reports where that leaves the allowance.
@@ -1515,6 +1632,26 @@
             This is the authoritative gate, not <c>GET /api/entitlements</c>. The figures returned
             include this call, so two callers at the boundary get different answers; a caller that
             must not exceed its allowance should set <c>enforce</c> and act on <c>allowed</c>.
+            </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionUsageController.Release(Subscription.DomainService.Requests.ReleaseUsageRequest,System.Threading.CancellationToken)">
+            <summary>
+            Gives back a use recorded earlier, named by the idempotency key it was recorded under.
+            </summary>
+            <remarks>
+            For a caller that books usage before an operation and releases it when the operation fails.
+            The balance, pace windows and any credits the use drew return to where they were. Safe to
+            retry: a second release, or a release of a use that was refused, reports <c>replayed</c>.
+            409 <c>subscription_usage_release_in_progress</c> while the recording call is still running
+            (retry), and 409 <c>subscription_usage_release_period_closed</c> once its period is billed.
+            <para>
+            The idempotency key is the caller's own, never issued by this service and not returned in
+            the response. Derive it from the operation being paid for (for example
+            <c>export-job-8841</c>) rather than generating a fresh one per call: the same key then
+            makes a retried booking count once, and lets a caller that crashed after booking rebuild
+            it and release. A key generated at random and not kept leaves a booking that cannot be
+            released.
+            </para>
             </remarks>
         </member>
         <member name="M:Api.Controllers.SubscriptionUsageController.GetCurrent(System.String,System.String,System.Threading.CancellationToken)">

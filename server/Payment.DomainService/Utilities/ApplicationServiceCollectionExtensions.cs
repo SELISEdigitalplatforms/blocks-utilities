@@ -267,6 +267,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<
             IPaymentMethodSetupService,
             PaymentMethodSetupService>();
+        // Reads the caller's token off the request, which Genesis does not put on the context.
+        services.TryAddScoped<ICallerToken, CallerToken>();
         services.AddScoped<
             IOrganizationDirectory,
             IamOrganizationDirectory>();

@@ -279,6 +279,38 @@ public interface ISubscriptionRepository
         PendingPlanChange pending,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// A page of the subscriptions still billed on <paramref name="priceId"/>, in id order after
+    /// <paramref name="afterId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Every status that can still renew: trialing, active, past due, and unpaid — an unpaid
+    /// subscriber who comes back with a card renews on the price it holds, and must not be the one
+    /// subscriber an extended edit skipped.
+    /// </remarks>
+    Task<IReadOnlyList<SubscriptionDetail>> ListRenewableOnPriceAsync(
+        string tenantId,
+        string priceId,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Holds an extended discount or tax edit for a later renewal, replacing any already held, and
+    /// announces it in the same write.
+    /// </summary>
+    /// <remarks>
+    /// Refuses unless the subscription is still on the price the terms belong to, so a plan change
+    /// landing between the read and this write cannot be given another price's terms.
+    /// </remarks>
+    Task<bool> TrySetPendingPriceTermsAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        PendingPriceTerms pending,
+        SubscriptionOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
+
     /// <summary>Withdraws a scheduled plan change.</summary>
     Task<bool> TryClearPendingPlanChangeAsync(
         string tenantId,
@@ -308,7 +340,9 @@ public interface ISubscriptionRepository
     /// <remarks>
     /// Compare-and-set on the attempt itself rather than the version: two tabs retrying at once
     /// must produce one increment, and the loser is told so rather than opening a third session
-    /// under a number that is already taken.
+    /// under a number that is already taken. Accepts every status the setup endpoint does
+    /// (anything but Canceled and IncompleteExpired): a completed setup is followed by a new
+    /// session too, so the attempt advances on running subscriptions, not only at signup.
     /// </remarks>
     Task<bool> TryBumpPaymentMethodSetupAttemptAsync(
         string tenantId,

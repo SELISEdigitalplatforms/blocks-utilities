@@ -78,4 +78,24 @@ public sealed class SubscriptionUsageRecord
     public int? SeatNumber { get; set; }
 
     public string CorrelationId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The credit grants this use drew from, so a release can give exactly those back.
+    /// </summary>
+    /// <remarks>
+    /// The one field set after insert, once the draw settles; the balance this entry carries never
+    /// changes. Null when nothing was drawn, and on every entry written before releases existed.
+    /// </remarks>
+    public List<UsageCreditTake>? CreditTakes { get; set; }
+}
+
+/// <summary>One grant's share of what a use drew from credits.</summary>
+public sealed class UsageCreditTake
+{
+    public string GrantId { get; set; } = string.Empty;
+
+    /// <summary>The grant's subscription, or null for the organization's standalone credits.</summary>
+    public string? SubscriptionId { get; set; }
+
+    public decimal Amount { get; set; }
 }

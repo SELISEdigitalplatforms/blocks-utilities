@@ -43,6 +43,7 @@ import { useStartPaymentMethodSetup } from "../hooks/use-start-payment-method-se
 import { CurrentSubscriptionCard } from "../components/current-subscription-card";
 import { OverageTermsSection } from "../components/overage-terms-section";
 import { CreditsCard } from "../components/credits-card";
+import { OrganizationCreditsCard } from "../components/organization-credits-card";
 import { PaymentOutcomeDialog } from "../components/payment-outcome-dialog";
 import { RunDueJobsDialog } from "../components/run-due-jobs-dialog";
 import { SimulatedPlanCard } from "../components/simulated-plan-card";
@@ -51,6 +52,7 @@ import { SubscribeDialog } from "../components/subscribe-dialog";
 import { UsageSection } from "../components/usage-section";
 import { useCurrentSimulatedSubscription } from "../hooks/use-current-simulated-subscription";
 import { useMyPlaces } from "../hooks/use-members";
+import { isOfflineSubscription } from "../models/subscription-simulation.model";
 import type {
   SubscriptionSimulationActionResponse,
   SubscriptionSimulationJobRunResponse,
@@ -433,6 +435,13 @@ export const SubscriptionSimulationPage = () => {
         <CreditsCard subscription={currentSubscription} organizationId={organizationScope} />
       )}
 
+      {/* With or without a subscription (spec 005): a credits-only organization has this and nothing else. */}
+      <OrganizationCreditsCard
+        organizationId={organizationScope}
+        showSweeps={!currentSubscription}
+        purchaseRefused={isOfflineSubscription(currentSubscription) && isEntitled}
+      />
+
       {(isEntitled || memberPlans.length > 0) && (
         <UsageSection
           plan={isEntitled ? currentPlan : undefined}
@@ -549,6 +558,7 @@ export const SubscriptionSimulationPage = () => {
           open={isAdvancingRenewal}
           onOpenChange={setIsAdvancingRenewal}
           onResult={setHarnessResult}
+          offline={isOfflineSubscription(currentSubscription)}
         />
       )}
 
