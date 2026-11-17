@@ -18,10 +18,11 @@ namespace Utility.DomainService.Geolocation.service
     /// metered third party rather than something this service owns:
     ///
     /// <para>
-    /// <b>The key comes from a secret store, not from configuration.</b> Blocks Secrets when
-    /// <c>GeolocationApiKeySecretId</c> names one - per tenant, rotatable from the console, and
-    /// audited on every read - otherwise the Genesis <see cref="IVault"/>, the same store the
-    /// payment key ring uses. Rotating the key is an operations task either way rather than a
+    /// <b>The key comes from a secret store, not from configuration.</b> Blocks Secrets first -
+    /// the caller's project's secret named <c>geolocation-api-key</c>, found by name so every
+    /// project keeps its own id and nobody maps ids. It is per project, rotatable from the console, and audited
+    /// on every read. Otherwise the Genesis <see cref="IVault"/>, the same store the payment key
+    /// ring uses. Rotating the key is an operations task either way rather than a
     /// redeploy. A committed <c>GeolocationApiKey</c> is still read last so a developer without
     /// access to either store can work. <see cref="ResolveApiKeyAsync"/> has the full order.
     /// </para>
@@ -45,7 +46,12 @@ namespace Utility.DomainService.Geolocation.service
         private const string ApiUrlKey = "GeolocationApiUrl";
         private const string ApiKeyConfigurationKey = "GeolocationApiKey";
         private const string ApiKeySecretNameKey = "GeolocationApiKeySecretName";
-        private const string ApiKeySecretIdKey = "GeolocationApiKeySecretId";
+        private const string ApiKeySecretStoreNameKey = "GeolocationApiKeySecretStoreName";
+        private const string DefaultApiKeySecretStoreName = "geolocation-api-key";
+
+        // The search also matches descriptions and partial names, so one page is filtered here.
+        // shortcut: only the first page is read; upgrade if a project ever holds >20 near-matches.
+        private const int SecretSearchPageSize = 20;
 
         /// <summary>
         /// Cache slot for a caller with no tenant on its context. The vault and configuration
@@ -71,7 +77,7 @@ namespace Utility.DomainService.Geolocation.service
 
         private readonly string? _apiUrl;
         private readonly string _apiKeySecretName;
-        private readonly string? _apiKeySecretId;
+        private readonly string _apiKeySecretStoreName;
         private readonly string? _configuredApiKey;
         private readonly long _cacheSeconds;
         private readonly int _providerDelayMilliseconds;
@@ -109,7 +115,9 @@ namespace Utility.DomainService.Geolocation.service
 
             _apiUrl = configuration[ApiUrlKey];
             _configuredApiKey = configuration[ApiKeyConfigurationKey];
-            _apiKeySecretId = configuration[ApiKeySecretIdKey];
+            _apiKeySecretStoreName = string.IsNullOrWhiteSpace(configuration[ApiKeySecretStoreNameKey])
+                ? DefaultApiKeySecretStoreName
+                : configuration[ApiKeySecretStoreNameKey]!;
             _apiKeySecretName = string.IsNullOrWhiteSpace(configuration[ApiKeySecretNameKey])
                 ? ApiKeyConfigurationKey
                 : configuration[ApiKeySecretNameKey]!;
@@ -219,13 +227,13 @@ namespace Utility.DomainService.Geolocation.service
         /// one, which is a valid state: some providers (ip-api.com) are keyless.
         /// </summary>
         /// <remarks>
-        /// Three sources, and which one is used is decided by configuration rather than by trying
-        /// them in turn:
+        /// Three sources, tried in turn:
         /// <list type="number">
         /// <item>
-        /// <b>Blocks Secrets</b>, when <c>GeolocationApiKeySecretId</c> names a secret. This is the
-        /// managed path: the key is per tenant, rotatable from the Blocks OS console, and every
-        /// read of it is audited.
+        /// <b>Blocks Secrets</b>, in the caller's project: the secret named
+        /// <c>GeolocationApiKeySecretStoreName</c> (default <c>geolocation-api-key</c>). This is
+        /// the managed path: the key is per project, rotatable from the Blocks OS console, and
+        /// every read of it is audited.
         /// </item>
         /// <item>
         /// <b>The Genesis vault</b>, by the name in <c>GeolocationApiKeySecretName</c>. The
@@ -282,41 +290,43 @@ namespace Utility.DomainService.Geolocation.service
         }
 
         /// <summary>
-        /// Reads the key through <c>ISecretService</c>. Returns null when no secret id is
-        /// configured, or when the read did not produce a value.
+        /// Reads the key through <c>ISecretService</c> from the secret found by name. Returns null
+        /// when there is no such secret, or it holds no value.
         /// </summary>
         /// <remarks>
         /// A scope of its own because <c>ISecretService</c> is registered scoped - it reads the
         /// ambient <see cref="BlocksContext"/> - while this repository is a singleton, which is what
         /// lets the provider gate and the key cache outlive a request. The ambient context flows
-        /// into the new scope, so the secret still resolves for the calling tenant.
+        /// into the new scope, so both the search and the read run in the calling project.
         /// </remarks>
         private async Task<string?> ReadFromSecretsAsync(CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(_apiKeySecretId))
-            {
-                return null;
-            }
-
             try
             {
                 using var scope = _serviceScopeFactory.CreateScope();
 
                 var secrets = scope.ServiceProvider.GetRequiredService<ISecretService>();
-                var value = await secrets.GetValueAsync(_apiKeySecretId, cancellationToken);
+                var secretId = await FindSecretIdByNameAsync(secrets, cancellationToken);
+
+                if (secretId == null)
+                {
+                    return null;
+                }
+
+                var value = await secrets.GetValueAsync(secretId, cancellationToken);
 
                 if (!string.IsNullOrWhiteSpace(value))
                 {
                     _logger.LogInformation(
-                        "Geolocation provider key resolved Source=blocks_secrets SecretId={SecretId}",
-                        _apiKeySecretId);
+                        "Geolocation provider key resolved Source=blocks_secrets_by_name SecretId={SecretId}",
+                        secretId);
 
                     return value;
                 }
 
                 _logger.LogWarning(
                     "Geolocation provider key is empty in Blocks Secrets SecretId={SecretId} Fallback=vault",
-                    _apiKeySecretId);
+                    secretId);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -324,17 +334,60 @@ namespace Utility.DomainService.Geolocation.service
             }
             catch (Exception exception)
             {
-                // Covers the whole family the secret domain raises - not found, access denied,
-                // locked or deleted, vault unreachable - plus a missing or unauthenticated
-                // BlocksContext, which is what a background caller outside
-                // BlocksContext.ExecuteInContext would hit.
+                // Covers the whole family the secret domain raises - access denied, locked or
+                // deleted, vault unreachable - plus a missing or unauthenticated BlocksContext,
+                // which is what a background caller outside BlocksContext.ExecuteInContext would hit.
                 _logger.LogError(
                     exception,
-                    "Reading the geolocation provider key from Blocks Secrets failed SecretId={SecretId} Fallback=vault",
-                    _apiKeySecretId);
+                    "Reading the geolocation provider key from Blocks Secrets failed Name={Name} Fallback=vault",
+                    _apiKeySecretStoreName);
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Finds the id of the calling project's active secret named
+        /// <c>GeolocationApiKeySecretStoreName</c>. Null when there is none.
+        /// </summary>
+        private async Task<string?> FindSecretIdByNameAsync(
+            ISecretService secrets,
+            CancellationToken cancellationToken)
+        {
+            var result = await secrets.FindAsync(
+                new SecretFilter
+                {
+                    Search = _apiKeySecretStoreName,
+                    Status = SecretStatuses.Active,
+                    PageSize = SecretSearchPageSize
+                },
+                cancellationToken);
+
+            // The search is a substring match over name and description; only an exact name counts.
+            var matches = (result?.Data ?? [])
+                .Where(secret => string.Equals(secret.Name, _apiKeySecretStoreName, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(secret => secret.LastUpdatedDate)
+                .ToList();
+
+            if (matches.Count == 0)
+            {
+                _logger.LogWarning(
+                    "Geolocation provider key not found by name Name={Name} Fallback=vault",
+                    _apiKeySecretStoreName);
+
+                return null;
+            }
+
+            if (matches.Count > 1)
+            {
+                _logger.LogWarning(
+                    "Several secrets carry the geolocation provider key name; using the most recently updated Name={Name} Count={Count} SecretId={SecretId}",
+                    _apiKeySecretStoreName,
+                    matches.Count,
+                    matches[0].SecretId);
+            }
+
+            return matches[0].SecretId;
         }
 
         private async Task<string?> ReadFromVaultAsync()
