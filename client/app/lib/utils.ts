@@ -40,6 +40,10 @@ export function compareDates(dateStringA: string, dateStringB: string): number {
 
 export { BREADCRUMB_CUSTOM_TITLES };
 
+export function setBreadCrumbTitleEntry(pathName: string, title: string) {
+  BREADCRUMB_CUSTOM_TITLES[pathName] = title;
+}
+
 export function clearBreadCrumbTitleEntry(pathName: string) {
   BREADCRUMB_CUSTOM_TITLES[pathName] = null;
 }

@@ -446,6 +446,7 @@ export function BlocksAppLauncher() {
     const keys = stored
       ? new Set<string>(JSON.parse(stored) as string[])
       : new Set<string>(["iam", "localization"]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- favourites live in localStorage; read once after mount
     setFavouriteKeys(keys);
     setIsHydrated(true);
   }, []);

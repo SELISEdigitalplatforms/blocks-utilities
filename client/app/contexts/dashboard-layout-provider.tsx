@@ -59,6 +59,7 @@ export function DashboardLayoutProvider({
       if (!isMobile) {
         const stored = localStorage.getItem(storageKey);
         if (stored !== null) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- restores the persisted sidebar state from localStorage once after mount
           setIsSidebarOpen(JSON.parse(stored) as boolean);
           return;
         }
@@ -70,6 +71,7 @@ export function DashboardLayoutProvider({
 
   useEffect(() => {
     if (!persist) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- follows viewport changes from useIsMobile
       setIsSidebarOpen(!isMobile);
     } else if (isMobile) {
       setIsSidebarOpen(false);
@@ -79,18 +81,21 @@ export function DashboardLayoutProvider({
   useEffect(() => {
     const menuId = localStorage.getItem("subMenuId");
     if (menuId !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restores the last submenu from localStorage once after mount
       setSubMenuId(menuId);
     }
   }, []);
 
   useEffect(() => {
     if (!isMobile && pathname.startsWith("/services")) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- opens the services submenu when navigating into /services on desktop
       setIsSidebarSubMenuOpen(true);
     }
   }, [pathname, isMobile]);
 
   useEffect(() => {
     if (isSidebarOpen && !isMobile) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- collapses the services submenu when the sidebar opens on desktop
       setIsSidebarSubMenuOpen(false);
     }
   }, [isSidebarOpen, isMobile]);

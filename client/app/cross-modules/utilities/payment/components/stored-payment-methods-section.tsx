@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 import { useGetOrganizations } from "@blocks-idp/iam/hooks/use-organization";
 import {
@@ -115,7 +115,7 @@ export const StoredPaymentMethodsSection = () => {
   const [brandFilter, setBrandFilter] = useState(ALL_FILTER_VALUE);
   const [typeFilter, setTypeFilter] = useState(ALL_FILTER_VALUE);
   const [pageSize, setPageSize] = useState(5);
-  const [page, setPage] = useState(1);
+  const [requestedPage, setPage] = useState(1);
   const [selectedMethod, setSelectedMethod] =
     useState<StoredPaymentMethod | null>(null);
 
@@ -168,13 +168,14 @@ export const StoredPaymentMethodsSection = () => {
     Math.ceil(filteredMethods.length / pageSize),
   );
 
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
-
-  useEffect(() => {
+  // Back to page 1 whenever a filter changes; never past the last page when the list shrinks.
+  const filterKey = [brandFilter, pageSize, searchText, typeFilter].join("\u0000");
+  const [pageFilterKey, setPageFilterKey] = useState(filterKey);
+  if (pageFilterKey !== filterKey) {
+    setPageFilterKey(filterKey);
     setPage(1);
-  }, [brandFilter, pageSize, searchText, typeFilter]);
+  }
+  const page = Math.min(requestedPage, totalPages);
 
   const pageMethods = filteredMethods.slice(
     (page - 1) * pageSize,
@@ -460,7 +461,7 @@ export const StoredPaymentMethodsSection = () => {
                   disabled={page <= 1}
                   aria-label={t("STORED_PAYMENT_METHODS_SECTION.PREVIOUS_SAVED_METHOD_PAGE")}
                   onClick={() =>
-                    setPage((current) => Math.max(1, current - 1))
+                    setPage(Math.max(1, page - 1))
                   }
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -472,9 +473,7 @@ export const StoredPaymentMethodsSection = () => {
                   disabled={page >= totalPages}
                   aria-label={t("STORED_PAYMENT_METHODS_SECTION.NEXT_SAVED_METHOD_PAGE")}
                   onClick={() =>
-                    setPage((current) =>
-                      Math.min(totalPages, current + 1),
-                    )
+                    setPage(Math.min(totalPages, page + 1))
                   }
                 >
                   <ChevronRight className="h-4 w-4" />

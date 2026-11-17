@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Check, ChevronsUpDown, ExternalLink } from "lucide-react";
 import {
@@ -63,11 +63,13 @@ export const RepositorySelectionModal = ({
   const [isLoadingRevoke, setIsLoadingRevoke] = useState(false);
 
   // Custom debounce implementation
-  const debouncedSetSearch = useRef(
-    debounce((value: string) => {
-      setDebouncedSearchTerm(value);
-    }, 500),
-  ).current;
+  const debouncedSetSearch = useMemo(
+    () =>
+      debounce((value: string) => {
+        setDebouncedSearchTerm(value);
+      }, 500),
+    [],
+  );
 
   useEffect(() => {
     debouncedSetSearch(searchTerm);
@@ -77,11 +79,13 @@ export const RepositorySelectionModal = ({
   }, [searchTerm, debouncedSetSearch]);
 
   // Reset pagination when debounced search term changes
-  useEffect(() => {
+  const [pagedSearchTerm, setPagedSearchTerm] = useState(debouncedSearchTerm);
+  if (pagedSearchTerm !== debouncedSearchTerm) {
+    setPagedSearchTerm(debouncedSearchTerm);
     setCurrentPage(0);
     setAllRepositories([]);
     setHasMoreData(true);
-  }, [debouncedSearchTerm]);
+  }
 
   const itemsPerPage = 10;
 
@@ -110,6 +114,7 @@ export const RepositorySelectionModal = ({
 
     // If total_count is 0, no repositories available
     if (totalCount === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- accumulates pages from the paginated GitHub query as they arrive
       setAllRepositories([]);
       setHasMoreData(false);
       return;
@@ -174,6 +179,7 @@ export const RepositorySelectionModal = ({
   useEffect(() => {
     if (!open) {
       // On close: clear state
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the picker and invalidates the repo query when the modal opens or closes
       setIsPopoverOpen(false);
       setAllRepositories([]);
       setCurrentPage(0);

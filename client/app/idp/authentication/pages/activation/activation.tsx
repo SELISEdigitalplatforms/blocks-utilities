@@ -42,6 +42,7 @@ export const Activation = ({ code }: ActivationProps) => {
 
   useEffect(() => {
     if (!code) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the page state when the activation code changes; the valid-code path is async
       setActivationError("invalid");
       setActivationUserId(null);
       setResendMessage(null);

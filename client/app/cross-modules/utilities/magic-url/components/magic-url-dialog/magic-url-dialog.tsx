@@ -109,6 +109,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
   React.useEffect(() => {
     if (open) {
       if (initialData) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- loads initialData into the form each time the dialog opens
         setUrl(initialData.uri);
         setName(initialData.name || "");
         setValue("uri", initialData.uri, { shouldValidate: true });

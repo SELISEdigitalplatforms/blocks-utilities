@@ -84,6 +84,7 @@ function OIDCProvider({ children }: { children: ReactNode }) {
       localStorage.setItem("oidc-flow-params", JSON.stringify(mergedParams));
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- merges URL params with the OIDC params kept in localStorage
     setParams(mergedParams);
   }, [location.pathname, searchParams]);
 
