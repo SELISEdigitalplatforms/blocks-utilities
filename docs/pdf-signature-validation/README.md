@@ -89,10 +89,16 @@ files validated, since re-validation overwrites.
 | `SubIndication` | DSS sub-indication when not passed (e.g. `NO_CERTIFICATE_CHAIN_FOUND`, `HASH_FAILURE`), else `null`. |
 | `SignatureLevel` | PAdES level reached: `PAdES-BASELINE-B`, `-T`, `-LT`, `-LTA`, or `null`/`NOT_ADES`. |
 | `SignerSubject` | The signing certificate's subject DN. |
+| `SignerName` | The signing certificate's common name (CN). |
+| `Qualification` | DSS's eIDAS qualification of the signature: `QESig`, `QESeal`, `AdESig-QC`, `AdESig`, … or `N/A`. Depends on the trusted lists' qualification data, so a signer trusted only through an extra anchor gets no qualified result. |
+| `QualificationDescription` | DSS's readable label for `Qualification` (e.g. "Qualified Electronic Signature"). |
 | `ClaimedSigningTime` | The time the signature claims (`/M` or the CMS signing-time). |
 | `BestSignatureTime` | The earliest time proven by a timestamp, when there is one. |
+| `MaximumValidityTime` | The latest time until which the signature can be extended (DSS's `ExtensionPeriodMax`), when known. |
+| `SigningCertificateValidFrom`, `SigningCertificateValidUntil` | The signing certificate's `NotBefore` / `NotAfter`. |
 | `RevocationOrigin` | Where the signer's revocation data came from: `DssDictionary`, `Cms` (in the signature itself) or `None`. |
 | `CoversWholeDocument` | The byte range covers the file up to this signature's revision. |
+| `CertificateChain` | Readable names of the signing certificate's chain, signer first. |
 
 ## API Contract
 

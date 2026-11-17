@@ -10,6 +10,7 @@ import eu.europa.esig.dss.diagnostic.RelatedRevocationWrapper;
 import eu.europa.esig.dss.diagnostic.SignatureWrapper;
 import eu.europa.esig.dss.enumerations.RevocationOrigin;
 import eu.europa.esig.dss.enumerations.SignatureLevel;
+import eu.europa.esig.dss.enumerations.SignatureQualification;
 import eu.europa.esig.dss.model.FileDocument;
 import eu.europa.esig.dss.model.x509.CertificateToken;
 import eu.europa.esig.dss.pades.validation.PDFDocumentValidator;
@@ -279,10 +280,19 @@ public final class DssValidator {
             node.put("subIndication", text(simple.getSubIndication(signatureId)));
             node.put("signatureLevel", text(level));
             node.put("signerSubject", signer == null ? null : signer.getCertificateDN());
+            node.put("signerName", signer == null ? null : signer.getCommonName());
+            SignatureQualification qualification = simple.getSignatureQualification(signatureId);
+            node.put("qualification", qualification == null ? null : qualification.getReadable());
+            node.put("qualificationDescription", qualification == null ? null : qualification.getLabel());
             node.put("claimedSigningTime", text(signature.getClaimedSigningTime()));
             node.put("bestSignatureTime", text(simple.getBestSignatureTime(signatureId)));
+            node.put("maximumValidityTime", text(simple.getExtensionPeriodMax(signatureId)));
+            node.put("signingCertificateValidFrom", signer == null ? null : text(signer.getNotBefore()));
+            node.put("signingCertificateValidUntil", signer == null ? null : text(signer.getNotAfter()));
             node.put("revocationOrigin", revocationOrigin(signature, signer));
             node.put("coversWholeDocument", revision != null && revision.isSignatureByteRangeValid());
+            ArrayNode chain = node.putArray("certificateChain");
+            signature.getCertificateChain().forEach(certificate -> chain.add(certificate.getReadableCertificateName()));
         }
 
         ObjectNode verdict = JSON.createObjectNode();
