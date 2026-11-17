@@ -25,7 +25,7 @@ type ActivationProps = {
   lang?: string;
 };
 
-const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
+const xBlocksKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
 
 export const Activation = ({ code }: ActivationProps) => {
   const { t } = useT("utilities.idp.authentication");
@@ -42,6 +42,7 @@ export const Activation = ({ code }: ActivationProps) => {
 
   useEffect(() => {
     if (!code) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the page state when the activation code changes; the valid-code path is async
       setActivationError("invalid");
       setActivationUserId(null);
       setResendMessage(null);
@@ -53,7 +54,7 @@ export const Activation = ({ code }: ActivationProps) => {
     const validateCode = async () => {
       try {
         const res = await activationCodeValidation({
-          projectKey: x_blocks_key as string,
+          projectKey: xBlocksKey as string,
           activationCode: code,
         });
 
@@ -99,7 +100,7 @@ export const Activation = ({ code }: ActivationProps) => {
 
       const response = await resendActivationLink({
         userId: activationUserId,
-        projectKey: x_blocks_key as string,
+        projectKey: xBlocksKey as string,
       });
 
       if (response?.isSuccess) {

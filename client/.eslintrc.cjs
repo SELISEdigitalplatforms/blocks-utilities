@@ -36,6 +36,9 @@ module.exports = {
     "react/jsx-uses-react": "off",
     "no-unused-vars": "off",
     "no-console": ["error", { allow: ["error"] }],
+    // Only says the React Compiler would skip a component (react-hook-form watch, TanStack Table).
+    // This build does not use the compiler; turn it back on if babel-plugin-react-compiler is added.
+    "react-hooks/incompatible-library": "off",
     "@typescript-eslint/no-empty-object-type": [
       "error",
       { allowInterfaces: "with-single-extends" },

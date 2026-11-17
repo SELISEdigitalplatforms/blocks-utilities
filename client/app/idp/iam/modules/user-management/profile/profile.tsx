@@ -14,7 +14,7 @@ import { UserHistories } from "../user-histories/user-histories";
 import { UserPats } from "../user-pat/user-pats";
 import { useT } from "@seliseblocks/genesis-os";
 
-const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "";
+const xBlocksKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY") || "";
 
 export const Profile = () => {
   const { isPending, isLoading, data } = useGetMe();
@@ -57,7 +57,7 @@ export const UserProfile = ({ id }: { id: string }) => {
               </TabsTrigger>
             </TabsList>
             {tabId === "details" && (
-              <UpdateUser id={id} projectKey={x_blocks_key} own />
+              <UpdateUser id={id} projectKey={xBlocksKey} own />
             )}
           </div>
 
@@ -66,10 +66,10 @@ export const UserProfile = ({ id }: { id: string }) => {
           </TabsContent>
 
           <TabsContent value="devices">
-            <UserDevices id={id} projectKey={x_blocks_key} />
+            <UserDevices id={id} projectKey={xBlocksKey} />
           </TabsContent>
           <TabsContent value="history">
-            <UserHistories id={id} projectKey={x_blocks_key} />
+            <UserHistories id={id} projectKey={xBlocksKey} />
           </TabsContent>
           <TabsContent value="personalAccessTokens">
             <UserPats id={id} />

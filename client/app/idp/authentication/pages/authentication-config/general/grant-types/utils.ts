@@ -10,4 +10,4 @@ export const authGrantTypeFormSchema = z.object({
   allowedGrantTypes: z.array(z.string()).min(1, zod3Messages.arrayMin(1)),
 });
 
-export type authGrantTypeFormType = z.infer<typeof authGrantTypeFormSchema>;
+export type AuthGrantTypeFormType = z.infer<typeof authGrantTypeFormSchema>;
