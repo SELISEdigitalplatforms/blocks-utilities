@@ -7,7 +7,7 @@ import {
   DialogTrigger,
 } from "@/components/ui-kits/dialog/dialog";
 
-import { getCaptchaProviders, CAPTCHA_PROVIDERS_KEY, ICaptchaConfig } from "../../models/captcha";
+import { getCaptchaProviders, CaptchaProvidersKey, ICaptchaConfig } from "../../models/captcha";
 
 import { ConfigureGeneralCaptchaFormField } from "./configure-general-captcha-from-field";
 import { ConfigureBlockCaptchaFormField } from "./configure-block-captcha-form-field";
@@ -67,8 +67,8 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
         (item) =>
           !data.configurations.find((config: { provider: string }) => config?.provider === item),
       )
-      .map((item) => getCaptchaProviders()[item as CAPTCHA_PROVIDERS_KEY]);
-  }, [data]);
+      .map((item) => getCaptchaProviders()[item as CaptchaProvidersKey]);
+  }, [configuration, data]);
 
   useEffect(() => {
     if (configuration) {
@@ -77,7 +77,7 @@ export const ConfigureCaptchaModal = ({ configuration, children }: ConfigureCapt
     if (unConfiguredProviders.length) {
       form.setValue("provider", unConfiguredProviders[0].value);
     }
-  }, [unConfiguredProviders]);
+  }, [configuration, form, unConfiguredProviders]);
 
   const onSubmitHandler = async (values: typeof ConfigureCaptchaFormDefaultValue) => {
     try {

@@ -9,7 +9,7 @@ export const getCaptchaGeneratorType = () =>
   HardCaptchaGenerator: { value: "HardCaptchaGenerator", label: "Hard" },
 }) as const;
 
-export type CAPTCHA_PROVIDERS_KEY = keyof ReturnType<typeof getCaptchaProviders>;
+export type CaptchaProvidersKey = keyof ReturnType<typeof getCaptchaProviders>;
 
 export interface ICaptchaConfig {
   itemId: string;
@@ -21,7 +21,7 @@ export interface ICaptchaConfig {
   tags: string[];
   captchaKey: string;
   captchaSecret: string;
-  provider: CAPTCHA_PROVIDERS_KEY;
+  provider: CaptchaProvidersKey;
   captchaGenerator: keyof ReturnType<typeof getCaptchaGeneratorType>;
   isEnable: boolean;
 }

@@ -144,6 +144,7 @@ const PlanBuilderWizard = ({
   const schema = useMemo(
     () => buildSubscriptionPlanSchema({ requirePrice: !isEditing }),
     // The language is a dependency because the messages are read when the schema is built.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
     [isEditing, language],
   );
 

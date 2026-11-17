@@ -24,7 +24,7 @@ import { useGetMFAConfig, useSaveMFAConfig } from "../../hooks/use-mfa-config";
 import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { getMFA_Provider_Data } from "../../utils/mfa-config";
+import { getMfaProviderData } from "../../utils/mfa-config";
 import { Dialog } from "@/components/ui-kits/dialog/dialog";
 import ConfirmationModal from "@/components/confirmation-modal/confirmation-modal";
 import { showErrorToast, showSuccessToast } from "@/hooks/use-toast";
@@ -57,7 +57,7 @@ export const ConfigureMFA = () => {
     type: null,
   });
 
-  const columns: ColumnDef<(ReturnType<typeof getMFA_Provider_Data>)[number]>[] = useMemo(
+  const columns: ColumnDef<(ReturnType<typeof getMfaProviderData>)[number]>[] = useMemo(
     () => [
       {
         accessorKey: "provider",
@@ -145,7 +145,8 @@ export const ConfigureMFA = () => {
 
   const mfaConfigData = useMemo(() => {
     if (!data) return [];
-    return getMFA_Provider_Data();
+    return getMfaProviderData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   }, [data, t]);
 
   const table = useReactTable({

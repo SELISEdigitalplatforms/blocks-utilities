@@ -43,13 +43,13 @@ export interface ISetupUserTotpResponse {
   qrImageUrl: string;
   qrCode: string;
 }
-export interface IGenerateUserMFA_OtpPayload {
+export interface IGenerateUserMfaOtpPayload {
   userId: string;
   projectKey: string;
   mfaType: number;
   sendPhoneNumberAsEmailDomain?: string;
 }
-export interface IGenerateUserMFA_OtpResponse {
+export interface IGenerateUserMfaOtpResponse {
   errors: unknown | null;
   isSuccess: boolean;
   mfaId: string;

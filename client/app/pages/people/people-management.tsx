@@ -1,7 +1,6 @@
 import { useGetPeople } from "@blocks-identifier/hooks/use-people";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui-kits/card/card";
-import { Button } from "@/components/ui-kits/button/button";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { useT } from "@seliseblocks/genesis-os";
 
@@ -39,7 +38,6 @@ export const PeopleManagement = () => {
   if (isLoading) return <PeopleManagementLoading />;
 
   const peoples = data?.peoples || [];
-  const isViewerOwner = data?.isOwner ?? false;
 
   return (
     <main className="flex flex-col p-6">

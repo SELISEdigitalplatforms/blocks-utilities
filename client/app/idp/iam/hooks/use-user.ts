@@ -206,7 +206,7 @@ export const useUserPermissions = (option: { userId: string; projectKey: string 
         permissions: Array.from(totalResources),
       });
     },
-    [mutateAsync, option.userId, resources, option.projectKey],
+    [mutateAsync, data?.data, option.userId, resources, option.projectKey],
   );
 
   const deletePermissions = useCallback(
@@ -219,7 +219,7 @@ export const useUserPermissions = (option: { userId: string; projectKey: string 
         permissions: restResources,
       });
     },
-    [mutateAsync, option.userId, resources, option.projectKey],
+    [mutateAsync, data?.data, option.userId, resources, option.projectKey],
   );
 
   return {

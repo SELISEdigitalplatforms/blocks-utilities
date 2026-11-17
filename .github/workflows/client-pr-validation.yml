@@ -7,8 +7,7 @@
 # client-only pull request showing an all-green status having had its TypeScript never compiled and
 # its 2200-odd tests never run: the ticks came from CodeQL, repo hygiene and the initialization job.
 #
-# Type-check, test and build gate; lint is advisory only, because it does not pass on `dev` today
-# and this job is not the place to fix 32 unrelated errors.
+# Type-check, lint (errors only), test and build all gate.
 #
 # Type-check and build are both here on purpose and are not the same check. `npm run build` runs
 # `tsc -b`, which honours project references and skips a project whose inputs look unchanged;
@@ -67,14 +66,11 @@ jobs:
         if: always()
         run: npm run type-check
 
-      # Reported, not enforced. `npm run lint` exits 1 on `dev` today with 32 errors and 75
-      # warnings, none of them introduced here, so gating on it would make this job red on arrival
-      # and the job would be switched off within the week. The output is in the log and the summary
-      # so the count can be driven down; flip `continue-on-error` off once it reaches zero.
-      - name: Lint (advisory)
+      # Enforced: errors fail the job, warnings are reported only. A rule that is genuinely wrong for
+      # one line gets a targeted `eslint-disable-next-line <rule> -- <reason>`, never a blanket off.
+      - name: Lint
         id: lint
         if: always()
-        continue-on-error: true
         run: npm run lint
 
       - name: Test
@@ -98,7 +94,7 @@ jobs:
             echo "| Check | Result |"
             echo "| --- | --- |"
             echo "| Type-check | ${{ steps.types.outcome }} |"
-            echo "| Lint (advisory) | ${{ steps.lint.outcome }} |"
+            echo "| Lint | ${{ steps.lint.outcome }} |"
             echo "| Test | ${{ steps.tests.outcome }} |"
             echo "| Build | ${{ steps.build.outcome }} |"
           } >> "$GITHUB_STEP_SUMMARY"

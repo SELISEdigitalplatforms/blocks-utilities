@@ -49,6 +49,7 @@ interface MagicUrlDialogProps {
 
 export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: MagicUrlDialogProps) {
   const { t, language } = useT("utilities.magic-url");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   const magicUrlSchema = useMemo(() => createMagicUrlSchema(), [language, t]);
   const navigate = useNavigate();
   const scoped = useScopedPath();
@@ -109,6 +110,7 @@ export function MagicUrlDialog({ open, onOpenChange, trigger, initialData }: Mag
   React.useEffect(() => {
     if (open) {
       if (initialData) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- loads initialData into the form each time the dialog opens
         setUrl(initialData.uri);
         setName(initialData.name || "");
         setValue("uri", initialData.uri, { shouldValidate: true });

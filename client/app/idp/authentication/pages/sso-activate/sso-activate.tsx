@@ -44,6 +44,7 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
     const label = providerKey.charAt(0).toUpperCase() + providerKey.slice(1);
 
     return { config: conf, providerLabel: label };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   }, [providerKey, t]);
 
   const handleUseDifferentAccount = async () => {

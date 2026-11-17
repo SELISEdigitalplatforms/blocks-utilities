@@ -42,6 +42,9 @@ module.exports = {
     // other languages come from the localization service. Shared rule from genesis-os; genuinely
     // untranslatable tokens (product names, example values) use a targeted disable with a reason.
     "no-restricted-syntax": noHardcodedTextRule,
+    // Only says the React Compiler would skip a component (react-hook-form watch, TanStack Table).
+    // This build does not use the compiler; turn it back on if babel-plugin-react-compiler is added.
+    "react-hooks/incompatible-library": "off",
     "@typescript-eslint/no-empty-object-type": [
       "error",
       { allowInterfaces: "with-single-extends" },

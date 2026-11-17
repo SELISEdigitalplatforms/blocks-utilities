@@ -180,6 +180,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
     },
   ];
   const isCreate = !configuration?.hasApiKey;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   const schema = useMemo(() => createSmsProviderSchema(isCreate), [isCreate, language, t]);
   const [bannerErrors, setBannerErrors] = useState<string[]>([]);
   const { mutateAsync, isPending } = useSaveSmsProviderConfiguration();

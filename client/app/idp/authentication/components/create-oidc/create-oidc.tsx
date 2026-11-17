@@ -89,6 +89,7 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
         clientBrandColor: credential.clientBrandColor || "#124091",
         clientDisplayName: credential.clientDisplayName || "",
       });
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the client being edited into the form each time the dialog opens
       setClientLogoUrl(credential.clientLogoUrl || "");
     } else if (!isEditMode && open) {
       form.reset({
