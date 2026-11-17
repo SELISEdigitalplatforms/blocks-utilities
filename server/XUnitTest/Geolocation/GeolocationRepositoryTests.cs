@@ -284,7 +284,7 @@ namespace XUnitTest.Geolocation
         }
 
         [Fact]
-        public async Task The_provider_key_comes_from_blocks_secrets_when_a_secret_id_is_configured()
+        public async Task The_provider_key_from_blocks_secrets_wins_over_the_vault_and_configuration()
         {
             _secretService
                 .Setup(secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()))
@@ -302,24 +302,24 @@ namespace XUnitTest.Geolocation
                 },
                 apiUrl: ApiUrlWithKeyInQuery,
                 configuredApiKey: "appsettings-key",
-                secretId: "secret-1");
+                namedSecretId: "secret-1");
 
             await repository.ResolveIpToLocationAsync("8.8.8.8");
 
             requestedUrl.Should().Contain("api_key=managed-key",
-                because: "a secret id names the managed store, which is the one an operator "
+                because: "Blocks Secrets is the managed store, which is the one an operator "
                     + "rotates and the only one whose reads are audited");
             requestedUrl.Should().NotContain("vault-key");
             requestedUrl.Should().NotContain("appsettings-key");
         }
 
         [Fact]
-        public async Task Blocks_secrets_is_not_consulted_when_no_secret_id_is_configured()
+        public async Task No_secret_value_is_read_when_no_secret_has_the_name()
         {
             var repository = CreateRepository(
                 _ => Json("""{"country_code":"CH"}"""),
                 apiUrl: ApiUrlWithKeyInQuery,
-                secretId: null);
+                namedSecretId: null);
 
             await repository.ResolveIpToLocationAsync("8.8.8.8");
 
@@ -328,8 +328,8 @@ namespace XUnitTest.Geolocation
                     It.IsAny<string>(),
                     It.IsAny<CancellationToken>()),
                 Times.Never,
-                failMessage: "a deployment that has not adopted the managed store must not pay a "
-                    + "secret-store round trip, nor an audit row, on every key resolution");
+                failMessage: "a project without the secret must not pay a value read, nor an audit "
+                    + "row, on every key resolution");
         }
 
         [Fact]
@@ -351,7 +351,7 @@ namespace XUnitTest.Geolocation
                     return Json("""{"country_code":"CH"}""");
                 },
                 apiUrl: ApiUrlWithKeyInQuery,
-                secretId: "secret-1");
+                namedSecretId: "secret-1");
 
             var result = await repository.ResolveIpToLocationAsync("8.8.8.8");
 
@@ -379,7 +379,7 @@ namespace XUnitTest.Geolocation
                     return Json("""{"country_code":"CH"}""");
                 },
                 apiUrl: ApiUrlWithKeyInQuery,
-                secretId: "secret-1");
+                namedSecretId: "secret-1");
 
             await repository.ResolveIpToLocationAsync("8.8.8.8");
 
@@ -398,7 +398,7 @@ namespace XUnitTest.Geolocation
             var repository = CreateRepository(
                 _ => Json("""{"country_code":"CH"}"""),
                 apiUrl: ApiUrlWithKeyInQuery,
-                secretId: "secret-1");
+                namedSecretId: "secret-1");
 
             await repository.ResolveIpToLocationAsync("8.8.8.8");
             await repository.ResolveIpToLocationAsync("1.1.1.1");
@@ -429,7 +429,7 @@ namespace XUnitTest.Geolocation
                 },
                 apiUrl: ApiUrlWithKeyInQuery,
                 cacheSeconds: "300",
-                secretId: "secret-1");
+                namedSecretId: "secret-1");
 
             await repository.ResolveIpToLocationAsync("8.8.8.8");
 
@@ -454,7 +454,7 @@ namespace XUnitTest.Geolocation
                 _ => Json("""{"country_code":"CH"}"""),
                 apiUrl: ApiUrlWithKeyInQuery,
                 cacheSeconds: "300",
-                secretId: "secret-1");
+                namedSecretId: "secret-1");
 
             await repository.ResolveIpToLocationAsync("8.8.8.8");
 
@@ -476,7 +476,7 @@ namespace XUnitTest.Geolocation
                 _ => Json("""{"country_code":"CH"}"""),
                 apiUrl: ApiUrlWithKeyInQuery,
                 cacheSeconds: "300",
-                secretId: "secret-1");
+                namedSecretId: "secret-1");
 
             _secretService
                 .Setup(secrets => secrets.GetValueAsync("secret-1", It.IsAny<CancellationToken>()))
@@ -490,6 +490,162 @@ namespace XUnitTest.Geolocation
                 Times.Once,
                 failMessage: "a deployment whose secret is not provisioned yet would otherwise pay "
                     + "a failed round trip, and an audit row, on every single lookup");
+        }
+
+        [Fact]
+        public async Task The_provider_key_is_found_by_name_in_the_calling_project()
+        {
+            SecretsInProject(("found-id", "geolocation-api-key", 1));
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("found-id", It.IsAny<CancellationToken>()))
+                .ReturnsAsync("named-key");
+
+            string? requestedUrl = null;
+            var repository = CreateRepository(
+                request =>
+                {
+                    requestedUrl = request.RequestUri!.ToString();
+                    return Json("""{"country_code":"CH"}""");
+                },
+                apiUrl: ApiUrlWithKeyInQuery,
+                configuredApiKey: "appsettings-key");
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            requestedUrl.Should().Contain("api_key=named-key",
+                because: "every project keeps its own secret under the same name, so no id has to be configured");
+            _secretService.Verify(
+                secrets => secrets.FindAsync(
+                    It.Is<SecretFilter>(filter =>
+                        filter.Search == "geolocation-api-key" && filter.Status == SecretStatuses.Active),
+                    It.IsAny<CancellationToken>()),
+                Times.Once);
+        }
+
+        [Fact]
+        public async Task A_search_hit_on_the_description_or_a_longer_name_is_ignored()
+        {
+            SecretsInProject(
+                ("description-hit", "maps-key", 5),
+                ("prefix-hit", "geolocation-api-key-old", 4),
+                ("exact", "Geolocation-API-Key", 1));
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("exact", It.IsAny<CancellationToken>()))
+                .ReturnsAsync("named-key");
+
+            string? requestedUrl = null;
+            var repository = CreateRepository(request =>
+            {
+                requestedUrl = request.RequestUri!.ToString();
+                return Json("""{"country_code":"CH"}""");
+            });
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            requestedUrl.Should().Contain("api_key=named-key",
+                because: "the store's search matches descriptions and substrings, and only the exact name "
+                    + "(ignoring case) is the provider key");
+            _secretService.Verify(
+                secrets => secrets.GetValueAsync(
+                    It.IsIn("description-hit", "prefix-hit"),
+                    It.IsAny<CancellationToken>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public async Task Of_two_secrets_with_the_name_the_most_recently_updated_one_is_used()
+        {
+            SecretsInProject(
+                ("older", "geolocation-api-key", 1),
+                ("newer", "geolocation-api-key", 2));
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync("newer", It.IsAny<CancellationToken>()))
+                .ReturnsAsync("newer-key");
+
+            string? requestedUrl = null;
+            var repository = CreateRepository(request =>
+            {
+                requestedUrl = request.RequestUri!.ToString();
+                return Json("""{"country_code":"CH"}""");
+            });
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            requestedUrl.Should().Contain("api_key=newer-key");
+        }
+
+        [Fact]
+        public async Task With_no_secret_by_name_the_vault_then_configuration_are_used()
+        {
+            SecretsInProject();
+
+            var requestedUrls = new List<string>();
+            var repository = CreateRepository(
+                request =>
+                {
+                    requestedUrls.Add(request.RequestUri!.ToString());
+                    return Json("""{"country_code":"CH"}""");
+                },
+                configuredApiKey: "appsettings-key");
+
+            await repository.ResolveIpToLocationAsync("8.8.8.8");
+
+            requestedUrls.Single().Should().Contain("api_key=appsettings-key");
+            _vault.Verify(vault => vault.ProcessSecretsAsync(It.IsAny<List<string>>()), Times.Once,
+                failMessage: "the vault sits between Blocks Secrets and configuration");
+        }
+
+        [Fact]
+        public async Task Each_project_gets_its_own_key_and_the_cache_does_not_leak_between_them()
+        {
+            _secretService
+                .Setup(secrets => secrets.FindAsync(It.IsAny<SecretFilter>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => new SecretListResult
+                {
+                    Data =
+                    [
+                        new SecretResult
+                        {
+                            SecretId = "id-" + BlocksContext.GetContext()!.TenantId,
+                            Name = "geolocation-api-key"
+                        }
+                    ]
+                });
+            _secretService
+                .Setup(secrets => secrets.GetValueAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((string id, CancellationToken _) => "key-of-" + id);
+
+            var requestedUrls = new List<string>();
+            var repository = CreateRepository(request =>
+            {
+                requestedUrls.Add(request.RequestUri!.ToString());
+                return Json("""{"country_code":"CH"}""");
+            });
+
+            try
+            {
+                foreach (var (tenant, ip) in new[] { ("tenant-a", "8.8.8.8"), ("tenant-b", "1.1.1.1"), ("tenant-a", "9.9.9.9") })
+                {
+                    BlocksContext.SetContext(BlocksContext.Create(
+                        tenant, null, "user-1", true, null, "org-1",
+                        DateTime.UtcNow.AddHours(1), null, null, null, null, null, null, null));
+
+                    await repository.ResolveIpToLocationAsync(ip);
+                }
+            }
+            finally
+            {
+                BlocksContext.SetContext(null);
+            }
+
+            requestedUrls[0].Should().Contain("api_key=key-of-id-tenant-a");
+            requestedUrls[1].Should().Contain("api_key=key-of-id-tenant-b",
+                because: "one project's cached key must never be handed to another");
+            requestedUrls[2].Should().Contain("api_key=key-of-id-tenant-a");
+            _secretService.Verify(
+                secrets => secrets.FindAsync(It.IsAny<SecretFilter>(), It.IsAny<CancellationToken>()),
+                Times.Exactly(2),
+                failMessage: "the second lookup for tenant-a is served from its cached key");
         }
 
         [Fact]
@@ -958,14 +1114,34 @@ namespace XUnitTest.Geolocation
                 Content = new StringContent(body)
             };
 
+        private void SecretsInProject(params (string Id, string Name, int UpdatedDay)[] secrets) =>
+            _secretService
+                .Setup(store => store.FindAsync(It.IsAny<SecretFilter>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new SecretListResult
+                {
+                    Data = [.. secrets.Select(secret => new SecretResult
+                    {
+                        SecretId = secret.Id,
+                        Name = secret.Name,
+                        Status = SecretStatuses.Active,
+                        LastUpdatedDate = new DateTime(2026, 1, secret.UpdatedDay, 0, 0, 0, DateTimeKind.Utc)
+                    })],
+                    TotalCount = secrets.Length
+                });
+
         private GeolocationRepository CreateRepository(
             Func<HttpRequestMessage, HttpResponseMessage>? requestHandler = null,
             string? apiUrl = ApiUrlWithKeyInQuery,
             string? configuredApiKey = null,
             string? secretName = null,
             string? cacheSeconds = "300",
-            string? secretId = null)
+            string? namedSecretId = null)
         {
+            if (namedSecretId != null)
+            {
+                SecretsInProject((namedSecretId, "geolocation-api-key", 1));
+            }
+
             var messageHandler = new Mock<HttpMessageHandler>();
 
             messageHandler.Protected()
@@ -988,7 +1164,6 @@ namespace XUnitTest.Geolocation
                     ["GeolocationApiUrl"] = apiUrl,
                     ["GeolocationApiKey"] = configuredApiKey,
                     ["GeolocationApiKeySecretName"] = secretName,
-                    ["GeolocationApiKeySecretId"] = secretId,
                     ["GeolocationCacheSeconds"] = cacheSeconds,
 
                     // The gate is what is under test, not the wait. One millisecond exercises the
