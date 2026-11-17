@@ -135,6 +135,40 @@ public sealed class CreditConsumptionTests
     }
 
     [Fact]
+    public async Task Releasing_a_use_gives_back_the_credits_it_drew()
+    {
+        Opened(balance: 95);
+        _grants.All.Add(Grant("g1", remaining: 50));
+        SubscriptionUsageRecord? booked = null;
+        _usage
+            .Setup(repository => repository.TryAppendRecordAsync(It.IsAny<SubscriptionUsageRecord>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionUsageRecord, CancellationToken>((record, _) => booked ??= record)
+            .ReturnsAsync(true);
+        _usage
+            .Setup(repository => repository.SetCreditTakesAsync(
+                TenantId, It.IsAny<string>(), It.IsAny<IReadOnlyList<UsageCreditTake>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, IReadOnlyList<UsageCreditTake>, CancellationToken>(
+                (_, _, takes, _) => booked!.CreditTakes = [.. takes])
+            .Returns(Task.CompletedTask);
+        _usage
+            .Setup(repository => repository.FindRecordByKeyAsync(
+                TenantId, SubscriptionId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => booked);
+        var booking = Record(10);
+        await Service().RecordAsync(booking, "corr-1", CancellationToken.None);
+
+        var released = await Service().ReleaseAsync(
+            new ReleaseUsageRequest { MeterKey = "ai-credit", IdempotencyKey = booking.IdempotencyKey },
+            "corr-2",
+            CancellationToken.None);
+
+        released.IsSuccess.Should().BeTrue(released.ErrorMessage);
+        _counter!.Balance.Should().Be(95);
+        _counter.PurchasedConsumed.Should().Be(0);
+        _grants.All.Single().Remaining.Should().Be(50, "a failed operation must not cost the credits it booked");
+    }
+
+    [Fact]
     public async Task A_recording_inside_the_allowance_never_reads_a_grant_to_decide()
     {
         Opened(balance: 10);
@@ -212,7 +246,7 @@ public sealed class CreditConsumptionTests
             {
                 _counter ??= seed;
                 _counter.Balance += delta;
-                await cancellation.CancelAsync();
+                await cancellation.CancelAsync().ConfigureAwait(false);
                 return _counter;
             });
         _usage
@@ -257,7 +291,7 @@ public sealed class CreditConsumptionTests
                 token.ThrowIfCancellationRequested();
                 _counter ??= seed;
                 _counter.Balance += delta;
-                await gone.CancelAsync();
+                await gone.CancelAsync().ConfigureAwait(false);
                 return _counter;
             });
         _usage
@@ -415,7 +449,11 @@ public sealed class CreditConsumptionTests
             NullLogger<UsageThresholdEvaluator>.Instance);
         var counter = new SubscriptionUsageCounter
         {
-            TenantId = TenantId, MeterKey = "ai-credit", LimitSnapshot = 100, PurchasedConsumed = 60, Balance = 160
+            TenantId = TenantId,
+            MeterKey = "ai-credit",
+            LimitSnapshot = 100,
+            PurchasedConsumed = 60,
+            Balance = 160
         };
 
         var reported = await evaluator.EvaluateAsync(_subscription, counter, "corr-1", CancellationToken.None, liveCredits: 40);
@@ -468,18 +506,18 @@ public sealed class CreditConsumptionTests
         int? seat = null,
         MeterResetPolicy policy = MeterResetPolicy.CarryForward,
         DateTime? expiresAt = null) => new()
-    {
-        ItemId = id,
-        TenantId = TenantId,
-        SubscriptionId = SubscriptionId,
-        MeterKey = "ai-credit",
-        SeatNumber = seat,
-        Quantity = remaining,
-        Remaining = remaining,
-        ExpiryPolicy = expiresAt is null ? policy : MeterResetPolicy.Periodic,
-        ExpiresAtUtc = expiresAt,
-        GrantedAtUtc = Now.UtcDateTime.AddDays(-1)
-    };
+        {
+            ItemId = id,
+            TenantId = TenantId,
+            SubscriptionId = SubscriptionId,
+            MeterKey = "ai-credit",
+            SeatNumber = seat,
+            Quantity = remaining,
+            Remaining = remaining,
+            ExpiryPolicy = expiresAt is null ? policy : MeterResetPolicy.Periodic,
+            ExpiresAtUtc = expiresAt,
+            GrantedAtUtc = Now.UtcDateTime.AddDays(-1)
+        };
 
     private static SubscriptionDetail Subscription() => new()
     {

@@ -24,11 +24,11 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
 
         await Claims(tenantId).Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateUsagePeriodClaimIndexes(),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         await Closures(tenantId).Indexes.CreateManyAsync(
             SubscriptionIndexDefinitions.CreateUsagePeriodClosureIndexes(),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         _indexedTenants.TryAdd(tenantId, 0);
     }
@@ -41,7 +41,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
         DateTime occurredAtUtc,
         CancellationToken cancellationToken)
     {
-        await EnsureIndexesAsync(tenantId, cancellationToken);
+        await EnsureIndexesAsync(tenantId, cancellationToken).ConfigureAwait(false);
 
         var claim = new UsagePeriodClaim
         {
@@ -58,7 +58,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
 
         try
         {
-            await Claims(tenantId).InsertOneAsync(claim, cancellationToken: cancellationToken);
+            await Claims(tenantId).InsertOneAsync(claim, cancellationToken: cancellationToken).ConfigureAwait(false);
             freshlyAcquired = true;
         }
         catch (MongoWriteException exception)
@@ -76,7 +76,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
         }
 
         if (await TryIncrementActiveWritersAsync(
-                tenantId, subscriptionId, periodKey, occurredAtUtc, cancellationToken))
+                tenantId, subscriptionId, periodKey, occurredAtUtc, cancellationToken).ConfigureAwait(false))
         {
             return UsageClaimOutcome.Acquired;
         }
@@ -86,7 +86,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
         // later ReleaseClaimAsync for this same key has nothing to reverse.
         await Claims(tenantId).DeleteOneAsync(
             Builders<UsagePeriodClaim>.Filter.Eq(existing => existing.ItemId, claim.ItemId),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         return UsageClaimOutcome.Rejected;
     }
@@ -114,7 +114,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClaim>.Update
                 .Set(claim => claim.State, UsagePeriodClaimState.ReleasePending)
                 .Set(claim => claim.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (toPending.ModifiedCount != 1)
         {
@@ -123,7 +123,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             // was rejected and deleted), which is a no-op too.
             var existing = await Claims(tenantId)
                 .Find(Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.ItemId, claimId))
-                .FirstOrDefaultAsync(cancellationToken);
+                .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
             if (existing is not { State: UsagePeriodClaimState.ReleasePending })
             {
@@ -137,7 +137,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             // whatever came next. Resume from the decrement rather than treating this as done.
         }
 
-        await ApplyDecrementIdempotentlyAsync(tenantId, subscriptionId, periodKey, claimId, cancellationToken);
+        await ApplyDecrementIdempotentlyAsync(tenantId, subscriptionId, periodKey, claimId, cancellationToken).ConfigureAwait(false);
 
         await Claims(tenantId).UpdateOneAsync(
             Builders<UsagePeriodClaim>.Filter.And(
@@ -146,7 +146,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClaim>.Update
                 .Set(claim => claim.State, UsagePeriodClaimState.Released)
                 .Set(claim => claim.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // Once the claim itself is terminal, retries return from that terminal state without
         // attempting the decrement again. The operation id is no longer needed on the hot period
@@ -157,7 +157,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClosure>.Update.Pull(
                 closure => closure.AppliedReleaseOperationIds,
                 $"claim-release:{claimId}"),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -187,7 +187,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                 .Inc(closure => closure.ActiveWriterCount, -1)
                 .AddToSet(closure => closure.AppliedReleaseOperationIds, releaseOperationId)
                 .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (decremented.ModifiedCount == 1)
         {
@@ -206,7 +206,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClosure>.Update
                 .AddToSet(closure => closure.AppliedReleaseOperationIds, releaseOperationId)
                 .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ClosureReservationOutcome> TryReserveClosingAsync(
@@ -219,7 +219,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
     {
         var closureId = UsagePeriodClosure.CreateId(subscriptionId, periodKey);
 
-        var existing = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken);
+        var existing = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken).ConfigureAwait(false);
 
         if (existing is not null && existing.State != UsagePeriodClosureState.Open)
         {
@@ -234,7 +234,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
         var result = await Closures(tenantId).UpdateOneAsync(
             OpenFilter(closureId),
             ReservedUpdate(effectiveEndUtc, closeOperationId),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (result.ModifiedCount == 1)
         {
@@ -256,7 +256,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                     CloseOperationId = closeOperationId,
                     ReservationCreatedAtUtc = DateTime.UtcNow
                 },
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken).ConfigureAwait(false);
 
             return ClosureReservationOutcome.Reserved;
         }
@@ -265,7 +265,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
         {
             // Someone else's write landed between our read and this insert. Re-read once more to
             // learn who actually has it, rather than assuming either outcome.
-            var after = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken);
+            var after = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken).ConfigureAwait(false);
 
             return after?.CloseOperationId == closeOperationId
                 ? ClosureReservationOutcome.Reserved
@@ -287,14 +287,14 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClosure>.Update
                 .Set(closure => closure.State, UsagePeriodClosureState.Closing)
                 .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (result.ModifiedCount == 1)
         {
             return ClosureCommitOutcome.Committed;
         }
 
-        var existing = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken);
+        var existing = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken).ConfigureAwait(false);
 
         if (existing is null)
         {
@@ -328,14 +328,14 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                 .Set(closure => closure.CloseOperationId, (string?)null)
                 .Set(closure => closure.ReservationCreatedAtUtc, (DateTime?)null)
                 .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (result.ModifiedCount == 1)
         {
             return ClosureReleaseOutcome.Released;
         }
 
-        var existing = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken);
+        var existing = await GetAsync(tenantId, subscriptionId, periodKey, cancellationToken).ConfigureAwait(false);
 
         if (existing is null)
         {
@@ -360,7 +360,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
         await Closures(tenantId)
             .Find(Builders<UsagePeriodClosure>.Filter.Eq(
                 closure => closure.ItemId, UsagePeriodClosure.CreateId(subscriptionId, periodKey)))
-            .FirstOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
     public async Task<bool> TryMarkClosedAsync(
         string tenantId,
@@ -377,7 +377,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClosure>.Update
                 .Set(closure => closure.State, UsagePeriodClosureState.Closed)
                 .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return result.ModifiedCount == 1;
     }
@@ -388,7 +388,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
         int limit,
         CancellationToken cancellationToken)
     {
-        await EnsureIndexesAsync(tenantId, cancellationToken);
+        await EnsureIndexesAsync(tenantId, cancellationToken).ConfigureAwait(false);
 
         return await Closures(tenantId)
             .Find(Builders<UsagePeriodClosure>.Filter.And(
@@ -398,7 +398,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                 Builders<UsagePeriodClosure>.Filter.Lt(
                     closure => closure.ReservationCreatedAtUtc, olderThanUtc)))
             .Limit(limit)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> HasOutstandingClaimsAsync(
@@ -415,7 +415,22 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                     claim => claim.State,
                     [UsagePeriodClaimState.Active, UsagePeriodClaimState.ReleasePending])))
             .Limit(1)
-            .AnyAsync(cancellationToken);
+            .AnyAsync(cancellationToken).ConfigureAwait(false);
+
+    public async Task<bool> IsClaimActiveAsync(
+        string tenantId,
+        string subscriptionId,
+        string periodKey,
+        string idempotencyKey,
+        CancellationToken cancellationToken) =>
+        await Claims(tenantId)
+            .Find(Builders<UsagePeriodClaim>.Filter.And(
+                Builders<UsagePeriodClaim>.Filter.Eq(
+                    claim => claim.ItemId,
+                    UsagePeriodClaim.CreateId(subscriptionId, periodKey, idempotencyKey)),
+                Builders<UsagePeriodClaim>.Filter.Eq(claim => claim.State, UsagePeriodClaimState.Active)))
+            .Limit(1)
+            .AnyAsync(cancellationToken).ConfigureAwait(false);
 
     public async Task<IReadOnlyList<UsagePeriodClaim>> ListStaleClaimsAsync(
         string tenantId,
@@ -431,7 +446,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                 Builders<UsagePeriodClaim>.Filter.Lte(claim => claim.UpdatedAtUtc, olderThanUtc)))
             .SortBy(claim => claim.UpdatedAtUtc)
             .Limit(Math.Max(1, limit))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
 
     public async Task<bool> TryBeginStaleClaimRecoveryAsync(
         string tenantId,
@@ -447,7 +462,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClaim>.Update
                 .Set(claim => claim.State, UsagePeriodClaimState.ReleasePending)
                 .Set(claim => claim.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return result.ModifiedCount == 1;
     }
@@ -471,7 +486,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClosure>.Update
                 .Inc(closure => closure.ActiveWriterCount, 1)
                 .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (result.ModifiedCount == 1)
         {
@@ -493,7 +508,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
                     State = UsagePeriodClosureState.Open,
                     ActiveWriterCount = 0
                 },
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (MongoWriteException exception)
             when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
@@ -507,7 +522,7 @@ public sealed class UsagePeriodClosureRepository : IUsagePeriodClosureRepository
             Builders<UsagePeriodClosure>.Update
                 .Inc(closure => closure.ActiveWriterCount, 1)
                 .Set(closure => closure.UpdatedAtUtc, DateTime.UtcNow),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return retry.ModifiedCount == 1;
     }
