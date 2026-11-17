@@ -1,7 +1,5 @@
 import { useGetMe } from "@/idp/iam/hooks/use-user";
 import { Skeleton } from "@/components/ui-kits/skeleton/skeleton";
-import { useContext } from "react";
-import { profileMfaContext } from "./profile-mfa";
 import { useT } from "@seliseblocks/genesis-os";
 const LoadingSkelton = () => {
   return (
@@ -14,7 +12,6 @@ const LoadingSkelton = () => {
 };
 export const ProfileMFADetails = () => {
   const { t } = useT("utilities.idp");
-  const { projectKey, userId } = useContext(profileMfaContext);
   const { isLoading, data } = useGetMe();
   if (isLoading) return <LoadingSkelton />;
   return (

@@ -27,7 +27,7 @@ type ResetPasswordFormProps = {
   code: string;
 };
 
-const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
+const xBlocksKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
 
 export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
   const { t } = useT("utilities.idp.authentication");
@@ -61,7 +61,7 @@ export const ResetPasswordForm = ({ code }: ResetPasswordFormProps) => {
         code: code,
         captchaCode,
         logoutFromAllDevices: true,
-        projectKey: x_blocks_key || "",
+        projectKey: xBlocksKey || "",
         password: values.password,
       });
 

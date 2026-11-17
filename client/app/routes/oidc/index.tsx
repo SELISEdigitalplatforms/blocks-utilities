@@ -50,6 +50,7 @@ export default function OidcIndexPage() {
       .catch(() => {
         navigate("/oidc/error");
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per code: a re-run would redeem the same authorization code twice
   }, [code, state]);
 
   if (code && state) {

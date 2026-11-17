@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui-kits/c
 import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { useProjectStore, useT } from "@seliseblocks/genesis-os";
 
-import { authGrantTypeFormDefaultValues, authGrantTypeFormSchema, authGrantTypeFormType } from "./utils";
+import { authGrantTypeFormDefaultValues, authGrantTypeFormSchema, AuthGrantTypeFormType } from "./utils";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui-kits/form/form";
@@ -20,13 +20,13 @@ export const GrantTypes = () => {
 
   const { mutateAsync, isPending } = useSaveAuthConfig({ projectKey: tenantId });
 
-  const form = useForm<authGrantTypeFormType>({
+  const form = useForm<AuthGrantTypeFormType>({
     defaultValues: authGrantTypeFormDefaultValues,
     values: data,
     resolver: zodResolver(authGrantTypeFormSchema),
   });
 
-  const submitHandler = async (values: authGrantTypeFormType) => {
+  const submitHandler = async (values: AuthGrantTypeFormType) => {
     try {
       if (!tenantId || !data) return showErrorToast({ errors: t("GRANT_TYPES.SOMETHING_WENT_WRONG") });
 

@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "react-router";
 import {
   Popover,
   PopoverContent,
@@ -419,20 +418,6 @@ function EditIcon() {
     </svg>
   );
 }
-function StarIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      xmlns="http://www.w3.org/2000/svg"
-      className="h-5 w-5"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth={filled ? 0 : 1.5}
-    >
-      <path d="M10 1.5l2.38 6.29h6.63l-5.36 4.12 2.04 6.29-5.69-4.14-5.69 4.14 2.04-6.29-5.36-4.12h6.63z" />
-    </svg>
-  );
-}
 export function BlocksAppLauncher() {
   const { t } = useT(UTILITIES_SHARED_MODULE);
   const [open, setOpen] = useState(false);
@@ -440,7 +425,6 @@ export function BlocksAppLauncher() {
   const [favouriteKeys, setFavouriteKeys] = useState<Set<string>>(new Set());
   const [isHydrated, setIsHydrated] = useState(false);
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
-  const location = useLocation();
   useEffect(() => {
     const stored = localStorage.getItem("blocks-app-favourites");
     const keys = stored

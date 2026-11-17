@@ -1,7 +1,7 @@
 import { serviceInstances } from "@/lib/http-client";
 import {
-  IGenerateUserMFA_OtpPayload,
-  IGenerateUserMFA_OtpResponse,
+  IGenerateUserMfaOtpPayload,
+  IGenerateUserMfaOtpResponse,
   IGetConfigurationPayload,
   IGetConfigurationResponse,
   IConfigureUserMFAPayload,
@@ -29,7 +29,7 @@ export class MFAService {
     return serviceInstances.idpService.post(MFA_CONFIG_ENDPOINTS.SAVE, payload, undefined, { absoluteUrl: true });
   }
 
-  generateUserMfaOTP(payload: IGenerateUserMFA_OtpPayload): Promise<IGenerateUserMFA_OtpResponse> {
+  generateUserMfaOTP(payload: IGenerateUserMfaOtpPayload): Promise<IGenerateUserMfaOtpResponse> {
     return serviceInstances.idpService.post(MFA_ENDPOINTS.GENERATE_OTP, payload, undefined, { absoluteUrl: true });
   }
 

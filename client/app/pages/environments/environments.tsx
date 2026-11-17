@@ -49,7 +49,6 @@ export const EnvironmentsPage = () => {
     isLoading,
     isFetching,
   } = useGetProjects(groupId ?? "");
-  const isViewerOwner = false;
   const [addEnvModalOpen, setAddEnvModalOpen] = useState(false);
 
   const handleAddEnvModalClose = () => {
@@ -64,11 +63,6 @@ export const EnvironmentsPage = () => {
   ) {
     return <ProjectGroupLoading />;
   }
-
-  const canAddEnvironment =
-    environmentList &&
-    environmentList[0]?.projects?.length < 8 &&
-    isViewerOwner;
 
   return (
     <main className="flex flex-1 flex-col gap-4 p-6 md:gap-6">

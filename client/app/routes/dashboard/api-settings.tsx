@@ -40,7 +40,7 @@ export default function ApiSettingsPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const endpoints = data?.data ?? [];
+  const endpoints = useMemo(() => data?.data ?? [], [data]);
 
   // Group endpoints: service → controller (nested)
   const serviceGroups = useMemo(() => {
@@ -211,21 +211,6 @@ export default function ApiSettingsPage() {
       }
     },
     [tenantId, endpoints, bulkUpdate, t],
-  );
-
-  const handleBulkGroupDisableAll = useCallback(
-    async (ids: string[]) => {
-      try {
-        const result = await bulkUpdate({ projectKey: tenantId, itemIds: ids, isMfaRequired: false, isCaptchaRequired: false, disableAll: true });
-        if (!result.isSuccess) {
-          throw new Error(result.errors?.join(", ") || t("API_SETTINGS.FAILED_TO_DISABLE_SECURITY"));
-        }
-        showSuccessToast({ description: t("API_SETTINGS.ALL_SECURITY_FEATURES_DISABLED_FOR", { count: ids.length }) });
-      } catch (error) {
-        showErrorToast({ errors: error instanceof Error ? error.message : t("API_SETTINGS.FAILED_TO_DISABLE_SECURITY") });
-      }
-    },
-    [tenantId, bulkUpdate, t],
   );
 
   // ── Bulk bar actions ───────────────────────────────────────────────────────

@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { useProjectStore } from "@seliseblocks/genesis-os";
 import { ProjectCard } from "./project-card";
-import { createWrapper } from "@/test-utils/test-providers/query-client";
 
 const navigate = vi.fn();
 vi.mock("react-router", async () => {
