@@ -5,7 +5,7 @@ import { ReCaptcha } from "./reCaptcha";
 import type { CaptchaRef } from "./index.type";
 
 describe("ReCaptcha", () => {
-  const render_ = vi.fn(() => 7);
+  const renderMock = vi.fn(() => 7);
   const ready = vi.fn((cb: () => void) => cb());
   const reset = vi.fn();
 
@@ -18,18 +18,18 @@ describe("ReCaptcha", () => {
   });
 
   it("renders the widget immediately when grecaptcha is ready", () => {
-    (window as { grecaptcha?: unknown }).grecaptcha = { render: render_, ready, reset };
+    (window as { grecaptcha?: unknown }).grecaptcha = { render: renderMock, ready, reset };
     const onVerify = vi.fn();
     render(<ReCaptcha siteKey="key-1" onVerify={onVerify} />);
     expect(ready).toHaveBeenCalled();
-    expect(render_).toHaveBeenCalledWith(
+    expect(renderMock).toHaveBeenCalledWith(
       expect.any(HTMLElement),
       expect.objectContaining({ sitekey: "key-1", theme: "light", size: "normal" }),
     );
   });
 
   it("passes expired and error callbacks through", () => {
-    (window as { grecaptcha?: unknown }).grecaptcha = { render: render_, ready, reset };
+    (window as { grecaptcha?: unknown }).grecaptcha = { render: renderMock, ready, reset };
     render(
       <ReCaptcha
         siteKey="key-2"
@@ -40,7 +40,7 @@ describe("ReCaptcha", () => {
         size="compact"
       />,
     );
-    expect(render_).toHaveBeenCalledWith(
+    expect(renderMock).toHaveBeenCalledWith(
       expect.any(HTMLElement),
       expect.objectContaining({
         theme: "dark",
@@ -52,7 +52,7 @@ describe("ReCaptcha", () => {
   });
 
   it("exposes a reset method through the ref", () => {
-    (window as { grecaptcha?: unknown }).grecaptcha = { render: render_, ready, reset };
+    (window as { grecaptcha?: unknown }).grecaptcha = { render: renderMock, ready, reset };
     const ref = createRef<CaptchaRef>();
     render(<ReCaptcha ref={ref} siteKey="key-3" onVerify={vi.fn()} />);
     ref.current?.reset();

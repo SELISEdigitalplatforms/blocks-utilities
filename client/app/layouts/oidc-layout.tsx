@@ -84,13 +84,14 @@ function OIDCProvider({ children }: { children: ReactNode }) {
       localStorage.setItem("oidc-flow-params", JSON.stringify(mergedParams));
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- merges URL params with the OIDC params kept in localStorage
     setParams(mergedParams);
   }, [location.pathname, searchParams]);
 
   return <OIDCContext.Provider value={params}>{children}</OIDCContext.Provider>;
 }
 
-function OidcLayoutContent({ children }: { children: ReactNode }) {
+function OidcLayoutContent() {
   const { t } = useT("utilities.shared");
   const { logoUrl, themeColor, isLoading } = useOIDCContext();
 
@@ -131,9 +132,7 @@ function OidcLayoutContent({ children }: { children: ReactNode }) {
 export function OidcLayout() {
   return (
     <OIDCProvider>
-      <OidcLayoutContent>
-        <Outlet />
-      </OidcLayoutContent>
+      <OidcLayoutContent />
     </OIDCProvider>
   );
 }

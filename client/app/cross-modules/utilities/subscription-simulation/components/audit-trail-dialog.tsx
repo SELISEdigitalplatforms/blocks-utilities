@@ -181,7 +181,7 @@ export const AuditTrailDialog = ({
                     </CopyToClipboardButton>
                     <CopyToClipboardButton textToCopy={event.operationId} isHoverable>
                       <span title={event.operationId}>
-                        op {shortenId(event.operationId)}
+                        {t("AUDIT_TRAIL_DIALOG.OPERATION_SHORT", { id: shortenId(event.operationId) })}
                       </span>
                     </CopyToClipboardButton>
                   </TableCell>

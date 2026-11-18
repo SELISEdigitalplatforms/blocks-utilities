@@ -163,6 +163,7 @@ export const StepEligibility = ({
                 id="campaign-timezone"
                 value={draft.timeZoneId}
                 onChange={(event) => onChange({ timeZoneId: event.target.value })}
+                // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                 placeholder="Europe/Zurich"
               />
             </div>
@@ -210,6 +211,7 @@ export const StepEligibility = ({
               list="campaign-entitlement-options"
               value={draft.entitlementKey}
               onChange={(event) => onChange({ entitlementKey: event.target.value })}
+              // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
               placeholder="seats"
             />
             {planForEntitlement && (

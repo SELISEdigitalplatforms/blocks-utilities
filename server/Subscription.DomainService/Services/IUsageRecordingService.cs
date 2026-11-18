@@ -1,4 +1,4 @@
-﻿using Subscription.DomainService.Enums;
+using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
 
@@ -16,6 +16,20 @@ public interface IUsageRecordingService
     /// </remarks>
     Task<SubscriptionOperationResult<UsageResponse>> RecordAsync(
         RecordUsageRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gives back a use recorded earlier under an idempotency key: the balance, every pace window
+    /// and any credits it drew return to where they were before it.
+    /// </summary>
+    /// <remarks>
+    /// Written as a <see cref="Enums.UsageEntryType.Reversal"/> under <c>{key}:reversal</c>, the
+    /// same entry an enforced refusal writes, so releasing twice, or releasing a refused use,
+    /// changes nothing. Refused once the use's period has closed for billing.
+    /// </remarks>
+    Task<SubscriptionOperationResult<UsageResponse>> ReleaseAsync(
+        ReleaseUsageRequest request,
         string correlationId,
         CancellationToken cancellationToken);
 

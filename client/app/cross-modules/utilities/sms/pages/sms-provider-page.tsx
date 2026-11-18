@@ -180,6 +180,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
     },
   ];
   const isCreate = !configuration?.hasApiKey;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   const schema = useMemo(() => createSmsProviderSchema(isCreate), [isCreate, language, t]);
   const [bannerErrors, setBannerErrors] = useState<string[]>([]);
   const { mutateAsync, isPending } = useSaveSmsProviderConfiguration();
@@ -375,6 +376,7 @@ const SmsProviderForm = ({ configuration }: { configuration: SmsProviderConfigur
                     control={form.control}
                     name="statusCallbackBaseUrl"
                     label={t("SMS_PROVIDER_PAGE.CALLBACK_BASE_URL")}
+                    // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                     placeholder="https://utilities.example.com"
                     className="sm:col-span-2"
                     description={t("SMS_PROVIDER_PAGE.PUBLIC_HTTPS_ADDRESS_OF_THIS")}

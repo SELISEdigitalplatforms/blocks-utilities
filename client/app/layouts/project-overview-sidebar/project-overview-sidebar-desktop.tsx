@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { Settings, Users, BookMinus, Package } from "lucide-react";
+import { Package } from "lucide-react";
 import { DesktopMenuItem } from "@/components/menus/desktop-menu-item";
 import { Menu } from "@/models/menu-models";
 

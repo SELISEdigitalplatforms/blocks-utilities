@@ -2,7 +2,7 @@ import { profileMfaContext } from "../profile-mfa";
 import { ReactNode, useContext, useMemo, useState } from "react";
 import { useGetMFAConfig } from "@/idp/mfa/hooks/use-mfa-config";
 import { useGetMe } from "@/idp/iam/hooks/use-user";
-import { getMFA_Provider_Data } from "@/idp/mfa/utils/mfa-config";
+import { getMfaProviderData } from "@/idp/mfa/utils/mfa-config";
 import { Button } from "@/components/ui-kits/button/button";
 import { Badge } from "@/components/ui-kits/badge/badge";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,7 @@ import { ProfileMFAVerify } from "./profile-mfa-veriffy/profile-mfa-verify";
 import { UserMFAConfirmationDisable } from "./profile-mfa-confirmation-disable";
 import { useT } from "@seliseblocks/genesis-os";
 type MethodsOptionProps = {
-  method: Omit<(ReturnType<typeof getMFA_Provider_Data>)[0], "description"> & { description: ReactNode };
+  method: Omit<(ReturnType<typeof getMfaProviderData>)[0], "description"> & { description: ReactNode };
   selected: string;
   onSaveClick: () => void;
   activeType: string;
@@ -53,14 +53,15 @@ const MethodsOption = ({ method, onSaveClick, activeType, isVerified }: MethodsO
 };
 export const ProfileMfaMethodSelectList = () => {
   const { t } = useT("utilities.idp");
-  const { userId, projectKey, showVerifyModal, setIsDisableModalOpen } =
+  const { projectKey, showVerifyModal, setIsDisableModalOpen } =
     useContext(profileMfaContext);
   const { data } = useGetMFAConfig({ projectKey });
   const { data: userData } = useGetMe();
   const [type, setType] = useState<string>("");
   const availableMFaMethod = useMemo(() => {
     if (!data?.userMfaType.length) return [];
-    return getMFA_Provider_Data().filter((item) => data?.userMfaType.includes(item.type));
+    return getMfaProviderData().filter((item) => data?.userMfaType.includes(item.type));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   }, [data?.userMfaType, t]);
   const [prevUserData, setPrevUserData] = useState<
     NonNullable<typeof userData>["data"] | undefined

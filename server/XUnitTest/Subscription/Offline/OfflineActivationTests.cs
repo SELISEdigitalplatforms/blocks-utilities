@@ -220,6 +220,10 @@ public sealed class OfflineActivationTests
             because: "a card added to a bank-transfer contract is never charged, so offering to " +
                 "take one tells the customer something untrue");
         _setups.VerifyNoOtherCalls();
+        _subscriptions.Verify(
+            repository => repository.TryBumpPaymentMethodSetupAttemptAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     // What a card charge needs before it can reach the (strict) gateway mock: with this in place, a

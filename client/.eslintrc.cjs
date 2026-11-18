@@ -1,3 +1,5 @@
+const { noHardcodedTextRule, hardcodedTextExemptFiles } = require("@seliseblocks/genesis-os/eslint");
+
 module.exports = {
   root: true,
   env: {
@@ -36,6 +38,13 @@ module.exports = {
     "react/jsx-uses-react": "off",
     "no-unused-vars": "off",
     "no-console": ["error", { allow: ["error"] }],
+    // User-facing text goes through the i18n runtime with English keys in client/app/i18n/<module>.en.json;
+    // other languages come from the localization service. Shared rule from genesis-os; genuinely
+    // untranslatable tokens (product names, example values) use a targeted disable with a reason.
+    "no-restricted-syntax": noHardcodedTextRule,
+    // Only says the React Compiler would skip a component (react-hook-form watch, TanStack Table).
+    // This build does not use the compiler; turn it back on if babel-plugin-react-compiler is added.
+    "react-hooks/incompatible-library": "off",
     "@typescript-eslint/no-empty-object-type": [
       "error",
       { allowInterfaces: "with-single-extends" },
@@ -82,5 +91,12 @@ module.exports = {
       },
     ],
   },
+  overrides: [
+    {
+      // Tests, stories and test helpers may use literal text.
+      files: hardcodedTextExemptFiles,
+      rules: { "no-restricted-syntax": "off" },
+    },
+  ],
   ignorePatterns: ["node_modules/", "dist/"],
 };

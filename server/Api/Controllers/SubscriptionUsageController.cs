@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Api.Utilities;
 using Blocks.Genesis;
 using Microsoft.AspNetCore.Http;
@@ -21,6 +21,7 @@ public sealed class SubscriptionUsageController : ControllerBase
     private readonly IUsageRecordingService _usage;
     private readonly ISubscriptionUsageOveragePreviewService _overagePreview;
 
+    /// <inheritdoc/>
     public SubscriptionUsageController(
         IUsageRecordingService usage,
         ISubscriptionUsageOveragePreviewService overagePreview)
@@ -49,7 +50,43 @@ public sealed class SubscriptionUsageController : ControllerBase
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _usage.RecordAsync(request, correlationId, cancellationToken);
+        var result = await _usage.RecordAsync(request, correlationId, cancellationToken).ConfigureAwait(false);
+
+        return result.ToActionResult(correlationId);
+    }
+
+    /// <summary>
+    /// Gives back a use recorded earlier, named by the idempotency key it was recorded under.
+    /// </summary>
+    /// <remarks>
+    /// For a caller that books usage before an operation and releases it when the operation fails.
+    /// The balance, pace windows and any credits the use drew return to where they were. Safe to
+    /// retry: a second release, or a release of a use that was refused, reports <c>replayed</c>.
+    /// 409 <c>subscription_usage_release_in_progress</c> while the recording call is still running
+    /// (retry), and 409 <c>subscription_usage_release_period_closed</c> once its period is billed.
+    /// <para>
+    /// The idempotency key is the caller's own, never issued by this service and not returned in
+    /// the response. Derive it from the operation being paid for (for example
+    /// <c>export-job-8841</c>) rather than generating a fresh one per call: the same key then
+    /// makes a retried booking count once, and lets a caller that crashed after booking rebuild
+    /// it and release. A key generated at random and not kept leaves a booking that cannot be
+    /// released.
+    /// </para>
+    /// </remarks>
+    [HttpPost("release")]
+    [ProducesResponseType(typeof(ApiResponse<UsageResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<UsageResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<UsageResponse>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<UsageResponse>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-usage::manage")]
+    public async Task<IActionResult> Release(
+        [FromBody] ReleaseUsageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _usage.ReleaseAsync(request, correlationId, cancellationToken).ConfigureAwait(false);
 
         return result.ToActionResult(correlationId);
     }
@@ -97,7 +134,7 @@ public sealed class SubscriptionUsageController : ControllerBase
             organizationId,
             mode,
             correlationId,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         if (!result.IsSuccess)
         {
@@ -142,7 +179,7 @@ public sealed class SubscriptionUsageController : ControllerBase
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _usage.ReadMineAsync(organizationId, correlationId, cancellationToken);
+        var result = await _usage.ReadMineAsync(organizationId, correlationId, cancellationToken).ConfigureAwait(false);
 
         return result.ToActionResult(correlationId);
     }
@@ -226,7 +263,7 @@ public sealed class SubscriptionUsageController : ControllerBase
     {
         var correlationId = HttpContext.TraceIdentifier;
 
-        var result = await _overagePreview.PreviewAsync(request, correlationId, cancellationToken);
+        var result = await _overagePreview.PreviewAsync(request, correlationId, cancellationToken).ConfigureAwait(false);
 
         return result.ToActionResult(correlationId);
     }

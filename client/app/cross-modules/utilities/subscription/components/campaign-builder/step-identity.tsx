@@ -65,6 +65,7 @@ export const StepIdentity = ({
           id="campaign-code"
           value={draft.code}
           onChange={(event) => onChange({ code: event.target.value })}
+          // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
           placeholder="launch25"
           autoComplete="off"
           spellCheck={false}

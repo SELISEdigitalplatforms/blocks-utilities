@@ -96,6 +96,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
               <FormControl>
                 <Input
                   {...field}
+                  // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                   placeholder="pro"
                   autoComplete="off"
                   spellCheck={false}
@@ -206,6 +207,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
           render={({ field }) => (
             <FormItem>
               <FormLabel>{t("STEP_IDENTITY.FAMILY_CODE")}</FormLabel>
+              {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
               <FormControl><Input {...field} placeholder="claude-max" /></FormControl>
               <FormDescription>{t("STEP_IDENTITY.FAMILY_CODE_HINT")}</FormDescription>
               <FormMessage />
@@ -240,6 +242,7 @@ export const StepIdentity = ({ isEditing = false }: { isEditing?: boolean }) => 
                 <FormControl>
                   <Textarea
                     {...field}
+                    // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                     placeholder='{"betaAccess": true}'
                     rows={4}
                     spellCheck={false}

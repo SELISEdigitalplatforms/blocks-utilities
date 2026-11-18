@@ -20,23 +20,23 @@ Three behaviours are worth knowing before you use it, because they are deliberat
 | Key | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `GeolocationApiUrl` | yes | — | Provider URL template. Without it, every lookup reports that it could not locate. |
-| `GeolocationApiKeySecretId` | no | — | Id of the Blocks Secrets secret holding the provider key. Setting it selects the managed store. |
-| `GeolocationApiKeySecretName` | no | `GeolocationApiKey` | Name of the Genesis vault secret, used when no secret id is set. |
+| `GeolocationApiKeySecretStoreName` | no | `geolocation-api-key` | Name of the Blocks Secrets secret holding the provider key. Each project's secret with this name is found by name; no id is configured. |
+| `GeolocationApiKeySecretName` | no | `GeolocationApiKey` | Name of the Genesis vault secret, used when Blocks Secrets has no key. |
 | `GeolocationApiKey` | no | — | Fallback provider key, read only when neither store answers. |
 | `GeolocationCacheSeconds` | no | `300` | Cache TTL for a successful lookup, and for the resolved provider key. Unset, zero, negative or unparseable falls back to the default. |
 | `GeolocationProviderDelayMilliseconds` | no | `1000` | Delay paid before each provider call. Match it to the provider's rate limit. |
 
 ### Where the provider key comes from
 
-Three sources, and which one is used is decided by configuration rather than by trying each in
-turn. The key is resolved on the first lookup and cached **per tenant** for
+Three sources, tried in turn. The key is resolved on the first lookup and cached **per tenant** for
 `GeolocationCacheSeconds` — the same TTL a lookup gets — so a key rotated in the store takes effect
 within that window without a restart.
 
-1. **Blocks Secrets** (`SeliseBlocks.Secrets.OS`), when `GeolocationApiKeySecretId` names a secret.
-   This is the managed path: the key is per tenant, rotatable from the Blocks OS console, and every
-   read of it is audited.
-2. **The Genesis vault** (`IVault`), under `GeolocationApiKeySecretName`, when no secret id is set.
+1. **Blocks Secrets** (`SeliseBlocks.Secrets.OS`), in the calling project: the active secret named
+   `GeolocationApiKeySecretStoreName` (default `geolocation-api-key`). The name must match exactly,
+   ignoring case; if several match, the most recently updated wins. This is the managed path: the
+   key is per project, rotatable from the Blocks OS console, and every read of it is audited.
+2. **The Genesis vault** (`IVault`), under `GeolocationApiKeySecretName`, when Blocks Secrets has no key.
    The platform-wide key, for a deployment that has not adopted Blocks Secrets.
 3. **The `GeolocationApiKey` configuration value**, if neither store answers. This exists so a
    developer without access to either can run the service; it is not the deployment path.
@@ -56,12 +56,9 @@ and no key is sent.
 
 #### Using Blocks Secrets
 
-Create the secret once — from the Blocks OS console, or through `ISecretService` — and put the id
-it returns in configuration. Store the id, never the value:
-
-```json
-{ "GeolocationApiKeySecretId": "3f2a...c91" }
-```
+Create a secret named `geolocation-api-key` in each project — from the Blocks OS console, or
+through `ISecretService`. Nothing goes in configuration: the service finds it by name in the
+caller's project, so each project keeps whatever id it was given.
 
 `SecretTypes.Service` is the right type: the key is a backend credential with no per-user access
 list, so any authenticated caller in the tenant can read it.
@@ -71,9 +68,8 @@ carries `[Authorize]`. Background work that ever needs a geolocation lookup woul
 call in `BlocksContext.ExecuteInContext(...)`; nothing in the Worker does today, and a missing
 context is logged and falls through to the vault rather than throwing.
 
-Rotating the key means `RotateAsync` on the same secret id — the id in configuration does not
-change. The new value is picked up within `GeolocationCacheSeconds`. Every read is audited, so the
-cost of that window is one audit row per tenant per window rather than one per lookup; shortening
+Rotating the key means `RotateAsync` on the same secret, so its name does not change. The new value is picked up within `GeolocationCacheSeconds`. Every read is audited, so the
+cost of that window is one search and one audit row per tenant per window rather than one per lookup; shortening
 the TTL trades audit noise for a faster rotation.
 
 ### Provider URL templates
@@ -283,8 +279,8 @@ A cancelled request propagates rather than being reported as a failed lookup.
 
 ### Local testing without a secret store
 Set `GeolocationApiUrl` and, for providers that need one, `GeolocationApiKey` in
-`appsettings.Development.json`, and leave `GeolocationApiKeySecretId` unset. The vault is tried
-first, logs that it found nothing, and the configured key is used.
+`appsettings.Development.json`. Without a
+`geolocation-api-key` secret in your project the vault is tried next, logs that it found nothing, and the configured key is used.
 
 `GeolocationApiKey` is deliberately absent from every committed `appsettings*.json`. Add it
 locally if you need it, and do not commit the value — the deployed environments read the key from

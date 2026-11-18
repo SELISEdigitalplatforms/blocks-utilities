@@ -42,6 +42,7 @@ export const SmsTemplateDialog = ({ open, template, onOpenChange }: SmsTemplateD
 
 const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate | null; onClose: () => void }) => {
   const { t, language } = useT("utilities.sms");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   const schema = useMemo(() => createSmsTemplateSchema(), [language, t]);
   const { mutateAsync, isPending } = useSaveSmsTemplate();
   const [bannerError, setBannerError] = useState<string | null>(null);
@@ -93,6 +94,7 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
                 <FormItem>
                   <FormLabel>{t("common:NAME")}</FormLabel>
                   <FormControl>
+                    {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                     <Input {...field} placeholder="otp-login" />
                   </FormControl>
                   <FormMessage />
@@ -106,6 +108,7 @@ const SmsTemplateDialogContent = ({ template, onClose }: { template: SmsTemplate
                 <FormItem>
                   <FormLabel>{t("SMS_TEMPLATE_DIALOG.LANGUAGE")}</FormLabel>
                   <FormControl>
+                    {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                     <Input {...field} placeholder="en-US" />
                   </FormControl>
                   <FormMessage />

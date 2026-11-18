@@ -10,13 +10,12 @@ import { ClientCredentials } from "@blocks-idp/authentication/components/client-
 import { CreateClientCredential } from "@blocks-idp/authentication/components/create-client-credential";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui-kits/select/select";
 import { CreateOIDC } from "@blocks-idp/authentication/components/create-oidc";
-import { useProjectStore, useT } from "@seliseblocks/genesis-os";
+import { useT } from "@seliseblocks/genesis-os";
 
 
 export const AuthenticationConfig = () => {
   const { t } = useT("utilities.idp.authentication");
   const [selectedTab, setSelectedTab] = useQueryState("tab", { defaultValue: GRANT_TYPES.social });
-  const tenantId = useProjectStore().selectedProject?.tenantId || "";
 
   return (
     <div>

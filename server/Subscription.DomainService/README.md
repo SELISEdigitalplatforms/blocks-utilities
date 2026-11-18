@@ -1720,11 +1720,15 @@ Two things behave differently from a charge:
 - **Failure is not fatal.** A declined charge ends the subscription; nothing was refused here, so
   it stays `Incomplete` and another attempt is free to succeed. The staleness sweep still expires
   it if nobody comes back.
-- **An expired session is replaced.** A hosted session cannot be reopened and the provider would
-  replay it under the key that opened it, so a retry mints a new one —
-  `SubscriptionConstants.PaymentMethodSetupKeyFor` carries an attempt number, bumped by a
-  compare-and-set so two tabs retrying at once produce one session. An expired *charge* is still
-  a conflict: raising a second one is how the same money gets taken twice.
+- **An expired or completed session is followed by a new one.** A hosted session cannot be
+  reopened and the provider would replay it under the key that opened it, so a retry mints a new
+  one — `SubscriptionConstants.PaymentMethodSetupKeyFor` carries an attempt number, bumped by a
+  compare-and-set so two tabs retrying at once produce one session. The same bump follows a
+  session that *completed*: the payment module keeps the consumed record under its key, so
+  replacing a stored card on a running subscription raises the next attempt and leaves the
+  completed link as it is. The endpoint decides from the newest setup link of the subscription,
+  because a completed link and its replacement coexist from then on. An expired *charge* is
+  still a conflict: raising a second one is how the same money gets taken twice.
 
 Cancelling while a setup is outstanding settles its link, so completing the card form afterwards
 cannot start a subscription somebody has cancelled.

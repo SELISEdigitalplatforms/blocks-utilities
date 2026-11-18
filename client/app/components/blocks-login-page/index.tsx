@@ -39,14 +39,15 @@ export function BlocksLoginPage({
   const resolvedFooterLink = footerLink ?? { label: t("BLOCKS_LOGIN_PAGE.VISIT_BLOCKS"), url: "https://seliseblocks.com" };
   const active = useMemo(
     () => getBlocksProducts().find((p) => p.name === name) ?? getBlocksProducts()[0],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
     [name, t],
   );
   const otherProducts = useMemo(
     () => getBlocksProducts().filter((p) => p.name !== active.name),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
     [active.name, t],
   );
   const [titleHead, titleTail] = splitAppName(active.appName);
-  const navLabel = active.badge;
   const heroSubtitle = active.tagline;
   const features = active.featureChips;
   const derivedKeywordPrefix = active.descriptionTitle;
@@ -289,6 +290,7 @@ export function BlocksLoginPage({
               target="_blank"
               rel="noreferrer"
               className="nav-link"
+            // eslint-disable-next-line no-restricted-syntax -- product name
             >
               Blocks
             </a>
@@ -297,6 +299,7 @@ export function BlocksLoginPage({
               target="_blank"
               rel="noreferrer"
               className="nav-link"
+            // eslint-disable-next-line no-restricted-syntax -- product name
             >
               GitHub
             </a>
