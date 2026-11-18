@@ -198,6 +198,7 @@ export const MeterCataloguePage = () => {
                   id="catalogue-key"
                   value={draft.meterKey}
                   disabled={Boolean(editing.entry)}
+                  // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                   placeholder="ai-credits"
                   onChange={(event) => update({ meterKey: event.target.value })}
                 />

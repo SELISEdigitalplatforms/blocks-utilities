@@ -136,6 +136,7 @@ export const InfiniteScroll = <T,>({
           </div>
         )}
       </div>
+      {/* eslint-disable-next-line react-hooks/refs -- bottomIndicator is a render prop; the handler reads the ref only when clicked */}
       {isNewDataAvailable && bottomIndicator(bottomIndicatorHanlder)}
     </div>
   );

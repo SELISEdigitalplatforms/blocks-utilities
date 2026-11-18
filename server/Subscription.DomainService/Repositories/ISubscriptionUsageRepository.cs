@@ -1,4 +1,4 @@
-﻿using Subscription.DomainService.Entities;
+using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Repositories;
 
@@ -127,6 +127,13 @@ public interface ISubscriptionUsageRepository
         string tenantId,
         string counterId,
         int thresholdPercent,
+        CancellationToken cancellationToken);
+
+    /// <summary>Stores which credit grants a ledger entry drew from. See <see cref="SubscriptionUsageRecord.CreditTakes"/>.</summary>
+    Task SetCreditTakesAsync(
+        string tenantId,
+        string recordId,
+        IReadOnlyList<UsageCreditTake> takes,
         CancellationToken cancellationToken);
 
     Task<SubscriptionUsageRecord?> FindRecordByKeyAsync(

@@ -92,6 +92,7 @@ export const PaymentProviderConfigurationFields = ({
               <Input
                 {...field}
                 type="url"
+                // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                 placeholder="https://app.example.com/payment/result"
                 autoComplete="url"
               />
@@ -319,6 +320,7 @@ export const PaymentProviderConfigurationFields = ({
                     {...field}
                     value={field.value ?? ""}
                     maxLength={100}
+                    // eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose
                     placeholder="pmc_…"
                     autoComplete="off"
                     spellCheck={false}

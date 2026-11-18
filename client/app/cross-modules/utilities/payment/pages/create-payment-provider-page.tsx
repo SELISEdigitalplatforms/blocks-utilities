@@ -275,9 +275,11 @@ export const CreatePaymentProviderPage = () => {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
+                            {/* eslint-disable-next-line no-restricted-syntax -- product name */}
                             <SelectItem value="ADYEN-ONLINE">
                               Adyen Hosted Checkout
                             </SelectItem>
+                            {/* eslint-disable-next-line no-restricted-syntax -- product name */}
                             <SelectItem value="STRIPE">
                               Stripe Checkout
                             </SelectItem>

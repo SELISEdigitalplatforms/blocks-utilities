@@ -53,7 +53,7 @@ export const SSOProviderCard = ({ configuration }: SSOProviderCardProps) => {
           <CardTitle className="flex justify-between">
             <div className="flex items-center gap-4">
               <div className="relative aspect-square h-8 w-8">
-                <img src={imageSrc} alt="socical_icon"/>
+                <img src={imageSrc} alt={t("SSO_PROVIDER_CARD.ICON_ALT")}/>
               </div>
               <div>
                 <div className="flex items-center justify-between gap-2 text-lg text-high-emphasis">

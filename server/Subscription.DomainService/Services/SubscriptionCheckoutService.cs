@@ -714,14 +714,15 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
 
         // A session already open is returned rather than replaced. Two live sessions against one
         // subscription is how a subscriber ends up with the card they did not expect on file, and
-        // the activation sweep only ever settles one of them.
-        var existing = await _links.FindBySubscriptionAsync(
+        // the activation sweep only ever settles one of them. The decision is taken from the
+        // newest setup link: once a card has been replaced, a completed link and its
+        // replacement coexist, and an unordered first match could resume the wrong one.
+        var existing = await _links.FindLatestSetupLinkAsync(
             context.TenantId,
             subscription.ItemId,
             cancellationToken);
 
-        if (existing is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup,
-                          State: SubscriptionPaymentLinkState.Pending })
+        if (existing is { State: SubscriptionPaymentLinkState.Pending })
         {
             var url = await ResolveUsableCheckoutUrlAsync(context.TenantId, existing, cancellationToken);
 
@@ -741,8 +742,7 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             return await RetryCardSetupAsync(subscription, existing, correlationId, cancellationToken);
         }
 
-        if (existing is { Purpose: SubscriptionPaymentPurpose.PaymentMethodSetup,
-                           State: SubscriptionPaymentLinkState.Abandoned })
+        if (existing is { State: SubscriptionPaymentLinkState.Abandoned })
         {
             // A hosted session that expired cannot be reopened (see PaymentMethodSetupKeyFor's own
             // remarks): falling through to StartCardSetupAsync below would derive the same
@@ -751,6 +751,25 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             // first, through the same compare-and-set two concurrent tabs already rely on, so the
             // subscriber always gets back a session they can actually complete.
             return await RetryCardSetupAsync(subscription, existing, correlationId, cancellationToken);
+        }
+
+        if (existing is { State: SubscriptionPaymentLinkState.Applied })
+        {
+            // The last setup completed, so the payment module holds a consumed record under the
+            // current key: falling through would replay it, or answer idempotency_key_reused once
+            // the plan name or billing e-mail has changed. This is the card-replacement journey,
+            // so the attempt is bumped like a retry, but the completed link is left exactly as it
+            // is -- it records the card that was adopted and has nothing to settle.
+            if (!await _subscriptions.TryBumpPaymentMethodSetupAttemptAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    subscription.PaymentMethodSetupAttempt,
+                    cancellationToken))
+            {
+                return PendingCheckoutConflict(subscription, null, correlationId);
+            }
+
+            subscription.PaymentMethodSetupAttempt++;
         }
 
         return await StartCardSetupAsync(subscription, correlationId, cancellationToken);

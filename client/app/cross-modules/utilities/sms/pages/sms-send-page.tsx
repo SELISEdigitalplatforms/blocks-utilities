@@ -25,6 +25,7 @@ const templateKey = (name: string, language: string) => `${name}\u0000${language
 
 export const SmsSendPage = () => {
   const { t, language: uiLanguage } = useT("utilities.sms");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   const schema = useMemo(() => createSendSmsSchema(), [uiLanguage, t]);
   const { itemId } = useParams();
   const { data: provider, isLoading: providerLoading } = useSmsProviderConfiguration();

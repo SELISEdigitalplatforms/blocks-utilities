@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useT } from "@seliseblocks/genesis-os";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
@@ -39,11 +39,12 @@ export const ArchivePlanDialog = ({
 
   // A dialog reopened after a failure must not still be showing the last one, and one reopened for
   // a different plan certainly must not.
-  useEffect(() => {
-    if (isOpen) {
-      setFailure(null);
-    }
-  }, [isOpen, plan?.planId]);
+  const openFor = isOpen ? (plan?.planId ?? "") : null;
+  const [lastOpenFor, setLastOpenFor] = useState(openFor);
+  if (lastOpenFor !== openFor) {
+    setLastOpenFor(openFor);
+    if (openFor !== null) setFailure(null);
+  }
 
   if (!plan) {
     return null;

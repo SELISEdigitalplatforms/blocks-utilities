@@ -17,6 +17,7 @@ export default function ConsoleCreateProject() {
       <div className="pointer-events-none absolute -left-10 bottom-0 h-32 w-32 rounded-full bg-white/[0.03]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(hsl(210_100%_100%/0.07)_1px,transparent_1px)] [background-size:22px_22px]" />
       <div className="relative flex flex-col items-center gap-5 px-8 py-14 text-center sm:px-12 sm:py-20">
+        {/* eslint-disable-next-line no-restricted-syntax -- product name */}
         <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary-foreground/60">
           Blocks OS Platform
         </p>

@@ -158,8 +158,9 @@ public sealed class SubscriptionDetail
     /// </summary>
     /// <remarks>
     /// Part of the idempotency key each attempt is raised under, which is what makes a second
-    /// attempt a genuinely new session rather than a replay of the expired one. Zero for every
-    /// subscription that paid its way in, and for the first attempt.
+    /// attempt a genuinely new session rather than a replay of the expired one. Zero for the
+    /// first attempt; advances after an expired, abandoned or completed setup, so a subscription
+    /// that paid its way in leaves zero the first time it replaces its card.
     /// </remarks>
     public int PaymentMethodSetupAttempt { get; set; }
 

@@ -29,6 +29,7 @@ export const getGithubStepupDocs = (t: TFunction) => [
             <Link
               to="https://github.com/settings/developers"
               className="text-primary"
+            // eslint-disable-next-line no-restricted-syntax -- product name
             >
               GitHub Developer Settings
             </Link>

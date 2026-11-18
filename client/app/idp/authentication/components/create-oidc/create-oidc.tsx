@@ -89,6 +89,7 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
         clientBrandColor: credential.clientBrandColor || "#124091",
         clientDisplayName: credential.clientDisplayName || "",
       });
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the client being edited into the form each time the dialog opens
       setClientLogoUrl(credential.clientLogoUrl || "");
     } else if (!isEditMode && open) {
       form.reset({
@@ -293,6 +294,7 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
                   <FormItem>
                     <FormLabel>{t("CREATE_OIDC.REDIRECT_URL")}</FormLabel>
                     <FormControl>
+                      {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                       <Input placeholder="https://example.com/oidc" {...field} />
                     </FormControl>
 
@@ -308,6 +310,7 @@ export const CreateOIDC = ({ itemId, triggerVariant = "default" }: CreateOIDCPro
                   <FormItem>
                     <FormLabel>{t("CREATE_OIDC.AUDIENCE")}</FormLabel>
                     <FormControl>
+                      {/* eslint-disable-next-line no-restricted-syntax -- example value shown as a placeholder, not prose */}
                       <Input placeholder="https://example.com" {...field} />
                     </FormControl>
 

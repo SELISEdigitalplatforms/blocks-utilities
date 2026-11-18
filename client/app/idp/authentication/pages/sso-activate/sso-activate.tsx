@@ -44,6 +44,7 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
     const label = providerKey.charAt(0).toUpperCase() + providerKey.slice(1);
 
     return { config: conf, providerLabel: label };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the builder reads translations through tStatic, so it must re-run when the language changes
   }, [providerKey, t]);
 
   const handleUseDifferentAccount = async () => {
@@ -133,6 +134,7 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
   return (
     <Card className="w-full rounded border-solid border-background shadow-none md:border-[#95ADC4] lg:max-w-md">
       <CardHeader className="text-center">
+        {/* eslint-disable-next-line no-restricted-syntax -- product name */}
         <CardTitle className="text-3xl leading-9">Blocks Cloud</CardTitle>
       </CardHeader>
       <CardContent>

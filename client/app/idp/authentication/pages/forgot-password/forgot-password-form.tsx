@@ -25,7 +25,7 @@ import { useT } from "@seliseblocks/genesis-os";
 
 export const ForgotPasswordForm = () => {
   const { t } = useT("utilities.idp.authentication");
-  const x_blocks_key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
+  const xBlocksKey = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
 
   const navigate = useNavigate();
   const form = useForm({
@@ -46,11 +46,11 @@ export const ForgotPasswordForm = () => {
 
   const onSubmitHandler = async (values: z.infer<ReturnType<typeof createForgotPasswordFormSchema>>) => {
     try {
-      if (!x_blocks_key) return;
+      if (!xBlocksKey) return;
       const res = await mutateAsync({
         ...values,
         captchaCode,
-        projectKey: x_blocks_key,
+        projectKey: xBlocksKey,
       });
       if (!res.isSuccess) {
         resetCaptcha();

@@ -113,6 +113,7 @@ export const AddEditProviderModal = ({ existingData }: AddEditProviderModalProps
 
       // Set provider based on existing data
       if (existingData.providerName) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the provider being edited once its data arrives
         setSelectedProvider(existingData.providerName);
       }
 

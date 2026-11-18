@@ -32,29 +32,6 @@ import { useValidateAuthorization } from "@/cross-modules/devops/hooks/github-in
 import { RepositorySelectionModal } from "@/components/repository-selection-modal/repository-selection-modal";
 import ProviderButtons from "@/cross-modules/devops/components/deployment-steps/render-repos/render-provider";
 
-const RepositoriesLoading = () => (
-  <main className="p-6">
-    <div className="flex flex-row justify-between md:items-center">
-      <Skeleton className="h-8 w-32" />
-      <Skeleton className="h-10 w-20" />
-    </div>
-    <div className="mt-4">
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-10 w-full" />
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  </main>
-);
-
 export const RepositoriesPage = () => {
   const { t } = useT("utilities.console");
   const groupId = useProjectStore().selectedTenantGroup;
@@ -175,6 +152,7 @@ export const RepositoriesPage = () => {
         cell: () => (
           <div className="flex flex-row">
             <Github className="mr-2 inline-block h-5 w-5" />
+            {/* eslint-disable-next-line no-restricted-syntax -- product name */}
             <div className="truncate">Github</div>
           </div>
         ),

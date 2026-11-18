@@ -1,5 +1,5 @@
 import { useState, Fragment } from "react";
-import { Settings, Users, MenuIcon, BookMinus, Package } from "lucide-react";
+import { MenuIcon, Package } from "lucide-react";
 import { Button } from "@/components/ui-kits/button/button";
 import {
   Sheet,

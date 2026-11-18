@@ -56,7 +56,7 @@ namespace DomainService.Utilities
             services.AddSingleton<IGeolocationService, GeolocationService>();
             services.AddSingleton<IGeolocationRepository, GeolocationRepository>();
 
-            // Backs the geolocation provider key when GeolocationApiKeySecretId names a secret.
+            // Backs the geolocation provider key, found by name in each project.
             // Registered here rather than left to the host so the Api and the Worker cannot
             // disagree about whether the managed secret store is available; AddBlocksSecrets uses
             // TryAdd throughout, so a host that also calls it adds nothing.

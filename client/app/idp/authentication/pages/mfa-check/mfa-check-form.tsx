@@ -39,16 +39,16 @@ const getFormSchema = (type: number) => {
 export const MfaCheckFrom = () => {
   const { t } = useT("utilities.idp.authentication");
   const navigate = useNavigate();
-  const [{ mfa_id, mfa_type }] = useQueryStates({
+  const [{ mfa_id: mfaId, mfa_type: mfaType }] = useQueryStates({
     mfa_id: parseAsString.withDefault(""),
     mfa_type: parseAsInteger.withDefault(0),
   });
   const { isPending } = useVerifyMfa();
   const { setAuthenticated } = useAuthStore();
-  const { remainingTime, resend } = useResendOtp({ mfaId: mfa_id });
+  const { remainingTime, resend } = useResendOtp({ mfaId });
 
   const form = useForm<{ code: string }>({
-    resolver: zodResolver(getFormSchema(mfa_type)),
+    resolver: zodResolver(getFormSchema(mfaType)),
     defaultValues: {
       code: "",
     },
@@ -78,14 +78,14 @@ export const MfaCheckFrom = () => {
           render={({ field }) => (
             <FormItem>
               <FormControl>
-                <InputOTP maxLength={mfa_type === 1 ? 6 : 5} {...field}>
+                <InputOTP maxLength={mfaType === 1 ? 6 : 5} {...field}>
                   <InputOTPGroup className="w-full justify-between gap-6">
                     <CustomInputOTPSlot index={0} />
                     <CustomInputOTPSlot index={1} />
                     <CustomInputOTPSlot index={2} />
                     <CustomInputOTPSlot index={3} />
                     <CustomInputOTPSlot index={4} />
-                    {mfa_type === 1 && <CustomInputOTPSlot index={5} />}
+                    {mfaType === 1 && <CustomInputOTPSlot index={5} />}
                   </InputOTPGroup>
                 </InputOTP>
               </FormControl>
@@ -93,7 +93,7 @@ export const MfaCheckFrom = () => {
             </FormItem>
           )}
         />
-        {mfa_type === 2 && (
+        {mfaType === 2 && (
           <div className="mt-4 text-right">
             <Button
               type="button"
