@@ -13,7 +13,6 @@ using Utility.DomainService.PdfIngestion.Utilities;
 using Utility.DomainService.PdfSignatureValidation.Utilities;
 using Utility.DomainService.PdfSignatureValidation.Validator;
 using Utility.DomainService.TemplateEngine.Utilities;
-using SeliseBlocks.ConfigurationDriver;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using Sms.DomainService.Dtos;
@@ -54,16 +53,10 @@ IHostBuilder CreateHostBuilder(string[] args) =>
         {
             ApplicationConfigurations.ConfigureWorkerEnv(builder, args);
 
-            // Merge the DB-backed "Secrets" document into configuration (same
-            // SecretKey as the Api) so KeyPairs values such as RootTenantId,
+            // Merge the DB-backed configuration document into configuration (same
+            // key as the Api) so values such as RootTenantId,
             // AuthenticationTokenEndpoint and PdfToolPath are read from the DB.
-            builder.AddMongoDbConfiguration(options =>
-            {
-                options.ConnectionString = secret.DatabaseConnectionString;
-                options.DatabaseName = secret.RootDatabaseName;
-                options.CollectionName = "Secrets";
-                options.SecretKey = "blocks-secret-utilities";
-            });
+            builder.AddKeyValueConfiguration(secret, "blocks-secret-utilities");
         })
         .ConfigureServices((context, services) =>
         {

@@ -13,7 +13,6 @@
     <!-- Platform secret management: metadata and audit in Mongo, values in Azure Key Vault.
          Requires SeliseBlocks.Genesis.OS >= 4.2.2, which the pin above satisfies. -->
     <PackageVersion Include="SeliseBlocks.Secrets.OS" Version="4.1.0" />
-    <PackageVersion Include="SeliseBlocks.ConfigurationDriver" Version="10.0.0-preview.1" />
     <!-- Pinned to what SeliseBlocks.Genesis.OS already resolves to transitively; anything lower
          is a package downgrade and fails the build. -->
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
