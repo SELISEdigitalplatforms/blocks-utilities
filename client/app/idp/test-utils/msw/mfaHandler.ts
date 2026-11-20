@@ -1,4 +1,5 @@
 import { http, HttpResponse, type JsonBodyType } from "msw";
+import { endpointPattern } from "./endpoint-pattern";
 import {
   mockMfaConfigResponse,
   mockGenerateOtpResponse,
@@ -11,16 +12,16 @@ import { MFA_CONFIG_ENDPOINTS, MFA_ENDPOINTS } from "../../mfa/constants/endpoin
 // ─── Endpoint Patterns ────────────────────────────────────────────────────────
 
 // MFA Config
-const GET_MFA_CONFIG_PATTERN = new RegExp(`${MFA_CONFIG_ENDPOINTS.GET}\\?`);
-const SAVE_MFA_CONFIG_PATTERN = new RegExp(MFA_CONFIG_ENDPOINTS.SAVE);
+const GET_MFA_CONFIG_PATTERN = endpointPattern(MFA_CONFIG_ENDPOINTS.GET, "\\?");
+const SAVE_MFA_CONFIG_PATTERN = endpointPattern(MFA_CONFIG_ENDPOINTS.SAVE);
 
 // MFA Operations
-const GENERATE_OTP_PATTERN = new RegExp(MFA_ENDPOINTS.GENERATE_OTP);
-const CONFIGURE_USER_MFA_PATTERN = new RegExp(MFA_ENDPOINTS.CONFIGURE_USER_MFA);
-const SETUP_TOTP_PATTERN = new RegExp(`${MFA_ENDPOINTS.SETUP_TOTP}\\?`);
-const VERIFY_OTP_PATTERN = new RegExp(MFA_ENDPOINTS.VERIFY_OTP);
-const RESEND_OTP_PATTERN = new RegExp(MFA_ENDPOINTS.RESEND_OTP);
-const DISABLE_MFA_PATTERN = new RegExp(MFA_ENDPOINTS.DISABLE_MFA);
+const GENERATE_OTP_PATTERN = endpointPattern(MFA_ENDPOINTS.GENERATE_OTP);
+const CONFIGURE_USER_MFA_PATTERN = endpointPattern(MFA_ENDPOINTS.CONFIGURE_USER_MFA);
+const SETUP_TOTP_PATTERN = endpointPattern(MFA_ENDPOINTS.SETUP_TOTP, "\\?");
+const VERIFY_OTP_PATTERN = endpointPattern(MFA_ENDPOINTS.VERIFY_OTP);
+const RESEND_OTP_PATTERN = endpointPattern(MFA_ENDPOINTS.RESEND_OTP);
+const DISABLE_MFA_PATTERN = endpointPattern(MFA_ENDPOINTS.DISABLE_MFA);
 
 // ─── Default Handlers (happy-path) ───────────────────────────────────────────
 
