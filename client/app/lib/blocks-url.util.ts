@@ -1,3 +1,5 @@
+import { getMergedAreaBaseUrl } from "@seliseblocks/genesis-os/lib";
+
 const ENV_PREFIX_PATTERN = /^(dev-|stg-)/;
 const LOCALHOST_PATTERN = /^(localhost|127\.0\.0\.1)$/;
 
@@ -41,8 +43,10 @@ export function deriveIdpBaseUrl(): string {
   return deriveBaseUrl("iam");
 }
 
+// Data, localization, logic and monitor are served by the os host (blocks-os-net-react). Each uses its configured key
+// while set, else BLOCKS_OS_BASE_URL, else the os host derived from this page's host; never a retired host.
 export function deriveUdsBaseUrl(): string {
-  return deriveBaseUrl("data");
+  return getMergedAreaBaseUrl("BLOCKS_DATA_BASE_URL") || deriveBaseUrl("os");
 }
 
 export function deriveAgentBaseUrl(): string {
@@ -52,13 +56,13 @@ export function deriveOsBaseUrl(): string {
   return deriveBaseUrl("os");
 }
 export function deriveLocalizationBaseUrl(): string {
-  return deriveBaseUrl("localization");
+  return getMergedAreaBaseUrl("BLOCKS_LOCALIZATION_BASE_URL") || deriveBaseUrl("os");
 }
 export function deriveLogicBaseUrl(): string {
-  return deriveBaseUrl("logic");
+  return getMergedAreaBaseUrl("BLOCKS_LOGIC_BASE_URL") || deriveBaseUrl("os");
 }
 export function deriveObservabilityBaseUrl(): string {
-  return deriveBaseUrl("monitor");
+  return getMergedAreaBaseUrl("BLOCKS_MONITOR_BASE_URL") || deriveBaseUrl("os");
 }
 export function deriveDeploymentBaseUrl(): string {
   return deriveBaseUrl("release");
