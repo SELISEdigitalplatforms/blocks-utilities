@@ -1,13 +1,14 @@
 import { http, HttpResponse, type JsonBodyType } from "msw";
+import { endpointPattern } from "./endpoint-pattern";
 import { mockCaptchaConfigsResponse } from "../__mocks__/captcha.data.mock";
 import { mockSuccessResponseWithItemId } from "@/test-utils/__mocks__";
 import { CAPTCHA_ENDPOINTS } from "../../captcha/constants/endpoint.constant";
 
 // ─── Endpoint Patterns ────────────────────────────────────────────────────────
 
-const GET_CAPTCHA_CONFIGS_PATTERN = new RegExp(`${CAPTCHA_ENDPOINTS.GETS}\\?`);
-const SAVE_CAPTCHA_PATTERN = new RegExp(CAPTCHA_ENDPOINTS.SAVE);
-const UPDATE_CAPTCHA_STATUS_PATTERN = new RegExp(CAPTCHA_ENDPOINTS.UPDATE_STATUS);
+const GET_CAPTCHA_CONFIGS_PATTERN = endpointPattern(CAPTCHA_ENDPOINTS.GETS, "\\?");
+const SAVE_CAPTCHA_PATTERN = endpointPattern(CAPTCHA_ENDPOINTS.SAVE);
+const UPDATE_CAPTCHA_STATUS_PATTERN = endpointPattern(CAPTCHA_ENDPOINTS.UPDATE_STATUS);
 
 // ─── Default Handlers (happy-path) ───────────────────────────────────────────
 

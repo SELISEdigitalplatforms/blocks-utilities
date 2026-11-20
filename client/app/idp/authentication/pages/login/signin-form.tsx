@@ -7,6 +7,7 @@ import {
   FormMessage,
 } from "@/components/ui-kits/form/form";
 import { getRuntimeEnv } from "@/lib/runtime-env";
+import { getMergedAreaBaseUrl } from "@seliseblocks/genesis-os/lib";
 import { useForm } from "react-hook-form";
 import { signinFormDefaultValue, createSigninFormSchema } from "./schema";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -44,9 +45,9 @@ export const SigninForm = () => {
       }
 
       // For localhost, save tokens in store for Authorization Bearer
-      const isLocalhost = getRuntimeEnv(
+      const isLocalhost = getMergedAreaBaseUrl(
         "BLOCKS_LOCALIZATION_BASE_URL",
-      )?.includes("localhost");
+      ).includes("localhost");
       if (isLocalhost && res.access_token && res.refresh_token) {
         setTokens(res.access_token, res.refresh_token);
       }

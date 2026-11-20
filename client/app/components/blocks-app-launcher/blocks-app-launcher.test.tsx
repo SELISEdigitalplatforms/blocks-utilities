@@ -25,7 +25,16 @@ describe("BlocksAppLauncher", () => {
     vi.restoreAllMocks();
   });
 
+  const blocksEnv = () =>
+    (window as unknown as { __BLOCKS_ENV__: Record<string, string> }).__BLOCKS_ENV__;
+
+  afterEach(() => {
+    delete blocksEnv().BLOCKS_LOCALIZATION_BASE_URL;
+  });
+
   it("seeds default favourites and lists them in the popover", async () => {
+    // An app that still sets the merged area's base URL shows its tile.
+    blocksEnv().BLOCKS_LOCALIZATION_BASE_URL = "https://localization.example.test";
     const user = userEvent.setup();
     renderLauncher();
     await user.click(screen.getByRole("button", { name: "SELISE Blocks apps" }));
@@ -33,6 +42,15 @@ describe("BlocksAppLauncher", () => {
     expect(screen.getByText("IAM")).toBeInTheDocument();
     expect(screen.getByText("Localization")).toBeInTheDocument();
     expect(screen.getByText("More from SELISE Blocks")).toBeInTheDocument();
+  });
+
+  it("hides a merged area's tile once its base URL is unset (the OS tile covers it)", async () => {
+    delete blocksEnv().BLOCKS_LOCALIZATION_BASE_URL;
+    const user = userEvent.setup();
+    renderLauncher();
+    await user.click(screen.getByRole("button", { name: "SELISE Blocks apps" }));
+    expect(await screen.findByText("IAM")).toBeInTheDocument();
+    expect(screen.queryByText("Localization")).not.toBeInTheDocument();
   });
 
   it("opens the manage favourites dialog and toggles a favourite", async () => {
@@ -46,19 +64,14 @@ describe("BlocksAppLauncher", () => {
       .find((b) => b.textContent?.includes("OS"))!;
     await user.click(osButton);
     await waitFor(() => {
-      const stored = JSON.parse(
-        localStorage.getItem("blocks-app-favourites") || "[]",
-      );
+      const stored = JSON.parse(localStorage.getItem("blocks-app-favourites") || "[]");
       expect(stored).toContain("os");
     });
   });
 
   it("shows an error toast when the initiate call has no redirect", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ json: () => Promise.resolve({}) }),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ json: () => Promise.resolve({}) }));
     renderLauncher();
     await user.click(screen.getByRole("button", { name: "SELISE Blocks apps" }));
     await user.click(await screen.findByText("IAM"));
