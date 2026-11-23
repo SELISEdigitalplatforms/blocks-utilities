@@ -176,6 +176,112 @@ public sealed class ExistingSubscriberPriceTermsTests
             Times.Once);
     }
 
+    [Fact]
+    public async Task An_overage_rate_cut_reprices_existing_subscribers_now_and_tells_them()
+    {
+        var subscription = OnPlan(unitAmountMinor: 200);
+        List<MeterRateTable>? written = null;
+        SubscriptionOutboxEvent? announced = null;
+        _subscriptions
+            .Setup(repository => repository.ListRenewableOnPlanAsync(
+                TenantId, PlanId, null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([subscription]);
+        _subscriptions
+            .Setup(repository => repository.TrySetMeterRatesAsync(
+                TenantId, "sub-1", subscription.Version, PlanId, MeterKey,
+                It.IsAny<List<MeterRateTable>>(), It.IsAny<SubscriptionOutboxEvent?>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, string, int, string, string, List<MeterRateTable>, SubscriptionOutboxEvent?, CancellationToken>(
+                (_, _, _, _, _, tables, outboxEvent, _) => (written, announced) = (tables, outboxEvent))
+            .ReturnsAsync(true);
+
+        var result = await ApplyMeterRatesAsync(Rates(("CHF", 100)));
+
+        result.Scheduled.Should().Be(1);
+        written!.Single().Tiers.Single().UnitAmountMinor.Should().Be(100,
+            "the subscriber's own plan copy is what the open period is rated from when it closes");
+        announced.Should().NotBeNull("the subscriber is told in the same write that reprices them");
+        announced!.EventType.Should().Be(SubscriptionConstants.SubscriptionOverageRatesChanged);
+    }
+
+    [Fact]
+    public async Task An_overage_edit_that_leaves_the_subscribers_currency_alone_writes_nothing()
+    {
+        _subscriptions
+            .Setup(repository => repository.ListRenewableOnPlanAsync(
+                TenantId, PlanId, null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([OnPlan(unitAmountMinor: 200)]);
+
+        var result = await ApplyMeterRatesAsync(Rates(("CHF", 200), ("EUR", 90)));
+
+        result.Skipped.Should().Be(1);
+        _subscriptions.Verify(
+            repository => repository.TrySetMeterRatesAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<List<MeterRateTable>>(),
+                It.IsAny<SubscriptionOutboxEvent?>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a CHF subscriber is never billed in EUR, so a EUR change is not news to them");
+    }
+
+    [Fact]
+    public async Task An_overage_edit_that_drops_the_subscribers_currency_leaves_their_rates_alone()
+    {
+        _subscriptions
+            .Setup(repository => repository.ListRenewableOnPlanAsync(
+                TenantId, PlanId, null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([OnPlan(unitAmountMinor: 200)]);
+
+        var result = await ApplyMeterRatesAsync(Rates(("EUR", 90)));
+
+        result.Skipped.Should().Be(1, "removing their currency must not leave their overage unpriced");
+    }
+
+    private const string PlanId = "plan-1";
+    private const string MeterKey = "api-calls";
+
+    private Task<PriceTermsExtension> ApplyMeterRatesAsync(List<MeterRateTable> rateTables) =>
+        new ExistingSubscriberPriceTerms(
+                _subscriptions.Object,
+                new SubscriptionOutboxEventFactory(),
+                Mock.Of<IOptionsMonitor<SubscriptionOptions>>(
+                    options => options.CurrentValue == new SubscriptionOptions()),
+                new ControlledTimeProvider(new DateTimeOffset(December1)),
+                NullLogger<ExistingSubscriberPriceTerms>.Instance)
+            .ApplyMeterRatesAsync(
+                TenantId, PlanId, MeterKey, rateTables, "Operator", "corr-1", CancellationToken.None);
+
+    private static List<MeterRateTable> Rates(params (string Currency, long UnitAmountMinor)[] rates) =>
+        rates.Select(rate => new MeterRateTable
+            {
+                CurrencyCode = rate.Currency,
+                Tiers = [new MeterTier { UnitAmountMinor = rate.UnitAmountMinor }]
+            })
+            .ToList();
+
+    /// <summary>A CHF subscriber whose plan copy prices the meter's overage flat.</summary>
+    private static SubscriptionDetail OnPlan(long unitAmountMinor)
+    {
+        var subscription = OnPrice();
+        subscription.Plan = new PlanSnapshot
+        {
+            PlanId = PlanId,
+            Code = "professional",
+            DisplayName = "Professional",
+            Meters =
+            [
+                new PlanMeter
+                {
+                    MeterKey = MeterKey,
+                    DisplayName = "API calls",
+                    RateTables = Rates(("CHF", unitAmountMinor))
+                }
+            ]
+        };
+
+        return subscription;
+    }
+
     private Task<PriceTermsExtension> ExtendDiscountAsync(
         DateTime nowUtc,
         int basisPoints) =>

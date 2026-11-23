@@ -17,6 +17,7 @@ purpose and language and fills in the values. If you don't create a template, no
 | `subscription_canceled` | A subscription ends: an immediate cancel, or a scheduled one reaching its date | Billing contact |
 | `subscription_cancellation_withdrawn` | A scheduled cancellation is undone | Billing contact |
 | `subscription_price_terms_changed` | An administrator edits a price's discount or tax and ticks **Also apply to existing subscribers**. Sent to every subscriber on that price when the edit is saved, ahead of the renewal that first bills it | Billing contact |
+| `subscription_overage_rates_changed` | An administrator edits a meter's overage rates on a plan that has subscribers and ticks **Also apply to existing subscribers now**. Sent to every live subscriber on the plan whose rate in their own currency changed. The new rate is already in effect, including for usage earlier in the current billing period | Billing contact |
 | `subscription_member_assigned` | An administrator gives someone a seat on a per-person subscription | That person |
 | `subscription_member_removed` | An administrator takes a seat back | That person |
 | `subscription_payment_method_expiring` | The card a billing account charges expires within `PaymentMethodExpiryNoticeDays` (default 30). Sent once per card expiry by the worker sweep | Billing contact |
@@ -31,7 +32,7 @@ goes out when the change is scheduled, and nothing further is sent when the rene
 Every key below is **always sent**, as an empty string when it does not apply. Write `{{Key}}` in
 the template.
 
-**Billing-contact emails** (the first five, and `subscription_price_terms_changed`):
+**Billing-contact emails** (the first five, `subscription_price_terms_changed` and `subscription_overage_rates_changed`):
 
 | Key | Value |
 | --- | --- |
@@ -44,6 +45,8 @@ the template.
 | `CancellationReason` | Cancellations: the reason the canceller typed. **Body only**; it is never available in the subject |
 | `PreviousDiscount`, `NewDiscount` | Price terms changes: the automatic discount before and from `EffectiveDate`, as `8%` or `8.25%`; `0%` for none |
 | `PreviousTaxRate`, `NewTaxRate` | Price terms changes: the tax rate before and after, in the same form |
+| `MeterName` | Overage rate changes: the meter's name |
+| `PreviousOverageRate`, `NewOverageRate` | Overage rate changes: the per-unit rate before and after, e.g. `2.00 USD`, or `up to 1000: 2.00 USD; above 1000: 1.00 USD` for bands |
 | `PreviousTaxMode`, `NewTaxMode` | Price terms changes: `Inclusive` or `Exclusive`, so the template can word it; empty when there is no tax |
 
 For `subscription_price_terms_changed`, `EffectiveDate` is the renewal that first bills the new

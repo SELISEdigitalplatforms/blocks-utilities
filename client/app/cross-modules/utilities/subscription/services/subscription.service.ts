@@ -234,7 +234,7 @@ class SubscriptionService {
   /**
    * Rewrites one meter's overage rate tables. Unlike {@link updatePlan}, not refused once the
    * plan has subscribers — overage is rated from the meter snapshot copied onto a subscription at
-   * signup, so this reaches only future subscriptions and future renewals.
+   * signup, so this reaches only future subscriptions unless `applyToExistingSubscribers` is set.
    */
   async updatePlanMeterRates(
     planId: string,

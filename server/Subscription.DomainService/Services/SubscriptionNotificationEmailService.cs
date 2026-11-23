@@ -122,6 +122,13 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             string.IsNullOrWhiteSpace(account.BillingName) ? account.BillingEmail : account.BillingName,
             subscription.FeeSchedule.TimeZoneId);
 
+        // Sent on every billing-contact purpose, empty where they do not apply, like the rest.
+        body["MeterName"] = string.IsNullOrWhiteSpace(lifecycleEvent.MeterDisplayName)
+            ? lifecycleEvent.MeterKey ?? string.Empty
+            : lifecycleEvent.MeterDisplayName;
+        body["PreviousOverageRate"] = DescribeTiers(lifecycleEvent.PreviousOverageTiers, lifecycleEvent.CurrencyCode);
+        body["NewOverageRate"] = DescribeTiers(lifecycleEvent.OverageTiers, lifecycleEvent.CurrencyCode);
+
         // The reason is the canceller's own words. The mail module encodes body values but places
         // subject values raw, so it stays out of the subject however a tenant words the template.
         var subject = new Dictionary<string, string>(body);
@@ -388,6 +395,48 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             SubscriptionConstants.SubscriptionPriceTermsChangeScheduled => lifecycleEvent.EffectiveAtUtc,
             _ => lifecycleEvent.OccurredAtUtc
         };
+
+    /// <summary>
+    /// A meter's overage bands per unit: <c>1.50 USD</c> for a flat rate, else
+    /// <c>up to 1000: 2.00 USD; above 1000: 1.00 USD</c>. Empty for no bands.
+    /// </summary>
+    /// <remarks>
+    /// Invariant and joined on <c>; </c>, for the reasons <see cref="Describe"/> and
+    /// <see cref="EffectiveDate"/> give. Minor units when the currency cannot be resolved.
+    /// </remarks>
+    private string DescribeTiers(List<MeterTier>? tiers, string? currencyCode)
+    {
+        if (tiers is null or { Count: 0 })
+        {
+            return string.Empty;
+        }
+
+        var currency = currencyCode ?? string.Empty;
+
+        string Amount(long minor) =>
+            _currency is not null &&
+            MinorUnitMajorAmountFormatter.TryFormat(_currency, minor, currency, out var major)
+                ? $"{major} {currency}"
+                : string.Create(CultureInfo.InvariantCulture, $"{minor} {currency} (minor units)");
+
+        if (tiers.Count == 1)
+        {
+            return Amount(tiers[0].UnitAmountMinor);
+        }
+
+        decimal? previousBound = null;
+        var parts = new List<string>(tiers.Count);
+
+        foreach (var tier in tiers)
+        {
+            parts.Add(tier.UpToQuantity is { } bound
+                ? string.Create(CultureInfo.InvariantCulture, $"up to {bound:0.######}: {Amount(tier.UnitAmountMinor)}")
+                : string.Create(CultureInfo.InvariantCulture, $"above {previousBound ?? 0:0.######}: {Amount(tier.UnitAmountMinor)}"));
+            previousBound = tier.UpToQuantity ?? previousBound;
+        }
+
+        return string.Join("; ", parts);
+    }
 
     /// <summary>
     /// One line per changed item, as <c>UnitLabel: old → new</c>.
