@@ -1,0 +1,3 @@
+type: changed
+breaking: false
+summary: "The API and worker images now have a HEALTHCHECK (wget /ping and pgrep), and the worker image label names the Utilities service."
