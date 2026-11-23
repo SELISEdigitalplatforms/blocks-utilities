@@ -211,4 +211,6 @@ RUN mkdir -p /tmp/pdf-ingestion /tmp/dss-tl-cache \
 
 USER app
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD pgrep -x dotnet >/dev/null || exit 1
 ENTRYPOINT ["dotnet", "Worker.dll"]

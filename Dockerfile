@@ -90,4 +90,6 @@ RUN chown -R app:app /app
 
 USER app
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:5000/ping || exit 1
 ENTRYPOINT ["dotnet", "Api.dll"]
