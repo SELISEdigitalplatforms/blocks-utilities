@@ -28,12 +28,13 @@ import {
   METER_AGGREGATION_OPTIONS,
   METER_RESET_POLICY_OPTIONS,
 } from "../../constants/subscription.constants";
-import type { PlanPrice } from "../../models/subscription-plan.model";
+import type { PlanMeter, PlanPrice } from "../../models/subscription-plan.model";
 import type { CreateSubscriptionPlanFormValues } from "../../schemas/subscription-plan.schema";
 import { METER_QUANTITY_MAX_SCALE, stepFor } from "../../utilities/meter-quantity";
 import { RichText } from "../rich-text";
 import { CardListItem, CardListShell } from "./card-list-shell";
 import { CatalogueMeterPicker } from "./catalogue-meter-picker";
+import { ExistingMeterRatesFields, type OnSaveMeterRates } from "./existing-meter-rates-fields";
 import { StepHeading } from "./step-heading";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { MeterPaceFields } from "./meter-pace-fields";
@@ -48,9 +49,14 @@ export const StepPricingModel = ({
   onUpdatePriceTax,
   onUpdatePriceDiscount,
   retiringPriceId = null,
+  existingMeters = [],
+  onUpdateMeterRates,
 }: {
   isEditing?: boolean;
   existingPrices?: PlanPrice[];
+  /** The plan's saved meters, whose overage rates can be edited on their own — see the editor. */
+  existingMeters?: PlanMeter[];
+  onUpdateMeterRates?: OnSaveMeterRates;
   onRetirePrice?: (priceId: string) => void;
   onUpdatePriceTax?: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
   onUpdatePriceDiscount?: (priceId: string, discountPercent?: number, combination?: "BestDiscount" | "Additive") => Promise<void>;
@@ -578,6 +584,10 @@ export const StepPricingModel = ({
         onUpdatePriceDiscount={onUpdatePriceDiscount}
         retiringPriceId={retiringPriceId}
       />
+
+      {existingMeters.length > 0 && onUpdateMeterRates && (
+        <ExistingMeterRatesFields meters={existingMeters} onSave={onUpdateMeterRates} />
+      )}
 
       {/*
         Governs activation, not any one price shape — including a plan with no trial and nothing

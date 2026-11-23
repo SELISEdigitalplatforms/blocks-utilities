@@ -199,6 +199,36 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreateOverageRatesChanged(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        List<MeterTier> previousTiers,
+        List<MeterTier> tiers,
+        string? actorName,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(meter);
+
+        const string eventType = Utilities.SubscriptionConstants.SubscriptionOverageRatesChanged;
+        var payload = NewPayload(subscription, eventType);
+        payload.MeterKey = meter.MeterKey;
+        payload.MeterDisplayName = meter.DisplayName;
+        payload.CurrencyCode = subscription.CurrencyCode;
+        payload.PreviousOverageTiers = previousTiers;
+        payload.OverageTiers = tiers;
+        payload.ActorName = actorName;
+
+        return Build(
+            subscription,
+            eventType,
+            // The version being written over, so a second edit of the same meter is news of its own.
+            $"{subscription.ItemId}:{eventType}:{meter.MeterKey}:{subscription.Version}",
+            payload,
+            correlationId,
+            null);
+    }
+
     public SubscriptionOutboxEvent CreateMemberChanged(
         SubscriptionDetail subscription,
         string eventType,

@@ -10,7 +10,7 @@ namespace Subscription.DomainService.Services;
 
 /// <summary>
 /// Extends a discount or tax edit to the subscribers already on a price, from a later renewal,
-/// telling each of them by email.
+/// telling each of them by email — and a meter's overage rates to those on a plan, immediately.
 /// </summary>
 /// <remarks>
 /// An edit reaches existing subscribers only when the operator asks for it — see
@@ -183,6 +183,151 @@ public sealed class ExistingSubscriberPriceTerms
 
         return Outcome.Failed;
     }
+
+    /// <summary>
+    /// Gives every live subscriber on a plan a meter's new overage rates now, telling each one whose
+    /// rate actually moved by email in the same write.
+    /// </summary>
+    /// <remarks>
+    /// Immediate, unlike <see cref="ExtendAsync"/>: the open billing period is rated from the
+    /// subscription's plan copy when it closes, so it bills at the new rates in full. Periods
+    /// already closed carry their own frozen copy and are untouched. Only the subscriber's own
+    /// currency is compared — they can never be billed in another — so an edit that leaves it alone
+    /// writes and sends nothing. A subscriber whose currency the new rates drop is skipped and
+    /// keeps its rates, rather than have its overage left unpriced. Returned
+    /// <see cref="PriceTermsExtension.Scheduled"/> counts subscribers repriced.
+    /// </remarks>
+    public async Task<PriceTermsExtension> ApplyMeterRatesAsync(
+        string tenantId,
+        string planId,
+        string meterKey,
+        List<MeterRateTable> rateTables,
+        string? requestedByName,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(rateTables);
+
+        var extension = new PriceTermsExtension();
+        string? afterId = null;
+
+        while (true)
+        {
+            var page = await _subscriptions.ListRenewableOnPlanAsync(
+                tenantId, planId, afterId, PageSize, cancellationToken);
+
+            foreach (var subscription in page)
+            {
+                extension = extension.Add(await ApplyMeterRatesToAsync(
+                    subscription, planId, meterKey, rateTables, requestedByName, correlationId,
+                    cancellationToken));
+            }
+
+            if (page.Count < PageSize)
+            {
+                break;
+            }
+
+            afterId = page[^1].ItemId;
+        }
+
+        _logger.LogInformation(
+            "Overage rates applied to existing subscribers TenantId={TenantId} PlanHash={PlanHash} " +
+            "MeterKey={MeterKey} Applied={Applied} Skipped={Skipped} Failed={Failed} " +
+            "CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(tenantId),
+            PaymentLogValue.Hash(planId),
+            PaymentLogValue.Label(meterKey),
+            extension.Scheduled,
+            extension.Skipped,
+            extension.Failed,
+            correlationId);
+
+        return extension;
+    }
+
+    private async Task<Outcome> ApplyMeterRatesToAsync(
+        SubscriptionDetail subscription,
+        string planId,
+        string meterKey,
+        List<MeterRateTable> rateTables,
+        string? requestedByName,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        // One re-read on a lost race, for the reason ExtendToAsync gives.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var meter = subscription.Plan.PlanId == planId
+                ? subscription.Plan.Meters.Find(candidate =>
+                    string.Equals(candidate.MeterKey, meterKey, StringComparison.Ordinal))
+                : null;
+
+            // Off the plan now, or signed up before the meter existed: nothing of theirs to reprice.
+            if (meter is null)
+            {
+                return Outcome.Skipped;
+            }
+
+            var previous = TiersIn(meter.RateTables, subscription.CurrencyCode);
+            var next = TiersIn(rateTables, subscription.CurrencyCode);
+
+            if (next is null)
+            {
+                _logger.LogWarning(
+                    "Overage rates were not applied to a subscription whose currency the new rates " +
+                    "do not price SubscriptionId={SubscriptionId} MeterKey={MeterKey}",
+                    PaymentLogValue.Id(subscription.ItemId),
+                    PaymentLogValue.Label(meterKey));
+
+                return Outcome.Skipped;
+            }
+
+            if (previous is not null && SameTiers(previous, next))
+            {
+                return Outcome.Skipped;
+            }
+
+            if (await _subscriptions.TrySetMeterRatesAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    subscription.Version,
+                    planId,
+                    meterKey,
+                    rateTables,
+                    _events.CreateOverageRatesChanged(
+                        subscription, meter, previous ?? [], next, requestedByName, correlationId),
+                    cancellationToken))
+            {
+                return Outcome.Scheduled;
+            }
+
+            var reread = await _subscriptions.GetByIdAsync(
+                subscription.TenantId, subscription.ItemId, cancellationToken);
+
+            if (reread is null)
+            {
+                return Outcome.Skipped;
+            }
+
+            subscription = reread;
+        }
+
+        _logger.LogWarning(
+            "Overage rates lost the race for a subscription twice and left it unchanged " +
+            "SubscriptionId={SubscriptionId}",
+            PaymentLogValue.Id(subscription.ItemId));
+
+        return Outcome.Failed;
+    }
+
+    private static List<MeterTier>? TiersIn(List<MeterRateTable> tables, string currencyCode) =>
+        tables.Find(table =>
+            string.Equals(table.CurrencyCode, currencyCode, StringComparison.OrdinalIgnoreCase))?.Tiers;
+
+    private static bool SameTiers(List<MeterTier> left, List<MeterTier> right) =>
+        left.Select(tier => (tier.UpToQuantity, tier.UnitAmountMinor))
+            .SequenceEqual(right.Select(tier => (tier.UpToQuantity, tier.UnitAmountMinor)));
 
     /// <summary>
     /// The first renewal boundary at or after <paramref name="noticeEndsAtUtc"/>.

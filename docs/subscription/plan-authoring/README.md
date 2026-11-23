@@ -700,6 +700,15 @@ subscribers** (`applyToExistingSubscribers`). Each subscriber on the price is em
 cancelling at period end, and subscriptions with their own plan change scheduled are left alone.
 Saving the same edit again is safe, and reaches anyone a failed save missed.
 
+**Overage rates** have their own opt-in. On a plan with subscribers, the **Overage rates** editor
+saves through `PUT /subscription-plans/{planId}/meters/{meterKey}/rates`; ticking **Also apply to
+existing subscribers now** (`applyToExistingSubscribers`) replaces the rates on every live
+subscriber's plan copy **immediately**, with no notice period, and emails each one whose rate in
+their own currency changed (`subscription_overage_rates_changed`). The billing period still open is
+rated at the new rates when it closes, usage before the edit included; periods already closed keep
+the rates they were frozen with. Subscribers whose currency the new rates drop keep their old rates.
+Saving the same rates again is safe: anyone already on them is skipped and not emailed twice.
+
 **Editing a plan ends when the first subscriber arrives.** After that the plan is frozen — a
 subscription bills from its own copy of the terms, which an edit cannot reach.
 

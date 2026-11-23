@@ -49,6 +49,19 @@ public interface ISubscriptionOutboxEventFactory
         string correlationId);
 
     /// <summary>
+    /// A meter's new overage rates extended to this subscriber, in effect immediately. Built from
+    /// the subscription before the write; <paramref name="previousTiers"/> and
+    /// <paramref name="tiers"/> are the bands in the subscription's own currency.
+    /// </summary>
+    SubscriptionOutboxEvent CreateOverageRatesChanged(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        List<MeterTier> previousTiers,
+        List<MeterTier> tiers,
+        string? actorName,
+        string correlationId);
+
+    /// <summary>
     /// A plan change. <paramref name="subscription"/>'s own <c>Plan.Code</c> must already be the
     /// new one — this only needs told what it changed <em>from</em>.
     /// </summary>

@@ -16,12 +16,12 @@ The module never writes email text. **No template for the purpose and language m
 | Family | Purposes | Sent by | Delivered through |
 | --- | --- | --- | --- |
 | [Financial documents](#financial-documents) | `subscription_invoice`, `subscription_trial_invoice`, `subscription_credit_note` | `SubscriptionFinancialDocumentDeliveryService` | Worker work queue, `FinancialDocumentDelivery` work type |
-| [Billing-contact notices](#billing-contact-notices) | `subscription_quantity_changed`, `subscription_plan_changed`, `subscription_cancellation_requested`, `subscription_canceled`, `subscription_cancellation_withdrawn`, `subscription_price_terms_changed` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
+| [Billing-contact notices](#billing-contact-notices) | `subscription_quantity_changed`, `subscription_plan_changed`, `subscription_cancellation_requested`, `subscription_canceled`, `subscription_cancellation_withdrawn`, `subscription_price_terms_changed`, `subscription_overage_rates_changed` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
 | [Member notices](#member-notices) | `subscription_member_assigned`, `subscription_member_removed` | `SubscriptionNotificationEmailService` | same consumer |
 | [Usage warning](#usage-warning) | `subscription_usage_threshold` | `UsageThresholdEmailService` | same consumer |
 | [Card expiry](#card-expiry) | `subscription_payment_method_expiring` | `PaymentMethodExpiryEmailService` | Worker work queue, `PaymentMethodExpiryNotice` work type |
 
-Twelve purposes in total. Nothing else in this repository sends email.
+Thirteen purposes in total. Nothing else in this repository sends email.
 
 ## The wire payload
 
@@ -209,6 +209,7 @@ from a lifecycle event the worker reads off `blocks_subscription_lifecycle_topic
 | `subscription_canceled` | `SubscriptionCanceled` | The subscription ends: an immediate cancel, or a scheduled one reaching its date (the cancellation-effective processor). |
 | `subscription_cancellation_withdrawn` | `SubscriptionCancellationWithdrawn` | A scheduled cancellation is undone. |
 | `subscription_price_terms_changed` | `SubscriptionPriceTermsChangeScheduled` | An operator saves a discount or tax edit with `ApplyToExistingSubscribers`. Raised per subscriber on the price, in the same write that schedules `PendingPriceTerms`. Offline subscriptions, ones cancelling at period end, and ones with their own plan change scheduled are skipped. |
+| `subscription_overage_rates_changed` | `SubscriptionOverageRatesChanged` | An operator saves a meter's overage rates with `ApplyToExistingSubscribers`. Raised per live subscriber on the plan whose rate **in their own currency** changed, in the same write that replaces the rates on their plan copy. The change is already in effect: the open billing period's overage is rated at the new rates when it closes. Subscribers whose currency the new rates no longer price are skipped and keep their rates. |
 
 Nothing is sent when a decrease or plan change is merely *scheduled*; the email goes out when it
 happens. `subscription_price_terms_changed` is the exception: it is the notice, so it is sent when
@@ -221,7 +222,7 @@ address changed after the event still receives it.
 **Language.** First non-empty of: the billing profile's *Email language*, the language given when
 the subscription was created, `en-US`. Read at send time, so a change reaches the very next email.
 
-**Placeholders.** Every purpose sends all fourteen keys in the body; the subject gets the same set
+**Placeholders.** Every purpose sends all seventeen keys in the body; the subject gets the same set
 **minus `CancellationReason`**, because subject values are placed raw and the reason is free text
 typed by the canceller.
 
@@ -238,6 +239,8 @@ typed by the canceller.
 | `PreviousDiscount`, `NewDiscount` | The automatic discount before and from `EffectiveDate`, invariant `0.##%` (`8%`, `8.25%`); `0%` for none. | price terms changed |
 | `PreviousTaxRate`, `NewTaxRate` | The tax rate before and after, in the same form. | price terms changed |
 | `PreviousTaxMode`, `NewTaxMode` | `Inclusive` or `Exclusive`; empty when that side has no tax. | price terms changed |
+| `MeterName` | The meter's display name, else its key. | overage rates changed |
+| `PreviousOverageRate`, `NewOverageRate` | Per-unit overage in the subscription's currency: `1.50 USD` for a flat rate, else `up to 1000: 2.00 USD; above 1000: 1.00 USD`. Empty when that side had no rate. | overage rates changed |
 
 **Full payload example** (`subscription_plan_changed`):
 
@@ -286,9 +289,10 @@ What changes per purpose, everything else staying as above:
 | `subscription_canceled` | `""` | `""` | last day of access | typed reason |
 | `subscription_cancellation_withdrawn` | `""` | `""` | `""` | `""` |
 | `subscription_price_terms_changed` | `""` | `""` | renewal that first bills the new terms | `""` |
+| `subscription_overage_rates_changed` | `""` | `""` | date applied | `""` |
 
-`subscription_price_terms_changed` also fills the six price-terms keys; every other purpose sends
-them empty.
+`subscription_price_terms_changed` also fills the six price-terms keys, and
+`subscription_overage_rates_changed` the three overage keys; every other purpose sends them empty.
 
 **Starter templates.** `{{CancellationReason}}` is body-only; a subject that names it is rejected.
 `{{ActorName}}` is empty for a change the system made, so it is kept out of the subject.
