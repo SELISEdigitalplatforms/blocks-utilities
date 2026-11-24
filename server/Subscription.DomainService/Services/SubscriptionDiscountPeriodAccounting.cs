@@ -34,6 +34,25 @@ internal static class SubscriptionDiscountPeriodAccounting
     }
 
     /// <summary>
+    /// How many promotional periods the confirmed opening charge spent, or null for none.
+    /// </summary>
+    /// <remarks>
+    /// A prepaid term (spec 008) spends exactly the periods its code reduced, frozen at signup.
+    /// Everything else keeps <see cref="OpeningChargeSpentPeriod"/>'s rule.
+    /// </remarks>
+    internal static int? OpeningDiscountPeriods(SubscriptionDetail subscription)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        if (subscription.PrepaidPeriods > 1)
+        {
+            return subscription.PrepaidDiscountPeriods > 0 ? subscription.PrepaidDiscountPeriods : null;
+        }
+
+        return OpeningChargeSpentPeriod(subscription) ? 1 : null;
+    }
+
+    /// <summary>
     /// Whether a calendar-aligned yearly signup's opening stub is priced with the subscriber's code,
     /// rather than leaving it to the year that follows.
     /// </summary>

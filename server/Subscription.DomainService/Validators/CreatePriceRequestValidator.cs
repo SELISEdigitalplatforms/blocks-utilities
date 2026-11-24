@@ -121,6 +121,12 @@ public sealed class CreatePriceRequestValidator : AbstractValidator<CreatePriceR
                 "Only a calendar-aligned yearly price is charged from a separate monthly price.")
             .WithErrorCode("subscription_calendar_stub_base_price_unexpected");
 
+        RuleFor(request => request.MaxPrepaidPeriods!.Value)
+            .InclusiveBetween(1, SubscriptionConstants.MaxPrepaidPeriods)
+            .WithName(nameof(CreatePriceRequest.MaxPrepaidPeriods))
+            .WithErrorCode("subscription_prepaid_periods_invalid")
+            .When(request => request.MaxPrepaidPeriods.HasValue);
+
         RuleFor(request => request)
             .Must(request => IsChargeable(currencyResolver, request))
             .WithName(nameof(CreatePriceRequest.CurrencyCode))

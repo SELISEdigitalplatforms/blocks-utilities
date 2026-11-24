@@ -179,7 +179,9 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         // charging for it. This is also the schedule's own CanCancelImmediately: an ordinary
         // cancellation may later be escalated; one already downgraded here for a prepaid year may
         // not be — escalating it a second time would be exactly the forfeiture this guarded against.
-        var canCancelImmediately = subscription.PendingAnnualPeriod is not { IsPrepaid: true };
+        // Spec 008: a prepaid term of several periods is kept the same way.
+        var canCancelImmediately = subscription.PendingAnnualPeriod is not { IsPrepaid: true } &&
+            SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription) is null;
 
         if (endsImmediately && !canCancelImmediately)
         {
@@ -189,9 +191,10 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         // What EndAtPeriodEndAsync's own transition writes as CurrentPeriodEndUtc — computed here
         // too so the targeted work item below is scheduled against the same boundary that was
         // actually persisted, not recomputed later from a possibly-changed catalogue.
-        var scheduledEffectiveAtUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid
-            ? prepaid.EndUtc
-            : subscription.CurrentPeriodEndUtc;
+        var scheduledEffectiveAtUtc = SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription) ??
+            (subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid
+                ? prepaid.EndUtc
+                : subscription.CurrentPeriodEndUtc);
 
         var applied = endsImmediately
             ? await EndNowAsync(
@@ -540,9 +543,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         // The instant entitlement will actually stop, named once: the transition below persists it
         // only when it moves, while the event has to carry it either way — a subscriber told a
         // cancellation was requested and not told when it bites has nothing to do but assume now.
-        var effectiveAtUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidPeriod
-            ? prepaidPeriod.EndUtc
-            : subscription.CurrentPeriodEndUtc;
+        var prepaidTermEndUtc = SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription);
+        var effectiveAtUtc = prepaidTermEndUtc ??
+            (subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidPeriod
+                ? prepaidPeriod.EndUtc
+                : subscription.CurrentPeriodEndUtc);
 
         return await _subscriptions.TryTransitionAsync(
             subscription.TenantId,
@@ -575,9 +580,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
                 // opening stub of a prepaid annual price therefore runs entitlement through to the
                 // end of that year rather than stopping with the stub — they bought it, and this
                 // module refunds nothing.
-                CurrentPeriodEndUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid
-                    ? prepaid.EndUtc
-                    : null,
+                // A prepaid term (spec 008) is folded into the current period the same way.
+                CurrentPeriodEndUtc = prepaidTermEndUtc ??
+                    (subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid
+                        ? prepaid.EndUtc
+                        : null),
                 // Either way the pending year stops being pending. Prepaid, it has just been folded
                 // into the period above; unpaid, clearing the next billing instant above already
                 // stopped its charge, and leaving the record behind would invite a later sweep to
@@ -1038,6 +1045,11 @@ public sealed class SubscriptionCancellationService : ISubscriptionCancellationS
         subscription.CanceledAtUtc = now;
         subscription.CancellationReason = reason;
         subscription.NextFeeBillingAtUtc = null;
+
+        if (!immediately && SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription) is { } termEndUtc)
+        {
+            subscription.CurrentPeriodEndUtc = termEndUtc;
+        }
 
         // The pending year is settled either way, so the response must stop advertising one. A 200
         // still showing a year as pending would have a client offering to cancel something the

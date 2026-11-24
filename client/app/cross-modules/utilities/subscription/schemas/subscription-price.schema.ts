@@ -70,6 +70,19 @@ const priceFields = () =>
   calendarAnnualChargeTiming: z
     .enum(CALENDAR_ANNUAL_CHARGE_TIMING_NAMES)
     .default("AtBoundary"),
+  /**
+   * Spec 008: the most periods a buyer may pay for upfront. Empty means not prepayable; a cleared
+   * number input holds "", which must not coerce to 0.
+   */
+  maxPrepaidPeriods: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.coerce
+      .number<number>()
+      .refine(Number.isInteger, zod3Messages.integer)
+      .min(1, zod3Messages.numberMin(1))
+      .max(120, zod3Messages.numberMax(120))
+      .optional(),
+  ),
   displayPriceNote: z
     .string()
     .trim()
@@ -169,6 +182,7 @@ export const defaultSubscriptionPriceFormValues: CreateSubscriptionPriceFormValu
   billingAlignment: "Anniversary",
   calendarStubBasePriceId: undefined,
   calendarAnnualChargeTiming: "AtBoundary",
+  maxPrepaidPeriods: undefined,
   displayPriceNote: "",
   quantityItemKey: FLAT_FEE,
   taxPercent: undefined,

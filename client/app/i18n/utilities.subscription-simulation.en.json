@@ -547,6 +547,8 @@
   "SUBSCRIBE_DIALOG.DAYS": "{{coveredDays}}/{{totalDays}} days",
   "SUBSCRIBE_DIALOG.DAYS_THE_TRIAL_ENDS_MID": "{{coveredDays}}/{{totalDays}} days — the trial ends mid-month, so this first charge covers only the days left in it.",
   "SUBSCRIBE_DIALOG.DISCOUNT_CODE_OPTIONAL": "Discount code (optional)",
+  "SUBSCRIBE_DIALOG.PREPAID_PERIODS": "Periods to pay upfront (1 to {{max}})",
+  "SUBSCRIBE_DIALOG.PREPAID_PERIODS_RANGE": "Periods to pay upfront must be a whole number from 1 to {{max}}.",
   "SUBSCRIBE_DIALOG.DUE_NOW": "Due now",
   "SUBSCRIBE_DIALOG.E_G_LAUNCH20": "e.g. LAUNCH20",
   "SUBSCRIBE_DIALOG.FIRST_CHARGE_AFTER_TRIAL": "First charge after trial",

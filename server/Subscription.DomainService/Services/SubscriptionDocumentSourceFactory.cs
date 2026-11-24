@@ -326,7 +326,11 @@ public static class SubscriptionDocumentSourceFactory
         return new FinancialDocumentPeriod
         {
             StartUtc = subscription.CurrentPeriodStartUtc,
-            EndUtc = subscription.CurrentPeriodEndUtc,
+            // Spec 008: an opening charge for several periods covered the whole prepaid term.
+            EndUtc = charge.Kind == SubscriptionChargeKind.Initial &&
+                subscription is { PrepaidPeriods: > 1, PrepaidThroughUtc: { } prepaidThroughUtc }
+                    ? prepaidThroughUtc
+                    : subscription.CurrentPeriodEndUtc,
             TimeZoneId = timeZoneId,
             PeriodKey = charge.PeriodKey ?? string.Empty,
             IsProrated = charge.Kind == SubscriptionChargeKind.Initial &&
