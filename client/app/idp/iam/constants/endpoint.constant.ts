@@ -1,16 +1,16 @@
+import { getMergedAreaBaseUrl } from "@seliseblocks/genesis-os/lib";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 
 // ─── IAM Base URL ───────────────────────────────────────────────────────────────
 
-const IAM_BASE_URL =
-  getRuntimeEnv("BLOCKS_IAM_BASE_URL") ||
-  "https://dev-iam.blocksdevelopers.com";
+// From the runtime config (FrontendRuntime:BLOCKS_IAM_BASE_URL); no hard-coded host as a fallback.
+const IAM_BASE_URL = getRuntimeEnv("BLOCKS_IAM_BASE_URL");
 
 // ─── Logic Base URL (for Authentication endpoints only) ───────────────────────
+// Logic is served by the os host: BLOCKS_LOGIC_BASE_URL while set, else BLOCKS_OS_BASE_URL.
+// No hard-coded host: the retired dev-logic host must never be a fallback.
 
-const LOGIC_BASE_URL =
-  getRuntimeEnv("BLOCKS_LOGIC_BASE_URL") ||
-  "https://dev-logic.blocksdevelopers.com";
+const LOGIC_BASE_URL = getMergedAreaBaseUrl("BLOCKS_LOGIC_BASE_URL");
 
 // ─── Subpaths ─────────────────────────────────────────────────────────────────
 

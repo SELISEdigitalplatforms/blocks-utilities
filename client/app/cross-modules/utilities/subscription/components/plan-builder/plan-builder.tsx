@@ -23,7 +23,8 @@ import {
   ORGANIZATION_PAGE_SIZE,
   TENANT_WIDE_ORGANIZATION,
 } from "../../constants/subscription.constants";
-import type { PlanPrice } from "../../models/subscription-plan.model";
+import type { PlanMeter, PlanPrice } from "../../models/subscription-plan.model";
+import type { OnSaveMeterRates } from "./existing-meter-rates-fields";
 import {
   BILLING_INTERVAL_NAMES,
   ENTITLEMENT_LIMIT_KIND_NAMES,
@@ -86,6 +87,12 @@ export interface PlanBuilderProps {
     applyToExistingSubscribers?: boolean,
   ) => Promise<void>;
   retiringPriceId?: string | null;
+  /**
+   * The plan's saved meters, offered with their own overage-rate editor. Omitted when creating,
+   * and by the edit page for a plan nobody has subscribed to — the form's own meters cover that.
+   */
+  existingMeters?: PlanMeter[];
+  onUpdateMeterRates?: OnSaveMeterRates;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
 }
@@ -118,6 +125,8 @@ const PlanBuilderWizard = ({
   onUpdatePriceTax,
   onUpdatePriceDiscount,
   retiringPriceId = null,
+  existingMeters,
+  onUpdateMeterRates,
   onSubmit,
 }: PlanBuilderProps) => {
   const { currentStep, nextStep, previousStep, totalSteps, goToStep } = useStepper();
@@ -377,6 +386,8 @@ const PlanBuilderWizard = ({
                         onUpdatePriceTax={onUpdatePriceTax}
                         onUpdatePriceDiscount={onUpdatePriceDiscount}
                         retiringPriceId={retiringPriceId}
+                        existingMeters={existingMeters}
+                        onUpdateMeterRates={onUpdateMeterRates}
                       />
                     )}
                     {currentStep === 3 && <StepUsageLimits />}

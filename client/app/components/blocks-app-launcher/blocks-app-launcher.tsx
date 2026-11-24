@@ -281,7 +281,22 @@ function DeploymentsIcon() {
     </svg>
   );
 }
-const getSeliseApps = (): BlocksApp[] => [
+// Areas merged into OS: their tiles show only while the app still sets their base URL (same rule as
+// genesis-os's app switcher); afterwards the OS tile covers them.
+const MERGED_AREA_URL_KEYS: Partial<
+  Record<string, Parameters<typeof getRuntimeEnv>[0]>
+> = {
+  localization: "BLOCKS_LOCALIZATION_BASE_URL",
+  data: "BLOCKS_DATA_BASE_URL",
+  logic: "BLOCKS_LOGIC_BASE_URL",
+  monitor: "BLOCKS_MONITOR_BASE_URL",
+};
+const isShown = (app: BlocksApp): boolean => {
+  const key = MERGED_AREA_URL_KEYS[app.key];
+  return !key || !!getRuntimeEnv(key);
+};
+const getSeliseApps = (): BlocksApp[] => allSeliseApps().filter(isShown);
+const allSeliseApps = (): BlocksApp[] => [
   {
     key: "iam",
     label: "IAM",

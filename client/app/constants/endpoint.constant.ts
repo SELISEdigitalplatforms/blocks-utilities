@@ -1,3 +1,4 @@
+import { getMergedAreaBaseUrl } from "@seliseblocks/genesis-os/lib";
 import { getRuntimeEnv } from "../lib/runtime-env";
 
 export const API_BASES = {
@@ -14,5 +15,6 @@ export const API_BASES = {
   ALERT: "/api",
   AI: "/api",
   STUDIO: "/api",
-  LOGIC: getRuntimeEnv("BLOCKS_LOGIC_BASE_URL") + "/api",
+  // Logic is served by the os host: BLOCKS_LOGIC_BASE_URL while set, else BLOCKS_OS_BASE_URL.
+  LOGIC: getMergedAreaBaseUrl("BLOCKS_LOGIC_BASE_URL") + "/api",
 } as const;

@@ -1055,6 +1055,20 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Label(meterKey),
             correlationId);
 
+        if (request.ApplyToExistingSubscribers)
+        {
+            // After the catalogue write, for the reason the discount edit gives: a refused edit
+            // reaches nobody, and saving the same rates again finishes a run that failed part-way.
+            await _existingSubscribers.ApplyMeterRatesAsync(
+                context.TenantId,
+                plan.ItemId,
+                meterKey,
+                rateTables,
+                context.ActorName,
+                correlationId,
+                cancellationToken);
+        }
+
         return await GetPlanAsync(
             plan.ItemId,
             context.OrganizationId,

@@ -311,6 +311,35 @@ public interface ISubscriptionRepository
         SubscriptionOutboxEvent outboxEvent,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Live subscriptions on a plan, any price, in id order — the same statuses
+    /// <see cref="ListRenewableOnPriceAsync"/> returns.
+    /// </summary>
+    Task<IReadOnlyList<SubscriptionDetail>> ListRenewableOnPlanAsync(
+        string tenantId,
+        string planId,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Replaces one meter's overage rate tables on the subscription's own plan copy, and announces
+    /// it in the same write when <paramref name="outboxEvent"/> is given.
+    /// </summary>
+    /// <remarks>
+    /// Refuses unless the subscription is still on <paramref name="planId"/>, so a plan change
+    /// landing between the read and this write cannot be given another plan's rates.
+    /// </remarks>
+    Task<bool> TrySetMeterRatesAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        string planId,
+        string meterKey,
+        List<MeterRateTable> rateTables,
+        SubscriptionOutboxEvent? outboxEvent,
+        CancellationToken cancellationToken);
+
     /// <summary>Withdraws a scheduled plan change.</summary>
     Task<bool> TryClearPendingPlanChangeAsync(
         string tenantId,
