@@ -456,6 +456,8 @@ export interface SubscribeToPlanRequest {
   quantities: SubscriptionQuantity[];
   timeZoneId: string;
   discountCode?: string;
+  /** Spec 008: periods paid upfront. Omitted means 1; capped by the price's maxPrepaidPeriods. */
+  prepaidPeriods?: number;
   billingEmail?: string;
   billingName?: string;
   /**

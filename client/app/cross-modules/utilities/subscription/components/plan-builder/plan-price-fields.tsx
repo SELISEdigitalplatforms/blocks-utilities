@@ -919,6 +919,30 @@ export const PlanPriceFields = ({
 
             <FormField
               control={control}
+              name={`prices.${index}.maxPrepaidPeriods`}
+              render={({ field: inputField }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">{t("PLAN_PRICE_FIELDS.MAX_PREPAID_PERIODS")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...inputField}
+                      value={inputField.value ?? ""}
+                      type="number"
+                      min={1}
+                      max={120}
+                      placeholder="5"
+                    />
+                  </FormControl>
+                  <FormDescription className="text-xs">
+                    {t("PLAN_PRICE_FIELDS.MAX_PREPAID_PERIODS_HINT")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={control}
               name={`prices.${index}.displayPriceNote`}
               render={({ field: inputField }) => (
                 <FormItem>

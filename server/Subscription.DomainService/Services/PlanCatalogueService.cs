@@ -562,6 +562,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             CalendarAnnualChargeTiming = stubBasePrice is null
                 ? CalendarAnnualChargeTiming.AtBoundary
                 : request.CalendarAnnualChargeTiming ?? CalendarAnnualChargeTiming.AtBoundary,
+            MaxPrepaidPeriods = request.MaxPrepaidPeriods > 1 ? request.MaxPrepaidPeriods : null,
             Status = CatalogueStatus.Active
         };
 

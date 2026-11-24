@@ -73,6 +73,7 @@ export const SubscribeDialog = ({
     ),
   );
   const [discountCode, setDiscountCode] = useState("");
+  const [prepaidPeriods, setPrepaidPeriods] = useState("1");
   const [offline, setOffline] = useState(false);
   const [quote, setQuote] = useState<SubscriptionPurchasePreview | null>(null);
   // A rejected code is not an error here -- the quote beside it is the same subscription priced
@@ -84,8 +85,12 @@ export const SubscribeDialog = ({
 
   const busy = preview.isPending || subscribe.isPending;
 
+  const maxPrepaidPeriods =
+    plan.prices.find((price) => price.priceId === priceId)?.maxPrepaidPeriods ?? 1;
+
   const editPrice = (value: string) => {
     setPriceId(value);
+    setPrepaidPeriods("1");
     setQuote(null);
     setDiscountNotice(null);
     setConfirmationProfileGap(null);
@@ -95,6 +100,12 @@ export const SubscribeDialog = ({
     setQuantities((current) => ({ ...current, [itemKey]: value }));
     setQuote(null);
     setDiscountNotice(null);
+    setConfirmationProfileGap(null);
+  };
+
+  const editPrepaidPeriods = (value: string) => {
+    setPrepaidPeriods(value);
+    setQuote(null);
     setConfirmationProfileGap(null);
   };
 
@@ -134,6 +145,14 @@ export const SubscribeDialog = ({
       parsedQuantities.push({ itemKey: item.itemKey, quantity });
     }
 
+    const periods = Number(prepaidPeriods);
+    if (!Number.isInteger(periods) || periods < 1 || periods > maxPrepaidPeriods) {
+      return {
+        valid: false,
+        error: t("SUBSCRIBE_DIALOG.PREPAID_PERIODS_RANGE", { max: maxPrepaidPeriods }),
+      };
+    }
+
     return {
       valid: true,
       request: {
@@ -142,6 +161,7 @@ export const SubscribeDialog = ({
         quantities: parsedQuantities,
         timeZoneId: detectBrowserTimeZone(),
         discountCode: discountCode.trim() || undefined,
+        prepaidPeriods: periods > 1 ? periods : undefined,
         organizationId,
       },
     };
@@ -291,6 +311,22 @@ export const SubscribeDialog = ({
               />
             </div>
           ))}
+
+          {maxPrepaidPeriods > 1 ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="subscribe-prepaid-periods">
+                {t("SUBSCRIBE_DIALOG.PREPAID_PERIODS", { max: maxPrepaidPeriods })}
+              </Label>
+              <Input
+                id="subscribe-prepaid-periods"
+                type="number"
+                min={1}
+                max={maxPrepaidPeriods}
+                value={prepaidPeriods}
+                onChange={(event) => editPrepaidPeriods(event.target.value)}
+              />
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="subscribe-discount">{t("SUBSCRIBE_DIALOG.DISCOUNT_CODE_OPTIONAL")}</Label>

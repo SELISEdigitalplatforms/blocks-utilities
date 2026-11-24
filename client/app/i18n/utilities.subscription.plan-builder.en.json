@@ -102,6 +102,8 @@
   "PLAN_PRICE_FIELDS.DISCOUNT_PERCENT": "Automatic discount (%)",
   "PLAN_PRICE_FIELDS.DISCOUNT_SAVE_FAILED": "The discount could not be saved.",
   "PLAN_PRICE_FIELDS.DISPLAY_NOTE": "Display price note (optional)",
+  "PLAN_PRICE_FIELDS.MAX_PREPAID_PERIODS": "Max periods paid upfront (optional)",
+  "PLAN_PRICE_FIELDS.MAX_PREPAID_PERIODS_HINT": "Lets a buyer pay for up to this many periods in one payment, e.g. 5 years. Leave empty to bill every period. For a price that renews on the first of the month, the days until then are charged on top.",
   "PLAN_PRICE_FIELDS.DISPLAY_NOTE_PLACEHOLDER": "$17/month, billed annually",
   "PLAN_PRICE_FIELDS.FLAT_FEE": "Flat fee",
   "PLAN_PRICE_FIELDS.HEADING": "How much does it cost?",

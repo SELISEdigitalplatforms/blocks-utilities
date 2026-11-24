@@ -29,9 +29,31 @@ public static class SubscriptionPaidPeriod
     {
         ArgumentNullException.ThrowIfNull(subscription);
 
+        // Spec 008: a term of several periods paid upfront runs to its own end.
+        if (PrepaidTermEndUtc(subscription) is { } termEndUtc)
+        {
+            return termEndUtc;
+        }
+
         return subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaid &&
             prepaid.EndUtc > subscription.CurrentPeriodEndUtc
                 ? prepaid.EndUtc
                 : subscription.CurrentPeriodEndUtc;
+    }
+
+    /// <summary>
+    /// The end of a prepaid term (spec 008) that reaches past the current period, or null when there
+    /// is none — no term was bought, the checkout was never paid, or the last prepaid period is the
+    /// current one or already over.
+    /// </summary>
+    public static DateTime? PrepaidTermEndUtc(SubscriptionDetail subscription)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        return subscription.Status != Enums.SubscriptionStatus.Incomplete &&
+            subscription.PrepaidThroughUtc is { } endUtc &&
+            endUtc > subscription.CurrentPeriodEndUtc
+            ? endUtc
+            : null;
     }
 }

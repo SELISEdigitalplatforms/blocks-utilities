@@ -357,7 +357,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             !string.Equals(
                 request.TimeZoneId,
                 subscription.FeeSchedule.TimeZoneId,
-                StringComparison.Ordinal))
+                StringComparison.Ordinal) ||
+            (request.PrepaidPeriods ?? 1) != Math.Max(1, subscription.PrepaidPeriods))
         {
             return false;
         }
@@ -1138,6 +1139,10 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             new SubscriptionTransition(SubscriptionStatus.Incomplete, target)
             {
                 ActivatedAtUtc = DateTime.UtcNow,
+                // Only a prepaid term changes what this path records; see OpeningDiscountPeriods.
+                DiscountPeriodsApplied = subscription.PrepaidPeriods > 1
+                    ? SubscriptionDiscountPeriodAccounting.OpeningDiscountPeriods(subscription)
+                    : null,
                 Event = _events.Create(subscription, eventType, correlationId),
                 // In the activating write: nothing else would ever rediscover it.
                 DocumentSource = openingInvoice

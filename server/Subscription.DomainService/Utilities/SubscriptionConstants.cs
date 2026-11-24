@@ -7,6 +7,9 @@ namespace Subscription.DomainService.Utilities;
 
 public static class SubscriptionConstants
 {
+    /// <summary>Upper bound on periods paid upfront in one checkout (spec 008): ten years monthly.</summary>
+    public const int MaxPrepaidPeriods = 120;
+
     /// <summary>
     /// Where subscription domain events are published. The worker consumes usage-threshold
     /// events from this topic and forwards a mail command to the platform mail module.

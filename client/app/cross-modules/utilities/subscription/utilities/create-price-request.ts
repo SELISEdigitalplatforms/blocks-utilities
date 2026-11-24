@@ -49,6 +49,9 @@ export const toCreatePriceRequest = ({
   calendarAnnualChargeTiming: requiresStubBasePrice(price)
     ? price.calendarAnnualChargeTiming
     : undefined,
+  // 1 means the same as none.
+  maxPrepaidPeriods:
+    price.maxPrepaidPeriods && price.maxPrepaidPeriods > 1 ? price.maxPrepaidPeriods : undefined,
   displayPriceNote: price.displayPriceNote?.trim() || undefined,
   quantityItemKey: price.quantityItemKey === FLAT_FEE ? undefined : price.quantityItemKey,
   // Both or neither. The server refuses a rate without a mode — deliberately, since the same
