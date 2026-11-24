@@ -1832,8 +1832,8 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             CoveredDays = subscription.ProrationDays,
             TotalDays = subscription.ProrationTotalDays,
             PeriodStartUtc = subscription.CurrentPeriodStartUtc,
-            // What the amount due now pays for, which for a prepaid term is all of it.
-            PeriodEndUtc = prepaidThroughUtc ?? subscription.CurrentPeriodEndUtc,
+            // The opening period alone — the stub, when there is one. A prepaid term is in Prepaid.
+            PeriodEndUtc = subscription.CurrentPeriodEndUtc,
             NextRenewalAtUtc = nextRenewalAtUtc,
             NextRenewalAmountMinor = fullPeriodCharge.AmountMinor,
             NextRenewal = new SubscriptionPreviewRenewalResponse
@@ -1879,6 +1879,21 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     TaxAmountMinor = annual.TaxAmountMinor,
                     CollectedWithCheckout = annual.CollectedWithCheckout
                 },
+            Prepaid = prepaidThroughUtc is { } termEndUtc
+                ? new SubscriptionPreviewPrepaidResponse
+                {
+                    Periods = subscription.PrepaidPeriods,
+                    // Whole periods begin after a stub, or with the signup itself.
+                    StartUtc = subscription.InitialChargeProrated
+                        ? subscription.CurrentPeriodEndUtc
+                        : subscription.CurrentPeriodStartUtc,
+                    EndUtc = termEndUtc,
+                    // Gross is untouched by any code, so N whole periods are N times one.
+                    GrossAmountMinor = subscription.PrepaidPeriods *
+                        SubscriptionAmountCalculator.FirstPeriodCharge(
+                            subscription, default, subscription.CreatedAtUtc).GrossAmountMinor
+                }
+                : null,
             Campaign = BuildCampaignPreview(subscription),
             Blockers = blockers,
             QuotedAtUtc = subscription.CreatedAtUtc,

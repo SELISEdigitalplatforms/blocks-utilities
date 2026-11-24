@@ -89,6 +89,9 @@ export interface SimulatedSubscription {
   currentPeriodStartUtc: string;
   currentPeriodEndUtc: string;
   nextPaymentAtUtc: string | null;
+  /** Spec 008: periods paid upfront (1 unless prepaid) and the end of that term, if prepaid. */
+  prepaidPeriods?: number;
+  prepaidThroughUtc?: string | null;
   trialEndsAtUtc: string | null;
   cancelAtPeriodEnd: boolean;
   canceledAtUtc: string | null;
@@ -420,6 +423,17 @@ export interface SubscriptionPurchasePreview {
   /** Whether confirming will ask for a card even though nothing is due now. */
   requiresCardSetup: boolean;
   pendingAnnualPeriod: SubscriptionPreviewAnnualPeriod | null;
+  /**
+   * Spec 008: the whole periods a prepaid signup pays for now, after any stub. Its gross is part of
+   * `subtotalMinor`; the rest is the stub from `periodStartUtc` to `periodEndUtc`. Absent when one
+   * period is bought, and on servers that predate prepaying.
+   */
+  prepaid?: {
+    periods: number;
+    startUtc: string;
+    endUtc: string;
+    grossAmountMinor: number;
+  } | null;
   /** Null unless the discount code applied is a platform campaign. */
   campaign: SubscriptionPreviewCampaign | null;
   /** Empty when nothing stands in the way of confirming. */

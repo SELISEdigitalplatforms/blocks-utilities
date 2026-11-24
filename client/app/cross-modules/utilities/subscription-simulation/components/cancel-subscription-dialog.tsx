@@ -35,6 +35,12 @@ export const CancelSubscriptionDialog = ({
   const { mutateAsync, isPending } = useCancelSubscription();
 
   const [immediately, setImmediately] = useState(false);
+  // Spec 008: the end of a prepaid term still to come, or null when there is none.
+  const prepaidTermEndUtc =
+    subscription.prepaidThroughUtc &&
+    new Date(subscription.prepaidThroughUtc) > new Date(subscription.currentPeriodEndUtc)
+      ? subscription.prepaidThroughUtc
+      : null;
   const [reason, setReason] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -91,12 +97,20 @@ export const CancelSubscriptionDialog = ({
             <div className="flex items-start gap-2">
               <RadioGroupItem value="period-end" id="cancel-period-end" className="mt-1" />
               <Label htmlFor="cancel-period-end" className="font-normal">
-                {t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL_AT_PERIOD_END_KEEPS", { date: new Date(subscription.currentPeriodEndUtc).toLocaleDateString() })}</Label>
+                {t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL_AT_PERIOD_END_KEEPS", { date: new Date(prepaidTermEndUtc ?? subscription.currentPeriodEndUtc).toLocaleDateString() })}</Label>
             </div>
             <div className="flex items-start gap-2">
-              <RadioGroupItem value="immediately" id="cancel-immediately" className="mt-1" />
+              {/* Spec 008: the server keeps a prepaid term running to its end whatever is asked. */}
+              <RadioGroupItem
+                value="immediately"
+                id="cancel-immediately"
+                className="mt-1"
+                disabled={prepaidTermEndUtc !== null}
+              />
               <Label htmlFor="cancel-immediately" className="font-normal">
-                {t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL_IMMEDIATELY_STOPS_GRANTING")}
+                {prepaidTermEndUtc
+                  ? t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL_IMMEDIATELY_PREPAID", { date: new Date(prepaidTermEndUtc).toLocaleDateString() })
+                  : t("CANCEL_SUBSCRIPTION_DIALOG.CANCEL_IMMEDIATELY_STOPS_GRANTING")}
               </Label>
             </div>
           </RadioGroup>
