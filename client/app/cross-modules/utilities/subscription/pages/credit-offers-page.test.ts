@@ -14,11 +14,18 @@ const draft = (overrides: Partial<Parameters<typeof toOfferRequest>[0]> = {}): P
   maxQuantity: "1000",
   expiryCount: "",
   expiryUnit: "never",
-  taxRateBasisPoints: "",
+  taxPercent: "",
   taxMode: "Exclusive",
   spendOrder: "SubscriptionFirst",
   packs: [{ code: "tc1", displayName: "Test Credit 1", quantity: "500", unitAmount: "0.5" }],
   ...overrides,
+});
+
+describe("credit offer tax", () => {
+  it("sends a typed percent as whole basis points the API can read as an int", () => {
+    expect(toOfferRequest(draft({ taxPercent: "8.1" }), null).taxRateBasisPoints).toBe(810);
+    expect(toOfferRequest(draft(), null).taxRateBasisPoints).toBeNull();
+  });
 });
 
 describe("credit offer prices", () => {

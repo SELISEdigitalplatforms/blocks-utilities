@@ -75,7 +75,7 @@
   "CREDIT_OFFERS_PAGE.TAX_EXCLUSIVE": "Added to the price",
   "CREDIT_OFFERS_PAGE.TAX_INCLUSIVE": "Included in the price",
   "CREDIT_OFFERS_PAGE.TAX_MODE": "Tax mode",
-  "CREDIT_OFFERS_PAGE.TAX_RATE_BASIS_POINTS": "Tax rate (basis points)",
+  "CREDIT_OFFERS_PAGE.TAX_RATE_PERCENT": "Tax rate (%)",
   "CREDIT_OFFERS_PAGE.TITLE": "Credit offers",
   "CREDIT_OFFERS_PAGE.UNIT_AMOUNT": "Price per credit ({{currency}})",
   "DISCOUNTS_PAGE.AMOUNT_OFF": "{{amount}} off",

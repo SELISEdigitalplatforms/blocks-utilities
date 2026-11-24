@@ -38,6 +38,7 @@ import type {
 import { meterCatalogueService } from "../services/meter-catalogue.service";
 import { describeDiscountAmountProblem } from "../utilities/discount-amount";
 import { exampleMinorAmount, formatMoney, toMajorUnits, toMinorUnits } from "../utilities/subscription-format";
+import { fromBasisPoints, toBasisPoints } from "../utilities/subscription-tax";
 
 const MODULE = "utilities.subscription.pages";
 const EXPIRY_UNITS = ["Hour", "Day", "Week", "Month", "Year"] as const;
@@ -62,7 +63,8 @@ interface Draft {
   maxQuantity: string;
   expiryCount: string;
   expiryUnit: string;
-  taxRateBasisPoints: string;
+  /** A percent, as typed (8.1 = 8.1%). Converted to basis points on save. */
+  taxPercent: string;
   taxMode: "Exclusive" | "Inclusive";
   spendOrder: CreditSpendOrder;
   packs: PackDraft[];
@@ -77,7 +79,7 @@ const emptyDraft = (): Draft => ({
   maxQuantity: "1000",
   expiryCount: "",
   expiryUnit: NEVER,
-  taxRateBasisPoints: "",
+  taxPercent: "",
   taxMode: "Exclusive",
   spendOrder: "SubscriptionFirst",
   packs: [],
@@ -96,7 +98,7 @@ const draftOf = (offer: CreditOffer): Draft => ({
   maxQuantity: String(offer.maxQuantity),
   expiryCount: offer.expiresAfter ? String(offer.expiresAfter.count) : "",
   expiryUnit: offer.expiresAfter?.unit ?? NEVER,
-  taxRateBasisPoints: offer.taxRateBasisPoints == null ? "" : String(offer.taxRateBasisPoints),
+  taxPercent: offer.taxRateBasisPoints == null ? "" : String(fromBasisPoints(offer.taxRateBasisPoints)),
   taxMode: offer.taxMode ?? "Exclusive",
   spendOrder: offer.spendOrder,
   packs: offer.packs.map((pack) => {
@@ -125,7 +127,7 @@ const toPacks = (draft: Draft, existing: CreditOffer | null): CreditPack[] =>
 
 export const toOfferRequest = (draft: Draft, existing: CreditOffer | null, organizationId?: string): CreditOfferRequest => {
   const otherPrices = (existing?.unitPrices ?? []).filter((price) => price.currencyCode !== draft.currencyCode);
-  const taxRate = draft.taxRateBasisPoints.trim() === "" ? null : Number(draft.taxRateBasisPoints);
+  const taxRate = draft.taxPercent.trim() === "" ? null : toBasisPoints(Number(draft.taxPercent));
 
   return {
     organizationId,
@@ -354,8 +356,8 @@ export const CreditOffersPage = () => {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="offer-tax">{t("CREDIT_OFFERS_PAGE.TAX_RATE_BASIS_POINTS")}</Label>
-                <Input id="offer-tax" type="number" min={0} max={10000} value={draft.taxRateBasisPoints} onChange={(event) => update({ taxRateBasisPoints: event.target.value })} />
+                <Label htmlFor="offer-tax">{t("CREDIT_OFFERS_PAGE.TAX_RATE_PERCENT")}</Label>
+                <Input id="offer-tax" type="number" min={0} max={100} step={0.01} value={draft.taxPercent} onChange={(event) => update({ taxPercent: event.target.value })} />
               </div>
               <div className="space-y-1">
                 <Label>{t("CREDIT_OFFERS_PAGE.TAX_MODE")}</Label>
