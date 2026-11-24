@@ -1,7 +1,8 @@
 import { useT } from "@seliseblocks/genesis-os";
 import { Plus, X } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui-kits/button/button";
+import { Checkbox } from "@/components/ui-kits/checkbox/checkbox";
 import { Input } from "@/components/ui-kits/input/input";
 import {
   Select,
@@ -96,23 +97,31 @@ const toRateTableRequests = (tables: DraftTable[]): MeterRateTable[] =>
     })),
   }));
 
+export type OnSaveMeterRates = (
+  meterKey: string,
+  rateTables: MeterRateTable[],
+  applyToExistingSubscribers: boolean,
+) => Promise<void>;
+
 /**
  * One meter's overage rate tables, editable whether or not the plan already has subscribers.
  *
  * Its own endpoint and its own editor, the same deliberate exception price tax and discount get:
  * a subscription rates overage from the meter snapshot copied onto it at signup and never reads
- * the catalogue again, so a change here reaches only future subscriptions and future renewals —
- * nobody already on the plan is repriced by it.
+ * the catalogue again, so a change here reaches only future subscriptions — unless the operator
+ * ticks the box to reprice existing subscribers too, immediately and with an email each.
  */
 const ExistingMeterRatesEditor = ({
   meter,
   onSave,
 }: {
   meter: PlanMeter;
-  onSave: (meterKey: string, rateTables: MeterRateTable[]) => Promise<void>;
+  onSave: OnSaveMeterRates;
 }) => {
   const { t } = useT("utilities.subscription.plan-builder");
+  const applyToExistingId = useId();
   const [tables, setTables] = useState<DraftTable[]>(() => draftTablesFrom(meter.rateTables));
+  const [applyToExisting, setApplyToExisting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -266,6 +275,19 @@ const ExistingMeterRatesEditor = ({
       </Button>
 
       {tables.length > 0 && (
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id={applyToExistingId}
+            checked={applyToExisting}
+            onCheckedChange={(value) => setApplyToExisting(value === true)}
+          />
+          <label htmlFor={applyToExistingId} className="text-xs leading-snug text-muted-foreground">
+            {t("EXISTING_METER_RATES_FIELDS.APPLY_TO_EXISTING_SUBSCRIBERS")}
+          </label>
+        </div>
+      )}
+
+      {tables.length > 0 && (
         <Button
           type="button"
           size="sm"
@@ -282,7 +304,7 @@ const ExistingMeterRatesEditor = ({
             setError(null);
 
             try {
-              await onSave(meter.meterKey, toRateTableRequests(tables));
+              await onSave(meter.meterKey, toRateTableRequests(tables), applyToExisting);
             } catch (reason) {
               setError(reason instanceof Error
                   ? reason.message
@@ -314,7 +336,7 @@ export const ExistingMeterRatesFields = ({
 }: {
   /** The plan's meters, as loaded — only those with overage allowed render an editor. */
   meters: PlanMeter[];
-  onSave: (meterKey: string, rateTables: MeterRateTable[]) => Promise<void>;
+  onSave: OnSaveMeterRates;
 }) => {
   const { t } = useT("utilities.subscription.plan-builder");
   const overageMeters = meters.filter((meter) => meter.overageAllowed);

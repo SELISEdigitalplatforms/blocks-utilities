@@ -853,18 +853,42 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
-    public async Task<IReadOnlyList<SubscriptionDetail>> ListRenewableOnPriceAsync(
+    public Task<IReadOnlyList<SubscriptionDetail>> ListRenewableOnPriceAsync(
         string tenantId,
         string priceId,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken) =>
+        ListRenewableAsync(
+            tenantId,
+            Builders<SubscriptionDetail>.Filter.Eq(subscription => subscription.Price.PriceId, priceId),
+            afterId,
+            limit,
+            cancellationToken);
+
+    public Task<IReadOnlyList<SubscriptionDetail>> ListRenewableOnPlanAsync(
+        string tenantId,
+        string planId,
+        string? afterId,
+        int limit,
+        CancellationToken cancellationToken) =>
+        ListRenewableAsync(
+            tenantId,
+            Builders<SubscriptionDetail>.Filter.Eq(subscription => subscription.Plan.PlanId, planId),
+            afterId,
+            limit,
+            cancellationToken);
+
+    private async Task<IReadOnlyList<SubscriptionDetail>> ListRenewableAsync(
+        string tenantId,
+        FilterDefinition<SubscriptionDetail> scope,
         string? afterId,
         int limit,
         CancellationToken cancellationToken)
     {
         var filter = Builders<SubscriptionDetail>.Filter.And(
             TenantFilter(tenantId),
-            Builders<SubscriptionDetail>.Filter.Eq(
-                subscription => subscription.Price.PriceId,
-                priceId),
+            scope,
             Builders<SubscriptionDetail>.Filter.In(
                 subscription => subscription.Status,
                 new[]
@@ -913,6 +937,48 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow)
                 .Push(subscription => subscription.OutboxEvents, outboxEvent),
             cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TrySetMeterRatesAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        string planId,
+        string meterKey,
+        List<MeterRateTable> rateTables,
+        SubscriptionOutboxEvent? outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(rateTables);
+
+        var update = Builders<SubscriptionDetail>.Update
+            .Set("Plan.Meters.$[meter].RateTables", rateTables)
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow);
+
+        if (outboxEvent is not null)
+        {
+            update = update.Push(subscription => subscription.OutboxEvents, outboxEvent);
+        }
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                VersionedFilter(tenantId, subscriptionId, expectedVersion),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Plan.PlanId,
+                    planId)),
+            update,
+            new UpdateOptions
+            {
+                ArrayFilters =
+                [
+                    new BsonDocumentArrayFilterDefinition<PlanMeter>(
+                        new BsonDocument("meter.MeterKey", meterKey))
+                ]
+            },
+            cancellationToken);
 
         return result.ModifiedCount == 1;
     }

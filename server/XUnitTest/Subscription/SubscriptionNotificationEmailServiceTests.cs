@@ -27,7 +27,8 @@ public sealed class SubscriptionNotificationEmailServiceTests
         "DisplayName", "PlanName", "PlanCode", "PreviousPlanName", "ActorName",
         "QuantityChanges", "EffectiveDate", "CancellationReason",
         "PreviousDiscount", "NewDiscount", "PreviousTaxRate", "NewTaxRate",
-        "PreviousTaxMode", "NewTaxMode"
+        "PreviousTaxMode", "NewTaxMode",
+        "MeterName", "PreviousOverageRate", "NewOverageRate"
     ];
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
@@ -107,6 +108,7 @@ public sealed class SubscriptionNotificationEmailServiceTests
     [InlineData(SubscriptionConstants.SubscriptionCancellationRequested)]
     [InlineData(SubscriptionConstants.SubscriptionCanceled)]
     [InlineData(SubscriptionConstants.SubscriptionCancellationWithdrawn)]
+    [InlineData(SubscriptionConstants.SubscriptionOverageRatesChanged)]
     public async Task Every_purpose_sends_every_key_even_when_its_value_is_absent(string eventType)
     {
         await Service().SendAsync(Event(eventType), CancellationToken.None);
@@ -235,6 +237,36 @@ public sealed class SubscriptionNotificationEmailServiceTests
         _recorded.Should().ContainSingle().Which.Should().Match<MailDeliveryReportRequest>(report =>
             report.Outcome == MailDeliveryReportOutcome.NotAttempted &&
             report.ErrorCode == "billing_email_missing");
+    }
+
+    [Fact]
+    public async Task An_overage_rate_change_names_the_meter_and_both_rates_in_major_units()
+    {
+        long minorInOne = 100;
+        decimal two = 2m, one = 1m, half = 0.5m;
+        _currency.Setup(currency => currency.TryConvert(1m, "USD", out minorInOne)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(200, "USD", out two)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(100, "USD", out one)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(50, "USD", out half)).Returns(true);
+        var lifecycleEvent = Event(SubscriptionConstants.SubscriptionOverageRatesChanged);
+        lifecycleEvent.MeterKey = "api-calls";
+        lifecycleEvent.MeterDisplayName = "API calls";
+        lifecycleEvent.CurrencyCode = "USD";
+        lifecycleEvent.PreviousOverageTiers = [new MeterTier { UnitAmountMinor = 200 }];
+        lifecycleEvent.OverageTiers =
+        [
+            new MeterTier { UpToQuantity = 1000, UnitAmountMinor = 100 },
+            new MeterTier { UnitAmountMinor = 50 }
+        ];
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        var body = _queued!.Payload.BodyDataContext;
+        _queued.Payload.Purpose.Should().Be(SubscriptionConstants.OverageRatesChangedMailPurpose);
+        body["MeterName"].Should().Be("API calls");
+        body["PreviousOverageRate"].Should().Be("2.00 USD");
+        body["NewOverageRate"].Should().Be("up to 1000: 1.00 USD; above 1000: 0.50 USD");
+        body["EffectiveDate"].Should().Be("2026-10-09", "the change is already in effect when the mail is raised");
     }
 
     // ---- standalone credit purchase confirmation (spec 005) -----------------------------------

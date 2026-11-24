@@ -140,6 +140,15 @@ public sealed class SubscriptionLifecycleEvent
     /// <summary>Set on an extended discount or tax edit: the terms billed from then on.</summary>
     public PriceTerms? PriceTerms { get; set; }
 
+    /// <summary>
+    /// Set on extended overage rates: the meter's bands in the subscription's currency before the
+    /// change. Empty when the meter had no overage price in that currency.
+    /// </summary>
+    public List<MeterTier>? PreviousOverageTiers { get; set; }
+
+    /// <summary>Set on extended overage rates: the bands billed from now on.</summary>
+    public List<MeterTier>? OverageTiers { get; set; }
+
     /// <summary>Set on an organization credit purchase (spec 005): the purchase record.</summary>
     public string? CreditPurchaseId { get; set; }
 

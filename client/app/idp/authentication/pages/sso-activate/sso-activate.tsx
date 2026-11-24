@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { getApiUrl } from "@/lib/get-api-path";
 import { getRuntimeEnv } from "@/lib/runtime-env";
+import { getMergedAreaBaseUrl } from "@seliseblocks/genesis-os/lib";
 import { showErrorToast } from "@/hooks/use-toast";
 import { useAuthStore, useT } from "@seliseblocks/genesis-os";
 import { isErrorWithErrors } from "@/lib/error";
@@ -81,9 +82,9 @@ export const SsoActivate = ({ oauthParams }: SsoActivateProps) => {
     try {
       const key = getRuntimeEnv("BLOCKS_X_BLOCKS_KEY");
       const appUrl = import.meta.env.BLOCKS_APP_URL;
-      const isLocalhost = getRuntimeEnv(
+      const isLocalhost = getMergedAreaBaseUrl(
         "BLOCKS_LOCALIZATION_BASE_URL",
-      )?.includes("localhost");
+      ).includes("localhost");
 
       const body = new URLSearchParams();
       body.append("code", oauthParams.code);

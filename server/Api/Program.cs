@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.FileProviders;
 using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
-using SeliseBlocks.ConfigurationDriver;
 using Scalar.AspNetCore;
 using OpenTelemetry.Metrics;
 using Subscription.DomainService.Services;
@@ -39,16 +38,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 ApplicationConfigurations.ConfigureApiEnv(builder, args);
 
-// Load frontend runtime settings (and other config) from the DB. The Mongo
-// "Secrets" document keyed by "blocks-secret-utilities" is merged into
-// IConfiguration, exposing the "FrontendRuntime" section consumed below.
-builder.Configuration.AddMongoDbConfiguration(options =>
-{
-    options.ConnectionString = secret.DatabaseConnectionString;
-    options.DatabaseName     = secret.RootDatabaseName;
-    options.CollectionName   = "Secrets";
-    options.SecretKey        = "blocks-secret-utilities";
-});
+// Load frontend runtime settings (and other config) from the DB. The Genesis
+// KeyValueStores document keyed by "blocks-secret-utilities" (or, until it is
+// migrated, the legacy "Secrets" document) is merged into IConfiguration,
+// exposing the "FrontendRuntime" section consumed below.
+builder.Configuration.AddKeyValueConfiguration(secret, "blocks-secret-utilities");
 
 ApplicationConfigurations.ConfigureServices(builder.Services, GetCombinedMessageConfiguration(secret.MessageConnectionString));
 
@@ -265,7 +259,7 @@ static MessageConfiguration GetCombinedMessageConfiguration(string connectionStr
 static void ApplyFrontendRuntimeSettings(IConfiguration configuration, string webRootPath)
 {
     // Read frontend runtime values from the DB-backed "FrontendRuntime" config
-    // section (populated by AddMongoDbConfiguration from the "Secrets" collection).
+    // section (populated by AddKeyValueConfiguration from KeyValueStores).
     // Standard .NET config layering still applies, so env vars named
     // "FrontendRuntime__BLOCKS_*" override individual keys at deploy time.
     var section = configuration.GetSection("FrontendRuntime");
