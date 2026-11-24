@@ -518,6 +518,29 @@ const subtotalPartsOf = (
 ): { label: string; amountMinor: number }[] | undefined => {
   const annual = quote?.pendingAnnualPeriod;
 
+  // A prepaid term: the stub, when there is one, then every whole period as one line.
+  if (quote?.prepaid) {
+    const stubMinor = quote.subtotalMinor - quote.prepaid.grossAmountMinor;
+    const term = {
+      label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIBE_DIALOG.PREPAID_TERM", {
+        periods: quote.prepaid.periods,
+        startUtc: formatDay(quote.prepaid.startUtc),
+        endUtc: formatDay(quote.prepaid.endUtc),
+      }),
+      amountMinor: quote.prepaid.grossAmountMinor,
+    };
+
+    return stubMinor > 0
+      ? [
+          {
+            label: tStatic(UTILITIES_SUBSCRIPTION_SIMULATION_MODULE, "SUBSCRIBE_DIALOG.PRO_RATED", { periodStartUtc: formatDay(quote.periodStartUtc), periodEndUtc: formatDay(quote.periodEndUtc) }),
+            amountMinor: stubMinor,
+          },
+          term,
+        ]
+      : [term];
+  }
+
   if (!quote || !annual?.collectedWithCheckout || !quote.prorated) {
     return undefined;
   }

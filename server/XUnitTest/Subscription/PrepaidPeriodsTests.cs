@@ -7,6 +7,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Responses;
 using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
@@ -139,6 +140,32 @@ public sealed class PrepaidPeriodsTests
             .Should().Be(5 * 12 * 89_000);
         LocalDate(created.PrepaidThroughUtc!.Value).Should().Be(new DateTime(2031, 9, 1));
         created.PrepaidDiscountPeriods.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_preview_states_the_stub_and_the_prepaid_years_apart()
+    {
+        void CalendarYear(Price price)
+        {
+            price.Interval = BillingInterval.Year;
+            price.UnitAmountMinor = 89_000;
+            price.BillingAlignment = BillingAlignment.CalendarMonth;
+            price.CalendarStubBasePriceId = "price-monthly";
+            price.CalendarStubBaseUnitAmountMinor = 8_900;
+        }
+
+        var signup = new SignupHarness { MaxPrepaidPeriods = 5, PriceSetup = CalendarYear };
+
+        var result = await signup.PreviewAsync(prepaidPeriods: 5);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        var preview = result.Value!;
+        LocalDate(preview.PeriodEndUtc).Should().Be(new DateTime(2026, 9, 1), "the stub still ends on the first");
+        preview.Prepaid!.Periods.Should().Be(5);
+        LocalDate(preview.Prepaid.StartUtc).Should().Be(new DateTime(2026, 9, 1));
+        LocalDate(preview.Prepaid.EndUtc).Should().Be(new DateTime(2031, 9, 1));
+        preview.Prepaid.GrossAmountMinor.Should().Be(5 * 12 * 89_000);
+        (preview.SubtotalMinor - preview.Prepaid.GrossAmountMinor).Should().BePositive("the stub is the rest");
     }
 
     [Fact]
@@ -439,7 +466,24 @@ public sealed class PrepaidPeriodsTests
                 .ReturnsAsync((SubscriptionDetail?)null);
         }
 
+        public Task<SubscriptionOperationResult<SubscriptionPreviewResponse>> PreviewAsync(int? prepaidPeriods) =>
+            Service().PreviewAsync(Request(prepaidPeriods), Context, "corr-1", CancellationToken.None);
+
         public Task<SubscriptionOperationResult<SubscriptionDetail>> CreateAsync(int? prepaidPeriods) =>
+            Service().CreateAsync(Request(prepaidPeriods), Context, "corr-1", CancellationToken.None);
+
+        private static readonly SubscriptionContext Context = new(TenantId, OrganizationId, "actor-1", "user-1");
+
+        private static CreateSubscriptionRequest Request(int? prepaidPeriods) => new()
+        {
+            PlanCode = "professional",
+            PriceId = "price-1",
+            TimeZoneId = "Europe/Zurich",
+            Quantities = [new SubscriptionQuantityRequest { ItemKey = "seat", Quantity = 12 }],
+            PrepaidPeriods = prepaidPeriods
+        };
+
+        private SubscriptionCreationService Service() =>
             new SubscriptionCreationService(
                     _catalogue.Object,
                     _subscriptions.Object,
@@ -448,19 +492,7 @@ public sealed class PrepaidPeriodsTests
                     new CreateSubscriptionRequestValidator(),
                     NullLogger<SubscriptionCreationService>.Instance,
                     new ControlledTimeProvider(new DateTimeOffset(2026, 8, 14, 10, 0, 0, TimeSpan.Zero)),
-                    billingProfile: _billingProfile.Object)
-                .CreateAsync(
-                    new CreateSubscriptionRequest
-                    {
-                        PlanCode = "professional",
-                        PriceId = "price-1",
-                        TimeZoneId = "Europe/Zurich",
-                        Quantities = [new SubscriptionQuantityRequest { ItemKey = "seat", Quantity = 12 }],
-                        PrepaidPeriods = prepaidPeriods
-                    },
-                    new SubscriptionContext(TenantId, OrganizationId, "actor-1", "user-1"),
-                    "corr-1",
-                    CancellationToken.None);
+                    billingProfile: _billingProfile.Object);
     }
 
     private sealed class RenewalHarness
