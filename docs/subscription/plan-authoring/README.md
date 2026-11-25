@@ -698,8 +698,9 @@ The opt-in exception is an amount, tax or discount edit saved with **Also apply 
 subscribers** (`applyToExistingSubscribers`). The period a subscriber has already paid for keeps
 its price; the new amount is first charged at the renewal below. Each subscriber on the price is emailed
 (`subscription_price_terms_changed`) and moves to the new terms at the first renewal at least
-`Subscription:PriceTermsNoticeDays` (default 7) away. Offline subscriptions, subscriptions
-cancelling at period end, and subscriptions with their own plan change scheduled are left alone.
+`Subscription:PriceTermsNoticeDays` (default 7) away. Offline-invoice subscriptions are included
+like card ones; subscriptions cancelling at period end, and subscriptions with their own plan
+change scheduled, are left alone.
 Saving the same edit again is safe, and reaches anyone a failed save missed.
 
 **Overage rates** have their own opt-in. On a plan with subscribers, the **Overage rates** editor
