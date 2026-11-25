@@ -853,6 +853,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 priceId,
                 terms => new PriceTerms
                 {
+                    UnitAmountMinor = terms.UnitAmountMinor,
                     AutomaticDiscountBasisPoints = basisPoints,
                     QuantityDiscountCombination = combinationToStore,
                     TaxRateBasisPoints = terms.TaxRateBasisPoints,
@@ -944,10 +945,105 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 priceId,
                 terms => new PriceTerms
                 {
+                    UnitAmountMinor = terms.UnitAmountMinor,
                     AutomaticDiscountBasisPoints = terms.AutomaticDiscountBasisPoints,
                     QuantityDiscountCombination = terms.QuantityDiscountCombination,
                     TaxRateBasisPoints = rate,
                     TaxMode = modeToStore
+                },
+                context.ActorName,
+                correlationId,
+                cancellationToken);
+        }
+
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
+    }
+
+    public async Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceAmountAsync(
+        string priceId,
+        UpdatePriceAmountRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.UnitAmountMinor < 0)
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_price_amount_invalid",
+                "The amount cannot be negative.",
+                correlationId);
+        }
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<PlanResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var price = await _catalogue.GetPriceAsync(context.TenantId, priceId, cancellationToken);
+        if (price is null)
+        {
+            return NotFound(correlationId);
+        }
+
+        var plan = await _catalogue.GetPlanAsync(context.TenantId, price.PlanId, cancellationToken);
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return NotFound(correlationId);
+        }
+
+        var archivedRefusal = RefuseIfArchived(plan, correlationId);
+
+        if (archivedRefusal is not null)
+        {
+            return archivedRefusal;
+        }
+
+        if (!await _catalogue.TryUpdatePriceAmountAsync(
+                context.TenantId,
+                priceId,
+                price.Version,
+                request.UnitAmountMinor,
+                DateTime.UtcNow,
+                cancellationToken))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_price_amount_conflict",
+                "The price changed while its amount was being saved.",
+                correlationId);
+        }
+
+        _logger.LogInformation(
+            "Subscription price amount updated TenantId={TenantId} PriceHash={PriceHash} " +
+                "CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(context.TenantId),
+            PaymentLogValue.Hash(priceId),
+            correlationId);
+
+        if (request.ApplyToExistingSubscribers)
+        {
+            // See the discount edit above for why this follows the catalogue write.
+            await _existingSubscribers.ExtendAsync(
+                context.TenantId,
+                priceId,
+                terms => new PriceTerms
+                {
+                    UnitAmountMinor = request.UnitAmountMinor,
+                    AutomaticDiscountBasisPoints = terms.AutomaticDiscountBasisPoints,
+                    QuantityDiscountCombination = terms.QuantityDiscountCombination,
+                    TaxRateBasisPoints = terms.TaxRateBasisPoints,
+                    TaxMode = terms.TaxMode
                 },
                 context.ActorName,
                 correlationId,

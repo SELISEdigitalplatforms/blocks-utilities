@@ -25,6 +25,7 @@ import {
 } from "../../constants/subscription.constants";
 import type { PlanMeter, PlanPrice } from "../../models/subscription-plan.model";
 import type { OnSaveMeterRates } from "./existing-meter-rates-fields";
+import type { OnUpdatePriceAmount } from "./plan-price-fields";
 import {
   BILLING_INTERVAL_NAMES,
   ENTITLEMENT_LIMIT_KIND_NAMES,
@@ -74,6 +75,8 @@ export interface PlanBuilderProps {
    * Retires one of the prices above. Omitted where nothing can be retired — creating a plan.
    */
   onRetirePrice?: (priceId: string) => void;
+  /** Changes an existing price's amount. Omitted when creating a plan. */
+  onUpdatePriceAmount?: OnUpdatePriceAmount;
   onUpdatePriceTax?: (
     priceId: string,
     taxPercent?: number,
@@ -124,6 +127,7 @@ const PlanBuilderWizard = ({
   onRetirePrice,
   onUpdatePriceTax,
   onUpdatePriceDiscount,
+  onUpdatePriceAmount,
   retiringPriceId = null,
   existingMeters,
   onUpdateMeterRates,
@@ -384,6 +388,7 @@ const PlanBuilderWizard = ({
                         existingPrices={existingPrices}
                         onRetirePrice={onRetirePrice}
                         onUpdatePriceTax={onUpdatePriceTax}
+                        onUpdatePriceAmount={onUpdatePriceAmount}
                         onUpdatePriceDiscount={onUpdatePriceDiscount}
                         retiringPriceId={retiringPriceId}
                         existingMeters={existingMeters}

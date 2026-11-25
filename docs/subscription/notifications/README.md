@@ -16,7 +16,7 @@ purpose and language and fills in the values. If you don't create a template, no
 | `subscription_cancellation_requested` | Someone cancels for the end of the paid period | Billing contact |
 | `subscription_canceled` | A subscription ends: an immediate cancel, or a scheduled one reaching its date | Billing contact |
 | `subscription_cancellation_withdrawn` | A scheduled cancellation is undone | Billing contact |
-| `subscription_price_terms_changed` | An administrator edits a price's discount or tax and ticks **Also apply to existing subscribers**. Sent to every subscriber on that price when the edit is saved, ahead of the renewal that first bills it | Billing contact |
+| `subscription_price_terms_changed` | An administrator edits a price's amount, discount or tax and ticks **Also apply to existing subscribers**. Sent to every subscriber on that price when the edit is saved, ahead of the renewal that first bills it | Billing contact |
 | `subscription_overage_rates_changed` | An administrator edits a meter's overage rates on a plan that has subscribers and ticks **Also apply to existing subscribers now**. Sent to every live subscriber on the plan whose rate in their own currency changed. The new rate is already in effect, including for usage earlier in the current billing period | Billing contact |
 | `subscription_member_assigned` | An administrator gives someone a seat on a per-person subscription | That person |
 | `subscription_member_removed` | An administrator takes a seat back | That person |
@@ -48,6 +48,7 @@ the template.
 | `MeterName` | Overage rate changes: the meter's name |
 | `PreviousOverageRate`, `NewOverageRate` | Overage rate changes: the per-unit rate before and after, e.g. `2.00 USD`, or `up to 1000: 2.00 USD; above 1000: 1.00 USD` for bands |
 | `PreviousTaxMode`, `NewTaxMode` | Price terms changes: `Inclusive` or `Exclusive`, so the template can word it; empty when there is no tax |
+| `PreviousPrice`, `NewPrice` | Price terms changes: the price before and from `EffectiveDate`, e.g. `10.00 USD` or `10.00 USD per seat`. **Empty unless the amount itself changed**, so a tax or discount edit doesn't announce a price change |
 
 For `subscription_price_terms_changed`, `EffectiveDate` is the renewal that first bills the new
 terms: the first one at least `Subscription:PriceTermsNoticeDays` (default 7) after the edit.

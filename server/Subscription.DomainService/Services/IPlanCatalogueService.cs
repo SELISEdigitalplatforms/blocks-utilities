@@ -101,6 +101,17 @@ public interface IPlanCatalogueService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Changes what a price charges. New subscriptions pay the new amount at once; existing
+    /// subscribers only when <see cref="UpdatePriceAmountRequest.ApplyToExistingSubscribers"/>
+    /// says so, from a later renewal and told by email — the same path as a tax or discount edit.
+    /// </summary>
+    Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceAmountAsync(
+        string priceId,
+        UpdatePriceAmountRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Rewrites one meter's overage rate tables. Answers with the plan as it now stands.
     /// </summary>
     /// <remarks>

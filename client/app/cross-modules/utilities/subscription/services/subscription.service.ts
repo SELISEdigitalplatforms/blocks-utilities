@@ -13,6 +13,7 @@ import type {
   UpdateSubscriptionPlanRequest,
   UpdateSubscriptionDiscountRequest,
   UpdateSubscriptionPlanMeterRatesRequest,
+  UpdateSubscriptionPriceAmountRequest,
   UpdateSubscriptionPriceDiscountRequest,
   UpdateSubscriptionPriceTaxRequest,
 } from "../models/subscription-plan.model";
@@ -211,6 +212,21 @@ class SubscriptionService {
       throw new Error(
         response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PRICE_COULD_NOT_BE_RETIRED"),
       );
+    }
+
+    return response.data;
+  }
+
+  async updatePriceAmount(
+    priceId: string,
+    request: UpdateSubscriptionPriceAmountRequest,
+  ): Promise<SubscriptionPlan> {
+    const response = await serviceInstances.utitlitiesService.put<
+      SubscriptionApiResponse<SubscriptionPlan>
+    >(`${SUBSCRIPTION_PLAN_PRICES_ENDPOINT}/${encodeURIComponent(priceId)}/amount`, request);
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || tSubscription("SUBSCRIPTION_SERVICE.PRICE_AMOUNT_COULD_NOT_BE_SAVED"));
     }
 
     return response.data;

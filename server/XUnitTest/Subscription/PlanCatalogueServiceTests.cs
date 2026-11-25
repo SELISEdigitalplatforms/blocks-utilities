@@ -881,6 +881,156 @@ public sealed class PlanCatalogueServiceTests
     /// <summary>
     /// An active price on the plan, wired for the two lookups every price editor performs.
     /// </summary>
+    [Fact]
+    public async Task A_price_amount_edit_without_the_box_reaches_new_subscriptions_only()
+    {
+        var plan = StoredPlan();
+        StoredPriceFor(plan, version: 3);
+        _catalogue.Setup(repository => repository.TryUpdatePriceAmountAsync(
+            TenantId, "price-1", 3, 9_900, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await Service().UpdatePriceAmountAsync(
+            "price-1", new UpdatePriceAmountRequest { UnitAmountMinor = 9_900 }, "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _subscriptions.Verify(
+            repository => repository.ListRenewableOnPriceAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never,
+            "an operator who did not tick the box was promised nobody already subscribed is repriced");
+    }
+
+    [Fact]
+    public async Task A_negative_price_amount_is_refused_before_anything_is_written()
+    {
+        var result = await Service().UpdatePriceAmountAsync(
+            "price-1", new UpdatePriceAmountRequest { UnitAmountMinor = -1 }, "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("subscription_price_amount_invalid");
+        _catalogue.Verify(repository => repository.TryUpdatePriceAmountAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<long>(),
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_price_amount_extended_to_existing_subscribers_starts_at_their_next_renewal()
+    {
+        var plan = StoredPlan();
+        StoredPriceFor(plan, version: 3);
+        _catalogue.Setup(repository => repository.TryUpdatePriceAmountAsync(
+            TenantId, "price-1", 3, 9_900, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var subscriber = SubscriberOnPrice();
+        var written = CaptureScheduledTerms(subscriber);
+
+        var result = await Service().UpdatePriceAmountAsync(
+            "price-1",
+            new UpdatePriceAmountRequest { UnitAmountMinor = 9_900, ApplyToExistingSubscribers = true },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var (pending, announced) = written.Single();
+        pending.Terms.UnitAmountMinor.Should().Be(9_900);
+        pending.Terms.TaxRateBasisPoints.Should().Be(810, "an amount edit leaves the tax alone");
+        pending.EffectiveAtUtc.Should().Be(subscriber.CurrentPeriodEndUtc,
+            "the period already paid for keeps its price; the next one is billed at the new amount");
+        announced.EventType.Should().Be(SubscriptionConstants.SubscriptionPriceTermsChangeScheduled,
+            "the subscriber is emailed in the same write that schedules the change");
+    }
+
+    [Fact]
+    public async Task A_tax_edit_keeps_an_amount_change_already_scheduled()
+    {
+        var plan = StoredPlan();
+        StoredPriceFor(plan, version: 3);
+        _catalogue.Setup(repository => repository.TryUpdatePriceTaxAsync(
+            TenantId, "price-1", 3, 770, TaxMode.Exclusive, It.IsAny<DateTime>(),
+            It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var subscriber = SubscriberOnPrice();
+        subscriber.PendingPriceTerms = new PendingPriceTerms
+        {
+            PriceId = "price-1",
+            Terms = new PriceTerms { UnitAmountMinor = 9_900, TaxRateBasisPoints = 810, TaxMode = TaxMode.Exclusive },
+            EffectiveAtUtc = subscriber.CurrentPeriodEndUtc
+        };
+        var written = CaptureScheduledTerms(subscriber);
+
+        await Service().UpdatePriceTaxAsync(
+            "price-1",
+            new UpdatePriceTaxRequest
+            {
+                TaxRateBasisPoints = 770,
+                TaxMode = TaxMode.Exclusive,
+                ApplyToExistingSubscribers = true
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        var terms = written.Single().Pending.Terms;
+        terms.TaxRateBasisPoints.Should().Be(770);
+        terms.UnitAmountMinor.Should().Be(9_900,
+            "the price rise the subscriber was already told about must not be undone by a tax edit");
+    }
+
+    /// <summary>A monthly subscriber on price-1 at 89.00 + 8.1% tax, paid for three more weeks.</summary>
+    private static SubscriptionDetail SubscriberOnPrice()
+    {
+        var periodEnd = DateTime.UtcNow.Date.AddDays(21);
+
+        return new SubscriptionDetail
+        {
+            ItemId = "sub-1",
+            TenantId = TenantId,
+            OrganizationId = OrganizationId,
+            Status = SubscriptionStatus.Active,
+            Version = 5,
+            CurrencyCode = "CHF",
+            Plan = new PlanSnapshot { PlanId = "plan-1", Code = "professional" },
+            Price = new PriceSnapshot
+            {
+                PriceId = "price-1",
+                CurrencyCode = "CHF",
+                UnitAmountMinor = 8_900,
+                TaxRateBasisPoints = 810,
+                TaxMode = TaxMode.Exclusive
+            },
+            CurrentPeriodEndUtc = periodEnd,
+            FeeSchedule = new BillingSchedule
+            {
+                Interval = BillingInterval.Month,
+                IntervalCount = 1,
+                AnchorInstantUtc = periodEnd.AddMonths(-1),
+                TimeZoneId = "UTC",
+                AnchorDayOfMonth = periodEnd.Day
+            }
+        };
+    }
+
+    private List<(PendingPriceTerms Pending, SubscriptionOutboxEvent Event)> CaptureScheduledTerms(
+        SubscriptionDetail subscriber)
+    {
+        var written = new List<(PendingPriceTerms, SubscriptionOutboxEvent)>();
+        _subscriptions
+            .Setup(repository => repository.ListRenewableOnPriceAsync(
+                TenantId, "price-1", null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([subscriber]);
+        _subscriptions
+            .Setup(repository => repository.TrySetPendingPriceTermsAsync(
+                TenantId, subscriber.ItemId, subscriber.Version, It.IsAny<PendingPriceTerms>(),
+                It.IsAny<SubscriptionOutboxEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, int, PendingPriceTerms, SubscriptionOutboxEvent, CancellationToken>(
+                (_, _, _, pending, outboxEvent, _) => written.Add((pending, outboxEvent)))
+            .ReturnsAsync(true);
+
+        return written;
+    }
+
     private Price StoredPriceFor(Plan plan, int version)
     {
         var price = new Price

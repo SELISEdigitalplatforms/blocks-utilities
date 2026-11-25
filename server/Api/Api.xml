@@ -1068,6 +1068,12 @@
             is emailed and moves to it at their first renewal at least the notice period away.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePriceAmount(System.String,Subscription.DomainService.Requests.UpdatePriceAmountRequest,System.Threading.CancellationToken)">
+            <summary>
+            Changes what a price charges new subscriptions, and optionally existing subscribers from
+            their next renewal past the notice period, each emailed when this is saved.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.SubscriptionPlansController.ArchivePlan(System.String,System.String,System.Threading.CancellationToken)">
             <summary>
             Takes a plan off the menu, permanently.
