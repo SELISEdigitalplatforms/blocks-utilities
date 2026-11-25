@@ -141,6 +141,19 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
         body["PreviousOverageRate"] = DescribeTiers(lifecycleEvent.PreviousOverageTiers, lifecycleEvent.CurrencyCode);
         body["NewOverageRate"] = DescribeTiers(lifecycleEvent.OverageTiers, lifecycleEvent.CurrencyCode);
 
+        // Extended credit terms. Empty on every other purpose, and a price is empty when credits
+        // were not (or are no longer) priced in the subscriber's currency.
+        var creditTerms = lifecycleEvent.EventType == SubscriptionConstants.SubscriptionCreditTermsChanged;
+        body["PreviousCreditPrice"] = creditTerms
+            ? MajorAmount(lifecycleEvent.PreviousCreditUnitAmountMinor, lifecycleEvent.CurrencyCode)
+            : string.Empty;
+        body["NewCreditPrice"] = creditTerms
+            ? MajorAmount(lifecycleEvent.CreditUnitAmountMinor, lifecycleEvent.CurrencyCode)
+            : string.Empty;
+        body["CreditsOnSale"] = creditTerms && lifecycleEvent.CreditsOnSale is { } onSale
+            ? (onSale ? "true" : "false")
+            : string.Empty;
+
         // The reason is the canceller's own words. The mail module encodes body values but places
         // subject values raw, so it stays out of the subject however a tenant words the template.
         var subject = new Dictionary<string, string>(body);
@@ -423,6 +436,22 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             .Find(item => item.ItemKey == subscription.Price.QuantityItemKey)?.UnitLabel;
 
         return string.IsNullOrWhiteSpace(unit) ? amount : $"{amount} per {unit}";
+    }
+
+    /// <summary>
+    /// An amount as <c>1.50 USD</c>; empty for none, minor units when the currency cannot be resolved.
+    /// </summary>
+    private string MajorAmount(long? amountMinor, string? currencyCode)
+    {
+        if (amountMinor is not { } minor || string.IsNullOrWhiteSpace(currencyCode))
+        {
+            return string.Empty;
+        }
+
+        return _currency is not null &&
+            MinorUnitMajorAmountFormatter.TryFormat(_currency, minor, currencyCode, out var major)
+                ? $"{major} {currencyCode}"
+                : string.Create(CultureInfo.InvariantCulture, $"{minor} {currencyCode} (minor units)");
     }
 
     /// <summary>

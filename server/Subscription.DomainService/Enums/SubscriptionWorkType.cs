@@ -87,5 +87,15 @@ public enum SubscriptionWorkType
     /// row push the latest, and repeating it is a no-op for anyone already on them.
     /// <c>AggregateId</c> is the plan; the work key ends with the meter key.
     /// </remarks>
-    PlanMeterRatesPropagation = 14
+    PlanMeterRatesPropagation = 14,
+
+    /// <summary>
+    /// Give every live subscriber on a plan a meter's current credit terms, after an operator saved
+    /// the plan with "apply credit changes to existing subscribers".
+    /// </summary>
+    /// <remarks>
+    /// The credit counterpart of <see cref="PlanMeterRatesPropagation"/>, with the same key shape and
+    /// the same reasons for running off the request. Reads the terms from the catalogue when it runs.
+    /// </remarks>
+    PlanCreditTermsPropagation = 15
 }

@@ -264,6 +264,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
 
         await AdoptNewCreditTermsAsync(context.TenantId, plan.ItemId, edited, correlationId, cancellationToken);
 
+        await RecordCreditTermsChangesAsync(
+            context, plan, edited, request.ApplyCreditTermsToExistingSubscribers, correlationId, cancellationToken);
+
         if (_meterCatalogue is not null)
         {
             await _meterCatalogue.EnsureEntriesAsync(
@@ -1550,6 +1553,97 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     /// plan fills whoever was missed, so it is logged rather than failing the edit.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Records each meter whose credit terms the edit changed, and — when asked — pushes every meter's
+    /// current credit terms to the subscribers already on the plan.
+    /// </summary>
+    /// <remarks>
+    /// Recording compares against the plan as it stood before the save, so only terms that really
+    /// moved are recorded as a change. Pushing does not: when the operator asks, every meter's current
+    /// terms are pushed, changed in this save or not. Subscribers fall behind the catalogue whenever
+    /// terms were changed without asking — including every change made before this option existed —
+    /// and re-saving with the box ticked is how they are brought back in step. Pushing is safe to
+    /// repeat: a subscriber whose copy already matches is skipped, with no write and no email. The
+    /// push runs on the work queue for the reason overage rates do; a host without one pushes inline.
+    /// </remarks>
+    private async Task RecordCreditTermsChangesAsync(
+        SubscriptionContext context,
+        Plan before,
+        Plan after,
+        bool applyToExistingSubscribers,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        foreach (var meter in after.Meters)
+        {
+            var previous = before.Meters.Find(candidate =>
+                string.Equals(candidate.MeterKey, meter.MeterKey, StringComparison.Ordinal))?.TopUp;
+
+            var changed = !MeterTopUpTerms.Same(previous, meter.TopUp);
+
+            if (changed)
+            {
+                await RecordCatalogueChangeAsync(
+                    context, before, "PlanCreditTermsUpdate",
+                    correlationId, cancellationToken,
+                    detail: $"Credit terms for {meter.MeterKey}: {DescribeCreditTerms(previous)} → " +
+                        DescribeCreditTerms(meter.TopUp) +
+                        (applyToExistingSubscribers ? "; applied to existing subscribers now" : string.Empty));
+            }
+
+            if (!applyToExistingSubscribers)
+            {
+                continue;
+            }
+
+            if (!changed)
+            {
+                // Not a change, but a decision that can reprice subscribers and email them, so who
+                // made it is still recorded.
+                await RecordCatalogueChangeAsync(
+                    context, before, "PlanCreditTermsReapply",
+                    correlationId, cancellationToken,
+                    detail: $"Current credit terms for {meter.MeterKey} ({DescribeCreditTerms(meter.TopUp)}) " +
+                        "re-applied to existing subscribers");
+            }
+
+            if (_scheduler is not null)
+            {
+                await _scheduler.TryScheduleAsync(
+                    SubscriptionWorkType.PlanCreditTermsPropagation,
+                    context.TenantId,
+                    PlanCreditTermsPropagationWorkHandler.KeyFor(before.ItemId, correlationId, meter.MeterKey),
+                    DateTime.UtcNow,
+                    correlationId,
+                    before.ItemId,
+                    before.OrganizationId,
+                    cancellationToken);
+            }
+            else
+            {
+                await _existingSubscribers.ApplyCreditTermsAsync(
+                    context.TenantId,
+                    before.ItemId,
+                    meter.MeterKey,
+                    meter.TopUp,
+                    context.ActorName,
+                    context.ActorId,
+                    context.UserId,
+                    correlationId,
+                    cancellationToken);
+            }
+        }
+    }
+
+    /// <summary><c>on sale: CHF 150, EUR 140 (minor units)</c>, <c>paused: …</c>, or <c>not sold</c>.</summary>
+    private static string DescribeCreditTerms(MeterTopUpTerms? terms) =>
+        terms is null
+            ? "not sold"
+            : $"{(terms.Enabled ? "on sale" : "paused")}: " +
+                string.Join(", ", terms.UnitPrices.Select(price => string.Create(
+                    CultureInfo.InvariantCulture, $"{price.CurrencyCode} {price.UnitAmountMinor}"))) +
+                " (minor units)";
+
     private async Task AdoptNewCreditTermsAsync(
         string tenantId,
         string planId,

@@ -351,6 +351,147 @@ public sealed class ExistingSubscriberPriceTerms
     /// Puts an operator's change on the subscriber's own audit timeline, so "why did my price
     /// change?" is answered there and not only by the email they were sent.
     /// </summary>
+    /// <summary>
+    /// Gives every live subscriber on a plan a meter's new credit terms now — or takes credits off
+    /// sale for them when <paramref name="terms"/> is null — telling each one the change reaches by
+    /// email in the same write.
+    /// </summary>
+    /// <remarks>
+    /// Immediate, like overage rates and unlike a price edit: credits are paid for before they are
+    /// used, at the price quoted at checkout, so nothing already bought is repriced. Only what a
+    /// subscriber can actually be quoted is compared — their own currency — so a change elsewhere
+    /// rewrites their copy without emailing them. Subscribers billed by invoice cannot buy credits
+    /// and are never emailed. Returned <see cref="PriceTermsExtension.Scheduled"/> counts
+    /// subscribers whose copy was rewritten.
+    /// </remarks>
+    public async Task<PriceTermsExtension> ApplyCreditTermsAsync(
+        string tenantId,
+        string planId,
+        string meterKey,
+        MeterTopUpTerms? terms,
+        string? requestedByName,
+        string? actorId,
+        string? userId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var extension = new PriceTermsExtension();
+        string? afterId = null;
+
+        while (true)
+        {
+            var page = await _subscriptions.ListRenewableOnPlanAsync(
+                tenantId, planId, afterId, PageSize, cancellationToken);
+
+            foreach (var subscription in page)
+            {
+                extension = extension.Add(await ApplyCreditTermsToAsync(
+                    subscription, planId, meterKey, terms, requestedByName,
+                    actorId, userId, correlationId, cancellationToken));
+            }
+
+            if (page.Count < PageSize)
+            {
+                break;
+            }
+
+            afterId = page[^1].ItemId;
+        }
+
+        _logger.LogInformation(
+            "Credit terms applied to existing subscribers TenantId={TenantId} PlanHash={PlanHash} " +
+            "MeterKey={MeterKey} Applied={Applied} Skipped={Skipped} Failed={Failed} " +
+            "CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(tenantId),
+            PaymentLogValue.Hash(planId),
+            PaymentLogValue.Label(meterKey),
+            extension.Scheduled,
+            extension.Skipped,
+            extension.Failed,
+            correlationId);
+
+        return extension;
+    }
+
+    private async Task<Outcome> ApplyCreditTermsToAsync(
+        SubscriptionDetail subscription,
+        string planId,
+        string meterKey,
+        MeterTopUpTerms? terms,
+        string? requestedByName,
+        string? actorId,
+        string? userId,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        // One re-read on a lost race, for the reason ExtendToAsync gives.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var meter = subscription.Plan.PlanId == planId
+                ? subscription.Plan.Meters.Find(candidate =>
+                    string.Equals(candidate.MeterKey, meterKey, StringComparison.Ordinal))
+                : null;
+
+            if (meter is null || MeterTopUpTerms.Same(meter.TopUp, terms))
+            {
+                return Outcome.Skipped;
+            }
+
+            var noticeable = !subscription.IsOffline &&
+                !MeterTopUpTerms.SameFor(meter.TopUp, terms, subscription.CurrencyCode);
+
+            if (await _subscriptions.TrySetMeterTopUpAsync(
+                    subscription.TenantId,
+                    subscription.ItemId,
+                    subscription.Version,
+                    planId,
+                    meterKey,
+                    terms,
+                    noticeable
+                        ? _events.CreateCreditTermsChanged(
+                            subscription, meter, terms, requestedByName, correlationId)
+                        : null,
+                    cancellationToken))
+            {
+                await RecordOnTimelineAsync(
+                    subscription, "CreditTermsApplied", "Applied", null, null,
+                    terms?.PriceIn(subscription.CurrencyCode)?.UnitAmountMinor,
+                    $"Credit terms for {meterKey}: {DescribeCredits(meter.TopUp, subscription.CurrencyCode)} → " +
+                        DescribeCredits(terms, subscription.CurrencyCode),
+                    correlationId, actorId, userId, cancellationToken);
+
+                return Outcome.Scheduled;
+            }
+
+            var reread = await _subscriptions.GetByIdAsync(
+                subscription.TenantId, subscription.ItemId, cancellationToken);
+
+            if (reread is null)
+            {
+                return Outcome.Skipped;
+            }
+
+            subscription = reread;
+        }
+
+        _logger.LogWarning(
+            "Credit terms lost the race for a subscription twice and left it unchanged " +
+            "SubscriptionId={SubscriptionId}",
+            PaymentLogValue.Id(subscription.ItemId));
+
+        return Outcome.Failed;
+    }
+
+    /// <summary><c>on sale at 150 CHF (minor units)</c>, <c>paused</c>, or <c>not sold</c>.</summary>
+    private static string DescribeCredits(MeterTopUpTerms? terms, string currencyCode) =>
+        terms is null
+            ? "not sold"
+            : terms.PriceIn(currencyCode) is not { } price
+                ? $"not priced in {currencyCode}"
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{(terms.Enabled ? "on sale" : "paused")} at {price.UnitAmountMinor} {currencyCode} (minor units)");
+
     private Task RecordOnTimelineAsync(
         SubscriptionDetail subscription,
         string operation,

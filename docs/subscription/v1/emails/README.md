@@ -16,13 +16,13 @@ The module never writes email text. **No template for the purpose and language m
 | Family | Purposes | Sent by | Delivered through |
 | --- | --- | --- | --- |
 | [Financial documents](#financial-documents) | `subscription_invoice`, `subscription_trial_invoice`, `subscription_credit_note` | `SubscriptionFinancialDocumentDeliveryService` | Worker work queue, `FinancialDocumentDelivery` work type |
-| [Billing-contact notices](#billing-contact-notices) | `subscription_quantity_changed`, `subscription_plan_changed`, `subscription_cancellation_requested`, `subscription_canceled`, `subscription_cancellation_withdrawn`, `subscription_price_terms_changed`, `subscription_overage_rates_changed` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
+| [Billing-contact notices](#billing-contact-notices) | `subscription_quantity_changed`, `subscription_plan_changed`, `subscription_cancellation_requested`, `subscription_canceled`, `subscription_cancellation_withdrawn`, `subscription_price_terms_changed`, `subscription_overage_rates_changed`, `subscription_credit_terms_changed` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
 | [Member notices](#member-notices) | `subscription_member_assigned`, `subscription_member_removed` | `SubscriptionNotificationEmailService` | same consumer |
 | [Usage warning](#usage-warning) | `subscription_usage_threshold` | `UsageThresholdEmailService` | same consumer |
 | [Card expiry](#card-expiry) | `subscription_payment_method_expiring` | `PaymentMethodExpiryEmailService` | Worker work queue, `PaymentMethodExpiryNotice` work type |
 | [Credit purchase](#credit-purchase) | `organization_credits_purchased` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
 
-Fifteen purposes in total. Nothing else in this repository sends email.
+Sixteen purposes in total. Nothing else in this repository sends email.
 
 ## The wire payload
 
@@ -48,7 +48,7 @@ subscription module fills only the fields below; everything else is sent empty.
 | --- | --- |
 | `To` | Exactly one address, trimmed and lower-cased. Never more than one recipient. |
 | `Cc`, `Bcc`, `ReplyTo` | Always empty. |
-| `Purpose` | One of the fifteen purposes above. Selects the template. |
+| `Purpose` | One of the sixteen purposes above. Selects the template. |
 | `Language` | BCP-47 tag (`en-US`, `de-CH`). Selects the template too; see [Languages](#languages). |
 | `Attachments` | Storage file ids. Only financial documents attach anything (the PDF). |
 | `SubjectDataContext` | Placeholders usable in the subject line. Values are placed **raw**. |
@@ -199,7 +199,7 @@ for <strong>{{Total}}</strong> against your {{PlanName}} subscription. The docum
 
 ## Billing-contact notices
 
-Seven emails to the billing contact of the subscription, one per kind of change. Each is converted
+Eight emails to the billing contact of the subscription, one per kind of change. Each is converted
 from a lifecycle event the worker reads off `blocks_subscription_lifecycle_topic`.
 
 | Purpose | Lifecycle event | Sent when |
@@ -211,6 +211,7 @@ from a lifecycle event the worker reads off `blocks_subscription_lifecycle_topic
 | `subscription_cancellation_withdrawn` | `SubscriptionCancellationWithdrawn` | A scheduled cancellation is undone. |
 | `subscription_price_terms_changed` | `SubscriptionPriceTermsChangeScheduled` | An operator saves an amount, discount or tax edit with `ApplyToExistingSubscribers`. Raised per live subscriber on the price (trialing, active, past due or unpaid; card and offline-invoice alike), in the same write that schedules `PendingPriceTerms`. Ones cancelling at period end, and ones with their own plan change scheduled, are skipped. |
 | `subscription_overage_rates_changed` | `SubscriptionOverageRatesChanged` | An operator saves a meter's overage rates with `ApplyToExistingSubscribers`. Raised per live subscriber on the plan whose rate **in their own currency** changed, in the same write that replaces the rates on their plan copy. The change is already in effect: the open billing period's overage is rated at the new rates when it closes. Subscribers whose currency the new rates no longer price are skipped and keep their rates. |
+| `subscription_credit_terms_changed` | `SubscriptionCreditTermsChanged` | An operator saves a plan with `ApplyCreditTermsToExistingSubscribers` and a meter's credit terms changed. Raised per live subscriber the change reaches — their own currency's price, on sale or not, limits, expiry or tax — in the same write that replaces the terms on their plan copy. Already in effect: their next purchase is quoted on the new terms. Never raised for a subscription billed by invoice. |
 
 Nothing is sent when a decrease or plan change is merely *scheduled*; the email goes out when it
 happens. `subscription_price_terms_changed` is the exception: it is the notice, so it is sent when
@@ -223,7 +224,7 @@ address changed after the event still receives it.
 **Language.** First non-empty of: the billing profile's *Email language*, the language given when
 the subscription was created, `en-US`. Read at send time, so a change reaches the very next email.
 
-**Placeholders.** Every purpose sends all nineteen keys in the body; the subject gets the same set
+**Placeholders.** Every purpose sends all twenty-two keys in the body; the subject gets the same set
 **minus `CancellationReason`**, because subject values are placed raw and the reason is free text
 typed by the canceller.
 
@@ -243,6 +244,8 @@ typed by the canceller.
 | `PreviousPrice`, `NewPrice` | The unit amount before and from `EffectiveDate`, `10.00 USD`, with ` per <unit label>` for a price that multiplies a quantity item. Empty unless the amount changed. | price terms changed (amount edits) |
 | `MeterName` | The meter's display name, else its key. | overage rates changed |
 | `PreviousOverageRate`, `NewOverageRate` | Per-unit overage in the subscription's currency: `1.50 USD` for a flat rate, else `up to 1000: 2.00 USD; above 1000: 1.00 USD`. Empty when that side had no rate. | overage rates changed |
+| `PreviousCreditPrice`, `NewCreditPrice` | One credit's price in the subscription's currency, `1.50 USD`. Empty when credits were not (or are no longer) priced in it. `MeterName` names the meter. | credit terms changed |
+| `CreditsOnSale` | `true` or `false`: whether credits can be bought from now on. | credit terms changed |
 
 **Full payload example** (`subscription_plan_changed`):
 
@@ -296,9 +299,11 @@ What changes per purpose, everything else staying as above:
 | `subscription_cancellation_withdrawn` | `""` | `""` | `""` | `""` |
 | `subscription_price_terms_changed` | `""` | `""` | renewal that first bills the new terms | `""` |
 | `subscription_overage_rates_changed` | `""` | `""` | date applied | `""` |
+| `subscription_credit_terms_changed` | `""` | `""` | date applied | `""` |
 
 `subscription_price_terms_changed` also fills the six price-terms keys (and the two price keys when the amount changed), and
-`subscription_overage_rates_changed` the three overage keys; every other purpose sends them empty.
+`subscription_overage_rates_changed` the three overage keys, and `subscription_credit_terms_changed`
+`MeterName` and the three credit keys; every other purpose sends them empty.
 
 **Starter templates.** `{{CancellationReason}}` is body-only; a subject that names it is rejected.
 `{{ActorName}}` is empty for a change the system made, so it is kept out of the subject.
@@ -724,8 +729,8 @@ does not use an `en-US` template; it is dropped silently.
 | Member notices | member's IAM language, else `en-US` |
 | Credit purchase | billing profile's *Email language*, else the billing account's language, else `en-US` |
 
-So every tenant needs `en-US` templates for all fifteen purposes, plus the nine notice purposes
-(seven billing-contact, two member), card expiry and credit purchase in every language its billing
+So every tenant needs `en-US` templates for all sixteen purposes, plus the ten notice purposes
+(eight billing-contact, two member), card expiry and credit purchase in every language its billing
 contacts and members have set.
 
 ## Why an email did not arrive

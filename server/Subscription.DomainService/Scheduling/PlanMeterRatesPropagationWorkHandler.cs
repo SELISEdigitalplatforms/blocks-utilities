@@ -8,7 +8,6 @@ namespace Subscription.DomainService.Scheduling;
 public sealed class PlanMeterRatesPropagationWorkHandler : ISubscriptionWorkHandler
 {
     private const string KeyPrefix = "plan-meter-rates";
-    private const char Separator = '/';
 
     private readonly ISubscriptionCatalogueRepository _catalogue;
     private readonly ExistingSubscriberPriceTerms _existingSubscribers;
@@ -23,21 +22,12 @@ public sealed class PlanMeterRatesPropagationWorkHandler : ISubscriptionWorkHand
 
     public SubscriptionWorkType WorkType => SubscriptionWorkType.PlanMeterRatesPropagation;
 
-    /// <summary>
-    /// <c>plan-meter-rates/{planId}/{correlationId}/{meterKey}</c>: unique per save, because the
-    /// queue admits a key once even after it has run. The meter key is last and taken whole, since
-    /// a meter key may contain anything, the separator included.
-    /// </summary>
+    /// <summary><c>plan-meter-rates/{planId}/{correlationId}/{meterKey}</c>; see <see cref="PlanMeterWorkKey"/>.</summary>
     public static string KeyFor(string planId, string correlationId, string meterKey) =>
-        string.Join(Separator, KeyPrefix, planId, correlationId, meterKey);
+        PlanMeterWorkKey.For(KeyPrefix, planId, correlationId, meterKey);
 
     /// <summary>The meter key a <see cref="KeyFor"/> key ends with, or null when the key is not one.</summary>
-    public static string? MeterKeyOf(string workKey)
-    {
-        var parts = workKey.Split(Separator, 4);
-
-        return parts.Length == 4 && parts[0] == KeyPrefix && parts[3].Length > 0 ? parts[3] : null;
-    }
+    public static string? MeterKeyOf(string workKey) => PlanMeterWorkKey.MeterKeyOf(KeyPrefix, workKey);
 
     public async Task<SubscriptionWorkOutcome> ExecuteAsync(
         SubscriptionBackgroundWork work,
