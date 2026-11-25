@@ -712,24 +712,7 @@ public sealed class SubscriptionsController : ControllerBase
             context.TenantId, context.OrganizationId, subscriptionId,
             limit <= 0 ? 100 : limit, cancellationToken);
 
-        var response = events.Select(x => new SubscriptionAuditEventResponse
-        {
-            EventId = x.ItemId,
-            OperationId = x.OperationId,
-            CorrelationId = x.CorrelationId,
-            Operation = x.Operation,
-            Stage = x.Stage,
-            Outcome = x.Outcome,
-            Source = x.Source,
-            AmountMinor = x.AmountMinor,
-            CurrencyCode = x.CurrencyCode,
-            FromStatus = x.FromStatus,
-            ToStatus = x.ToStatus,
-            ErrorCode = x.ErrorCode,
-            FailureKind = x.FailureKind,
-            Attempt = x.Attempt,
-            OccurredAtUtc = x.OccurredAtUtc
-        }).ToList();
+        var response = events.Select(SubscriptionAuditEventResponse.From).ToList();
 
         return SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>
             .Success(response, correlationId).ToActionResult(correlationId);

@@ -30,4 +30,11 @@ public interface ICreditOfferService
         string? organizationId,
         string correlationId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Who created or changed this credit offer, and when, newest first. <c>limit</c> defaults to 100,
+    /// at most 500. Not found under the same rule as <see cref="GetAsync"/>.
+    /// </summary>
+    Task<SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>> GetAuditAsync(
+        string meterKey, string? organizationId, int limit, string correlationId, CancellationToken cancellationToken);
 }

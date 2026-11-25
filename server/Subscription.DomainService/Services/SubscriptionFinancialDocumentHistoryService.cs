@@ -26,6 +26,7 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
     private readonly ISubscriptionFinancialDocumentDeliveryService? _delivery;
     private readonly ISubscriptionWorkScheduler? _scheduler;
     private readonly TimeProvider _time;
+    private readonly ISubscriptionAuditTrail? _audit;
 
     public SubscriptionFinancialDocumentHistoryService(
         ISubscriptionContextResolver context,
@@ -35,8 +36,10 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
         IValidator<RecordFinancialDocumentPaymentRequest> paymentValidator,
         ISubscriptionWorkScheduler? scheduler = null,
         TimeProvider? time = null,
-        ISubscriptionFinancialDocumentDeliveryService? delivery = null)
+        ISubscriptionFinancialDocumentDeliveryService? delivery = null,
+        ISubscriptionAuditTrail? audit = null)
     {
+        _audit = audit;
         _context = context;
         _documents = documents;
         _files = files;
@@ -126,6 +129,35 @@ public sealed class SubscriptionFinancialDocumentHistoryService :
                 reopening.Generation,
                 correlationId,
                 cancellationToken);
+
+        // On the subscriber's own timeline, under their organization rather than the console's, so
+        // the organization sees that its invoice was sent again and by whom.
+        if (_audit is not null)
+        {
+            await _audit.RecordAsync(
+                new SubscriptionAuditEvent
+                {
+                    TenantId = context.TenantId,
+                    OrganizationId = document.OrganizationId,
+                    SubscriptionId = string.IsNullOrWhiteSpace(document.SubscriptionId)
+                        ? null
+                        : document.SubscriptionId,
+                    AggregateType = "FinancialDocument",
+                    AggregateId = document.ItemId,
+                    AggregateCode = document.DocumentNumber,
+                    OperationId = correlationId,
+                    CorrelationId = correlationId,
+                    Operation = "InvoiceResend",
+                    Stage = "Completed",
+                    Outcome = status.ToString(),
+                    Source = "Api",
+                    ActorId = context.ActorId,
+                    UserId = context.UserId,
+                    Detail = $"Document {document.DocumentNumber} queued for resend",
+                    OccurredAtUtc = _time.GetUtcNow().UtcDateTime
+                },
+                cancellationToken);
+        }
 
         return SubscriptionOperationResult<SubscriptionFinancialDocumentResendResponse>.Success(
             new SubscriptionFinancialDocumentResendResponse

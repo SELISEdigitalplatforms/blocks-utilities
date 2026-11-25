@@ -19,6 +19,7 @@ public sealed class CreditOfferService : ICreditOfferService
     private readonly ISubscriptionContextResolver _context;
     private readonly IValidator<CreditOfferRequest> _validator;
     private readonly ISubscriptionAuditTrail? _audit;
+    private readonly ISubscriptionAuditRepository? _auditEvents;
     private readonly TimeProvider _time;
 
     public CreditOfferService(
@@ -27,8 +28,10 @@ public sealed class CreditOfferService : ICreditOfferService
         ISubscriptionContextResolver context,
         IValidator<CreditOfferRequest> validator,
         ISubscriptionAuditTrail? audit = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionAuditRepository? auditEvents = null)
     {
+        _auditEvents = auditEvents;
         _offers = offers;
         _catalogue = catalogue;
         _context = context;
@@ -58,6 +61,28 @@ public sealed class CreditOfferService : ICreditOfferService
         }
 
         return SubscriptionOperationResult<IReadOnlyList<CreditOfferResponse>>.Success(responses, correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>> GetAuditAsync(
+        string meterKey, string? organizationId, int limit, string correlationId, CancellationToken cancellationToken)
+    {
+        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken);
+        if (!resolution.IsSuccess) return resolution.ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>(correlationId);
+        var context = resolution.Context!;
+
+        var offer = await _offers.ResolveAsync(
+            context.TenantId, MeterCatalogueService.ScopeOf(organizationId, context), meterKey, cancellationToken);
+
+        if (offer is null) return NotFound(correlationId).ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>();
+
+        var events = _auditEvents is null
+            ? []
+            : await _auditEvents.ListForAggregateAsync(
+                context.TenantId, "CreditOffer", offer!.ItemId, limit <= 0 ? 100 : limit, cancellationToken,
+                legacyOperationIdPrefix: null);
+
+        return SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>.Success(
+            events.Select(SubscriptionAuditEventResponse.From).ToList(), correlationId);
     }
 
     public async Task<SubscriptionOperationResult<CreditOfferResponse>> GetAsync(

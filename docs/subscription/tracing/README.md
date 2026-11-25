@@ -54,9 +54,14 @@ carries:
 
 ```
 EventId       OperationId     CorrelationId   Operation   Stage   Outcome   Source
-AmountMinor   CurrencyCode    FromStatus      ToStatus
+AmountMinor   CurrencyCode    FromStatus      ToStatus    PriceId  EffectiveAtUtc  Detail
 ErrorCode     FailureKind     Attempt         OccurredAtUtc
 ```
+
+`Detail` is a short summary of what changed, written by the code (`Automatic discount 8% → 15%`).
+A price or overage change an admin extended to existing subscribers shows up here as
+`PriceTermsScheduled` or `OverageRatesApplied`. To see who changed a **plan** — the plan, its
+prices or its overage rates — read `GET /api/subscription-plans/{planId}/audit` instead.
 
 Read down the timeline to the step that went wrong and take its **`CorrelationId`**.
 

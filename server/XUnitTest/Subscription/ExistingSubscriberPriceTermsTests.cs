@@ -294,16 +294,41 @@ public sealed class ExistingSubscriberPriceTermsTests
         PriceTerms.Of(price).UnitAmountMinor.Should().Be(8_900);
     }
 
+    [Fact]
+    public async Task Each_subscriber_given_new_terms_has_the_change_on_their_own_timeline()
+    {
+        _onPrice = [OnPrice()];
+        var audit = new Mock<ISubscriptionAuditTrail>();
+        SubscriptionAuditEvent? recorded = null;
+        audit
+            .Setup(trail => trail.RecordAsync(It.IsAny<SubscriptionAuditEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAuditEvent, CancellationToken>((auditEvent, _) => recorded = auditEvent)
+            .Returns(Task.CompletedTask);
+
+        await ExtendDiscountAsync(new DateTime(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc), 1500, audit.Object);
+
+        recorded.Should().NotBeNull("a customer asking why their price changed looks at their own timeline");
+        recorded!.SubscriptionId.Should().Be("sub-1");
+        recorded.Operation.Should().Be("PriceTermsScheduled");
+        recorded.TargetPriceId.Should().Be(PriceId);
+        recorded.EffectiveAtUtc.Should().Be(December1);
+        recorded.ActorId.Should().Be("actor-1");
+        recorded.Detail.Should().Be("Automatic discount 8% → 15%",
+            "only what moved, so a discount edit does not read as a price change");
+    }
+
     private Task<PriceTermsExtension> ExtendDiscountAsync(
         DateTime nowUtc,
-        int basisPoints) =>
+        int basisPoints,
+        ISubscriptionAuditTrail? audit = null) =>
         new ExistingSubscriberPriceTerms(
                 _subscriptions.Object,
                 new SubscriptionOutboxEventFactory(),
                 Mock.Of<IOptionsMonitor<SubscriptionOptions>>(
                     options => options.CurrentValue == new SubscriptionOptions()),
                 new ControlledTimeProvider(new DateTimeOffset(nowUtc)),
-                NullLogger<ExistingSubscriberPriceTerms>.Instance)
+                NullLogger<ExistingSubscriberPriceTerms>.Instance,
+                audit)
             .ExtendAsync(
                 TenantId,
                 PriceId,
@@ -315,7 +340,9 @@ public sealed class ExistingSubscriberPriceTermsTests
                 },
                 "Operator",
                 "corr-1",
-                CancellationToken.None);
+                CancellationToken.None,
+                "actor-1",
+                "user-1");
 
     /// <summary>A monthly subscriber on an 8% discount, paid through 1 December.</summary>
     private static SubscriptionDetail OnPrice(string id = "sub-1") => new()

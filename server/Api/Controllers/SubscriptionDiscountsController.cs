@@ -1,7 +1,10 @@
 using Api.Utilities;
 using Blocks.Genesis;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Payment.DomainService.Responses;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Responses;
 using Subscription.DomainService.Services;
 
 namespace Api.Controllers;
@@ -33,6 +36,20 @@ public sealed class SubscriptionDiscountsController : ControllerBase
     {
         var correlationId = HttpContext.TraceIdentifier;
         return (await _catalogue.GetAsync(discountId, organizationId, correlationId, cancellationToken)).ToActionResult(correlationId);
+    }
+
+    /// <summary>Who created or changed this discount, and when, newest first. <c>limit</c> defaults to 100, at most 500.</summary>
+    [HttpGet("{discountId}/audit")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionAuditEventResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionAuditEventResponse>>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-discount::read")]
+    public async Task<IActionResult> GetAudit(
+        string discountId, [FromQuery] string? organizationId, [FromQuery] int limit, CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        return (await _catalogue.GetAuditAsync(discountId, organizationId, limit, correlationId, cancellationToken))
+            .ToActionResult(correlationId);
     }
 
     [HttpPost]
