@@ -60,6 +60,14 @@ public sealed class SubscriptionResponse
     /// <summary>When the next payment is expected. Null once cancellation is pending.</summary>
     public DateTime? NextPaymentAtUtc { get; init; }
 
+    /// <summary>How many periods the opening charge paid for. 1 unless prepaid (spec 008).</summary>
+    public int PrepaidPeriods { get; init; } = 1;
+
+    /// <summary>
+    /// The end of the prepaid term, when more than one period was paid upfront. Null otherwise.
+    /// </summary>
+    public DateTime? PrepaidThroughUtc { get; init; }
+
     public DateTime? TrialEndsAtUtc { get; init; }
 
     /// <summary>

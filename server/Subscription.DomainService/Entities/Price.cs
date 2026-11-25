@@ -123,6 +123,14 @@ public sealed class Price
     /// </summary>
     public AutomaticDiscountCombination? QuantityDiscountCombination { get; set; }
 
+    /// <summary>
+    /// The most periods a buyer may pay for upfront in one checkout. Null or 1: not prepayable.
+    /// </summary>
+    /// <remarks>
+    /// Spec 008. On a calendar-aligned price the opening stub comes on top: five years is the days
+    /// to the first plus five whole years.
+    /// </remarks>
+    public int? MaxPrepaidPeriods { get; set; }
 
     public CatalogueStatus Status { get; set; } = CatalogueStatus.Draft;
 

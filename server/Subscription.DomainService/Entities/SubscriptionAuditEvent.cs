@@ -70,6 +70,16 @@ public sealed class SubscriptionAuditEvent
     public string? Reason { get; set; }
 
     /// <summary>
+    /// A short summary of what changed, written by the code that made the change — never by a
+    /// person — such as <c>Tax 8.1% Exclusive → 7.7% Exclusive</c>.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from <see cref="Reason"/> because it is safe to show to the organization:
+    /// <see cref="Reason"/> holds operator-typed text and stays internal.
+    /// </remarks>
+    public string? Detail { get; set; }
+
+    /// <summary>
     /// What a plan change moved from and to, and when it takes effect.
     /// </summary>
     /// <remarks>

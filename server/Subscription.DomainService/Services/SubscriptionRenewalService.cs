@@ -139,7 +139,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         // records what it costs.
         BillingAccount? account = null;
 
-        if (!subscription.IsOffline)
+        // Spec 008: a period inside a prepaid term charges nothing, so it needs no card either.
+        var insidePrepaidTerm = SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription) is { } termEndUtc &&
+            now < termEndUtc;
+
+        if (!subscription.IsOffline && !insidePrepaidTerm)
         {
             account = await _billingAccounts.GetAsync(
                 subscription.TenantId,
@@ -385,6 +389,13 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             };
 
             convertingAnnual.IsPrepaid = true;
+        }
+
+        // Spec 008: paid for by the opening charge. Nothing is taken, no invoice is owed, and the
+        // promotional code is not spent again.
+        if (subscription.PrepaidThroughUtc is { } prepaidThroughUtc && period.StartUtc < prepaidThroughUtc)
+        {
+            charge = new PeriodCharge(0, DiscountApplied: false);
         }
 
         if (openingAnnualPeriod is not null)

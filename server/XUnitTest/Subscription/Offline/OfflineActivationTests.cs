@@ -91,6 +91,43 @@ public sealed class OfflineActivationTests
             because: "the plan is switched on at once; payment arrives later by bank transfer");
     }
 
+    /// <summary>
+    /// A calendar year billed with the opening charge is settled by an offline activation, as a paid
+    /// checkout settles it — otherwise the year's boundary invoices the same year a second time.
+    /// </summary>
+    [Fact]
+    public async Task An_offline_activation_settles_a_year_billed_with_the_opening_invoice()
+    {
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            AmountMinor = 100_000,
+            CollectedWithCheckout = true
+        };
+
+        var result = await Subscribe(offline: true);
+
+        result.IsSuccess.Should().BeTrue(because: result.ErrorMessage);
+        _transition!.MarkPendingAnnualPeriodPrepaid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_offline_activation_leaves_a_year_billed_at_its_boundary_owed()
+    {
+        _subscription.PendingAnnualPeriod = new PendingAnnualPeriod
+        {
+            StartUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2027, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            AmountMinor = 100_000,
+            CollectedWithCheckout = false
+        };
+
+        await Subscribe(offline: true);
+
+        _transition!.MarkPendingAnnualPeriodPrepaid.Should().BeFalse();
+    }
+
     [Fact]
     public async Task An_offline_activation_never_reaches_the_gateway()
     {

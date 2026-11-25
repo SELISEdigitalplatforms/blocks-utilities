@@ -41,14 +41,27 @@ shorter.
 GET /api/subscriptions/{subscriptionId}/audit?limit=100
 ```
 
+The controller route is `subscriptions/{subscriptionId}/audit`; whether it sits under `/api`
+depends on the gateway in front of the service.
+
+| Query parameter | Meaning |
+| --- | --- |
+| `limit` | Events to return. `0` or absent means 100; anything above 500 is capped at 500. |
+| `organizationId` | Only for a console caller looking at another organization's subscription. Everyone else sees their own organization, whatever this says. |
+
 Organization-scoped and sanitised; actor and payment identifiers stay in the database. Each event
 carries:
 
 ```
-OperationId   CorrelationId   Operation   Stage   Outcome   Source
-AmountMinor   CurrencyCode    FromStatus  ToStatus
-ErrorCode     FailureKind     Attempt     OccurredAtUtc
+EventId       OperationId     CorrelationId   Operation   Stage   Outcome   Source
+AmountMinor   CurrencyCode    FromStatus      ToStatus    PriceId  EffectiveAtUtc  Detail
+ErrorCode     FailureKind     Attempt         OccurredAtUtc
 ```
+
+`Detail` is a short summary of what changed, written by the code (`Automatic discount 8% → 15%`).
+A price or overage change an admin extended to existing subscribers shows up here as
+`PriceTermsScheduled` or `OverageRatesApplied`. To see who changed a **plan** — the plan, its
+prices or its overage rates — read `GET /api/subscription-plans/{planId}/audit` instead.
 
 Read down the timeline to the step that went wrong and take its **`CorrelationId`**.
 
@@ -65,21 +78,57 @@ finished it.
 
 ## What the log lines carry
 
-Identifiers are written **in clear, not hashed**. That is deliberate: hashing them *"was the reason
-the logs could not be followed"* — an operator holding an id from the database or the console had no
-way to reach its log lines without recomputing a digest by hand. Personal data (a shopper's email,
-name, phone) still goes through the hash.
+**The log store keeps the rendered message text, plus `TenantId`, `TraceId` and `SpanId`, and the
+log console searches the text.** Structured properties and log-scope fields that do not appear in
+the text are dropped on the way in. So search the message text, and only for things that are in it.
 
-Background work runs inside a log scope that stamps **every line it writes**:
+`SearchableIdLogSink` (installed in both the API and the worker) makes the ids that matter
+searchable anyway. On every line that knows them, it appends whichever of these the line does not
+already name:
 
 ```
-WorkItemId  WorkType  WorkKey  TenantId  SubscriptionId
-OrganizationId  CorrelationId  OperationId  LeaseId  AttemptCount
+SubscriptionId=…  PaymentId=…  SmsMessageId=…  CorrelationId=…
 ```
 
-So a message like `Subscription work completed DueAtUtc=… DurationMs=2 LagSeconds=20` is not missing
-its context — the template just doesn't repeat what the scope already carries. Query the fields, not
-the message text.
+It skips `none` and `missing`. So a line like `Subscription work completed DueAtUtc=… DurationMs=2`
+reaches the store as `Subscription work completed DueAtUtc=… DurationMs=2 SubscriptionId=sub-1
+CorrelationId=corr-1`, and searching `SubscriptionId=sub-1` or `CorrelationId=corr-1` finds it.
+
+Background work also runs inside a log scope:
+
+```
+WorkItemId  WorkType  WorkKey  TenantId  AggregateId  OrganizationId
+CorrelationId  ScheduledByTraceId  OperationId  LeaseId  AttemptCount
+```
+
+Only `TenantId`, `CorrelationId` and `SubscriptionId` from that scope survive into the store: the
+first as a column, the other two through the sink. **The rest are dropped** unless a message names
+them itself. Only the operator dead-letter recovery lines name `WorkItemId`. Those fields still
+reach any sink that keeps structured properties, and `subscription.work.*` span tags carry the same
+facts when spans are exported.
+
+`SubscriptionId` is added to the scope only when the work is about one subscription. Financial
+document work (`FinancialDocumentIssue`, `FinancialDocumentDelivery`) is keyed on a payment or a
+document instead, so those lines carry `AggregateId` in the scope but no `SubscriptionId`. Find them
+by `CorrelationId`.
+
+Identifiers are written **in clear, not hashed**, through `PaymentLogValue.Id`. That is deliberate:
+hashing them *"was the reason the logs could not be followed"*. An operator holding an id from the
+database or the console had no way to reach its log lines without recomputing a digest by hand.
+Personal data (a shopper's email, name, phone) still goes through the hash.
+
+**Not every line has been converted yet.** Some subscription log lines still hash record ids, and
+say so in the field name. Searching them by the raw id finds nothing:
+
+| Field | Hashed value | Where it shows up |
+| --- | --- | --- |
+| `PlanHash`, `PriceHash` | Plan and price ids | Plan catalogue edits: create, edit, archive, tax, discount, amount and overage-rate changes |
+| `PurchaseHash` | Credit purchase id | Standalone credit purchases (spec 005) |
+| `OrganizationHash` | Organization id | Catalogue, checkout, creation, cancellation, usage recording and billing-profile lines |
+| `SubscriptionHash`, `TenantHash`, `PaymentHash`, `BillingAccountHash`, `ActorHash`, `IdHash`, `SourceHash` | As named | A few older lines |
+
+For those, search by `CorrelationId` instead: the sink appends it in clear, and the request's other
+lines carry the same one. A field named `…Id` is in clear; one named `…Hash` is not.
 
 ---
 
@@ -125,18 +174,20 @@ the attempt eventually runs, it reports it three ways:
 | --- | --- |
 | Span link | `ActivityLink` to the scheduling trace |
 | Span tag | `subscription.scheduled_by.trace_id` |
-| Log scope | `ScheduledByTraceId` on every line of the attempt |
+| Log scope | `ScheduledByTraceId` on every line of the attempt (dropped by the log store — see above) |
 
 So an operator holding the trace id of the request a customer complained about can find the
-background work it caused — by following the link if the backend renders links, and by grepping the
-trace id if it does not.
+background work it caused by following the link, or searching the span tag, **in the trace
+backend**. The log store does not keep `ScheduledByTraceId`, so there the join is by
+**`CorrelationId`**. The work item is created under the request's correlation id, and the sink puts
+it on every line of both sides.
 
 **It is a link, not a parent, and that is deliberate.** A renewal is scheduled a month before it
 runs and a cancellation up to a year. A span that made itself a child of the request that scheduled
 it would describe a single trace as lasting a year — past every backend's retention window, and not
 something anybody can open. The link says the same causal thing without lying about duration.
 
-`ScheduledByTraceId="none"` means nothing scheduled it from inside a request or a sweep pass —
+In the trace backend or a structured sink, `ScheduledByTraceId="none"` means nothing scheduled it from inside a request or a sweep pass —
 anything queued at startup, for instance.
 
 The repair sweep runs each tenant pass inside a `subscription.repair_sweep` span, so its own
@@ -163,12 +214,37 @@ Scheduled subscription work WorkType=ActivationRecovery WorkKey="sweep20260902T2
 
 Two things to know:
 
-- **`SubscriptionId="none"` means the work is tenant-wide**, not that an id was lost. Work about one
-  subscription carries its real id; `missing` would mean something genuinely absent.
+- **`SubscriptionId="none"` in the `Scheduled subscription work` line means the work is
+  tenant-wide**, not that an id was lost. Work about one subscription carries its real id; `missing`
+  would mean something genuinely absent. Once that work runs, its lines carry no `SubscriptionId` at
+  all, only the sweep's `CorrelationId` (see the log store section above).
 - **`CorrelationOrigin="MintedByRepairSweep"` means the trail stops here going backwards.** The sweep
   minted this correlation itself, so there is no upstream customer action to find. Anything
   downstream carries it forward. These lines are the sweep noticing work needs doing — they are
   normal, and they are not a customer's problem.
+
+---
+
+## Why an email did not arrive
+
+Every email the subscription module hands to the mail queue, or decides not to send, is recorded as
+a **mail delivery report** in the `SubscriptionMailDeliveryReports` collection. There is no API for
+it; read it in the database. Reports are **kept for 90 days** (`PurgeAtUtc`, a TTL index).
+
+| Field | Use |
+| --- | --- |
+| `CorrelationId` | The same value the mail carries. Join to the mail module's own records and to the logs. |
+| `Source` | `FinancialDocument`, `SubscriptionNotification` (billing-contact and member notices, and credit purchase confirmations), `UsageThreshold`, `PaymentMethodExpiry` |
+| `Outcome` | `Published` (the queue accepted it — nothing more), `PublishFailed`, `NotAttempted` |
+| `ErrorCode`, `ErrorMessage` | Why it was not attempted or failed, e.g. `billing_email_missing` |
+| `SubjectId`, `OrganizationId`, `TenantId` | What the mail was about |
+| `Purpose`, `Language`, `To` | What was asked for, and of whom |
+| `PayloadJson`, `PayloadHash` | The exact message sent |
+
+`Published` with no email in the inbox means the problem is on the mail module's side: no template
+for that **purpose and language**, a template naming a `{{Key}}` the payload lacks, or a recipient
+who is not a registered user of the tenant. Look it up there by `CorrelationId`. Every error code and
+the per-purpose rules are in [the email reference](../v1/emails/README.md#why-an-email-did-not-arrive).
 
 ---
 
@@ -194,6 +270,7 @@ the marker; the payment and subscription ledgers remain the reconciliation sourc
 | "Where did my allowance go?" | The usage ledger — append-only, never expires, corrections are reversal entries |
 | "My overage bill is wrong" | Usage invoice for that `PeriodKey`; rating is graduated from the first overage unit |
 | "Nothing happened at all" | Check whether the work was ever scheduled — grep `WorkKey` |
+| "I never got the email" | The mail delivery report for that `CorrelationId` — see [above](#why-an-email-did-not-arrive) |
 
 The usage ledger is the one to reach for on any billing dispute: it is append-only and never
 expires, so a bill can always be explained even after counters have aged out.

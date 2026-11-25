@@ -251,6 +251,8 @@ export interface PlanPrice {
   calendarStubBaseUnitAmountMinor?: number | null;
   /** "AtBoundary" or "AtCheckout". Null on every price that is not calendar-aligned yearly. */
   calendarAnnualChargeTiming?: CalendarAnnualChargeTimingName | null;
+  /** The most periods a buyer may pay for upfront. Null when the price is not prepayable. */
+  maxPrepaidPeriods?: number | null;
   displayPriceNote?: string | null;
   quantityItemKey: string | null;
   /** Basis points — 770 is 7.7%. Absent when the price carries no tax. */
@@ -535,6 +537,8 @@ export interface CreateSubscriptionPriceRequest {
   calendarStubBasePriceId?: string;
   /** Omitted means "AtBoundary". Refused on any price that is not calendar-aligned yearly. */
   calendarAnnualChargeTiming?: CalendarAnnualChargeTimingName;
+  /** 1 to 120. Omitted means not prepayable. A calendar stub comes on top of them. */
+  maxPrepaidPeriods?: number;
   displayPriceNote?: string;
   quantityItemKey?: string;
   /** Basis points. Omitted for an untaxed price; the mode is required whenever this is positive. */
@@ -558,6 +562,18 @@ export interface UpdateSubscriptionPriceDiscountRequest {
   /**
    * Also moves subscribers already on the price to the new terms, from their first renewal at least
    * the configured notice period away, each told by email. Omitted, nobody subscribed is repriced.
+   */
+  applyToExistingSubscribers?: boolean;
+}
+
+export interface UpdateSubscriptionPriceAmountRequest {
+  organizationId?: string;
+  /** Minor units — per unit for a price that multiplies a quantity item. */
+  unitAmountMinor: number;
+  /**
+   * Also move subscribers already on this price to the new amount, from their first renewal at
+   * least the notice period away, each told by email. See
+   * {@link UpdateSubscriptionPriceDiscountRequest.applyToExistingSubscribers}.
    */
   applyToExistingSubscribers?: boolean;
 }

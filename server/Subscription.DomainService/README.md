@@ -301,6 +301,22 @@ subscriber. Plan archiving writes `AggregateType = "Plan"`, `Operation = "PlanAr
 against a plan it cannot see is exactly what somebody reading the trail later needs to see. The
 audit write can never fail the archive it describes.
 
+Every other catalogue edit that lands is recorded against its plan too, with `Stage = "Catalogue"`
+and `Outcome = "Changed"`: `PlanCreate`, `PlanUpdate`, `PriceCreate`, `PriceArchive`,
+`PriceAmountUpdate`, `PriceTaxUpdate`, `PriceDiscountUpdate` and `PlanMeterRatesUpdate`. Price
+edits carry the price in `TargetPriceId`. `Detail` says what changed — `Amount 8900 CHF (minor
+units) → 9900 CHF (minor units)`, `Tax 8.1% Exclusive → 7.7% Exclusive` — and is written by the
+code, never typed by a person, so unlike `Reason` it is safe to show. A refused edit records
+nothing: it changed nothing.
+
+An edit extended to existing subscribers also lands on **each subscriber's own timeline**:
+`PriceTermsScheduled` (with `EffectiveAtUtc`, the renewal that first bills it) or
+`OverageRatesApplied`, with the subscription id and only what moved in `Detail`.
+
+`GET /subscription-plans/{planId}/audit?limit=100` reads one plan's history, newest first
+(`subscription-plan::read`; `limit` defaults to 100, at most 500). It is tenant-scoped once the
+plan is visible to the caller, because a tenant-wide plan is edited from the console.
+
 Responses carry `status`, `createdAtUtc` and `lastUpdatedAtUtc`.
 
 ### Naming a predecessor is a label, not a migration
@@ -2387,7 +2403,12 @@ store may contain card data, stored-payment-method IDs, provider customer IDs, c
 access tokens, webhook bodies or secrets.
 
 `GET /api/subscriptions/{subscriptionId}/audit?limit=100` returns the caller's organization-scoped,
-sanitized timeline. Actor and payment identifiers remain restricted to the database. Audit writes
+sanitized timeline. Besides the subscription's own lifecycle it shows invoice resends
+(`InvoiceResend`, filed under the subscriber's organization even though only the console can do
+it) and catalogue changes extended to the subscriber (`PriceTermsScheduled`,
+`OverageRatesApplied`). Billing-profile edits are recorded as `BillingProfileCreate` /
+`BillingProfileUpdate` (`AggregateType = "BillingProfile"`), naming the fields that changed but
+never their values. Actor and payment identifiers remain restricted to the database. Audit writes
 are deliberately fail-open after a business operation: an unavailable audit store emits the
 critical marker `SUBSCRIPTION_AUDIT_WRITE_FAILED`, but never makes a caller retry money movement.
 Alert on that marker; the payment and subscription ledgers remain the reconciliation source.

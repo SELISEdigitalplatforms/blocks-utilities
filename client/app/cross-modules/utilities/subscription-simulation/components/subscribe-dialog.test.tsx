@@ -293,6 +293,48 @@ describe("SubscribeDialog", () => {
     expect(panel.textContent).toContain("1,065.00"); // The sum still reconciles below them.
   });
 
+  // Spec 008: a calendar year prepaid five times is the stub and the five years as two lines.
+  it("states a prepaid term apart from its stub", async () => {
+    previewSubscription.mockResolvedValue({
+      ...quote,
+      subtotalMinor: 502_333,
+      prorated: true,
+      coveredDays: 7,
+      totalDays: 30,
+      periodStartUtc: "2026-11-24T05:00:00Z",
+      periodEndUtc: "2026-11-30T18:00:00Z",
+      pendingAnnualPeriod: {
+        startUtc: "2026-11-30T18:00:00Z",
+        endUtc: "2027-11-30T18:00:00Z",
+        grossAmountMinor: 100_000,
+        amountMinor: 100_000,
+        netAmountMinor: 100_000,
+        taxAmountMinor: 0,
+        collectedWithCheckout: true,
+      },
+      prepaid: {
+        periods: 5,
+        startUtc: "2026-11-30T18:00:00Z",
+        endUtc: "2031-11-30T18:00:00Z",
+        grossAmountMinor: 500_000,
+      },
+    });
+
+    renderDialog();
+    click(/^Preview$/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("subscribe-quote")).toBeInTheDocument();
+    });
+
+    const panel = screen.getByTestId("subscribe-quote");
+    expect(panel.textContent).toContain("(pro-rated)");
+    expect(panel.textContent).toContain("23.33"); // The stub alone.
+    expect(panel.textContent).toContain("5 periods paid upfront");
+    expect(panel.textContent).toContain("5,000.00");
+    expect(panel.textContent).not.toContain("4,023.33"); // The stub and four years run together.
+  });
+
   it("cannot be confirmed before a preview is taken", () => {
     renderDialog();
 

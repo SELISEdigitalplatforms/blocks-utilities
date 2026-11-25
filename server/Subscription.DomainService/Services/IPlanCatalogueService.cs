@@ -101,6 +101,17 @@ public interface IPlanCatalogueService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Changes what a price charges. New subscriptions pay the new amount at once; existing
+    /// subscribers only when <see cref="UpdatePriceAmountRequest.ApplyToExistingSubscribers"/>
+    /// says so, from a later renewal and told by email — the same path as a tax or discount edit.
+    /// </summary>
+    Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceAmountAsync(
+        string priceId,
+        UpdatePriceAmountRequest request,
+        string correlationId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Rewrites one meter's overage rate tables. Answers with the plan as it now stands.
     /// </summary>
     /// <remarks>
@@ -159,6 +170,21 @@ public interface IPlanCatalogueService
     /// that has never been written since it was created has an empty history. Versions replaced
     /// before history was kept are not recoverable and are simply absent.
     /// </remarks>
+    /// <summary>
+    /// Who changed what on a plan and when — the plan itself, its prices and its meters' overage
+    /// rates — newest first.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="limit"/> defaults to 100 and is capped at 500. Each subscriber a change was
+    /// extended to also has the change on their own timeline (<c>GET subscriptions/{id}/audit</c>).
+    /// </remarks>
+    Task<SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>> GetPlanAuditAsync(
+        string planId,
+        string? organizationId,
+        int limit,
+        string correlationId,
+        CancellationToken cancellationToken);
+
     Task<SubscriptionOperationResult<IReadOnlyList<PlanVersionResponse>>> ListPlanVersionsAsync(
         string planId,
         string? organizationId,

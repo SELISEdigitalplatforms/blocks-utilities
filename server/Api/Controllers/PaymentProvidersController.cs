@@ -17,13 +17,16 @@ public sealed class PaymentProvidersController : ControllerBase
     private readonly IPaymentProviderCredentialRotationService
         _credentialRotationService;
     private readonly IPaymentEncryptionAdminService _encryptionService;
+    private readonly IPaymentAuditTrail? _audit;
 
     public PaymentProvidersController(
         IPaymentProviderQueryService queryService,
         IPaymentProviderConfigurationService configurationService,
         IPaymentProviderCredentialRotationService credentialRotationService,
-        IPaymentEncryptionAdminService encryptionService)
+        IPaymentEncryptionAdminService encryptionService,
+        IPaymentAuditTrail? audit = null)
     {
+        _audit = audit;
         _queryService = queryService;
         _configurationService = configurationService;
         _credentialRotationService = credentialRotationService;
@@ -96,6 +99,16 @@ public sealed class PaymentProvidersController : ControllerBase
             correlationId,
             cancellationToken);
 
+        await AuditAsync(
+            new PaymentAuditEntry(
+                "PaymentProviderUpdate", "PaymentProvider", paymentProviderId,
+                result.IsSuccess ? "Succeeded" : "Rejected",
+                result.IsSuccess ? null : result.ErrorCode,
+                result.Provider?.OrganizationId,
+                Detail: result.Provider?.ProviderName),
+            correlationId,
+            cancellationToken);
+
         return result.IsSuccess
             ? Ok(ApiResponse<PaymentProviderResponse>.Ok(
                 result.Provider!,
@@ -134,6 +147,18 @@ public sealed class PaymentProvidersController : ControllerBase
         var result = await _credentialRotationService.RotateAsync(
             paymentProviderId,
             request,
+            correlationId,
+            cancellationToken);
+
+        // Refused attempts too: somebody trying to rotate a merchant's credentials and failing is
+        // exactly what a security review of this trail looks for.
+        await AuditAsync(
+            new PaymentAuditEntry(
+                "PaymentProviderCredentialRotate", "PaymentProvider", paymentProviderId,
+                result.IsSuccess ? "Succeeded" : "Rejected",
+                result.IsSuccess ? null : result.ErrorCode,
+                result.Provider?.OrganizationId,
+                Detail: result.Provider?.ProviderName),
             correlationId,
             cancellationToken);
 
@@ -203,6 +228,14 @@ public sealed class PaymentProvidersController : ControllerBase
     {
         var correlationId = HttpContext.TraceIdentifier;
         var result = await _encryptionService.ReEncryptAsync(
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync(
+            new PaymentAuditEntry(
+                "PaymentSecretsReEncrypt", "Tenant", null,
+                result.IsSuccess ? "Succeeded" : "Rejected",
+                result.IsSuccess ? null : result.ErrorCode),
             correlationId,
             cancellationToken);
 
@@ -309,4 +342,8 @@ public sealed class PaymentProvidersController : ControllerBase
                 response)
         };
     }
+
+    /// <summary>Never throws; see <see cref="IPaymentAuditTrail.RecordAsync"/>.</summary>
+    private Task AuditAsync(PaymentAuditEntry entry, string correlationId, CancellationToken cancellationToken) =>
+        _audit?.RecordAsync(entry, correlationId, cancellationToken) ?? Task.CompletedTask;
 }

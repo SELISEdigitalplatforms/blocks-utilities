@@ -132,6 +132,28 @@ public sealed class SubscriptionDetail
     /// </remarks>
     public bool InitialChargeDiscountApplied { get; set; }
 
+    /// <summary>
+    /// How many periods the opening charge paid for (spec 008). 0 on older records, same as 1.
+    /// </summary>
+    public int PrepaidPeriods { get; set; }
+
+    /// <summary>
+    /// The end of the last period the opening charge paid for, when it paid for more than one.
+    /// </summary>
+    /// <remarks>
+    /// Renewals opening a period that starts before this charge nothing, and every change that
+    /// waits for "the end of what was paid" waits for this — see
+    /// <see cref="Utilities.SubscriptionPaidPeriod"/>. Only meaningful once the subscription has
+    /// activated: an unpaid checkout never renews.
+    /// </remarks>
+    public DateTime? PrepaidThroughUtc { get; set; }
+
+    /// <summary>
+    /// How many of the prepaid periods the promotional code reduced. Recorded as
+    /// <see cref="DiscountPeriodsApplied"/> on activation.
+    /// </summary>
+    public int PrepaidDiscountPeriods { get; set; }
+
     /// <summary>Calendar dates the first period covered — the 7 of "7/31". Null when not prorated.</summary>
     public int? ProrationDays { get; set; }
 

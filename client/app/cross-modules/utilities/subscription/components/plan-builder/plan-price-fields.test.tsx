@@ -282,6 +282,36 @@ describe("PlanPriceFields", () => {
     expect(onUpdatePriceDiscount).toHaveBeenCalledWith("price-1", 8, "BestDiscount", true);
   });
 
+  it("sends a changed amount in minor units, leaving existing subscribers alone by default", async () => {
+    const onUpdatePriceAmount = vi.fn(async () => {});
+    render(
+      <Harness>
+        <PlanPriceFields isEditing existingPrices={[price()]} onUpdatePriceAmount={onUpdatePriceAmount} />
+      </Harness>,
+    );
+
+    const amount = screen.getByLabelText(/Amount for €12\.00/);
+    await userEvent.clear(amount);
+    await userEvent.type(amount, "15.5");
+    await userEvent.click(screen.getByRole("button", { name: /Save amount/ }));
+
+    expect(onUpdatePriceAmount).toHaveBeenCalledWith("price-1", 1_550, false);
+  });
+
+  it("extends an amount change to existing subscribers once the box is ticked", async () => {
+    const onUpdatePriceAmount = vi.fn(async () => {});
+    render(
+      <Harness>
+        <PlanPriceFields isEditing existingPrices={[price()]} onUpdatePriceAmount={onUpdatePriceAmount} />
+      </Harness>,
+    );
+
+    await userEvent.click(screen.getByLabelText(/Also apply to existing subscribers/));
+    await userEvent.click(screen.getByRole("button", { name: /Save amount/ }));
+
+    expect(onUpdatePriceAmount).toHaveBeenCalledWith("price-1", 1_200, true);
+  });
+
   it("says nothing about existing prices while creating", () => {
     render(
       <Harness>

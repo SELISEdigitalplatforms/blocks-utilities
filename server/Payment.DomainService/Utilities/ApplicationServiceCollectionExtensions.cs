@@ -49,6 +49,8 @@ public static class ApplicationServiceCollectionExtensions
             IPaymentQueryRepository,
             PaymentQueryRepository>();
         services.AddSingleton<IPaymentRefundRepository, PaymentRefundRepository>();
+        services.AddSingleton<IPaymentAuditRepository, PaymentAuditRepository>();
+        services.AddSingleton<IPaymentAuditTrail, PaymentAuditTrail>();
         services.AddSingleton<IPaymentCaptureRepository, PaymentCaptureRepository>();
         services.AddSingleton<IPaymentWebhookInboxRepository, PaymentWebhookInboxRepository>();
         services.AddSingleton<IStoredPaymentMethodRepository, StoredPaymentMethodRepository>();

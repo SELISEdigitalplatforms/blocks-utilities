@@ -168,6 +168,7 @@ public sealed class PlanResponseMapper : IPlanResponseMapper
                     CalendarAnnualChargeTiming = price.CalendarStubBasePriceId is null
                         ? null
                         : price.CalendarAnnualChargeTiming.ToString(),
+                    MaxPrepaidPeriods = price.MaxPrepaidPeriods,
                     DisplayPriceNote = price.DisplayPriceNote,
                     QuantityItemKey = price.QuantityItemKey,
                     TaxRateBasisPoints = price.TaxRateBasisPoints,

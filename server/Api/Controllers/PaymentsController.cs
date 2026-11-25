@@ -19,6 +19,7 @@ public sealed class PaymentsController : ControllerBase
     private readonly IPaymentCaptureService _captureService;
     private readonly IPaymentQueryService _paymentQueryService;
     private readonly IPaymentProviderRegistrationService _providerRegistrationService;
+    private readonly IPaymentAuditTrail? _audit;
 
     public PaymentsController(
         IPaymentService paymentService,
@@ -26,8 +27,10 @@ public sealed class PaymentsController : ControllerBase
         IPaymentRefundService refundService,
         IPaymentCaptureService captureService,
         IPaymentQueryService paymentQueryService,
-        IPaymentProviderRegistrationService providerRegistrationService)
+        IPaymentProviderRegistrationService providerRegistrationService,
+        IPaymentAuditTrail? audit = null)
     {
+        _audit = audit;
         _paymentService = paymentService;
         _recurringPaymentService = recurringPaymentService;
         _refundService = refundService;
@@ -99,6 +102,31 @@ public sealed class PaymentsController : ControllerBase
             correlationId,
             cancellationToken);
 
+        // One record per organization the registration reached, because each one can end
+        // differently; a request refused outright is one record with no provider.
+        if (result.Failure != null)
+        {
+            await AuditAsync(
+                new PaymentAuditEntry(
+                    "PaymentProviderRegister", "PaymentProvider", null, "Rejected",
+                    result.Failure.ErrorCode, Detail: request.ProviderName.ToUpperInvariant()),
+                correlationId,
+                cancellationToken);
+        }
+
+        foreach (var outcome in result.Organizations)
+        {
+            await AuditAsync(
+                new PaymentAuditEntry(
+                    "PaymentProviderRegister", "PaymentProvider", outcome.PaymentProviderId,
+                    outcome.IsSuccess ? "Succeeded" : "Rejected",
+                    outcome.IsSuccess ? null : outcome.ErrorCode,
+                    outcome.OrganizationId,
+                    Detail: request.ProviderName.ToUpperInvariant()),
+                correlationId,
+                cancellationToken);
+        }
+
         if (result.Failure != null)
         {
             return Failure(result.Failure);
@@ -151,6 +179,7 @@ public sealed class PaymentsController : ControllerBase
     {
         var correlationId = HttpContext.TraceIdentifier;
         var result = await _paymentService.MakePaymentAsync(request, idempotencyKey ?? string.Empty, correlationId, cancellationToken);
+        await AuditAsync(PaymentEntry("PaymentCreate", result), correlationId, cancellationToken);
         ApplyRateLimitHeaders(result);
         if (!result.IsSuccess) return Failure(result);
 
@@ -177,6 +206,7 @@ public sealed class PaymentsController : ControllerBase
                     correlationId,
                     cancellationToken);
 
+        await AuditAsync(PaymentEntry("RecurringPaymentCreate", result), correlationId, cancellationToken);
         ApplyRateLimitHeaders(result);
 
         if (!result.IsSuccess)
@@ -229,6 +259,18 @@ public sealed class PaymentsController : ControllerBase
                 correlationId,
                 cancellationToken);
 
+        await AuditAsync(
+            new PaymentAuditEntry(
+                "PaymentRefund", "Payment", paymentDetailId,
+                !result.IsSuccess ? "Rejected" : result.IsReplay ? "Replayed" : "Succeeded",
+                result.IsSuccess ? null : result.ErrorCode,
+                Amount: result.Refund?.Amount,
+                CurrencyCode: result.Refund?.CurrencyCode,
+                Detail: result.Refund is { } refund ? $"Refund {refund.RefundId}" : null,
+                FailureKind: result.FailureKind),
+            correlationId,
+            cancellationToken);
+
         ApplyRateLimitHeaders(result.RateLimit);
 
         if (!result.IsSuccess)
@@ -267,6 +309,18 @@ public sealed class PaymentsController : ControllerBase
             paymentDetailId,
             request,
             idempotencyKey ?? string.Empty,
+            correlationId,
+            cancellationToken);
+
+        await AuditAsync(
+            new PaymentAuditEntry(
+                "PaymentCapture", "Payment", paymentDetailId,
+                !result.IsSuccess ? "Rejected" : result.IsReplay ? "Replayed" : "Succeeded",
+                result.IsSuccess ? null : result.ErrorCode,
+                Amount: result.Capture?.Amount,
+                CurrencyCode: result.Capture?.CurrencyCode,
+                Detail: result.Capture is { } capture ? $"Capture {capture.CaptureId}" : null,
+                FailureKind: result.FailureKind),
             correlationId,
             cancellationToken);
 
@@ -518,4 +572,18 @@ public sealed class PaymentsController : ControllerBase
                 response)
         };
     }
+
+    /// <summary>Never throws; see <see cref="IPaymentAuditTrail.RecordAsync"/>.</summary>
+    private Task AuditAsync(PaymentAuditEntry entry, string correlationId, CancellationToken cancellationToken) =>
+        _audit?.RecordAsync(entry, correlationId, cancellationToken) ?? Task.CompletedTask;
+
+    private static PaymentAuditEntry PaymentEntry(string operation, PaymentOperationResult result) =>
+        new(
+            operation, "Payment", result.Payment?.PaymentDetailId,
+            !result.IsSuccess ? "Rejected" : result.IsReplay ? "Replayed" : "Succeeded",
+            result.IsSuccess ? null : result.ErrorCode,
+            result.Payment?.OrganizationId,
+            result.Payment?.Amount,
+            result.Payment?.CurrencyCode,
+            FailureKind: result.FailureKind);
 }

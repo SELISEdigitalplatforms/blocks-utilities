@@ -653,6 +653,24 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             price.IntervalCount,
             price.CalendarStubBaseUnitAmountMinor);
 
+        // Spec 008. Checked after the trial is resolved, because a buyer who already used the trial
+        // gets none and may then prepay.
+        var prepaidPeriods = request.PrepaidPeriods ?? 1;
+
+        if (prepaidPeriods > 1 &&
+            (trial is not null || prepaidPeriods > (price.MaxPrepaidPeriods ?? 1)))
+        {
+            return new SubscriptionBuildOutcome(
+                Failure(
+                    PaymentFailureKind.Validation,
+                    "subscription_prepaid_periods_unavailable",
+                    trial is not null
+                        ? "A signup that starts with a trial cannot pay for several periods upfront."
+                        : "This price cannot be paid for that many periods upfront.",
+                    correlationId),
+                null);
+        }
+
         // A trial defers the first paid period to the day it ends, and for a yearly price that day
         // decides the whole annual cycle: a 25 August signup on a trial running to 20 September
         // starts its year on 1 October, not 1 September. The trial's end is known here, so the
@@ -824,7 +842,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             }
         }
 
-        if (!ApplyPeriods(subscription, now, calendarAligned, out var stubCharge))
+        if (!ApplyPeriods(subscription, now, calendarAligned, prepaidPeriods, out var stubCharge))
         {
             return new SubscriptionBuildOutcome(
                 Failure(
@@ -1301,6 +1319,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         SubscriptionDetail subscription,
         DateTime now,
         bool calendarAligned,
+        int prepaidPeriods,
         out PeriodCharge? stubCharge)
     {
         stubCharge = null;
@@ -1366,6 +1385,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             ? BuildPendingAnnualPeriod(subscription, feePeriod.EndUtc, now)
             : null;
 
+        // Spec 008: a prepaid term collects everything at checkout, its first year included,
+        // whatever the price says about collecting the year at its boundary.
+        if (annual is not null && prepaidPeriods > 1)
+        {
+            annual.CollectedWithCheckout = true;
+        }
+
         subscription.PendingAnnualPeriod = annual;
 
         // A card-free trial charges nothing now, and what its first paid period will cost depends
@@ -1406,6 +1432,39 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             subscription.InitialChargeProrated = fraction.IsPartial;
             subscription.ProrationDays = fraction.IsPartial ? fraction.CoveredDays : null;
             subscription.ProrationTotalDays = fraction.IsPartial ? fraction.TotalDays : null;
+
+            // Spec 008: the whole periods the opening charge above does not already cover, added
+            // to the same charge. A calendar stub stays in front of them: "5 years" is the days to
+            // the first plus five whole years.
+            if (prepaidPeriods > 1)
+            {
+                subscription.PrepaidPeriods = prepaidPeriods;
+
+                var extra = SubscriptionAmountCalculator.PrepaidExtraCharge(
+                    subscription,
+                    fraction.IsPartial,
+                    annual,
+                    annual?.DiscountApplied ?? charge.DiscountApplied,
+                    now);
+                var termEndUtc = annual?.EndUtc ?? feePeriod.EndUtc;
+
+                for (var period = 0; period < extra.Periods; period++)
+                {
+                    if (!BillingPeriodCalculator.TryGetPeriod(
+                            subscription.FeeSchedule, termEndUtc, out var next))
+                    {
+                        return false;
+                    }
+
+                    termEndUtc = next.EndUtc;
+                }
+
+                stubCharge = SubscriptionAmountCalculator.Combine(charge, extra.Charge);
+                subscription.InitialChargeAmountMinor += extra.Charge.AmountMinor;
+                subscription.InitialChargeDiscountApplied |= extra.Charge.DiscountApplied;
+                subscription.PrepaidDiscountPeriods = extra.DiscountedPeriods;
+                subscription.PrepaidThroughUtc = termEndUtc;
+            }
         }
 
         subscription.CurrentPeriodStartUtc = feePeriod.StartUtc;
@@ -1568,9 +1627,13 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
 
             // A term collected with checkout only opens at its start boundary; no money is due
             // there. The next charge is the following annual renewal, at the bought year's end.
-            var chargeAtUtc = pendingAnnual is { CollectedWithCheckout: true }
-                ? pendingAnnual.EndUtc
-                : subscription.NextFeeBillingAtUtc ?? subscription.CurrentPeriodEndUtc;
+            // Spec 008: a prepaid term is next charged when it ends.
+            var chargeAtUtc =
+                subscription is { PrepaidPeriods: > 1, PrepaidThroughUtc: { } prepaidThroughUtc }
+                    ? prepaidThroughUtc
+                    : pendingAnnual is { CollectedWithCheckout: true }
+                        ? pendingAnnual.EndUtc
+                        : subscription.NextFeeBillingAtUtc ?? subscription.CurrentPeriodEndUtc;
 
             var ordinaryCharge = SubscriptionAmountCalculator.PeriodAmountMinor(
                 subscription,
@@ -1656,7 +1719,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
     /// </remarks>
     private static int ProjectedDiscountPeriods(SubscriptionDetail subscription) =>
         subscription.DiscountPeriodsApplied +
-        (SubscriptionDiscountPeriodAccounting.OpeningChargeSpentPeriod(subscription) ? 1 : 0);
+        (SubscriptionDiscountPeriodAccounting.OpeningDiscountPeriods(subscription) ?? 0);
 
     private static PeriodCharge ChargeOf(PendingAnnualPeriod annual) => new(
         annual.AmountMinor,
@@ -1714,7 +1777,9 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
         // not a renewal when that year is included in the checkout total. Exposing the internal
         // boundary as money due would tell the buyer that the year just paid for is charged again
         // on the day it starts.
-        var nextRenewalAtUtc = annualBundled ? annual!.EndUtc : subscription.NextFeeBillingAtUtc;
+        var prepaidThroughUtc = subscription.PrepaidPeriods > 1 ? subscription.PrepaidThroughUtc : null;
+        var nextRenewalAtUtc = prepaidThroughUtc ??
+            (annualBundled ? annual!.EndUtc : subscription.NextFeeBillingAtUtc);
 
         // The charge actually due next, which for a trial pending conversion can be a shorter,
         // prorated stub that fullPeriodCharge below deliberately does not describe. Read once and
@@ -1767,6 +1832,7 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
             CoveredDays = subscription.ProrationDays,
             TotalDays = subscription.ProrationTotalDays,
             PeriodStartUtc = subscription.CurrentPeriodStartUtc,
+            // The opening period alone — the stub, when there is one. A prepaid term is in Prepaid.
             PeriodEndUtc = subscription.CurrentPeriodEndUtc,
             NextRenewalAtUtc = nextRenewalAtUtc,
             NextRenewalAmountMinor = fullPeriodCharge.AmountMinor,
@@ -1813,6 +1879,21 @@ public sealed class SubscriptionCreationService : ISubscriptionCreationService
                     TaxAmountMinor = annual.TaxAmountMinor,
                     CollectedWithCheckout = annual.CollectedWithCheckout
                 },
+            Prepaid = prepaidThroughUtc is { } termEndUtc
+                ? new SubscriptionPreviewPrepaidResponse
+                {
+                    Periods = subscription.PrepaidPeriods,
+                    // Whole periods begin after a stub, or with the signup itself.
+                    StartUtc = subscription.InitialChargeProrated
+                        ? subscription.CurrentPeriodEndUtc
+                        : subscription.CurrentPeriodStartUtc,
+                    EndUtc = termEndUtc,
+                    // Gross is untouched by any code, so N whole periods are N times one.
+                    GrossAmountMinor = subscription.PrepaidPeriods *
+                        SubscriptionAmountCalculator.FirstPeriodCharge(
+                            subscription, default, subscription.CreatedAtUtc).GrossAmountMinor
+                }
+                : null,
             Campaign = BuildCampaignPreview(subscription),
             Blockers = blockers,
             QuotedAtUtc = subscription.CreatedAtUtc,

@@ -688,16 +688,19 @@ its own alignment, discount and tax. Two prices with **identical terms** (same c
 interval count and quantity item) are rejected — the server refuses the duplicate *after* creating
 the plan, so the builder catches it first.
 
-**Prices are immutable in their commercial terms.** Tax metadata and the automatic discount can be
-updated for *future* subscriptions; the amount, interval and alignment cannot change. To reprice,
-add a new price and retire the old one. By default, existing subscribers keep the terms they were
-sold, because a subscription bills from its own snapshot and is never migrated automatically.
+**A price's cadence and alignment are immutable.** Its amount (`PUT /subscription-plans/prices/{priceId}/amount`),
+tax and automatic discount can be updated for *future* subscriptions; the interval and alignment
+cannot change — to move to a different billing cycle, add a new price and retire the old one. By
+default, existing subscribers keep the terms they were sold, because a subscription bills from its
+own snapshot and is never migrated automatically.
 
-The one opt-in exception is a tax or discount edit saved with **Also apply to existing
-subscribers** (`applyToExistingSubscribers`). Each subscriber on the price is emailed
+The opt-in exception is an amount, tax or discount edit saved with **Also apply to existing
+subscribers** (`applyToExistingSubscribers`). The period a subscriber has already paid for keeps
+its price; the new amount is first charged at the renewal below. Each subscriber on the price is emailed
 (`subscription_price_terms_changed`) and moves to the new terms at the first renewal at least
-`Subscription:PriceTermsNoticeDays` (default 7) away. Offline subscriptions, subscriptions
-cancelling at period end, and subscriptions with their own plan change scheduled are left alone.
+`Subscription:PriceTermsNoticeDays` (default 7) away. Offline-invoice subscriptions are included
+like card ones; subscriptions cancelling at period end, and subscriptions with their own plan
+change scheduled, are left alone.
 Saving the same edit again is safe, and reaches anyone a failed save missed.
 
 **Overage rates** have their own opt-in. On a plan with subscribers, the **Overage rates** editor
@@ -708,6 +711,13 @@ their own currency changed (`subscription_overage_rates_changed`). The billing p
 rated at the new rates when it closes, usage before the edit included; periods already closed keep
 the rates they were frozen with. Subscribers whose currency the new rates drop keep their old rates.
 Saving the same rates again is safe: anyone already on them is skipped and not emailed twice.
+
+The push runs on the background work queue (`PlanMeterRatesPropagation`), not inside the save, so a
+plan with thousands of subscribers cannot time the request out part-way. It normally completes
+within moments of the save, ahead of any usage period closing at the same time, and reads the rates
+from the catalogue when it runs: two saves in a row push the latest. A subscriber the run could not
+reach is retried. Who saved the rates is on the plan's `PlanMeterRatesUpdate` audit event; each
+subscriber's `OverageRatesApplied` event shares its correlation id.
 
 **Editing a plan ends when the first subscriber arrives.** After that the plan is frozen — a
 subscription bills from its own copy of the terms, which an edit cannot reach.

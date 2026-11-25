@@ -264,6 +264,13 @@ export const CurrentSubscriptionCard = ({
           <CalendarClock className="h-3.5 w-3.5" />
           {t("CURRENT_SUBSCRIPTION_CARD.CURRENT_PERIOD_ENDS", { currentPeriodEndUtc: formatDate(subscription.currentPeriodEndUtc) })}
         </span>
+        {/* Spec 008: paid upfront beyond the current period; nothing is charged until then. */}
+        {subscription.prepaidThroughUtc &&
+          new Date(subscription.prepaidThroughUtc) > new Date(subscription.currentPeriodEndUtc) && (
+          <span data-testid="prepaid-through">
+            {t("CURRENT_SUBSCRIPTION_CARD.PREPAID_THROUGH", { periods: subscription.prepaidPeriods ?? 1, date: formatDate(subscription.prepaidThroughUtc) })}
+          </span>
+        )}
         {subscription.trialEndsAtUtc && (
           <span>{t("CURRENT_SUBSCRIPTION_CARD.TRIAL_ENDS", { trialEndsAtUtc: formatDate(subscription.trialEndsAtUtc) })}</span>
         )}

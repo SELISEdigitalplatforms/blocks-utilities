@@ -92,9 +92,14 @@ public sealed class SubscriptionResponseMapper : ISubscriptionResponseMapper
             // A prepaid pending year still needs processing at its start boundary, but no money is
             // taken there. Report the next actual payment at the end of the bought year while the
             // repository keeps NextFeeBillingAtUtc for the worker transition.
-            NextPaymentAtUtc = subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidAnnual
-                ? prepaidAnnual.EndUtc
-                : subscription.NextFeeBillingAtUtc,
+            NextPaymentAtUtc = subscription.NextFeeBillingAtUtc is not null &&
+                SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription) is { } prepaidTermEndUtc
+                    ? prepaidTermEndUtc
+                    : subscription.PendingAnnualPeriod is { IsPrepaid: true } prepaidAnnual
+                        ? prepaidAnnual.EndUtc
+                        : subscription.NextFeeBillingAtUtc,
+            PrepaidPeriods = Math.Max(1, subscription.PrepaidPeriods),
+            PrepaidThroughUtc = subscription.PrepaidPeriods > 1 ? subscription.PrepaidThroughUtc : null,
             TrialEndsAtUtc = subscription.Trial?.EndsAtUtc,
             CancelAtPeriodEnd = subscription.CancelAtPeriodEnd,
             CanceledAtUtc = subscription.CanceledAtUtc,
