@@ -162,6 +162,17 @@ public interface IPaymentRepository
         string? failureCode,
         PaymentOutboxEvent outboxEvent,
         CancellationToken cancellationToken);
+    /// <summary>
+    /// Moves a still wholly uncaptured authorization to <paramref name="status"/> (Expired or
+    /// Cancelled). False when it is no longer Authorized, the reference differs, or it already ran.
+    /// </summary>
+    Task<bool> TryReleaseAuthorizationAsync(
+        string tenantId,
+        string paymentId,
+        string pspReference,
+        string status,
+        PaymentOutboxEvent outboxEvent,
+        CancellationToken cancellationToken);
     Task<List<PaymentDetail>> GetPaymentsWithDueOutboxEventsAsync(string tenantId, DateTime utcNow, int limit, CancellationToken cancellationToken);
     Task<bool> TryClaimOutboxEventAsync(string tenantId, string paymentId, string eventId, string leaseId, DateTime leaseUntilUtc, CancellationToken cancellationToken);
     Task MarkOutboxPublishedAsync(string tenantId, string paymentId, string eventId, string leaseId, DateTime utcNow, CancellationToken cancellationToken);

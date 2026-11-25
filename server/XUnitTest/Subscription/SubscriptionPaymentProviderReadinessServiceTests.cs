@@ -346,6 +346,12 @@ public sealed class SubscriptionPaymentProviderReadinessServiceTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<bool> TryReleaseAuthorizationAsync(
+            string tenantId, string paymentId, string pspReference, string status,
+            global::Payment.DomainService.Entities.PaymentOutboxEvent outboxEvent,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<List<global::Payment.DomainService.Entities.PaymentDetail>> GetPaymentsWithDueOutboxEventsAsync(
             string tenantId, DateTime utcNow, int limit, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
