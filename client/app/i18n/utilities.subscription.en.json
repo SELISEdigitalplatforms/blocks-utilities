@@ -344,6 +344,7 @@
   "SUBSCRIPTION_SERVICE.PLAN_COULD_NOT_BE_SAVED": "The plan could not be saved.",
   "SUBSCRIPTION_SERVICE.PRICE_COULD_NOT_BE_CREATED": "The price could not be created.",
   "SUBSCRIPTION_SERVICE.PRICE_COULD_NOT_BE_RETIRED": "The price could not be retired.",
+  "SUBSCRIPTION_SERVICE.PRICE_AMOUNT_COULD_NOT_BE_SAVED": "The price amount could not be saved.",
   "SUBSCRIPTION_SERVICE.PRICE_TAX_COULD_NOT_BE_SAVED": "The price tax could not be saved.",
   "SUBSCRIPTION_SERVICE.SUBSCRIPTION_PLANS_COULD_NOT_BE_LOADED": "Subscription plans could not be loaded.",
   "SUBSCRIPTION_TAX.BREAKDOWN_EXCLUSIVE": "{{net}} + {{tax}} tax = {{total}}",

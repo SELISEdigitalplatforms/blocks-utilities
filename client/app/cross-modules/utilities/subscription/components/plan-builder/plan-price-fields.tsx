@@ -40,7 +40,14 @@ import {
   needsStubBasePrice,
   requiresStubBasePrice,
 } from "../../utilities/billing-alignment";
-import { formatMoney, formatPrice } from "../../utilities/subscription-format";
+import {
+  formatMoney,
+  formatPrice,
+  isRepresentableInMinorUnits,
+  minorUnitStep,
+  toMajorUnits,
+  toMinorUnits,
+} from "../../utilities/subscription-format";
 import {
   AUTOMATIC_DISCOUNT_COMBINATION_OPTIONS,
   describeAutomaticDiscount,
@@ -141,6 +148,74 @@ const ExistingPriceTaxEditor = ({
         }}
       >
         {saving ? t("PLAN_PRICE_FIELDS.SAVING") : t("PLAN_PRICE_FIELDS.SAVE_TAX")}
+      </Button>
+      <ApplyToExistingSubscribers checked={applyToExisting} onCheckedChange={setApplyToExisting} />
+      {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
+    </div>
+  );
+};
+
+export type OnUpdatePriceAmount = (
+  priceId: string,
+  unitAmountMinor: number,
+  applyToExistingSubscribers: boolean,
+) => Promise<void>;
+
+/**
+ * What a price that already exists charges.
+ *
+ * The same deliberate exception as tax and discount: new subscriptions pay the new amount at once,
+ * and existing subscribers only when the author ticks the box — from their next renewal past the
+ * notice period, each emailed when this is saved.
+ */
+const ExistingPriceAmountEditor = ({
+  price,
+  onSave,
+}: {
+  price: PlanPrice;
+  onSave: OnUpdatePriceAmount;
+}) => {
+  const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
+  const [amount, setAmount] = useState<string>(
+    String(toMajorUnits(price.unitAmountMinor, price.currencyCode)),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [applyToExisting, setApplyToExisting] = useState(false);
+  const numericAmount = Number(amount);
+  const valid =
+    amount !== "" &&
+    Number.isFinite(numericAmount) &&
+    numericAmount >= 0 &&
+    isRepresentableInMinorUnits(numericAmount, price.currencyCode);
+
+  return (
+    <div className="mt-2 grid gap-2 rounded-md border border-dashed p-2 sm:grid-cols-[13rem_auto]">
+      <Input
+        aria-label={t("PLAN_PRICE_FIELDS.AMOUNT_FOR", { price: formatPrice(price) })}
+        type="number"
+        min={0}
+        step={minorUnitStep(price.currencyCode)}
+        value={amount}
+        onChange={(event) => setAmount(event.target.value)}
+      />
+      <Button
+        type="button"
+        size="sm"
+        disabled={saving || !valid}
+        onClick={async () => {
+          setSaving(true);
+          setError(null);
+          try {
+            await onSave(price.priceId, toMinorUnits(numericAmount, price.currencyCode), applyToExisting);
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : t("PLAN_PRICE_FIELDS.AMOUNT_SAVE_FAILED"));
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? t("PLAN_PRICE_FIELDS.SAVING") : t("PLAN_PRICE_FIELDS.SAVE_AMOUNT")}
       </Button>
       <ApplyToExistingSubscribers checked={applyToExisting} onCheckedChange={setApplyToExisting} />
       {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
@@ -744,13 +819,14 @@ export const PlanPriceFields = ({
   onRetirePrice,
   onUpdatePriceTax,
   onUpdatePriceDiscount,
+  onUpdatePriceAmount,
   retiringPriceId = null,
 }: {
   isEditing?: boolean;
   /**
-   * The prices this plan already has. Commercial terms stay immutable because every subscription
-   * sold on a price references them; tax metadata is the deliberate exception and affects only
-   * future snapshots. Showing the full list also prevents authors accidentally adding a duplicate.
+   * The prices this plan already has. Cadence and alignment stay immutable because every
+   * subscription sold on a price references them; amount, tax and discount are the deliberate
+   * exceptions, reaching existing subscribers only when the author ticks the box. Showing the full list also prevents authors accidentally adding a duplicate.
    */
   existingPrices?: PlanPrice[];
   /** Omitted when nothing can be retired — creating a plan, or no price on it yet. */
@@ -767,6 +843,7 @@ export const PlanPriceFields = ({
     combination?: AutomaticDiscountCombination,
     applyToExistingSubscribers?: boolean,
   ) => Promise<void>;
+  onUpdatePriceAmount?: OnUpdatePriceAmount;
   retiringPriceId?: string | null;
 }) => {
   const { t } = useT(UTILITIES_SUBSCRIPTION_PLAN_BUILDER_MODULE);
@@ -822,6 +899,7 @@ export const PlanPriceFields = ({
                     </Button>
                   )}
                 </div>
+                {onUpdatePriceAmount && <ExistingPriceAmountEditor price={price} onSave={onUpdatePriceAmount} />}
                 {onUpdatePriceTax && <ExistingPriceTaxEditor price={price} onSave={onUpdatePriceTax} />}
                 {onUpdatePriceDiscount && (
                   <ExistingPriceDiscountEditor price={price} onSave={onUpdatePriceDiscount} />

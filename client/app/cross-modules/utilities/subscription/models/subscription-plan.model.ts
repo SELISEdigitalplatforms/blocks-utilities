@@ -566,6 +566,18 @@ export interface UpdateSubscriptionPriceDiscountRequest {
   applyToExistingSubscribers?: boolean;
 }
 
+export interface UpdateSubscriptionPriceAmountRequest {
+  organizationId?: string;
+  /** Minor units — per unit for a price that multiplies a quantity item. */
+  unitAmountMinor: number;
+  /**
+   * Also move subscribers already on this price to the new amount, from their first renewal at
+   * least the notice period away, each told by email. See
+   * {@link UpdateSubscriptionPriceDiscountRequest.applyToExistingSubscribers}.
+   */
+  applyToExistingSubscribers?: boolean;
+}
+
 export interface UpdateSubscriptionPriceTaxRequest {
   organizationId?: string;
   taxRateBasisPoints?: number;

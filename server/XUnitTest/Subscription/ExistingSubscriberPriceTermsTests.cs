@@ -282,6 +282,18 @@ public sealed class ExistingSubscriberPriceTermsTests
         return subscription;
     }
 
+    [Fact]
+    public void Terms_scheduled_before_amounts_could_change_leave_the_amount_alone()
+    {
+        var price = new PriceSnapshot { UnitAmountMinor = 8_900 };
+
+        new PriceTerms { AutomaticDiscountBasisPoints = 1500 }.ApplyTo(price);
+
+        price.UnitAmountMinor.Should().Be(8_900,
+            "pending terms stored without an amount must not reprice the subscriber to zero");
+        PriceTerms.Of(price).UnitAmountMinor.Should().Be(8_900);
+    }
+
     private Task<PriceTermsExtension> ExtendDiscountAsync(
         DateTime nowUtc,
         int basisPoints) =>

@@ -688,13 +688,15 @@ its own alignment, discount and tax. Two prices with **identical terms** (same c
 interval count and quantity item) are rejected — the server refuses the duplicate *after* creating
 the plan, so the builder catches it first.
 
-**Prices are immutable in their commercial terms.** Tax metadata and the automatic discount can be
-updated for *future* subscriptions; the amount, interval and alignment cannot change. To reprice,
-add a new price and retire the old one. By default, existing subscribers keep the terms they were
-sold, because a subscription bills from its own snapshot and is never migrated automatically.
+**A price's cadence and alignment are immutable.** Its amount (`PUT /subscription-plans/prices/{priceId}/amount`),
+tax and automatic discount can be updated for *future* subscriptions; the interval and alignment
+cannot change — to move to a different billing cycle, add a new price and retire the old one. By
+default, existing subscribers keep the terms they were sold, because a subscription bills from its
+own snapshot and is never migrated automatically.
 
-The one opt-in exception is a tax or discount edit saved with **Also apply to existing
-subscribers** (`applyToExistingSubscribers`). Each subscriber on the price is emailed
+The opt-in exception is an amount, tax or discount edit saved with **Also apply to existing
+subscribers** (`applyToExistingSubscribers`). The period a subscriber has already paid for keeps
+its price; the new amount is first charged at the renewal below. Each subscriber on the price is emailed
 (`subscription_price_terms_changed`) and moves to the new terms at the first renewal at least
 `Subscription:PriceTermsNoticeDays` (default 7) away. Offline subscriptions, subscriptions
 cancelling at period end, and subscriptions with their own plan change scheduled are left alone.

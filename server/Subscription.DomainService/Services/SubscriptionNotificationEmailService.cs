@@ -122,6 +122,18 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             string.IsNullOrWhiteSpace(account.BillingName) ? account.BillingEmail : account.BillingName,
             subscription.FeeSchedule.TimeZoneId);
 
+        // Filled only when the amount itself moves: a tax or discount edit leaves both empty, so a
+        // template does not announce "10.00 → 10.00".
+        var amountChanged = lifecycleEvent.PreviousPriceTerms?.UnitAmountMinor is { } before &&
+            lifecycleEvent.PriceTerms?.UnitAmountMinor is { } after &&
+            before != after;
+        body["PreviousPrice"] = amountChanged
+            ? DescribePrice(lifecycleEvent.PreviousPriceTerms!.UnitAmountMinor!.Value, subscription)
+            : string.Empty;
+        body["NewPrice"] = amountChanged
+            ? DescribePrice(lifecycleEvent.PriceTerms!.UnitAmountMinor!.Value, subscription)
+            : string.Empty;
+
         // Sent on every billing-contact purpose, empty where they do not apply, like the rest.
         body["MeterName"] = string.IsNullOrWhiteSpace(lifecycleEvent.MeterDisplayName)
             ? lifecycleEvent.MeterKey ?? string.Empty
@@ -395,6 +407,23 @@ public sealed class SubscriptionNotificationEmailService : ISubscriptionNotifica
             SubscriptionConstants.SubscriptionPriceTermsChangeScheduled => lifecycleEvent.EffectiveAtUtc,
             _ => lifecycleEvent.OccurredAtUtc
         };
+
+    /// <summary>
+    /// A price amount as <c>10.00 USD</c>, with <c> per seat</c> when the price multiplies a
+    /// quantity item. Minor units when the currency cannot be resolved.
+    /// </summary>
+    private string DescribePrice(long amountMinor, SubscriptionDetail subscription)
+    {
+        var currency = subscription.Price.CurrencyCode;
+        var amount = _currency is not null &&
+            MinorUnitMajorAmountFormatter.TryFormat(_currency, amountMinor, currency, out var major)
+                ? $"{major} {currency}"
+                : string.Create(CultureInfo.InvariantCulture, $"{amountMinor} {currency} (minor units)");
+        var unit = subscription.Plan.QuantityItems
+            .Find(item => item.ItemKey == subscription.Price.QuantityItemKey)?.UnitLabel;
+
+        return string.IsNullOrWhiteSpace(unit) ? amount : $"{amount} per {unit}";
+    }
 
     /// <summary>
     /// A meter's overage bands per unit: <c>1.50 USD</c> for a flat rate, else

@@ -4,17 +4,23 @@ using Subscription.DomainService.Enums;
 namespace Subscription.DomainService.Entities;
 
 /// <summary>
-/// The part of a price an operator may still edit after it has been sold: its automatic discount
-/// and its tax.
+/// The part of a price an operator may still edit after it has been sold: its amount, its
+/// automatic discount and its tax.
 /// </summary>
 /// <remarks>
-/// Everything else about a price is immutable once it exists. These four are the deliberate
+/// Everything else about a price is immutable once it exists. These five are the deliberate
 /// exception, and they travel together because a renewal that installed a new discount beside a
 /// stale tax — or the reverse — would bill a combination nobody configured.
 /// </remarks>
 [BsonIgnoreExtraElements]
 public sealed class PriceTerms
 {
+    /// <summary>
+    /// The price's unit amount. Null keeps the subscriber's current amount — what terms scheduled
+    /// before the amount could be edited read back as.
+    /// </summary>
+    public long? UnitAmountMinor { get; set; }
+
     public int? AutomaticDiscountBasisPoints { get; set; }
 
     public AutomaticDiscountCombination? QuantityDiscountCombination { get; set; }
@@ -30,6 +36,7 @@ public sealed class PriceTerms
 
         return new PriceTerms
         {
+            UnitAmountMinor = price.UnitAmountMinor,
             AutomaticDiscountBasisPoints = price.AutomaticDiscountBasisPoints,
             QuantityDiscountCombination = price.QuantityDiscountCombination,
             TaxRateBasisPoints = price.TaxRateBasisPoints,
@@ -47,6 +54,11 @@ public sealed class PriceTerms
     {
         ArgumentNullException.ThrowIfNull(price);
 
+        if (UnitAmountMinor is { } amount)
+        {
+            price.UnitAmountMinor = amount;
+        }
+
         price.AutomaticDiscountBasisPoints = AutomaticDiscountBasisPoints;
         price.QuantityDiscountCombination = QuantityDiscountCombination;
         price.TaxRateBasisPoints = TaxRateBasisPoints;
@@ -58,7 +70,8 @@ public sealed class PriceTerms
     {
         ArgumentNullException.ThrowIfNull(other);
 
-        return AutomaticDiscountBasisPoints == other.AutomaticDiscountBasisPoints &&
+        return UnitAmountMinor == other.UnitAmountMinor &&
+            AutomaticDiscountBasisPoints == other.AutomaticDiscountBasisPoints &&
             QuantityDiscountCombination == other.QuantityDiscountCombination &&
             TaxRateBasisPoints == other.TaxRateBasisPoints &&
             TaxMode == other.TaxMode;

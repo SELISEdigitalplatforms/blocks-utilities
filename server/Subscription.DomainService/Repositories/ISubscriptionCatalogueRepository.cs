@@ -176,6 +176,15 @@ public interface ISubscriptionCatalogueRepository
         DateTime archivedAtUtc,
         CancellationToken cancellationToken);
 
+    /// <summary>Rewrites a live price's unit amount, compare-and-set on its version.</summary>
+    Task<bool> TryUpdatePriceAmountAsync(
+        string tenantId,
+        string priceId,
+        int expectedVersion,
+        long unitAmountMinor,
+        DateTime updatedAtUtc,
+        CancellationToken cancellationToken);
+
     Task<bool> TryUpdatePriceTaxAsync(
         string tenantId,
         string priceId,

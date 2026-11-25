@@ -15,6 +15,7 @@ import { useUpdateSubscriptionPlan } from "../hooks/use-update-subscription-plan
 import { useUpdateSubscriptionPlanMeterRates } from "../hooks/use-update-subscription-plan-meter-rates";
 import { useUpdateSubscriptionPriceDiscount } from "../hooks/use-update-subscription-price-discount";
 import { useUpdateSubscriptionPriceTax } from "../hooks/use-update-subscription-price-tax";
+import { useUpdateSubscriptionPriceAmount } from "../hooks/use-update-subscription-price-amount";
 import { toBasisPoints, type TaxMode } from "../utilities/subscription-tax";
 import type { AutomaticDiscountCombination } from "../utilities/subscription-discount";
 import type { MeterRateTable } from "../models/subscription-plan.model";
@@ -36,6 +37,7 @@ export const EditSubscriptionPlanPage = () => {
   const { mutateAsync: createPrice, isPending: isPricing } = useCreateSubscriptionPrice();
   const { mutateAsync: archivePrice } = useArchiveSubscriptionPrice();
   const { mutateAsync: updatePriceTax } = useUpdateSubscriptionPriceTax();
+  const { mutateAsync: updatePriceAmountMutation } = useUpdateSubscriptionPriceAmount();
   const { mutateAsync: updatePriceDiscount } = useUpdateSubscriptionPriceDiscount();
   const { mutateAsync: updateMeterRates } = useUpdateSubscriptionPlanMeterRates();
   const [retiringPriceId, setRetiringPriceId] = useState<string | null>(null);
@@ -100,6 +102,28 @@ export const EditSubscriptionPlanPage = () => {
     } finally {
       setRetiringPriceId(null);
     }
+  };
+
+  const updatePriceAmount = async (
+    priceId: string,
+    unitAmountMinor: number,
+    applyToExistingSubscribers: boolean,
+  ) => {
+    await updatePriceAmountMutation({
+      priceId,
+      request: {
+        organizationId: plan.organizationId ?? undefined,
+        unitAmountMinor,
+        applyToExistingSubscribers,
+      },
+    });
+    toast({
+      variant: "success",
+      title: t("EDIT_PAGE.AMOUNT_SAVED"),
+      description: applyToExistingSubscribers
+        ? t("EDIT_PAGE.TERMS_EXTENDED_DESCRIPTION")
+        : t("EDIT_PAGE.AMOUNT_SAVED_DESCRIPTION"),
+    });
   };
 
   const updatePriceTaxRate = async (
@@ -225,6 +249,7 @@ export const EditSubscriptionPlanPage = () => {
       existingPrices={plan.prices}
       retiringPriceId={retiringPriceId}
       onRetirePrice={retirePrice}
+      onUpdatePriceAmount={updatePriceAmount}
       onUpdatePriceTax={updatePriceTaxRate}
       onUpdatePriceDiscount={updateAutomaticDiscount}
       // Only once sold: before that the form's own meters are the plan, and saving it is enough.
