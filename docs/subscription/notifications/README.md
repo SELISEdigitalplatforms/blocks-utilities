@@ -7,7 +7,7 @@ The subscription module never writes email text. It publishes a mail request wit
 a **language** and a set of **values**. The platform mail module then picks your template by
 purpose and language and fills in the values. If you don't create a template, no email is sent.
 
-## The nine emails
+## The emails
 
 | Purpose | Sent when | To |
 | --- | --- | --- |
@@ -21,6 +21,12 @@ purpose and language and fills in the values. If you don't create a template, no
 | `subscription_member_assigned` | An administrator gives someone a seat on a per-person subscription | That person |
 | `subscription_member_removed` | An administrator takes a seat back | That person |
 | `subscription_payment_method_expiring` | The card a billing account charges expires within `PaymentMethodExpiryNoticeDays` (default 30). Sent once per card expiry by the worker sweep | Billing contact |
+| `subscription_usage_threshold` | A meter's usage crosses one of its `ThresholdPercents` (e.g. 80%). Once per threshold per meter per billing period | Billing contact |
+| `organization_credits_purchased` | An organization's standalone credit purchase is paid for. Confirms the purchase; the invoice arrives separately | Billing contact of the account charged |
+
+Invoices, trial invoices and credit notes are emailed too, with the PDF attached. Their purposes,
+placeholders and starter templates, and the full placeholder set of the two emails above, are in
+[the complete email reference](../v1/emails/README.md).
 
 Nothing is sent when a decrease or plan change is merely *scheduled*. The email goes out when it
 happens. The one exception is `subscription_price_terms_changed`, which exists to give notice: it
@@ -85,6 +91,9 @@ The mail module only uses a template whose language matches the request **exactl
 - **Billing contacts** get the billing profile's *Email language*, else the language given when
   the subscription was created, else `en-US`.
 - **Members** get their language from IAM, else `en-US`.
+- **Card expiry and credit purchase** emails get the billing profile's *Email language*, else the
+  billing account's language, else `en-US`.
+- **Usage warnings and documents** are always sent in `en-US`.
 
 So create every purpose in every language your users and billing contacts have set. Also note two
 more cases where no email arrives, both decided by the mail module:

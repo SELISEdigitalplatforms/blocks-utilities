@@ -20,8 +20,9 @@ The module never writes email text. **No template for the purpose and language m
 | [Member notices](#member-notices) | `subscription_member_assigned`, `subscription_member_removed` | `SubscriptionNotificationEmailService` | same consumer |
 | [Usage warning](#usage-warning) | `subscription_usage_threshold` | `UsageThresholdEmailService` | same consumer |
 | [Card expiry](#card-expiry) | `subscription_payment_method_expiring` | `PaymentMethodExpiryEmailService` | Worker work queue, `PaymentMethodExpiryNotice` work type |
+| [Credit purchase](#credit-purchase) | `organization_credits_purchased` | `SubscriptionNotificationEmailService` | Worker `SubscriptionLifecycleMailConsumer`, fed by the lifecycle topic |
 
-Thirteen purposes in total. Nothing else in this repository sends email.
+Fifteen purposes in total. Nothing else in this repository sends email.
 
 ## The wire payload
 
@@ -47,7 +48,7 @@ subscription module fills only the fields below; everything else is sent empty.
 | --- | --- |
 | `To` | Exactly one address, trimmed and lower-cased. Never more than one recipient. |
 | `Cc`, `Bcc`, `ReplyTo` | Always empty. |
-| `Purpose` | One of the twelve purposes above. Selects the template. |
+| `Purpose` | One of the fifteen purposes above. Selects the template. |
 | `Language` | BCP-47 tag (`en-US`, `de-CH`). Selects the template too; see [Languages](#languages). |
 | `Attachments` | Storage file ids. Only financial documents attach anything (the PDF). |
 | `SubjectDataContext` | Placeholders usable in the subject line. Values are placed **raw**. |
@@ -198,7 +199,7 @@ for <strong>{{Total}}</strong> against your {{PlanName}} subscription. The docum
 
 ## Billing-contact notices
 
-Six emails to the billing contact of the subscription, one per kind of change. Each is converted
+Seven emails to the billing contact of the subscription, one per kind of change. Each is converted
 from a lifecycle event the worker reads off `blocks_subscription_lifecycle_topic`.
 
 | Purpose | Lifecycle event | Sent when |
@@ -208,7 +209,7 @@ from a lifecycle event the worker reads off `blocks_subscription_lifecycle_topic
 | `subscription_cancellation_requested` | `SubscriptionCancellationRequested` | Someone cancels for the end of the paid period. |
 | `subscription_canceled` | `SubscriptionCanceled` | The subscription ends: an immediate cancel, or a scheduled one reaching its date (the cancellation-effective processor). |
 | `subscription_cancellation_withdrawn` | `SubscriptionCancellationWithdrawn` | A scheduled cancellation is undone. |
-| `subscription_price_terms_changed` | `SubscriptionPriceTermsChangeScheduled` | An operator saves an amount, discount or tax edit with `ApplyToExistingSubscribers`. Raised per subscriber on the price, in the same write that schedules `PendingPriceTerms`. Offline subscriptions, ones cancelling at period end, and ones with their own plan change scheduled are skipped. |
+| `subscription_price_terms_changed` | `SubscriptionPriceTermsChangeScheduled` | An operator saves an amount, discount or tax edit with `ApplyToExistingSubscribers`. Raised per live subscriber on the price (trialing, active, past due or unpaid; card and offline-invoice alike), in the same write that schedules `PendingPriceTerms`. Ones cancelling at period end, and ones with their own plan change scheduled, are skipped. |
 | `subscription_overage_rates_changed` | `SubscriptionOverageRatesChanged` | An operator saves a meter's overage rates with `ApplyToExistingSubscribers`. Raised per live subscriber on the plan whose rate **in their own currency** changed, in the same write that replaces the rates on their plan copy. The change is already in effect: the open billing period's overage is rated at the new rates when it closes. Subscribers whose currency the new rates no longer price are skipped and keep their rates. |
 
 Nothing is sent when a decrease or plan change is merely *scheduled*; the email goes out when it
@@ -261,7 +262,9 @@ typed by the canceller.
     "EffectiveDate": "2026-10-15",
     "PreviousDiscount": "", "NewDiscount": "",
     "PreviousTaxRate": "", "NewTaxRate": "",
-    "PreviousTaxMode": "", "NewTaxMode": ""
+    "PreviousTaxMode": "", "NewTaxMode": "",
+    "PreviousPrice": "", "NewPrice": "",
+    "MeterName": "", "PreviousOverageRate": "", "NewOverageRate": ""
   },
   "BodyDataContext": {
     "DisplayName": "Dana Keller",
@@ -274,7 +277,9 @@ typed by the canceller.
     "CancellationReason": "",
     "PreviousDiscount": "", "NewDiscount": "",
     "PreviousTaxRate": "", "NewTaxRate": "",
-    "PreviousTaxMode": "", "NewTaxMode": ""
+    "PreviousTaxMode": "", "NewTaxMode": "",
+    "PreviousPrice": "", "NewPrice": "",
+    "MeterName": "", "PreviousOverageRate": "", "NewOverageRate": ""
   },
   "CorrelationId": "<lifecycle EventId>"
 }
@@ -363,6 +368,42 @@ Subject: Your {{PlanName}} subscription continues
 <p>The scheduled cancellation of your <strong>{{PlanName}}</strong> subscription has been withdrawn.
 It continues and renews as before.</p>
 <p>Requested by {{ActorName}}.</p>
+```
+
+`subscription_price_terms_changed`
+
+The keys that did not change are still sent, so the body lists both sides of each. `{{PreviousPrice}}`
+and `{{NewPrice}}` are empty unless the amount itself changed; word that line so it reads well
+either way, or keep separate templates per tenant if only one kind of edit is ever extended.
+
+```
+Subject: The terms of your {{PlanName}} subscription change on {{EffectiveDate}}
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>From your renewal on <strong>{{EffectiveDate}}</strong>, your <strong>{{PlanName}}</strong>
+subscription is billed on new terms. The period you have already paid for is unchanged.</p>
+<table>
+  <tr><td>Price</td><td>{{PreviousPrice}} → <strong>{{NewPrice}}</strong></td></tr>
+  <tr><td>Discount</td><td>{{PreviousDiscount}} → <strong>{{NewDiscount}}</strong></td></tr>
+  <tr><td>Tax</td><td>{{PreviousTaxRate}} {{PreviousTaxMode}} → <strong>{{NewTaxRate}} {{NewTaxMode}}</strong></td></tr>
+</table>
+<p>Changed by {{ActorName}}.</p>
+```
+
+`subscription_overage_rates_changed`
+
+```
+Subject: New overage rate for {{MeterName}} on your {{PlanName}} subscription
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>From <strong>{{EffectiveDate}}</strong>, usage of <strong>{{MeterName}}</strong> beyond your
+allowance is charged at <strong>{{NewOverageRate}}</strong> per unit (previously {{PreviousOverageRate}}).
+This applies to the whole of your current billing period.</p>
+<p>Changed by {{ActorName}}.</p>
 ```
 
 ## Member notices
@@ -591,6 +632,84 @@ expires on <strong>{{ExpiryDate}}</strong>.</p>
 takes over as soon as it is confirmed.</p>
 ```
 
+## Credit purchase
+
+One email, `organization_credits_purchased`, from the `OrganizationCreditsPurchased` lifecycle
+event raised by `SubscriptionCreditService`.
+
+**Sent when** an organization's standalone credit purchase (credits bought outside any
+subscription, spec 005) is paid for. It confirms the purchase; the invoice for it arrives
+separately as `subscription_invoice`.
+
+**Recipient.** The `BillingEmail` of the billing account that was charged, read at send time. No
+account or no address means the mail is recorded as not attempted with `billing_email_missing`.
+
+**Language.** Billing profile's *Email language*, else the billing account's language, else
+`en-US`.
+
+**Placeholders.** Same nine keys in subject and body:
+
+| Key | Value |
+| --- | --- |
+| `DisplayName` | The billing contact's name, else their address |
+| `MeterName` | The meter the credits are for, as the invoice names it; its key when it has no name |
+| `MeterKey` | The meter's key |
+| `Quantity` | Credits bought, trailing zeroes trimmed (`500`) |
+| `PackCode` | The credit pack bought; empty when the purchase names none |
+| `Amount` | What was charged, in major units without the currency (`8.65`); empty when the currency cannot be resolved |
+| `AmountMinor` | The same in minor units (`865`) |
+| `Currency` | Upper-case ISO code |
+| `ExpiresOn` | `yyyy-MM-dd`, UTC, the day the credits lapse; empty when they never do |
+
+**Full payload example**:
+
+```json
+{
+  "To": ["buyer@example.com"],
+  "Cc": [], "Bcc": [], "ReplyTo": [], "Attachments": [],
+  "Purpose": "organization_credits_purchased",
+  "Language": "de-CH",
+  "SubjectDataContext": {
+    "DisplayName": "Grace Hopper",
+    "MeterName": "AI",
+    "MeterKey": "ai",
+    "Quantity": "500",
+    "PackCode": "starter",
+    "Amount": "8.65",
+    "AmountMinor": "865",
+    "Currency": "USD",
+    "ExpiresOn": "2026-12-06"
+  },
+  "BodyDataContext": {
+    "DisplayName": "Grace Hopper",
+    "MeterName": "AI",
+    "MeterKey": "ai",
+    "Quantity": "500",
+    "PackCode": "starter",
+    "Amount": "8.65",
+    "AmountMinor": "865",
+    "Currency": "USD",
+    "ExpiresOn": "2026-12-06"
+  },
+  "CorrelationId": "<lifecycle EventId>"
+}
+```
+
+**Starter template.**
+
+`organization_credits_purchased`
+
+```
+Subject: {{Quantity}} {{MeterName}} credits added
+```
+
+```html
+<p>Hello {{DisplayName}},</p>
+<p>Your purchase of <strong>{{Quantity}} {{MeterName}}</strong> credits for
+<strong>{{Amount}} {{Currency}}</strong> is complete. The credits are ready to use.</p>
+<p>They expire on {{ExpiresOn}}. The invoice follows in a separate email.</p>
+```
+
 ## Languages
 
 The mail module matches `Language` **exactly** and has **no fallback**. A request for `de-CH`
@@ -603,9 +722,11 @@ does not use an `en-US` template; it is dropped silently.
 | Card expiry | billing profile's *Email language*, else the billing account's language, else `en-US` |
 | Billing-contact notices | billing profile's *Email language*, else the subscription's creation language, else `en-US` |
 | Member notices | member's IAM language, else `en-US` |
+| Credit purchase | billing profile's *Email language*, else the billing account's language, else `en-US` |
 
-So every tenant needs `en-US` templates for all twelve purposes, plus the seven notice purposes
-and the card expiry purpose in every language its billing contacts and members have set.
+So every tenant needs `en-US` templates for all fifteen purposes, plus the nine notice purposes
+(seven billing-contact, two member), card expiry and credit purchase in every language its billing
+contacts and members have set.
 
 ## Why an email did not arrive
 
@@ -617,7 +738,7 @@ Decided on this side, and recorded as a mail delivery report (see [tracing/](../
 | `FinancialDocument` | `NotAttempted` / `document_mail_claim_taken` | An earlier attempt claimed this mail and never recorded its outcome. Nothing resends automatically; use the resend endpoint. |
 | `FinancialDocument` | `PublishFailed` / `document_mail_publish_failed` | The bus publish threw. Treated as *unknown*, not failed, because the broker may have accepted it. Operator resend. |
 | `SubscriptionNotification` | `NotAttempted` / `subscription_not_found` | The subscription behind the event is gone. |
-| `SubscriptionNotification` | `NotAttempted` / `billing_email_missing` | Billing account missing or has no email. |
+| `SubscriptionNotification` | `NotAttempted` / `billing_email_missing` | Billing account missing or has no email. Also used for a credit purchase confirmation. |
 | `SubscriptionNotification` | `NotAttempted` / `member_email_missing` | IAM gave no address for the member. |
 | `SubscriptionNotification` | `NotAttempted` / `seat_change_not_applied` | The seat change the event describes never landed. |
 | `UsageThreshold` | *(no report)* | Subscription or billing email missing: logged as a warning only. |
@@ -640,8 +761,8 @@ Decided on the mail module's side, with nothing recorded here:
 | Purposes, queue name, default language | `server/Subscription.DomainService/Utilities/SubscriptionConstants.cs` |
 | Wire payload | `server/Subscription.DomainService/Messaging/SendMail.cs` |
 | Documents | `server/Subscription.DomainService/Services/SubscriptionFinancialDocumentDeliveryService.cs` |
-| Notices (billing contact and member) | `server/Subscription.DomainService/Services/SubscriptionNotificationEmailService.cs` |
+| Notices (billing contact and member) and credit purchase confirmation | `server/Subscription.DomainService/Services/SubscriptionNotificationEmailService.cs` |
 | Usage warning | `server/Subscription.DomainService/Services/UsageThresholdEmailService.cs` |
 | Card expiry | `server/Subscription.DomainService/Services/PaymentMethodExpiryEmailService.cs`, announced by `Scheduling/SubscriptionRepairAnnouncer.cs` |
-| Worker consumer for the notices and the warning | `server/Worker/Consumers/Subscription/SubscriptionLifecycleMailConsumer.cs` |
+| Worker consumer for the notices, the warning and the credit purchase confirmation | `server/Worker/Consumers/Subscription/SubscriptionLifecycleMailConsumer.cs` |
 | Language rules | `server/Subscription.DomainService/Utilities/MailLanguage.cs` |
