@@ -4,8 +4,9 @@
    Plain CSS outside the Tailwind layers; the selectors are more specific than the utilities
    they adjust, so they win. */
 
-/* Console header (fixed, top-0) and the small-screen toaster: start below the banner. */
-html[data-merge-banner] .fixed.top-0 {
+/* genesis-os console header ("fixed left-0 right-0 top-0"): start below the banner.
+   Matched on all four classes so the toast viewport ("fixed top-0 ... sm:top-auto") is left alone. */
+html[data-merge-banner] .fixed.left-0.right-0.top-0 {
   top: var(--merge-banner-height, 0px);
 }
 
@@ -14,20 +15,17 @@ html[data-merge-banner] .h-screen {
   height: calc(100vh - var(--merge-banner-height, 0px));
 }
 
-/* Elements that are only top-0 / h-screen on small screens keep their own larger-screen
-   values: the toaster (sm:top-auto), the SSO setup guideline panel (md:top-auto,
-   md:h-[400px]) and the create-OIDC dialog (sm:h-auto, md:h-auto). */
+/* Elements that are only full-screen on small screens keep their own larger-screen values:
+   the create-OIDC dialog (h-screen sm:h-auto md:h-auto) and the SSO setup guideline panel
+   (fixed left-0 right-0 top-0 h-screen, md:top-auto md:h-[400px]). */
 @media (min-width: 640px) {
-  html[data-merge-banner] .fixed.top-0.sm\:top-auto {
-    top: auto;
-  }
   html[data-merge-banner] .h-screen.sm\:h-auto {
     height: auto;
   }
 }
 
 @media (min-width: 768px) {
-  html[data-merge-banner] .fixed.top-0.md\:top-auto {
+  html[data-merge-banner] .fixed.left-0.right-0.top-0.md\:top-auto {
     top: auto;
   }
   html[data-merge-banner] .h-screen.md\:h-auto {
