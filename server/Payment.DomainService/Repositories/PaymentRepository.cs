@@ -482,6 +482,31 @@ public sealed class PaymentRepository : IPaymentRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryReleaseAuthorizationAsync(
+        string tenantId,
+        string paymentId,
+        string pspReference,
+        string status,
+        PaymentOutboxEvent outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        // Only from Authorized: a partly captured payment keeps what it took, and a captured,
+        // refunded or already released one has nothing left to release.
+        var filter = Builders<PaymentDetail>.Filter.And(
+            Builders<PaymentDetail>.Filter.Eq(x => x.ItemId, paymentId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.TenantId, tenantId),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PaymentStatus, PaymentStatuses.Authorized),
+            Builders<PaymentDetail>.Filter.Eq(x => x.PspReference, pspReference),
+            Builders<PaymentDetail>.Filter.Not(Builders<PaymentDetail>.Filter.ElemMatch(
+                x => x.OutboxEvents, x => x.DeduplicationKey == outboxEvent.DeduplicationKey)));
+        var update = Builders<PaymentDetail>.Update
+            .Set(x => x.PaymentStatus, status)
+            .Set(x => x.LastUpdatedDateUtc, DateTime.UtcNow)
+            .Push(x => x.OutboxEvents, outboxEvent);
+        var result = await Payments(tenantId).UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TryRecordSetupAuthorizationConfirmedAsync(
         string tenantId,
         string paymentId,

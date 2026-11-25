@@ -372,4 +372,58 @@ public sealed class PaymentWebhookStateTransitionServiceTests
     }
 
     private delegate void TryConvertCallback(decimal amount, string currency, out long value);
+
+    [Theory]
+    [InlineData(WebhookIntent.AuthorizationExpired, PaymentStatuses.Expired, PaymentConstants.PaymentExpired)]
+    [InlineData(WebhookIntent.AuthorizationCancelled, PaymentStatuses.Cancelled, PaymentConstants.PaymentCancelled)]
+    public async Task ApplyAsync_AuthorizationReleased_ReleasesTheOriginalAuthorization(
+        WebhookIntent intent, string expectedStatus, string expectedEvent)
+    {
+        var webhook = Webhook(intent, payload: new PaymentWebhookPayload
+        {
+            PaymentDetailId = "pay-1",
+            PspReference = "psp-modification",
+            OriginalPspReference = "psp-auth",
+            Success = true
+        });
+        _payments.Setup(p => p.GetByIdAsync("tenant", "pay-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PaymentDetail
+            {
+                ItemId = "pay-1",
+                TenantId = "tenant",
+                PaymentStatus = PaymentStatuses.Authorized,
+                PspReference = "psp-auth"
+            });
+        _payments.Setup(p => p.TryReleaseAuthorizationAsync(
+                "tenant",
+                "pay-1",
+                "psp-auth",
+                expectedStatus,
+                It.Is<PaymentOutboxEvent>(e =>
+                    e.EventType == expectedEvent &&
+                    e.DeduplicationKey == $"pay-1:{expectedEvent}:psp-auth"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true)
+            .Verifiable();
+
+        await CreateService().ApplyAsync(webhook, CancellationToken.None);
+
+        _payments.Verify();
+        _setupTransitions.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task ApplyAsync_FailedCancellation_LeavesThePaymentAlone()
+    {
+        var webhook = Webhook(WebhookIntent.AuthorizationCancelled, payload: new PaymentWebhookPayload
+        {
+            PaymentDetailId = "pay-1",
+            OriginalPspReference = "psp-auth",
+            Success = false
+        });
+
+        await CreateService().ApplyAsync(webhook, CancellationToken.None);
+
+        _payments.VerifyNoOtherCalls();
+    }
 }

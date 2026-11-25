@@ -34,6 +34,8 @@ public sealed class AdyenWebhookNormalizerTests
     [InlineData("CANCEL_OR_REFUND", WebhookIntent.Refund)]
     [InlineData("CAPTURE", WebhookIntent.Capture)]
     [InlineData("capture_failed", WebhookIntent.Capture)]
+    [InlineData("EXPIRE", WebhookIntent.AuthorizationExpired)]
+    [InlineData("CANCELLATION", WebhookIntent.AuthorizationCancelled)]
     [InlineData("SOMETHING_ELSE", WebhookIntent.Ignored)]
     public void Event_codes_translate_to_intents(string eventCode, WebhookIntent expected)
     {

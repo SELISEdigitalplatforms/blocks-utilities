@@ -22,5 +22,14 @@ public enum WebhookIntent
     /// against the payment's amount and currency, and a setup has neither. Routed the same way:
     /// the reference this service minted is echoed back on the object.
     /// </remarks>
-    PaymentMethodSetup = 6
+    PaymentMethodSetup = 6,
+
+    /// <summary>An authorization lapsed before it was captured.</summary>
+    AuthorizationExpired = 7,
+
+    /// <summary>
+    /// An authorization was cancelled before it was captured. Apart from <see cref="Cancelled"/>,
+    /// which is a session that ended unused, not money that was held.
+    /// </summary>
+    AuthorizationCancelled = 8
 }

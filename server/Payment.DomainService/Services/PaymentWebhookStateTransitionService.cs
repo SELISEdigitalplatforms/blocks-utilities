@@ -110,6 +110,12 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
 
                 return;
 
+            case WebhookIntent.AuthorizationExpired:
+            case WebhookIntent.AuthorizationCancelled:
+                await ApplyAuthorizationReleaseAsync(webhook, cancellationToken);
+
+                return;
+
             case WebhookIntent.Authorization:
                 break;
 
@@ -263,6 +269,60 @@ public sealed class PaymentWebhookStateTransitionService : IPaymentWebhookStateT
 
         _logger.LogInformation(
             "Webhook stored payment method synchronization completed Source=authorisation");
+    }
+
+    private async Task ApplyAuthorizationReleaseAsync(
+        PaymentWebhookInbox webhook,
+        CancellationToken cancellationToken)
+    {
+        var payload = webhook.NormalizedPayload;
+
+        // A cancellation that failed leaves the hold standing, so there is nothing to record.
+        if (payload.Success != true || string.IsNullOrWhiteSpace(payload.PaymentDetailId))
+        {
+            _logger.LogInformation(
+                "Webhook state transition skipped Reason=authorization_release_not_successful Intent={Intent}",
+                webhook.Intent);
+
+            return;
+        }
+
+        var payment = await _payments.GetByIdAsync(
+            webhook.TenantId,
+            payload.PaymentDetailId,
+            cancellationToken);
+
+        if (payment == null)
+        {
+            _logger.LogError(
+                "Webhook state transition rejected Reason=payment_not_found");
+
+            throw new InvalidOperationException("Payment reference was not found.");
+        }
+
+        // A modification names the authorization it acts on as its original reference.
+        var releasedReference = payload.OriginalPspReference ?? payload.PspReference;
+        var expired = webhook.Intent == WebhookIntent.AuthorizationExpired;
+        var status = expired ? PaymentStatuses.Expired : PaymentStatuses.Cancelled;
+        var eventType = expired ? PaymentConstants.PaymentExpired : PaymentConstants.PaymentCancelled;
+        var outbox = _events.Create(payment, eventType, status);
+        outbox.DeduplicationKey = $"{payment.ItemId}:{eventType}:{releasedReference}";
+
+        var applied = !string.IsNullOrWhiteSpace(releasedReference) &&
+            await _payments.TryReleaseAuthorizationAsync(
+                webhook.TenantId,
+                payment.ItemId,
+                releasedReference,
+                status,
+                outbox,
+                cancellationToken);
+
+        // Not applied is expected for a duplicate, or a payment already captured or released.
+        _logger.LogInformation(
+            "Webhook authorization release completed Applied={Applied} TargetPaymentStatus={TargetPaymentStatus} CurrentPaymentStatus={CurrentPaymentStatus}",
+            applied,
+            status,
+            PaymentLogValue.Label(payment.PaymentStatus));
     }
 
     private static PaymentInstrument ToInstrument(PaymentWebhookPayload payload) => new()

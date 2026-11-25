@@ -214,6 +214,10 @@ public sealed class AdyenWebhookNormalizer : IWebhookNormalizer
                Is(eventCode, "CANCEL_OR_REFUND") => WebhookIntent.Refund,
         _ when Is(eventCode, "CAPTURE") ||
                Is(eventCode, "CAPTURE_FAILED") => WebhookIntent.Capture,
+        // Our own cancels go through /reversals and come back as CANCEL_OR_REFUND above; these
+        // report a hold that lapsed, or one cancelled outside this service.
+        _ when Is(eventCode, "EXPIRE") => WebhookIntent.AuthorizationExpired,
+        _ when Is(eventCode, "CANCELLATION") => WebhookIntent.AuthorizationCancelled,
         _ => WebhookIntent.Ignored
     };
 

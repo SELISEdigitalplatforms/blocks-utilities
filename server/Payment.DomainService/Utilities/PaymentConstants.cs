@@ -48,6 +48,7 @@ public static class PaymentConstants
     public const string PaymentCaptureFailed =
         "PaymentCaptureFailed";
     public const string PaymentCancelled = "PaymentCancelled";
+    public const string PaymentExpired = "PaymentExpired";
 
     /// <summary>
     /// A card was stored without being charged, or the attempt to store one ended.
