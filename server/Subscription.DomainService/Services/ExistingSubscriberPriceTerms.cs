@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payment.DomainService.Utilities;
@@ -37,14 +38,19 @@ public sealed class ExistingSubscriberPriceTerms
     private readonly IOptionsMonitor<SubscriptionOptions> _options;
     private readonly TimeProvider _time;
     private readonly ILogger<ExistingSubscriberPriceTerms> _logger;
+    private readonly ISubscriptionAuditTrail? _audit;
 
     public ExistingSubscriberPriceTerms(
         ISubscriptionRepository subscriptions,
         ISubscriptionOutboxEventFactory events,
         IOptionsMonitor<SubscriptionOptions> options,
         TimeProvider time,
-        ILogger<ExistingSubscriberPriceTerms> logger)
+        ILogger<ExistingSubscriberPriceTerms> logger,
+        // Optional only for tests that do not look at it: every subscriber repriced is otherwise
+        // given the change on their own audit timeline.
+        ISubscriptionAuditTrail? audit = null)
     {
+        _audit = audit;
         _subscriptions = subscriptions;
         _events = events;
         _options = options;
@@ -64,7 +70,9 @@ public sealed class ExistingSubscriberPriceTerms
         Func<PriceTerms, PriceTerms> edit,
         string? requestedByName,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? actorId = null,
+        string? userId = null)
     {
         ArgumentNullException.ThrowIfNull(edit);
 
@@ -82,7 +90,7 @@ public sealed class ExistingSubscriberPriceTerms
             {
                 extension = extension.Add(await ExtendToAsync(
                     subscription, priceId, edit, noticeEndsAtUtc, now, requestedByName,
-                    correlationId, cancellationToken));
+                    correlationId, cancellationToken, actorId, userId));
             }
 
             if (page.Count < PageSize)
@@ -114,7 +122,9 @@ public sealed class ExistingSubscriberPriceTerms
         DateTime now,
         string? requestedByName,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? actorId,
+        string? userId)
     {
         // One re-read on a lost race: a subscriber renewing or changing seats at the same instant is
         // ordinary, and failing them over it would leave a gap the operator cannot see.
@@ -162,6 +172,12 @@ public sealed class ExistingSubscriberPriceTerms
                     _events.CreatePriceTermsChangeScheduled(subscription, pending, correlationId),
                     cancellationToken))
             {
+                await RecordOnTimelineAsync(
+                    subscription, "PriceTermsScheduled", priceId, pending.EffectiveAtUtc,
+                    pending.Terms.UnitAmountMinor,
+                    DescribeTermsChange(held?.Terms ?? PriceTerms.Of(subscription.Price), pending.Terms),
+                    correlationId, actorId, userId, cancellationToken);
+
                 return Outcome.Scheduled;
             }
 
@@ -204,7 +220,9 @@ public sealed class ExistingSubscriberPriceTerms
         List<MeterRateTable> rateTables,
         string? requestedByName,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? actorId = null,
+        string? userId = null)
     {
         ArgumentNullException.ThrowIfNull(rateTables);
 
@@ -220,7 +238,7 @@ public sealed class ExistingSubscriberPriceTerms
             {
                 extension = extension.Add(await ApplyMeterRatesToAsync(
                     subscription, planId, meterKey, rateTables, requestedByName, correlationId,
-                    cancellationToken));
+                    cancellationToken, actorId, userId));
             }
 
             if (page.Count < PageSize)
@@ -253,7 +271,9 @@ public sealed class ExistingSubscriberPriceTerms
         List<MeterRateTable> rateTables,
         string? requestedByName,
         string correlationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? actorId,
+        string? userId)
     {
         // One re-read on a lost race, for the reason ExtendToAsync gives.
         for (var attempt = 0; attempt < 2; attempt++)
@@ -299,6 +319,12 @@ public sealed class ExistingSubscriberPriceTerms
                         subscription, meter, previous ?? [], next, requestedByName, correlationId),
                     cancellationToken))
             {
+                await RecordOnTimelineAsync(
+                    subscription, "OverageRatesApplied", null, null, null,
+                    $"Overage rate for {meterKey}: {DescribeTiers(previous)} → {DescribeTiers(next)} " +
+                        $"{subscription.CurrencyCode} (minor units)",
+                    correlationId, actorId, userId, cancellationToken);
+
                 return Outcome.Scheduled;
             }
 
@@ -320,6 +346,76 @@ public sealed class ExistingSubscriberPriceTerms
 
         return Outcome.Failed;
     }
+
+    /// <summary>
+    /// Puts an operator's change on the subscriber's own audit timeline, so "why did my price
+    /// change?" is answered there and not only by the email they were sent.
+    /// </summary>
+    private Task RecordOnTimelineAsync(
+        SubscriptionDetail subscription,
+        string operation,
+        string? priceId,
+        DateTime? effectiveAtUtc,
+        long? amountMinor,
+        string detail,
+        string correlationId,
+        string? actorId,
+        string? userId,
+        CancellationToken cancellationToken) =>
+        _audit is null
+            ? Task.CompletedTask
+            : _audit.RecordAsync(
+                new SubscriptionAuditEvent
+                {
+                    TenantId = subscription.TenantId,
+                    OrganizationId = subscription.OrganizationId,
+                    SubscriptionId = subscription.ItemId,
+                    OperationId = correlationId,
+                    CorrelationId = correlationId,
+                    Operation = operation,
+                    Stage = "Catalogue",
+                    Outcome = "Scheduled",
+                    Source = "Api",
+                    ActorId = actorId,
+                    UserId = userId,
+                    TargetPriceId = priceId,
+                    EffectiveAtUtc = effectiveAtUtc,
+                    AmountMinor = amountMinor,
+                    CurrencyCode = subscription.CurrencyCode,
+                    Detail = detail,
+                    OccurredAtUtc = _time.GetUtcNow().UtcDateTime
+                },
+                cancellationToken);
+
+    /// <summary>Only what moved: <c>Amount 8900 → 9900 CHF (minor units); Tax 8.1% Exclusive → 7.7% Exclusive</c>.</summary>
+    internal static string DescribeTermsChange(PriceTerms before, PriceTerms after)
+    {
+        var parts = new List<string>();
+
+        if (after.UnitAmountMinor is { } amount && amount != before.UnitAmountMinor)
+        {
+            parts.Add(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Amount {before.UnitAmountMinor} → {amount} (minor units)"));
+        }
+
+        if (before.AutomaticDiscountBasisPoints != after.AutomaticDiscountBasisPoints)
+        {
+            parts.Add($"Automatic discount {PlanCatalogueService.Percent(before.AutomaticDiscountBasisPoints)} → " +
+                PlanCatalogueService.Percent(after.AutomaticDiscountBasisPoints));
+        }
+
+        if (before.TaxRateBasisPoints != after.TaxRateBasisPoints || before.TaxMode != after.TaxMode)
+        {
+            parts.Add($"Tax {PlanCatalogueService.DescribeTax(before.TaxRateBasisPoints, before.TaxMode)} → " +
+                PlanCatalogueService.DescribeTax(after.TaxRateBasisPoints, after.TaxMode));
+        }
+
+        return parts.Count == 0 ? "Terms re-announced unchanged" : string.Join("; ", parts);
+    }
+
+    private static string DescribeTiers(List<MeterTier>? tiers) =>
+        tiers is null or { Count: 0 } ? "none" : string.Join("/", tiers.Select(tier => tier.UnitAmountMinor));
 
     private static List<MeterTier>? TiersIn(List<MeterRateTable> tables, string currencyCode) =>
         tables.Find(table =>

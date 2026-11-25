@@ -35,6 +35,25 @@ public sealed class SubscriptionAuditRepository : ISubscriptionAuditRepository
             .Limit(Math.Clamp(limit, 1, 500))
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SubscriptionAuditEvent>> ListForAggregateAsync(
+        string tenantId,
+        string aggregateType,
+        string aggregateId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await EnsureIndexesAsync(tenantId, cancellationToken);
+
+        return await Events(tenantId)
+            .Find(Builders<SubscriptionAuditEvent>.Filter.And(
+                Builders<SubscriptionAuditEvent>.Filter.Eq(x => x.TenantId, tenantId),
+                Builders<SubscriptionAuditEvent>.Filter.Eq(x => x.AggregateType, aggregateType),
+                Builders<SubscriptionAuditEvent>.Filter.Eq(x => x.AggregateId, aggregateId)))
+            .SortByDescending(x => x.OccurredAtUtc)
+            .Limit(Math.Clamp(limit, 1, 500))
+            .ToListAsync(cancellationToken);
+    }
+
     private async Task EnsureIndexesAsync(string tenantId, CancellationToken cancellationToken)
     {
         if (_indexedTenants.ContainsKey(tenantId)) return;
@@ -67,6 +86,25 @@ public sealed class SubscriptionAuditRepository : ISubscriptionAuditRepository
                 new CreateIndexOptions<SubscriptionAuditEvent>
                 {
                     Name = "ix_subscription_audit_aggregate",
+                    PartialFilterExpression = Builders<SubscriptionAuditEvent>.Filter.And(
+                        Builders<SubscriptionAuditEvent>.Filter.Type(
+                            x => x.AggregateType, BsonType.String),
+                        Builders<SubscriptionAuditEvent>.Filter.Type(
+                            x => x.AggregateId, BsonType.String))
+                }),
+
+            // The aggregate index above leads on OrganizationId, which a tenant-wide plan's history
+            // cannot name: its edits come from the console. A separate index rather than a changed
+            // one, because redefining an existing index under the same name fails on every database
+            // that already has it.
+            new CreateIndexModel<SubscriptionAuditEvent>(
+                Builders<SubscriptionAuditEvent>.IndexKeys
+                    .Ascending(x => x.TenantId)
+                    .Ascending(x => x.AggregateType).Ascending(x => x.AggregateId)
+                    .Descending(x => x.OccurredAtUtc),
+                new CreateIndexOptions<SubscriptionAuditEvent>
+                {
+                    Name = "ix_subscription_audit_aggregate_tenant",
                     PartialFilterExpression = Builders<SubscriptionAuditEvent>.Filter.And(
                         Builders<SubscriptionAuditEvent>.Filter.Type(
                             x => x.AggregateType, BsonType.String),

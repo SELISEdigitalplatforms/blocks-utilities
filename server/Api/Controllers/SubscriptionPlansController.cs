@@ -152,6 +152,33 @@ public sealed class SubscriptionPlansController : ControllerBase
         return result.ToActionResult(correlationId);
     }
 
+    /// <summary>
+    /// A plan's change history: who created or edited the plan, its prices and its overage rates,
+    /// what changed and when. Newest first; <c>limit</c> defaults to 100, at most 500.
+    /// </summary>
+    [HttpGet("{planId}/audit")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionAuditEventResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionAuditEventResponse>>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint("blocks-utilities::subscription-plan::read")]
+    public async Task<IActionResult> GetPlanAudit(
+        string planId,
+        [FromQuery] string? organizationId,
+        [FromQuery] int limit,
+        CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+
+        var result = await _catalogue.GetPlanAuditAsync(
+            planId,
+            organizationId,
+            limit,
+            correlationId,
+            cancellationToken);
+
+        return result.ToActionResult(correlationId);
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<PlanResponse>), StatusCodes.Status400BadRequest)]

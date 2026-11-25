@@ -1048,6 +1048,12 @@
             <c>GET {planId}</c>; subscribers keep billing from whichever version they bought.
             </summary>
         </member>
+        <member name="M:Api.Controllers.SubscriptionPlansController.GetPlanAudit(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
+            <summary>
+            A plan's change history: who created or edited the plan, its prices and its overage rates,
+            what changed and when. Newest first; <c>limit</c> defaults to 100, at most 500.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.SubscriptionPlansController.UpdatePlan(System.String,Subscription.DomainService.Requests.UpdatePlanRequest,System.Threading.CancellationToken)">
             <summary>
             Rewrites what a plan sells. Refused with 409 once anything has subscribed to it — a
