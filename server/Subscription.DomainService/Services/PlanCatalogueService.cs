@@ -1554,13 +1554,17 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     /// </para>
     /// </remarks>
     /// <summary>
-    /// Records each meter whose credit terms the edit changed, and — when asked — pushes those terms
-    /// to the subscribers already on the plan.
+    /// Records each meter whose credit terms the edit changed, and — when asked — pushes every meter's
+    /// current credit terms to the subscribers already on the plan.
     /// </summary>
     /// <remarks>
-    /// Compared against the plan as it stood before the save, so only meters whose terms really moved
-    /// are recorded or pushed: an edit to a plan's name does not reprice anybody's credits. The push
-    /// runs on the work queue for the reason overage rates do; a host without one pushes inline.
+    /// Recording compares against the plan as it stood before the save, so only terms that really
+    /// moved are recorded as a change. Pushing does not: when the operator asks, every meter's current
+    /// terms are pushed, changed in this save or not. Subscribers fall behind the catalogue whenever
+    /// terms were changed without asking — including every change made before this option existed —
+    /// and re-saving with the box ticked is how they are brought back in step. Pushing is safe to
+    /// repeat: a subscriber whose copy already matches is skipped, with no write and no email. The
+    /// push runs on the work queue for the reason overage rates do; a host without one pushes inline.
     /// </remarks>
     private async Task RecordCreditTermsChangesAsync(
         SubscriptionContext context,
@@ -1575,21 +1579,32 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             var previous = before.Meters.Find(candidate =>
                 string.Equals(candidate.MeterKey, meter.MeterKey, StringComparison.Ordinal))?.TopUp;
 
-            if (MeterTopUpTerms.Same(previous, meter.TopUp))
-            {
-                continue;
-            }
+            var changed = !MeterTopUpTerms.Same(previous, meter.TopUp);
 
-            await RecordCatalogueChangeAsync(
-                context, before, "PlanCreditTermsUpdate",
-                correlationId, cancellationToken,
-                detail: $"Credit terms for {meter.MeterKey}: {DescribeCreditTerms(previous)} → " +
-                    DescribeCreditTerms(meter.TopUp) +
-                    (applyToExistingSubscribers ? "; applied to existing subscribers now" : string.Empty));
+            if (changed)
+            {
+                await RecordCatalogueChangeAsync(
+                    context, before, "PlanCreditTermsUpdate",
+                    correlationId, cancellationToken,
+                    detail: $"Credit terms for {meter.MeterKey}: {DescribeCreditTerms(previous)} → " +
+                        DescribeCreditTerms(meter.TopUp) +
+                        (applyToExistingSubscribers ? "; applied to existing subscribers now" : string.Empty));
+            }
 
             if (!applyToExistingSubscribers)
             {
                 continue;
+            }
+
+            if (!changed)
+            {
+                // Not a change, but a decision that can reprice subscribers and email them, so who
+                // made it is still recorded.
+                await RecordCatalogueChangeAsync(
+                    context, before, "PlanCreditTermsReapply",
+                    correlationId, cancellationToken,
+                    detail: $"Current credit terms for {meter.MeterKey} ({DescribeCreditTerms(meter.TopUp)}) " +
+                        "re-applied to existing subscribers");
             }
 
             if (_scheduler is not null)

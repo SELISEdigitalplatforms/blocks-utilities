@@ -724,13 +724,17 @@ signup, so by default a change to a meter's credits — price, limits, expiry, t
 sales — reaches new subscribers only. (The one automatic exception: when a meter that sold no credits
 starts selling them, live subscribers with no terms adopt them on save.) Ticking **Also apply credit
 changes to existing subscribers now** in the plan's Credits step (`applyCreditTermsToExistingSubscribers`
-on `PUT /subscription-plans/{planId}`) pushes every meter whose credit terms actually changed to every
-live subscriber's plan copy, immediately, through the `PlanCreditTermsPropagation` work type. Their
+on `PUT /subscription-plans/{planId}`) pushes every meter's **current** credit terms to every live
+subscriber's plan copy, immediately, through the `PlanCreditTermsPropagation` work type — whether or
+not they changed in that save. That is how subscribers left behind by an earlier change, made
+without the box or before it existed, are brought back in step: re-save the plan with the box ticked.
+A subscriber already on the current terms is skipped, with no write and no email. Their
 next purchase is quoted on the new terms; pausing or removing credits stops them buying; credits
 already bought are untouched. A subscriber is emailed (`subscription_credit_terms_changed`) only when
 the change reaches them — their own currency's price, on sale or not, limits, expiry or tax — and
 never when billed by invoice, since those subscriptions cannot buy credits. The plan records each
-changed meter as `PlanCreditTermsUpdate`; each subscriber gets `CreditTermsApplied`.
+changed meter as `PlanCreditTermsUpdate`, and a re-push of unchanged terms as `PlanCreditTermsReapply`
+(it can still reprice and email subscribers); each subscriber gets `CreditTermsApplied`.
 
 **Editing a plan ends when the first subscriber arrives.** After that the plan is frozen — a
 subscription bills from its own copy of the terms, which an edit cannot reach.
