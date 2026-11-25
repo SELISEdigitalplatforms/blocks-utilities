@@ -1,0 +1,37 @@
+/* Active only while the merge announcement banner is on screen (html[data-merge-banner]).
+   The banner sits at the top of the page in normal flow, so genesis-os elements that assume
+   they own the full viewport are moved down or shortened by its height (--merge-banner-height).
+   Plain CSS outside the Tailwind layers; the selectors are more specific than the utilities
+   they adjust, so they win. */
+
+/* genesis-os console header ("fixed left-0 right-0 top-0"): start below the banner.
+   Matched on all four classes so the toast viewport ("fixed top-0 ... sm:top-auto") is left alone. */
+html[data-merge-banner] .fixed.left-0.right-0.top-0 {
+  top: var(--merge-banner-height, 0px);
+}
+
+/* Dashboard layout column and desktop sidebar (h-screen): fit under the banner. */
+html[data-merge-banner] .h-screen {
+  height: calc(100vh - var(--merge-banner-height, 0px));
+}
+
+/* Elements that are only full-screen on small screens keep their own larger-screen values:
+   the create-OIDC dialog (h-screen sm:h-auto md:h-auto) and the SSO setup guideline panel
+   (fixed left-0 right-0 top-0 h-screen, md:top-auto md:h-[400px]). */
+@media (min-width: 640px) {
+  html[data-merge-banner] .h-screen.sm\:h-auto {
+    height: auto;
+  }
+}
+
+@media (min-width: 768px) {
+  html[data-merge-banner] .fixed.left-0.right-0.top-0.md\:top-auto {
+    top: auto;
+  }
+  html[data-merge-banner] .h-screen.md\:h-auto {
+    height: auto;
+  }
+  html[data-merge-banner] .h-screen.md\:h-\[400px\] {
+    height: 400px;
+  }
+}

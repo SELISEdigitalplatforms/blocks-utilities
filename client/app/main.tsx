@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router/dom";
 import { NuqsAdapter } from "nuqs/adapters/react-router/v8";
+import { MergeAnnouncementBanner } from "./components/merge-announcement/merge-announcement-banner";
 import { Toaster } from "./components/ui-kits/toaster/toaster";
 import QueryProvider from "./providers/query-provider";
 import { router } from "./router";
@@ -30,6 +31,8 @@ createRoot(document.getElementById("root")!).render(
                 },
               }}
             >
+              {/* Temporary: Blocks OS merge announcement (until 20 Dec 2026). */}
+              <MergeAnnouncementBanner />
               <RouterProvider router={router} />
             </BlocksAppLayout>
             <Toaster />
