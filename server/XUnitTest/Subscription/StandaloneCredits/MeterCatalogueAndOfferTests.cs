@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Payment.DomainService.Enums;
 using Subscription.DomainService.Entities;
+using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Services;
@@ -30,6 +31,7 @@ public sealed class MeterCatalogueAndOfferTests
     private readonly Mock<ISubscriptionContextResolver> _context = new();
     private readonly InMemoryMeterCatalogue _catalogue = new();
     private readonly InMemoryCreditOffers _offers = new();
+    private readonly Mock<ISubscriptionAuditRepository> _auditEvents = new();
 
     public MeterCatalogueAndOfferTests()
     {
@@ -192,6 +194,47 @@ public sealed class MeterCatalogueAndOfferTests
         result.FailureKind.Should().Be(PaymentFailureKind.Validation, "one rate with two possible totals is not a price");
     }
 
+    // ---- audit history ------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_meters_history_is_read_by_its_catalogue_entry()
+    {
+        await Catalogue().CreateAsync(NewMeter(), "corr-1", CancellationToken.None);
+        _auditEvents
+            .Setup(repository => repository.ListForAggregateAsync(
+                TenantId, "MeterCatalogueEntry", It.IsAny<string>(), 100, It.IsAny<CancellationToken>(), null))
+            .ReturnsAsync([new SubscriptionAuditEvent { Operation = "CreateCatalogueMeter" }]);
+
+        var result = await Catalogue().GetAuditAsync("ai", null, 0, "corr-2", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.Single().Operation.Should().Be("CreateCatalogueMeter");
+    }
+
+    [Fact]
+    public async Task An_unknown_meters_history_reports_as_missing()
+    {
+        var result = await Catalogue().GetAuditAsync("nope", null, 0, "corr-1", CancellationToken.None);
+
+        result.FailureKind.Should().Be(PaymentFailureKind.NotFound);
+    }
+
+    [Fact]
+    public async Task A_credit_offers_history_is_read_by_the_offer_the_scope_is_served()
+    {
+        await Catalogue().CreateAsync(NewMeter(), "corr-1", CancellationToken.None);
+        await Offers().CreateAsync(NewOffer(), "corr-2", CancellationToken.None);
+        _auditEvents
+            .Setup(repository => repository.ListForAggregateAsync(
+                TenantId, "CreditOffer", It.IsAny<string>(), 50, It.IsAny<CancellationToken>(), null))
+            .ReturnsAsync([new SubscriptionAuditEvent { Operation = "CreateCreditOffer" }]);
+
+        var result = await Offers().GetAuditAsync("ai", null, 50, "corr-3", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.Single().Operation.Should().Be("CreateCreditOffer");
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
     private MeterCatalogueService Catalogue() => new(
@@ -200,14 +243,16 @@ public sealed class MeterCatalogueAndOfferTests
         new CreateMeterCatalogueEntryRequestValidator(),
         new UpdateMeterCatalogueEntryRequestValidator(),
         NullLogger<MeterCatalogueService>.Instance,
-        time: new ControlledTimeProvider(Now));
+        time: new ControlledTimeProvider(Now),
+        auditEvents: _auditEvents.Object);
 
     private CreditOfferService Offers() => new(
         _offers,
         _catalogue,
         _context.Object,
         new CreditOfferRequestValidator(),
-        time: new ControlledTimeProvider(Now));
+        time: new ControlledTimeProvider(Now),
+        auditEvents: _auditEvents.Object);
 
     private static CreateMeterCatalogueEntryRequest NewMeter(
         string displayName = "AI credits",

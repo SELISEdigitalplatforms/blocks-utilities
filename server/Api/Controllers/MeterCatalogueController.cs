@@ -53,6 +53,20 @@ public sealed class MeterCatalogueController : ControllerBase
         return (await _catalogue.GetAsync(meterKey, organizationId, correlationId, cancellationToken)).ToActionResult(correlationId);
     }
 
+    /// <summary>Who created or changed this meter, and when, newest first. <c>limit</c> defaults to 100, at most 500.</summary>
+    [HttpGet("{meterKey}/audit")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionAuditEventResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<SubscriptionAuditEventResponse>>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProtectedEndPoint(ReadPermission)]
+    public async Task<IActionResult> GetAudit(
+        string meterKey, [FromQuery] string? organizationId, [FromQuery] int limit, CancellationToken cancellationToken)
+    {
+        var correlationId = HttpContext.TraceIdentifier;
+        return (await _catalogue.GetAuditAsync(meterKey, organizationId, limit, correlationId, cancellationToken))
+            .ToActionResult(correlationId);
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(ApiResponse<MeterCatalogueEntryResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<MeterCatalogueEntryResponse>), StatusCodes.Status400BadRequest)]

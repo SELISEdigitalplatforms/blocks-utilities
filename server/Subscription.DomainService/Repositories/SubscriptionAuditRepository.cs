@@ -40,15 +40,28 @@ public sealed class SubscriptionAuditRepository : ISubscriptionAuditRepository
         string aggregateType,
         string aggregateId,
         int limit,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? legacyOperationIdPrefix = null)
     {
         await EnsureIndexesAsync(tenantId, cancellationToken);
 
+        var filter = Builders<SubscriptionAuditEvent>.Filter;
+        var aggregate = filter.And(
+            filter.Eq(x => x.AggregateType, aggregateType),
+            filter.Eq(x => x.AggregateId, aggregateId));
+
+        // An anchored, escaped prefix, so the operation index serves it and an id cannot inject
+        // a pattern.
+        var match = legacyOperationIdPrefix is null
+            ? aggregate
+            : filter.Or(
+                aggregate,
+                filter.Regex(
+                    x => x.OperationId,
+                    new BsonRegularExpression("^" + System.Text.RegularExpressions.Regex.Escape(legacyOperationIdPrefix))));
+
         return await Events(tenantId)
-            .Find(Builders<SubscriptionAuditEvent>.Filter.And(
-                Builders<SubscriptionAuditEvent>.Filter.Eq(x => x.TenantId, tenantId),
-                Builders<SubscriptionAuditEvent>.Filter.Eq(x => x.AggregateType, aggregateType),
-                Builders<SubscriptionAuditEvent>.Filter.Eq(x => x.AggregateId, aggregateId)))
+            .Find(filter.And(filter.Eq(x => x.TenantId, tenantId), match))
             .SortByDescending(x => x.OccurredAtUtc)
             .Limit(Math.Clamp(limit, 1, 500))
             .ToListAsync(cancellationToken);

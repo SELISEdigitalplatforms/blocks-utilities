@@ -19,6 +19,7 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     private readonly TimeProvider _time;
     private readonly ICampaignRedemptionRepository? _redemptions;
     private readonly ISubscriptionAuditTrail? _audit;
+    private readonly ISubscriptionAuditRepository? _auditEvents;
     private readonly ICreditOfferRepository? _offers;
 
     public DiscountCatalogueService(
@@ -30,8 +31,10 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
         TimeProvider? time = null,
         ICampaignRedemptionRepository? redemptions = null,
         ISubscriptionAuditTrail? audit = null,
-        ICreditOfferRepository? offers = null)
+        ICreditOfferRepository? offers = null,
+        ISubscriptionAuditRepository? auditEvents = null)
     {
+        _auditEvents = auditEvents;
         _offers = offers;
         _discounts = discounts;
         _catalogue = catalogue;
@@ -107,6 +110,27 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
                 "A discount with this code already exists at this scope.", correlationId);
         await AuditAsync("CreateDiscount", context, discount.ItemId, correlationId, cancellationToken).ConfigureAwait(false);
         return SubscriptionOperationResult<DiscountResponse>.Success(Map(discount), correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>> GetAuditAsync(
+        string discountId, string? organizationId, int limit, string correlationId, CancellationToken cancellationToken)
+    {
+        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken);
+        if (!resolution.IsSuccess) return resolution.ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>(correlationId);
+        var context = resolution.Context!;
+
+        var item = await _discounts.FindByIdAsync(context.TenantId, discountId, cancellationToken);
+
+        if (item is null || !VisibleTo(item, context.OrganizationId)) return NotFound(correlationId).ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>();
+
+        var events = _auditEvents is null
+            ? []
+            : await _auditEvents.ListForAggregateAsync(
+                context.TenantId, "Discount", item.ItemId, limit <= 0 ? 100 : limit, cancellationToken,
+                legacyOperationIdPrefix: $"discount:{item.ItemId}:");
+
+        return SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>.Success(
+            events.Select(SubscriptionAuditEventResponse.From).ToList(), correlationId);
     }
 
     public async Task<SubscriptionOperationResult<DiscountResponse>> GetAsync(
@@ -218,6 +242,11 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
     /// resolved for this organization. Mirrors <see cref="ISubscriptionDiscountRepository.ListAsync"/>'s
     /// own rule, restated here for a single-item lookup that has no list to filter.
     /// </summary>
+    private static SubscriptionOperationResult<DiscountResponse> NotFound(string correlationId) =>
+        SubscriptionOperationResult<DiscountResponse>.Failure(
+            PaymentFailureKind.NotFound, "subscription_discount_not_found",
+            "The discount does not exist.", correlationId);
+
     private static bool VisibleTo(Discount item, string? organizationId) =>
         item.OrganizationId is null ||
         string.Equals(item.OrganizationId, organizationId, StringComparison.Ordinal);
@@ -591,11 +620,13 @@ public sealed class DiscountCatalogueService : IDiscountCatalogueService
             OrganizationId = context.OrganizationId,
             OperationId = $"discount:{discountId}:{operation}:{correlationId}",
             CorrelationId = correlationId,
+            AggregateType = "Discount",
+            AggregateId = discountId,
             Operation = operation,
             Stage = "Catalogue",
             Outcome = "Succeeded",
             Source = "Api",
-            ActorId = context.UserId,
+            ActorId = context.ActorId,
             UserId = context.UserId,
             OccurredAtUtc = _time.GetUtcNow().UtcDateTime
         }, cancellationToken) ?? Task.CompletedTask;

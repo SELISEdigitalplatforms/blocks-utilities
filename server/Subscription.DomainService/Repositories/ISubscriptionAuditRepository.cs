@@ -20,10 +20,15 @@ public interface ISubscriptionAuditRepository
     /// Tenant-scoped rather than organization-scoped: a tenant-wide plan is edited from the console,
     /// whose events carry the console's organization. The caller checks the aggregate is visible.
     /// </remarks>
+    /// <param name="legacyOperationIdPrefix">
+    /// Also matches events written before the aggregate fields were set, by the start of their
+    /// <c>OperationId</c> — discount events used to carry only <c>discount:{id}:…</c>.
+    /// </param>
     Task<IReadOnlyList<SubscriptionAuditEvent>> ListForAggregateAsync(
         string tenantId,
         string aggregateType,
         string aggregateId,
         int limit,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? legacyOperationIdPrefix = null);
 }

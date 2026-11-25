@@ -18,6 +18,9 @@
         <member name="M:Api.Controllers.CreditOffersController.Get(System.String,System.String,System.Threading.CancellationToken)">
             <summary>The offer the named scope is served for one meter: its override when it has one, otherwise the tenant's.</summary>
         </member>
+        <member name="M:Api.Controllers.CreditOffersController.GetAudit(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
+            <summary>Who created or changed this credit offer, and when, newest first. <c>limit</c> defaults to 100, at most 500.</summary>
+        </member>
         <member name="M:Api.Controllers.CreditOffersController.Update(System.String,Subscription.DomainService.Requests.CreditOfferRequest,System.String,System.Threading.CancellationToken)">
             <summary>Replaces the offer's terms at exactly the named scope and raises its version.</summary>
         </member>
@@ -430,6 +433,9 @@
         </member>
         <member name="M:Api.Controllers.MeterCatalogueController.Get(System.String,System.String,System.Threading.CancellationToken)">
             <summary>One meter as seen from the named scope: its override when it has one, otherwise the tenant's.</summary>
+        </member>
+        <member name="M:Api.Controllers.MeterCatalogueController.GetAudit(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
+            <summary>Who created or changed this meter, and when, newest first. <c>limit</c> defaults to 100, at most 500.</summary>
         </member>
         <member name="M:Api.Controllers.MeterCatalogueController.Update(System.String,Subscription.DomainService.Requests.UpdateMeterCatalogueEntryRequest,System.String,System.Threading.CancellationToken)">
             <summary>Edits, or archives by setting <c>status</c> to Archived, the entry at exactly the named scope.</summary>
@@ -999,6 +1005,9 @@
             dedicated campaign-management permission can be restored once the identity provider exposes
             and assigns it consistently.
             </remarks>
+        </member>
+        <member name="M:Api.Controllers.SubscriptionDiscountsController.GetAudit(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
+            <summary>Who created or changed this discount, and when, newest first. <c>limit</c> defaults to 100, at most 500.</summary>
         </member>
         <member name="T:Api.Controllers.SubscriptionMerchantProfileController">
             <summary>

@@ -30,6 +30,7 @@ public sealed class DiscountCatalogueServiceTests
     private readonly Mock<ISubscriptionCatalogueRepository> _catalogue = new();
     private readonly Mock<ISubscriptionContextResolver> _contextResolver = new();
     private Discount? _created;
+    private readonly Mock<ISubscriptionAuditRepository> _auditEvents = new();
 
     public DiscountCatalogueServiceTests()
     {
@@ -286,7 +287,38 @@ public sealed class DiscountCatalogueServiceTests
         _catalogue.Object,
         _contextResolver.Object,
         new CreateDiscountRequestValidator(),
-        new UpdateDiscountRequestValidator());
+        new UpdateDiscountRequestValidator(),
+        auditEvents: _auditEvents.Object);
+
+    [Fact]
+    public async Task A_discounts_history_includes_events_recorded_before_it_had_an_aggregate()
+    {
+        _discounts
+            .Setup(repository => repository.FindByIdAsync(TenantId, "d-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount { ItemId = "d-1", TenantId = TenantId, OrganizationId = OrganizationId });
+        _auditEvents
+            .Setup(repository => repository.ListForAggregateAsync(
+                TenantId, "Discount", "d-1", 100, It.IsAny<CancellationToken>(), "discount:d-1:"))
+            .ReturnsAsync([new SubscriptionAuditEvent { Operation = "UpdateDiscount" }]);
+
+        var result = await Service().GetAuditAsync("d-1", null, 0, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value!.Single().Operation.Should().Be("UpdateDiscount");
+    }
+
+    [Fact]
+    public async Task Another_organizations_discount_history_reports_as_missing()
+    {
+        _discounts
+            .Setup(repository => repository.FindByIdAsync(TenantId, "d-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Discount { ItemId = "d-1", TenantId = TenantId, OrganizationId = "org-9" });
+
+        var result = await Service().GetAuditAsync("d-1", null, 0, "corr-1", CancellationToken.None);
+
+        result.ErrorCode.Should().Be("subscription_discount_not_found");
+        _auditEvents.VerifyNoOtherCalls();
+    }
 
     private static CreateDiscountRequest Request() => new()
     {
