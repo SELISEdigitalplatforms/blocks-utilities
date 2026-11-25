@@ -166,6 +166,34 @@ public sealed class SubscriptionUsageInvoiceRepository : ISubscriptionUsageInvoi
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TryReopenChargedAsync(
+        string tenantId,
+        string invoiceId,
+        string paymentDetailId,
+        DateTime nextAttemptAtUtc,
+        string? failureReason,
+        CancellationToken cancellationToken)
+    {
+        var result = await Invoices(tenantId).UpdateOneAsync(
+            Builders<SubscriptionUsageInvoice>.Filter.And(
+                TenantFilter(tenantId),
+                Builders<SubscriptionUsageInvoice>.Filter.Eq(invoice => invoice.ItemId, invoiceId),
+                Builders<SubscriptionUsageInvoice>.Filter.Eq(
+                    invoice => invoice.State, SubscriptionUsageInvoiceState.Charged),
+                Builders<SubscriptionUsageInvoice>.Filter.Eq(
+                    invoice => invoice.PaymentDetailId, paymentDetailId)),
+            Builders<SubscriptionUsageInvoice>.Update
+                .Set(invoice => invoice.State, SubscriptionUsageInvoiceState.Pending)
+                .Set(invoice => invoice.PaymentDetailId, null)
+                .Inc(invoice => invoice.AttemptCount, 1)
+                .Set(invoice => invoice.NextAttemptAtUtc, nextAttemptAtUtc)
+                .Set(invoice => invoice.LastError, Shorten(failureReason))
+                .Set(invoice => invoice.LastUpdatedDateUtc, DateTime.UtcNow),
+            cancellationToken: cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task RescheduleAsync(
         string tenantId,
         string invoiceId,

@@ -1439,6 +1439,12 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 outboxEvent,
                 cancellationToken);
 
+            if (paymentDetailId is { Length: > 0 })
+            {
+                await _scheduler.ScheduleChargeSettlementWatchAsync(
+                    subscription, paymentDetailId, 1, correlationId, cancellationToken);
+            }
+
             // The projection describes this subscription's allowance and terms, and both just
             // changed. Announced rather than published inline: the counter version has not moved, so
             // nothing about usage is stale — only the metadata is, and a queue item repairs that

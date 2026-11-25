@@ -2,7 +2,9 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Payment.DomainService.Entities;
 using Payment.DomainService.Enums;
+using Payment.DomainService.Services;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
@@ -293,7 +295,8 @@ public sealed class SubscriptionRenewalServiceTests
     private SubscriptionRenewalService Service(
         ISubscriptionWorkScheduler? scheduler = null,
         bool withUsage = false,
-        ISubscriptionDiscountRepository? discounts = null) => new(
+        ISubscriptionDiscountRepository? discounts = null,
+        ICurrencyMinorUnitResolver? minorUnits = null) => new(
         _subscriptions.Object,
         _billingAccounts.Object,
         _gateway.Object,
@@ -306,7 +309,8 @@ public sealed class SubscriptionRenewalServiceTests
         scheduler: scheduler,
         usage: withUsage ? _usage.Object : null,
         allowances: withUsage ? new MeterAllowanceResolver(_usage.Object) : null,
-        discounts: discounts);
+        discounts: discounts,
+        minorUnits: minorUnits);
 
     // ---- Re-snapshotting a converted trial's allowance ----------------------------------------
 
@@ -1429,6 +1433,150 @@ public sealed class SubscriptionRenewalServiceTests
         };
 
         return subscription;
+    }
+
+    // ---- Spec 009: charges that fail after they were applied ---------------------------------
+
+    private static PaymentDetail FailedPayment() => new()
+    {
+        ItemId = "pay-9",
+        TenantId = TenantId,
+        PaymentStatus = PaymentStatuses.Expired,
+        PreciseAmount = 89m,
+        CurrencyCode = "CHF",
+        OrderId = "order-9",
+        SubscriptionNetAmountMinor = 8_200,
+        SubscriptionTaxAmountMinor = 700
+    };
+
+    private static OutstandingSettlement Outstanding(long amountMinor = 8_900) => new()
+    {
+        SettlementId = "settle-1",
+        AmountMinor = amountMinor,
+        CurrencyCode = "CHF",
+        OrderId = "order-9",
+        FailedPaymentDetailId = "pay-9"
+    };
+
+    private Mock<ICurrencyMinorUnitResolver> MinorUnits()
+    {
+        var minorUnits = new Mock<ICurrencyMinorUnitResolver>();
+        long converted = 8_900;
+        minorUnits.Setup(resolver => resolver.TryConvert(89m, "CHF", out converted)).Returns(true);
+
+        return minorUnits;
+    }
+
+    [Fact]
+    public async Task A_late_charge_failure_keeps_the_change_and_puts_the_amount_into_dunning()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.Active);
+
+        await Service(minorUnits: MinorUnits().Object)
+            .RecordLateChargeFailureAsync(subscription, FailedPayment(), CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.PastDue);
+        _transition.DunningAttemptCount.Should().Be(1);
+        _transition.OutstandingSettlement!.AmountMinor.Should().Be(8_900);
+        _transition.OutstandingSettlement.NetAmountMinor.Should().Be(8_200);
+        _transition.OutstandingSettlement.FailedPaymentDetailId.Should().Be("pay-9");
+        _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionPastDue);
+        _gateway.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task A_second_late_failure_adds_to_the_open_settlement()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.PastDue);
+        subscription.DunningAttemptCount = 1;
+        subscription.OutstandingSettlement = Outstanding(5_000);
+        subscription.OutstandingSettlement.FailedPaymentDetailId = "pay-8";
+
+        await Service(minorUnits: MinorUnits().Object)
+            .RecordLateChargeFailureAsync(subscription, FailedPayment(), CancellationToken.None);
+
+        _transition!.OutstandingSettlement!.SettlementId.Should().Be("settle-1");
+        _transition.OutstandingSettlement.AmountMinor.Should().Be(13_900);
+        _transition.DunningAttemptCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_dunning_retry_charges_what_is_outstanding_instead_of_the_period()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.PastDue);
+        subscription.DunningAttemptCount = 1;
+        subscription.OutstandingSettlement = Outstanding();
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime.AddDays(10);
+        var scheduler = new Mock<ISubscriptionWorkScheduler>();
+
+        await Service(scheduler.Object).RenewAsync(subscription, CancellationToken.None);
+
+        _charge!.AmountMinor.Should().Be(8_900);
+        _charge.OrderId.Should().Be("order-9");
+        _gateway.Verify(gateway => gateway.ChargeAsync(
+            It.IsAny<SubscriptionChargeRequest>(),
+            SubscriptionConstants.OutstandingSettlementKeyFor("settle-1", 1),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Active);
+        _transition.ClearOutstandingSettlement.Should().BeTrue();
+        _transition.DunningAttemptCount.Should().Be(0);
+        _transition.NextFeeBillingAtUtc.Should().Be(subscription.CurrentPeriodEndUtc);
+        _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionChargeSettled);
+        scheduler.Verify(s => s.ScheduleChargeSettlementWatchAsync(
+            subscription, "pay-1", 1, It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_declined_outstanding_retry_is_one_more_dunning_attempt()
+    {
+        Decline();
+        var subscription = NewSubscription(SubscriptionStatus.PastDue);
+        subscription.DunningAttemptCount = 1;
+        subscription.OutstandingSettlement = Outstanding();
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime.AddDays(10);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.PastDue);
+        _transition.DunningAttemptCount.Should().Be(2);
+        _transition.OutstandingSettlement!.AttemptCount.Should().Be(1);
+        _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionRenewalFailed);
+    }
+
+    [Fact]
+    public async Task The_last_declined_outstanding_retry_moves_to_unpaid_and_keeps_what_is_owed()
+    {
+        Decline();
+        var subscription = NewSubscription(SubscriptionStatus.PastDue);
+        subscription.DunningAttemptCount = new SubscriptionOptions().DunningMaxAttempts - 1;
+        subscription.OutstandingSettlement = Outstanding();
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime.AddDays(10);
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _transition!.NewStatus.Should().Be(SubscriptionStatus.Unpaid);
+        _transition.ClearOutstandingSettlement.Should().BeFalse();
+        _transition.OutstandingSettlement.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_settled_outstanding_amount_lets_a_due_renewal_go_ahead()
+    {
+        var subscription = NewSubscription(SubscriptionStatus.PastDue);
+        subscription.DunningAttemptCount = 1;
+        subscription.OutstandingSettlement = Outstanding();
+        subscription.CurrentPeriodEndUtc = _time.GetUtcNow().UtcDateTime;
+
+        await Service().RenewAsync(subscription, CancellationToken.None);
+
+        _gateway.Verify(gateway => gateway.ChargeAsync(
+            It.IsAny<SubscriptionChargeRequest>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _transition!.ExpectedStatus.Should().Be(SubscriptionStatus.Active);
+        _transition.Event!.EventType.Should().Be(SubscriptionConstants.SubscriptionRenewed);
     }
 
     private sealed class OptionsStub : IOptionsMonitor<SubscriptionOptions>

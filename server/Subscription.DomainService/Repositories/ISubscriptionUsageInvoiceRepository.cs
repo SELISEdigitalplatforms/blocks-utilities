@@ -60,6 +60,19 @@ public interface ISubscriptionUsageInvoiceRepository
         string invoiceId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Puts a charged invoice back to pending because its payment failed after acceptance (spec
+    /// 009). Advances the attempt count so the next charge is keyed afresh. False unless the invoice
+    /// is still charged against that payment.
+    /// </summary>
+    Task<bool> TryReopenChargedAsync(
+        string tenantId,
+        string invoiceId,
+        string paymentDetailId,
+        DateTime nextAttemptAtUtc,
+        string? failureReason,
+        CancellationToken cancellationToken);
+
     Task RescheduleAsync(
         string tenantId,
         string invoiceId,

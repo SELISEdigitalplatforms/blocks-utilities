@@ -1,3 +1,4 @@
+using Payment.DomainService.Entities;
 using Subscription.DomainService.Entities;
 
 namespace Subscription.DomainService.Services;
@@ -19,4 +20,14 @@ public interface ISubscriptionRenewalService
     /// entering the dunning schedule, which is a live status.
     /// </remarks>
     Task RecoverAsync(SubscriptionDetail subscription, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records that an applied charge's payment failed after acceptance (spec 009): the amount
+    /// becomes an <see cref="OutstandingSettlement"/> and the subscription enters dunning, which
+    /// charges it again in place of the period fee.
+    /// </summary>
+    Task RecordLateChargeFailureAsync(
+        SubscriptionDetail subscription,
+        PaymentDetail payment,
+        CancellationToken cancellationToken);
 }

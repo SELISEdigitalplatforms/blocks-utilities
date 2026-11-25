@@ -225,6 +225,13 @@ public sealed class SubscriptionOptions
     /// </summary>
     public int DunningRetryIntervalHours { get; set; } = 24;
 
+    /// <summary>
+    /// How many times an applied charge is re-read while its payment is still pending before the
+    /// watch gives up: 1h, 4h, then daily, so the default covers about two weeks — longer than any
+    /// card hold lives. Spec 009.
+    /// </summary>
+    public int ChargeSettlementWatchMaxChecks { get; set; } = 16;
+
     public int UsageRatingBatchSize { get; set; } = 50;
 
     /// <summary>

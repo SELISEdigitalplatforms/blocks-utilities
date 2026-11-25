@@ -145,6 +145,26 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
             cancellationToken);
     }
 
+    public Task ScheduleChargeSettlementWatchAsync(
+        SubscriptionDetail subscription,
+        string paymentDetailId,
+        int checkNumber,
+        string correlationId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        return TryScheduleAsync(
+            SubscriptionWorkType.ChargeSettlementWatch,
+            subscription.TenantId,
+            ChargeSettlementWatchKey.For(paymentDetailId, checkNumber),
+            _time.GetUtcNow().UtcDateTime.Add(ChargeSettlementWatchKey.DelayBefore(checkNumber)),
+            correlationId,
+            subscription.ItemId,
+            subscription.OrganizationId,
+            cancellationToken);
+    }
+
     public Task ScheduleActivationRecoveryAsync(
         SubscriptionDetail subscription,
         CancellationToken cancellationToken = default)
@@ -311,6 +331,7 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         SubscriptionWorkType.CreditGrantMaintenance => 97,
         // A courtesy a month ahead of the renewal it protects; never ahead of that renewal.
         SubscriptionWorkType.PaymentMethodExpiryNotice => 98,
+        SubscriptionWorkType.ChargeSettlementWatch => 99,
         _ => 100
     };
 }

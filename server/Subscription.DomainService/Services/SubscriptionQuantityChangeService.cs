@@ -699,6 +699,12 @@ public sealed class SubscriptionQuantityChangeService : ISubscriptionQuantityCha
             return VersionConflict(correlationId);
         }
 
+        if (_scheduler is not null && charge.Value is { Length: > 0 } charged)
+        {
+            await _scheduler.ScheduleChargeSettlementWatchAsync(
+                subscription, charged, 1, correlationId, cancellationToken);
+        }
+
         _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
 
         await AnnounceAsync(

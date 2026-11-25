@@ -270,6 +270,12 @@ public sealed class SubscriptionDetail
     /// </remarks>
     public SettlementReservation? SettlementReservation { get; set; }
 
+    /// <summary>
+    /// Money still owed for a change already applied, whose charge failed after acceptance. Charged
+    /// again by the dunning cycle in place of the period fee. See spec 009.
+    /// </summary>
+    public OutstandingSettlement? OutstandingSettlement { get; set; }
+
     public DateTime? ActivatedAtUtc { get; set; }
 
     /// <summary>Whether cancellation has been requested but not yet taken effect.</summary>
