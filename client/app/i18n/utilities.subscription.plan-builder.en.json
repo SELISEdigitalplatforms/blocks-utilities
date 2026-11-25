@@ -157,6 +157,7 @@
   "QUANTITY_DISCOUNT_TIERS.REMOVE_BAND": "Remove band {{band}}",
   "QUANTITY_DISCOUNT_TIERS.TO": "To",
   "QUANTITY_DISCOUNT_TIERS.UNIT_FALLBACK": "unit",
+  "STEP_CREDITS.APPLY_TO_EXISTING_SUBSCRIBERS": "Also apply credit changes to existing subscribers now. Their next purchase uses the new terms, pausing or removing credits stops them buying, and they will be emailed about the change. Credits already bought are not affected.",
   "STEP_CREDITS.ADD_CREDITS": "Sell credits for a meter",
   "STEP_CREDITS.ADD_CURRENCY": "Add a currency",
   "STEP_CREDITS.CHOOSE_METER": "Choose a meter",

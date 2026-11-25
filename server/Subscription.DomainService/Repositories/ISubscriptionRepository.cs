@@ -330,6 +330,21 @@ public interface ISubscriptionRepository
     /// Refuses unless the subscription is still on <paramref name="planId"/>, so a plan change
     /// landing between the read and this write cannot be given another plan's rates.
     /// </remarks>
+    /// <summary>
+    /// Replaces one meter's credit terms on the subscription's own plan copy — null takes credits off
+    /// sale for it — announcing it in the same write when <paramref name="outboxEvent"/> is given.
+    /// Refuses unless the subscription is still on <paramref name="planId"/>.
+    /// </summary>
+    Task<bool> TrySetMeterTopUpAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        string planId,
+        string meterKey,
+        MeterTopUpTerms? terms,
+        SubscriptionOutboxEvent? outboxEvent,
+        CancellationToken cancellationToken);
+
     Task<bool> TrySetMeterRatesAsync(
         string tenantId,
         string subscriptionId,

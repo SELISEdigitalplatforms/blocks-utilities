@@ -719,6 +719,19 @@ from the catalogue when it runs: two saves in a row push the latest. A subscribe
 reach is retried. Who saved the rates is on the plan's `PlanMeterRatesUpdate` audit event; each
 subscriber's `OverageRatesApplied` event shares its correlation id.
 
+**Credit terms** follow the same rule. A subscription buys credits on the terms copied onto it at
+signup, so by default a change to a meter's credits — price, limits, expiry, tax, pausing or ending
+sales — reaches new subscribers only. (The one automatic exception: when a meter that sold no credits
+starts selling them, live subscribers with no terms adopt them on save.) Ticking **Also apply credit
+changes to existing subscribers now** in the plan's Credits step (`applyCreditTermsToExistingSubscribers`
+on `PUT /subscription-plans/{planId}`) pushes every meter whose credit terms actually changed to every
+live subscriber's plan copy, immediately, through the `PlanCreditTermsPropagation` work type. Their
+next purchase is quoted on the new terms; pausing or removing credits stops them buying; credits
+already bought are untouched. A subscriber is emailed (`subscription_credit_terms_changed`) only when
+the change reaches them — their own currency's price, on sale or not, limits, expiry or tax — and
+never when billed by invoice, since those subscriptions cannot buy credits. The plan records each
+changed meter as `PlanCreditTermsUpdate`; each subscriber gets `CreditTermsApplied`.
+
 **Editing a plan ends when the first subscriber arrives.** After that the plan is frozen — a
 subscription bills from its own copy of the terms, which an edit cannot reach.
 

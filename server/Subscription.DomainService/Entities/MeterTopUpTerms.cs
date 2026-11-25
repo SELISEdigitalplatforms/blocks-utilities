@@ -80,6 +80,36 @@ public sealed class MeterTopUpTerms
     /// A deep copy. Plans and subscription snapshots must never share one instance: a catalogue edit
     /// mutating it would reprice every subscriber holding the same reference.
     /// </summary>
+    /// <summary>Whether two sets of terms sell credits identically, in every currency.</summary>
+    public static bool Same(MeterTopUpTerms? left, MeterTopUpTerms? right) =>
+        Fingerprint(left, null) == Fingerprint(right, null);
+
+    /// <summary>
+    /// Whether two sets of terms sell credits identically to a subscriber billed in
+    /// <paramref name="currencyCode"/> — the only price they can ever be quoted.
+    /// </summary>
+    public static bool SameFor(MeterTopUpTerms? left, MeterTopUpTerms? right, string currencyCode) =>
+        Fingerprint(left, currencyCode) == Fingerprint(right, currencyCode);
+
+    private static string Fingerprint(MeterTopUpTerms? terms, string? currencyCode)
+    {
+        if (terms is null)
+        {
+            return "none";
+        }
+
+        var prices = currencyCode is null
+            ? string.Join(",", terms.UnitPrices
+                .OrderBy(price => price.CurrencyCode, StringComparer.OrdinalIgnoreCase)
+                .Select(price => FormattableString.Invariant(
+                    $"{price.CurrencyCode.ToUpperInvariant()}:{price.UnitAmountMinor}")))
+            : terms.PriceIn(currencyCode)?.UnitAmountMinor.ToString(
+                System.Globalization.CultureInfo.InvariantCulture) ?? "-";
+
+        return FormattableString.Invariant(
+            $"{terms.Enabled}|{prices}|{terms.MinQuantity}|{terms.MaxQuantity}|{terms.ExpiryPolicy}|{terms.ExpiresAfter?.Count}|{terms.ExpiresAfter?.Unit}|{terms.TaxRateBasisPoints}|{terms.TaxMode}");
+    }
+
     public MeterTopUpTerms Clone() => new()
     {
         Enabled = Enabled,

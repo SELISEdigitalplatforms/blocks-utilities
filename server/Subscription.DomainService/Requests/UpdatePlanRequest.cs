@@ -12,4 +12,12 @@ public sealed class UpdatePlanRequest : PlanDefinitionRequest
     /// plans, whatever this says. It names the plan to find; it never moves the plan's scope.
     /// </summary>
     public string? OrganizationId { get; set; }
+
+    /// <summary>
+    /// Whether subscribers already on the plan get any changed credit terms too — prices, limits,
+    /// expiry, tax, or pausing and ending sales — immediately, each billing contact the change reaches
+    /// told by email. False by default: as with every other plan edit, existing subscribers keep the
+    /// terms they signed up with. Only meters whose credit terms actually changed are pushed.
+    /// </summary>
+    public bool ApplyCreditTermsToExistingSubscribers { get; set; }
 }

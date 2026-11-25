@@ -53,6 +53,12 @@ public static class SubscriptionConstants
     /// plan. The change is already in effect when this is sent.
     /// </summary>
     public const string OverageRatesChangedMailPurpose = "subscription_overage_rates_changed";
+
+    /// <summary>
+    /// Sent when an operator extends a meter's new credit terms to a subscriber already on the plan.
+    /// The change is already in effect when this is sent.
+    /// </summary>
+    public const string CreditTermsChangedMailPurpose = "subscription_credit_terms_changed";
     public const string CancellationWithdrawnMailPurpose = "subscription_cancellation_withdrawn";
 
     /// <summary>
@@ -102,6 +108,11 @@ public static class SubscriptionConstants
     /// </summary>
     public const string SubscriptionOverageRatesChanged = "SubscriptionOverageRatesChanged";
 
+    /// <summary>
+    /// An operator extended a meter's new credit terms to this subscriber, effective immediately.
+    /// </summary>
+    public const string SubscriptionCreditTermsChanged = "SubscriptionCreditTermsChanged";
+
     /// <summary>A person was given, or lost, a seat on a user-wise subscription.</summary>
     public const string SubscriptionMemberAssigned = "SubscriptionMemberAssigned";
     public const string SubscriptionMemberReleased = "SubscriptionMemberReleased";
@@ -123,6 +134,7 @@ public static class SubscriptionConstants
             [SubscriptionPlanChanged] = PlanChangedMailPurpose,
             [SubscriptionPriceTermsChangeScheduled] = PriceTermsChangedMailPurpose,
             [SubscriptionOverageRatesChanged] = OverageRatesChangedMailPurpose,
+            [SubscriptionCreditTermsChanged] = CreditTermsChangedMailPurpose,
             [SubscriptionCancellationRequested] = CancellationRequestedMailPurpose,
             [SubscriptionCanceled] = CanceledMailPurpose,
             [SubscriptionCancellationWithdrawn] = CancellationWithdrawnMailPurpose,

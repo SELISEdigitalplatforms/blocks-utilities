@@ -229,6 +229,35 @@ public sealed class SubscriptionOutboxEventFactory : ISubscriptionOutboxEventFac
             null);
     }
 
+    public SubscriptionOutboxEvent CreateCreditTermsChanged(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        MeterTopUpTerms? terms,
+        string? actorName,
+        string correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(meter);
+
+        const string eventType = Utilities.SubscriptionConstants.SubscriptionCreditTermsChanged;
+        var payload = NewPayload(subscription, eventType);
+        payload.MeterKey = meter.MeterKey;
+        payload.MeterDisplayName = meter.DisplayName;
+        payload.CurrencyCode = subscription.CurrencyCode;
+        payload.PreviousCreditUnitAmountMinor = meter.TopUp?.PriceIn(subscription.CurrencyCode)?.UnitAmountMinor;
+        payload.CreditUnitAmountMinor = terms?.PriceIn(subscription.CurrencyCode)?.UnitAmountMinor;
+        payload.CreditsOnSale = terms is { Enabled: true } && payload.CreditUnitAmountMinor is not null;
+        payload.ActorName = actorName;
+
+        return Build(
+            subscription,
+            eventType,
+            $"{subscription.ItemId}:{eventType}:{meter.MeterKey}:{subscription.Version}",
+            payload,
+            correlationId,
+            null);
+    }
+
     public SubscriptionOutboxEvent CreateMemberChanged(
         SubscriptionDetail subscription,
         string eventType,

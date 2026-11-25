@@ -298,6 +298,8 @@ public sealed class SubscriptionWorkScheduler : ISubscriptionWorkScheduler
         // Ahead of usage period closure: a period that closes first is rated at the old overage
         // rate, which the operator asked to stop charging.
         SubscriptionWorkType.PlanMeterRatesPropagation => 55,
+        // Below money: credit terms only price purchases not yet made.
+        SubscriptionWorkType.PlanCreditTermsPropagation => 75,
         SubscriptionWorkType.UsagePeriodClosure => 60,
         SubscriptionWorkType.OutboxPublication => 70,
         // Last, and deliberately so. Nothing about a document affects entitlement or money, and it
