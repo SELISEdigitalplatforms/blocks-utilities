@@ -87,5 +87,16 @@ public enum SubscriptionWorkType
     /// row push the latest, and repeating it is a no-op for anyone already on them.
     /// <c>AggregateId</c> is the plan; the work key ends with the meter key.
     /// </remarks>
-    PlanMeterRatesPropagation = 14
+    PlanMeterRatesPropagation = 14,
+
+    /// <summary>
+    /// Re-read a charge that was accepted and applied, until its money is captured or it fails.
+    /// </summary>
+    /// <remarks>
+    /// Spec 009. Under manual capture the provider only holds the money when a charge is accepted;
+    /// this is how the subscription learns that the hold lapsed, was cancelled, or was declined
+    /// late. The work key names the payment and the check number; a pending payment schedules the
+    /// next check itself.
+    /// </remarks>
+    ChargeSettlementWatch = 15
 }

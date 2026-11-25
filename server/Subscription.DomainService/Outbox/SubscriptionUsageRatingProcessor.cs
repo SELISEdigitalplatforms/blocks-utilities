@@ -860,6 +860,12 @@ public sealed class SubscriptionUsageRatingProcessor : ISubscriptionUsageRatingP
             return;
         }
 
+        if (_scheduler is not null)
+        {
+            await _scheduler.ScheduleChargeSettlementWatchAsync(
+                subscription, outcome.Value!, 1, invoice.CorrelationId, cancellationToken);
+        }
+
         await _subscriptions.TryAppendEventAsync(
             subscription.TenantId,
             subscription.ItemId,

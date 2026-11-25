@@ -72,6 +72,18 @@ public interface ISubscriptionWorkScheduler
     /// paying before the attempt is treated as abandoned. Keyed on the subscription, because there
     /// is exactly one first charge per subscription.
     /// </remarks>
+    /// <summary>
+    /// Announces that an accepted, applied charge should be re-read until its money is captured
+    /// or it fails. Spec 009. Keyed on the payment and the check number, so the next check is a
+    /// new occurrence and a repeated producer lands on the same one.
+    /// </summary>
+    Task ScheduleChargeSettlementWatchAsync(
+        SubscriptionDetail subscription,
+        string paymentDetailId,
+        int checkNumber,
+        string correlationId,
+        CancellationToken cancellationToken = default);
+
     Task ScheduleActivationRecoveryAsync(
         SubscriptionDetail subscription,
         CancellationToken cancellationToken = default);

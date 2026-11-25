@@ -1582,6 +1582,19 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
                 .Set(subscription => subscription.ProrationTotalDays, prorationTotalDays);
         }
 
+        if (transition.OutstandingSettlement is { } outstandingSettlement)
+        {
+            update = update.Set(
+                subscription => subscription.OutstandingSettlement,
+                outstandingSettlement);
+        }
+        else if (transition.ClearOutstandingSettlement)
+        {
+            update = update.Set(
+                subscription => subscription.OutstandingSettlement,
+                null);
+        }
+
         if (transition.ClearPendingAnnualPeriod)
         {
             update = update.Set(subscription => subscription.PendingAnnualPeriod, null);

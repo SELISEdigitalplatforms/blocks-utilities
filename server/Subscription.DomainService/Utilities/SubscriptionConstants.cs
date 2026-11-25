@@ -88,6 +88,9 @@ public static class SubscriptionConstants
     public const string SubscriptionRenewalFailed = "SubscriptionRenewalFailed";
     public const string SubscriptionPastDue = "SubscriptionPastDue";
     public const string SubscriptionUnpaid = "SubscriptionUnpaid";
+
+    /// <summary>An outstanding settlement (spec 009) was collected by a dunning retry.</summary>
+    public const string SubscriptionChargeSettled = "SubscriptionChargeSettled";
     public const string SubscriptionPlanChanged = "SubscriptionPlanChanged";
 
     public const string SubscriptionQuantityChanged = "SubscriptionQuantityChanged";
@@ -332,6 +335,10 @@ public static class SubscriptionConstants
     /// number for the same reason a renewal's dunning retry does — a retried charge must be
     /// free to succeed where the last one declined, not replay its cached failure.
     /// </summary>
+    /// <summary>The idempotency key one retry of an outstanding settlement (spec 009) is raised under.</summary>
+    public static string OutstandingSettlementKeyFor(string settlementId, int attempt) =>
+        DeterministicKey($"sub-outstanding:{settlementId}:{attempt}");
+
     public static string UsageInvoiceKeyFor(string subscriptionId, string periodKey, int attempt) =>
         DeterministicKey($"sub-usage:{subscriptionId}:{periodKey}:{attempt}");
 

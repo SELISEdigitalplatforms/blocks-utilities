@@ -122,6 +122,21 @@ public sealed class SettlementReservationRecoveryWorkHandler : ISubscriptionWork
     }
 }
 
+public sealed class ChargeSettlementWatchWorkHandler : ISubscriptionWorkHandler
+{
+    private readonly ISubscriptionChargeSettlementWatcher _watcher;
+
+    public ChargeSettlementWatchWorkHandler(ISubscriptionChargeSettlementWatcher watcher) =>
+        _watcher = watcher;
+
+    public SubscriptionWorkType WorkType => SubscriptionWorkType.ChargeSettlementWatch;
+
+    public Task<SubscriptionWorkOutcome> ExecuteAsync(
+        SubscriptionBackgroundWork work,
+        CancellationToken cancellationToken) =>
+        _watcher.CheckAsync(work, cancellationToken);
+}
+
 /// <summary>
 /// Renews either one named subscription or every due subscription in a tenant.
 /// </summary>

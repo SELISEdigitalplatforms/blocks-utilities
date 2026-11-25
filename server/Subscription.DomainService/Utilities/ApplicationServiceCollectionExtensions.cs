@@ -218,6 +218,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, CreditPurchaseRecoveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, CreditGrantMaintenanceWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, PaymentMethodExpiryNoticeWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, ChargeSettlementWatchWorkHandler>();
+        services.AddScoped<ISubscriptionChargeSettlementWatcher, SubscriptionChargeSettlementWatcher>();
 
         services.AddSingleton<IEntitlementSnapshotCache, EntitlementSnapshotCache>();
         services.AddSingleton<IPlanResponseMapper, PlanResponseMapper>();

@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Payment.DomainService.Entities;
+using Payment.DomainService.Services;
 using Payment.DomainService.Utilities;
 using Subscription.DomainService.Entities;
 using Subscription.DomainService.Enums;
@@ -57,7 +59,8 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         ISubscriptionFinancialDocumentAnnouncer? documents = null,
         ISubscriptionUsageRepository? usage = null,
         IMeterAllowanceResolver? allowances = null,
-        ISubscriptionDiscountRepository? discounts = null)
+        ISubscriptionDiscountRepository? discounts = null,
+        ICurrencyMinorUnitResolver? minorUnits = null)
     {
         _usage = usage;
         _allowances = allowances;
@@ -73,7 +76,11 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         _audit = audit;
         _documents = documents;
         _discounts = discounts;
+        _minorUnits = minorUnits;
     }
+
+    /// <summary>Only a late charge failure needs it, to read the failed payment's amount back in minor units.</summary>
+    private readonly ICurrencyMinorUnitResolver? _minorUnits;
 
     /// <summary>Optional for the reason the scheduler beside it is: a renewal must not need one.</summary>
     private readonly ISubscriptionFinancialDocumentAnnouncer? _documents;
@@ -133,6 +140,18 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
         var now = _time.GetUtcNow().UtcDateTime;
         await AuditAsync(subscription, "Started", "InProgress", null, null, null,
             subscription.DunningAttemptCount + 1, cancellationToken);
+
+        // Spec 009: what is still owed for a change already applied comes first. A decline here
+        // is this attempt's outcome; a success clears it and, if the period is not due yet, is
+        // the whole of this renewal.
+        if (subscription.OutstandingSettlement is { } outstanding)
+        {
+            if (!await RetryOutstandingSettlementAsync(subscription, outstanding, now, cancellationToken) ||
+                subscription.CurrentPeriodEndUtc > now)
+            {
+                return;
+            }
+        }
 
         // An invoice-billed subscription skips the gateway. It has no card to look for, and must
         // never be moved to Unpaid for lacking one: the period simply opens, and an Unpaid invoice
@@ -895,6 +914,12 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             PaymentLogValue.Label(period.Key));
 
         await ScheduleNextRenewalAsync(subscription, period, cancellationToken);
+
+        if (_scheduler is not null && paymentDetailId is { Length: > 0 })
+        {
+            await _scheduler.ScheduleChargeSettlementWatchAsync(
+                subscription, paymentDetailId, 1, subscription.CorrelationId, cancellationToken);
+        }
         await AuditAsync(subscription, "StateApplied", "Succeeded", null, null,
             paymentDetailId, attemptNumber, cancellationToken);
     }
@@ -1172,12 +1197,202 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
             ? pending
             : null;
 
+    /// <inheritdoc />
+    public async Task RecordLateChargeFailureAsync(
+        SubscriptionDetail subscription,
+        PaymentDetail payment,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(payment);
+
+        if (subscription.Status is not (SubscriptionStatus.Active or SubscriptionStatus.PastDue))
+        {
+            // Cancelled, unpaid or never live: nothing to collect against, so only the log says so.
+            _logger.LogWarning(
+                "A late charge failure was ignored because the subscription is not live " +
+                "SubscriptionId={SubscriptionId} Status={Status} PaymentId={PaymentId}",
+                PaymentLogValue.Id(subscription.ItemId),
+                PaymentLogValue.Label(subscription.Status.ToString()),
+                PaymentLogValue.Id(payment.ItemId));
+
+            return;
+        }
+
+        if (subscription.OutstandingSettlement is { } already &&
+            string.Equals(already.FailedPaymentDetailId, payment.ItemId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (_minorUnits is null ||
+            !_minorUnits.TryConvert(payment.PreciseAmount, payment.CurrencyCode, out var amountMinor))
+        {
+            _logger.LogError(
+                "A late charge failure could not be recorded because its amount could not be " +
+                "read back SubscriptionId={SubscriptionId} PaymentId={PaymentId} Currency={Currency}",
+                PaymentLogValue.Id(subscription.ItemId),
+                PaymentLogValue.Id(payment.ItemId),
+                PaymentLogValue.Label(payment.CurrencyCode));
+
+            return;
+        }
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var outstanding = subscription.OutstandingSettlement ?? new OutstandingSettlement
+        {
+            CurrencyCode = payment.CurrencyCode,
+            OrderId = payment.OrderId ?? SubscriptionConstants.OrderIdFor(subscription.ItemId),
+            Description = payment.Description,
+            TaxRateBasisPoints = payment.SubscriptionTaxRateBasisPoints,
+            TaxMode = payment.SubscriptionTaxMode,
+            AutomaticDiscountBasisPoints = payment.SubscriptionAutomaticDiscountBasisPoints,
+            QuantityDiscountBasisPoints = payment.SubscriptionQuantityDiscountBasisPoints,
+            DiscountCombination = payment.SubscriptionDiscountCombination,
+            Settlement = payment.SubscriptionSettlement
+        };
+
+        // A second failure while one is open adds to it: one amount, one dunning cycle.
+        outstanding.AmountMinor += amountMinor;
+        outstanding.NetAmountMinor += payment.SubscriptionNetAmountMinor ?? 0;
+        outstanding.TaxAmountMinor += payment.SubscriptionTaxAmountMinor ?? 0;
+        outstanding.GrossAmountMinor += payment.SubscriptionGrossAmountMinor ?? 0;
+        outstanding.BuiltInDiscountMinor += payment.SubscriptionBuiltInDiscountMinor ?? 0;
+        outstanding.PromotionalDiscountMinor += payment.SubscriptionPromotionalDiscountMinor ?? 0;
+        outstanding.FailedPaymentDetailId = payment.ItemId;
+        outstanding.FailedAtUtc = now;
+
+        _logger.LogWarning(
+            "An applied subscription charge failed after acceptance and is now outstanding " +
+            "SubscriptionId={SubscriptionId} PaymentId={PaymentId} PaymentStatus={PaymentStatus} " +
+            "OutstandingMinor={OutstandingMinor}",
+            PaymentLogValue.Id(subscription.ItemId),
+            PaymentLogValue.Id(payment.ItemId),
+            PaymentLogValue.Label(payment.PaymentStatus),
+            outstanding.AmountMinor);
+
+        await ApplyFailureAsync(
+            subscription,
+            outstanding.SettlementId,
+            subscription.DunningAttemptCount + 1,
+            now,
+            cancellationToken,
+            outstanding);
+    }
+
+    /// <summary>
+    /// Charges an outstanding settlement again. True when it settled; false when this attempt
+    /// failed and the dunning outcome has been written.
+    /// </summary>
+    private async Task<bool> RetryOutstandingSettlementAsync(
+        SubscriptionDetail subscription,
+        OutstandingSettlement outstanding,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var attemptNumber = subscription.DunningAttemptCount + 1;
+        var account = await _billingAccounts.GetAsync(
+            subscription.TenantId, subscription.BillingAccountId, cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(account?.DefaultPaymentMethodId))
+        {
+            await MoveToUnpaidAsync(subscription, "no_payment_method", cancellationToken);
+
+            return false;
+        }
+
+        outstanding.AttemptCount += 1;
+
+        var outcome = await _gateway.ChargeAsync(
+            new SubscriptionChargeRequest
+            {
+                TenantId = subscription.TenantId,
+                OrganizationId = account.ProviderOrganizationId ?? subscription.OrganizationId,
+                SubscriberOrganizationId = subscription.OrganizationId,
+                ProviderName = account.ProviderName,
+                StoredPaymentMethodId = account.DefaultPaymentMethodId,
+                ProviderCustomerId = account.ProviderCustomerId,
+                AmountMinor = outstanding.AmountMinor,
+                CurrencyCode = outstanding.CurrencyCode,
+                OrderId = outstanding.OrderId,
+                Description = outstanding.Description,
+                NetAmountMinor = outstanding.NetAmountMinor,
+                TaxAmountMinor = outstanding.TaxAmountMinor,
+                TaxRateBasisPoints = outstanding.TaxRateBasisPoints,
+                TaxMode = Enum.TryParse<TaxMode>(outstanding.TaxMode, out var taxMode) ? taxMode : null,
+                GrossAmountMinor = outstanding.GrossAmountMinor,
+                BuiltInDiscountMinor = outstanding.BuiltInDiscountMinor,
+                PromotionalDiscountMinor = outstanding.PromotionalDiscountMinor,
+                AutomaticDiscountBasisPoints = outstanding.AutomaticDiscountBasisPoints,
+                QuantityDiscountBasisPoints = outstanding.QuantityDiscountBasisPoints,
+                DiscountCombination = outstanding.DiscountCombination,
+                Settlement = outstanding.Settlement
+            },
+            SubscriptionConstants.OutstandingSettlementKeyFor(outstanding.SettlementId, outstanding.AttemptCount),
+            subscription.CorrelationId,
+            cancellationToken);
+
+        await AuditAsync(subscription, "OutstandingSettlementCharged",
+            outcome.IsSuccess ? "Succeeded" : "Failed", outcome.ErrorCode,
+            outstanding.AmountMinor, outcome.Value, attemptNumber, cancellationToken);
+
+        if (!outcome.IsSuccess)
+        {
+            await ApplyFailureAsync(
+                subscription, outstanding.SettlementId, attemptNumber, now, cancellationToken, outstanding);
+
+            return false;
+        }
+
+        var applied = await _subscriptions.TryTransitionAsync(
+            subscription.TenantId,
+            subscription.ItemId,
+            new SubscriptionTransition(subscription.Status, SubscriptionStatus.Active)
+            {
+                ClearOutstandingSettlement = true,
+                ClearPastDueSinceAt = true,
+                DunningAttemptCount = 0,
+                NextFeeBillingAtUtc = subscription.CurrentPeriodEndUtc,
+                LastRenewalPaymentDetailId = outcome.Value,
+                Event = _events.CreateRenewalOutcome(
+                    subscription,
+                    SubscriptionConstants.SubscriptionChargeSettled,
+                    outstanding.SettlementId,
+                    attemptNumber,
+                    subscription.CorrelationId)
+            },
+            cancellationToken);
+
+        if (!applied)
+        {
+            return false;
+        }
+
+        // The in-memory copy must agree with what was just written, because a period that is also
+        // due continues straight into the ordinary renewal, which compares against it.
+        subscription.Status = SubscriptionStatus.Active;
+        subscription.DunningAttemptCount = 0;
+        subscription.PastDueSinceUtc = null;
+        subscription.OutstandingSettlement = null;
+        subscription.NextFeeBillingAtUtc = subscription.CurrentPeriodEndUtc;
+        _cache.Invalidate(subscription.TenantId, subscription.OrganizationId);
+
+        if (_scheduler is not null && outcome.Value is { Length: > 0 } paymentDetailId)
+        {
+            await _scheduler.ScheduleChargeSettlementWatchAsync(
+                subscription, paymentDetailId, 1, subscription.CorrelationId, cancellationToken);
+        }
+
+        return true;
+    }
+
     private async Task ApplyFailureAsync(
         SubscriptionDetail subscription,
         string periodKey,
         int attemptNumber,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        OutstandingSettlement? outstanding = null)
     {
         var maxAttempts = Math.Max(1, _options.CurrentValue.DunningMaxAttempts);
 
@@ -1202,6 +1417,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 new SubscriptionTransition(SubscriptionStatus.Unpaid, SubscriptionStatus.Unpaid)
                 {
                     DunningAttemptCount = attemptNumber,
+                    OutstandingSettlement = outstanding,
                     Event = _events.CreateRenewalOutcome(
                         subscription,
                         SubscriptionConstants.SubscriptionRenewalFailed,
@@ -1229,6 +1445,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 {
                     PastDueSinceUtc = now,
                     DunningAttemptCount = attemptNumber,
+                    OutstandingSettlement = outstanding,
                     NextFeeBillingAtUtc = NextDunningAttemptAt(now),
                     Event = _events.CreateRenewalOutcome(
                         subscription,
@@ -1253,6 +1470,7 @@ public sealed class SubscriptionRenewalService : ISubscriptionRenewalService
                 new SubscriptionTransition(SubscriptionStatus.PastDue, SubscriptionStatus.PastDue)
                 {
                     DunningAttemptCount = attemptNumber,
+                    OutstandingSettlement = outstanding,
                     NextFeeBillingAtUtc = NextDunningAttemptAt(now),
                     Event = _events.CreateRenewalOutcome(
                         subscription,

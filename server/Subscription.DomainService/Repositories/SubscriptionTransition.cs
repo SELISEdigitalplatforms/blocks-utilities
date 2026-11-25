@@ -211,6 +211,11 @@ public sealed record SubscriptionTransition(
     /// </remarks>
     public bool RequireCancellationNotAlreadyScheduled { get; init; }
 
+    /// <summary>Record (or replace) what the subscription still owes. See <see cref="Entities.OutstandingSettlement"/>.</summary>
+    public OutstandingSettlement? OutstandingSettlement { get; init; }
+
+    public bool ClearOutstandingSettlement { get; init; }
+
     public SubscriptionOutboxEvent? Event { get; init; }
 
     /// <summary>
