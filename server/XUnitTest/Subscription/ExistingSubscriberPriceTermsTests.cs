@@ -249,7 +249,8 @@ public sealed class ExistingSubscriberPriceTermsTests
                 new ControlledTimeProvider(new DateTimeOffset(December1)),
                 NullLogger<ExistingSubscriberPriceTerms>.Instance)
             .ApplyMeterRatesAsync(
-                TenantId, PlanId, MeterKey, rateTables, "Operator", "corr-1", CancellationToken.None);
+                TenantId, PlanId, MeterKey, rateTables, "Operator", "actor-1", "user-1", "corr-1",
+                CancellationToken.None);
 
     private static List<MeterRateTable> Rates(params (string Currency, long UnitAmountMinor)[] rates) =>
         rates.Select(rate => new MeterRateTable
@@ -339,10 +340,10 @@ public sealed class ExistingSubscriberPriceTermsTests
                     TaxMode = terms.TaxMode
                 },
                 "Operator",
-                "corr-1",
-                CancellationToken.None,
                 "actor-1",
-                "user-1");
+                "user-1",
+                "corr-1",
+                CancellationToken.None);
 
     /// <summary>A monthly subscriber on an 8% discount, paid through 1 December.</summary>
     private static SubscriptionDetail OnPrice(string id = "sub-1") => new()

@@ -32,6 +32,11 @@ public sealed class PaymentAuditTrail : IPaymentAuditTrail
     {
         ArgumentNullException.ThrowIfNull(entry);
 
+        if (entry.FailureKind == Enums.PaymentFailureKind.RateLimited)
+        {
+            return;
+        }
+
         try
         {
             if (_context.Resolve(correlationId).Context is not { } context)
@@ -64,9 +69,11 @@ public sealed class PaymentAuditTrail : IPaymentAuditTrail
                     Detail = entry.Detail,
                     OccurredAtUtc = _time.GetUtcNow().UtcDateTime
                 },
-                cancellationToken);
+                // Not the caller's token: the action has already happened, and a client that
+                // disconnects now must not cost it its record.
+                CancellationToken.None);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception)
         {
             _logger.LogCritical(
                 exception,
