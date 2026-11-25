@@ -484,6 +484,11 @@ export interface CreateSubscriptionPlanRequest {
  * plan, because neither may move once anything points at it.
  */
 export interface UpdateSubscriptionPlanRequest {
+  /**
+   * Also give subscribers already on the plan any changed credit terms — prices, limits, expiry,
+   * tax, or pausing and ending sales — immediately, emailing each one the change reaches.
+   */
+  applyCreditTermsToExistingSubscribers?: boolean;
   displayName: string;
   description?: string;
   featuresJson?: string;

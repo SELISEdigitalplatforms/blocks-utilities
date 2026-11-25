@@ -29,7 +29,8 @@ public sealed class SubscriptionNotificationEmailServiceTests
         "PreviousDiscount", "NewDiscount", "PreviousTaxRate", "NewTaxRate",
         "PreviousTaxMode", "NewTaxMode",
         "MeterName", "PreviousOverageRate", "NewOverageRate",
-        "PreviousPrice", "NewPrice"
+        "PreviousPrice", "NewPrice",
+        "PreviousCreditPrice", "NewCreditPrice", "CreditsOnSale"
     ];
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
@@ -110,6 +111,7 @@ public sealed class SubscriptionNotificationEmailServiceTests
     [InlineData(SubscriptionConstants.SubscriptionCanceled)]
     [InlineData(SubscriptionConstants.SubscriptionCancellationWithdrawn)]
     [InlineData(SubscriptionConstants.SubscriptionOverageRatesChanged)]
+    [InlineData(SubscriptionConstants.SubscriptionCreditTermsChanged)]
     public async Task Every_purpose_sends_every_key_even_when_its_value_is_absent(string eventType)
     {
         await Service().SendAsync(Event(eventType), CancellationToken.None);
@@ -276,6 +278,32 @@ public sealed class SubscriptionNotificationEmailServiceTests
         _queued!.Payload.BodyDataContext["PreviousPrice"].Should().BeEmpty(
             "a template must not announce a price change that did not happen");
         _queued.Payload.BodyDataContext["NewPrice"].Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_credit_terms_change_names_both_credit_prices_and_whether_credits_are_on_sale()
+    {
+        long minorInOne = 100;
+        decimal before = 1.25m, after = 1.5m;
+        _currency.Setup(currency => currency.TryConvert(1m, "USD", out minorInOne)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(125, "USD", out before)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(150, "USD", out after)).Returns(true);
+        var lifecycleEvent = Event(SubscriptionConstants.SubscriptionCreditTermsChanged);
+        lifecycleEvent.MeterKey = "api-calls";
+        lifecycleEvent.MeterDisplayName = "API calls";
+        lifecycleEvent.CurrencyCode = "USD";
+        lifecycleEvent.PreviousCreditUnitAmountMinor = 125;
+        lifecycleEvent.CreditUnitAmountMinor = 150;
+        lifecycleEvent.CreditsOnSale = true;
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        var body = _queued!.Payload.BodyDataContext;
+        _queued.Payload.Purpose.Should().Be(SubscriptionConstants.CreditTermsChangedMailPurpose);
+        body["MeterName"].Should().Be("API calls");
+        body["PreviousCreditPrice"].Should().Be("1.25 USD");
+        body["NewCreditPrice"].Should().Be("1.50 USD");
+        body["CreditsOnSale"].Should().Be("true");
     }
 
     [Fact]

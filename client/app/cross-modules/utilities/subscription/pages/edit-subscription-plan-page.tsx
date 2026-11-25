@@ -254,6 +254,7 @@ export const EditSubscriptionPlanPage = () => {
       onUpdatePriceDiscount={updateAutomaticDiscount}
       // Only once sold: before that the form's own meters are the plan, and saving it is enough.
       existingMeters={plan.hasSubscribers ? plan.meters : undefined}
+      hasSubscribers={plan.hasSubscribers}
       onUpdateMeterRates={updateOverageRates}
       onSubmit={async (values) => {
         const { failures } = await submitPlanWithPrices({
@@ -275,7 +276,9 @@ export const EditSubscriptionPlanPage = () => {
           toast({
             variant: "success",
             title: t("EDIT_PAGE.SAVED"),
-            description: t("EDIT_PAGE.SAVED_DESCRIPTION", { name: values.displayName }),
+            description: values.applyCreditTermsToExistingSubscribers
+              ? t("EDIT_PAGE.SAVED_CREDITS_EXTENDED_DESCRIPTION", { name: values.displayName })
+              : t("EDIT_PAGE.SAVED_DESCRIPTION", { name: values.displayName }),
           });
         }
 

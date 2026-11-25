@@ -44,6 +44,7 @@ export const PLAN_BUILDER_STEP_OF_FIELD: Record<
 
   // 4 — Credits
   meterCredits: 4,
+  applyCreditTermsToExistingSubscribers: 4,
 
   // 5 — Trial
   trialDurationKind: 5,

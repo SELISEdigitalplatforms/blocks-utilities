@@ -95,6 +95,8 @@ export interface PlanBuilderProps {
    * and by the edit page for a plan nobody has subscribed to — the form's own meters cover that.
    */
   existingMeters?: PlanMeter[];
+  /** Editing a plan that already has subscribers; offers to push credit changes to them. */
+  hasSubscribers?: boolean;
   onUpdateMeterRates?: OnSaveMeterRates;
   /** Rejecting leaves the draft alone and shows the reason; the caller navigates on success. */
   onSubmit: (values: CreateSubscriptionPlanFormValues) => Promise<void>;
@@ -130,6 +132,7 @@ const PlanBuilderWizard = ({
   onUpdatePriceAmount,
   retiringPriceId = null,
   existingMeters,
+  hasSubscribers = false,
   onUpdateMeterRates,
   onSubmit,
 }: PlanBuilderProps) => {
@@ -396,7 +399,9 @@ const PlanBuilderWizard = ({
                       />
                     )}
                     {currentStep === 3 && <StepUsageLimits />}
-                    {currentStep === 4 && <StepCredits />}
+                    {currentStep === 4 && (
+                      <StepCredits offerApplyToExisting={isEditing && hasSubscribers} />
+                    )}
                     {currentStep === 5 && <StepTrial />}
                     {currentStep === 6 && <StepReview plan={summary} />}
                   </div>

@@ -941,6 +941,46 @@ public sealed class SubscriptionRepository : ISubscriptionRepository
         return result.ModifiedCount == 1;
     }
 
+    public async Task<bool> TrySetMeterTopUpAsync(
+        string tenantId,
+        string subscriptionId,
+        int expectedVersion,
+        string planId,
+        string meterKey,
+        MeterTopUpTerms? terms,
+        SubscriptionOutboxEvent? outboxEvent,
+        CancellationToken cancellationToken)
+    {
+        var update = Builders<SubscriptionDetail>.Update
+            .Set("Plan.Meters.$[meter].TopUp", terms?.Clone())
+            .Inc(subscription => subscription.Version, 1)
+            .Set(subscription => subscription.LastUpdatedDateUtc, DateTime.UtcNow);
+
+        if (outboxEvent is not null)
+        {
+            update = update.Push(subscription => subscription.OutboxEvents, outboxEvent);
+        }
+
+        var result = await Subscriptions(tenantId).UpdateOneAsync(
+            Builders<SubscriptionDetail>.Filter.And(
+                VersionedFilter(tenantId, subscriptionId, expectedVersion),
+                Builders<SubscriptionDetail>.Filter.Eq(
+                    subscription => subscription.Plan.PlanId,
+                    planId)),
+            update,
+            new UpdateOptions
+            {
+                ArrayFilters =
+                [
+                    new BsonDocumentArrayFilterDefinition<PlanMeter>(
+                        new BsonDocument("meter.MeterKey", meterKey))
+                ]
+            },
+            cancellationToken);
+
+        return result.ModifiedCount == 1;
+    }
+
     public async Task<bool> TrySetMeterRatesAsync(
         string tenantId,
         string subscriptionId,

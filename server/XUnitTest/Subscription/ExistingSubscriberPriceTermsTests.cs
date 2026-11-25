@@ -237,6 +237,112 @@ public sealed class ExistingSubscriberPriceTermsTests
         result.Skipped.Should().Be(1, "removing their currency must not leave their overage unpriced");
     }
 
+    [Fact]
+    public async Task A_credit_price_change_in_the_subscribers_currency_is_written_and_announced()
+    {
+        var (written, announced) = SetUpCreditPush(OnPlanWithCredits(currency: "CHF", unitAmountMinor: 125));
+
+        var result = await ApplyCreditsAsync(Credits(("CHF", 150)));
+
+        result.Scheduled.Should().Be(1);
+        written.Single()!.PriceIn("CHF")!.UnitAmountMinor.Should().Be(150);
+        announced.Single().Should().NotBeNull();
+        announced.Single()!.EventType.Should().Be(SubscriptionConstants.SubscriptionCreditTermsChanged);
+    }
+
+    [Fact]
+    public async Task A_credit_change_only_in_another_currency_is_written_without_an_email()
+    {
+        var subscriber = OnPlanWithCredits(currency: "CHF", unitAmountMinor: 125);
+        var (written, announced) = SetUpCreditPush(subscriber);
+
+        await ApplyCreditsAsync(Credits(("CHF", 125), ("EUR", 120)));
+
+        written.Should().ContainSingle("the copy is kept in step with the catalogue");
+        announced.Single().Should().BeNull("a CHF subscriber can never be quoted the EUR price");
+    }
+
+    [Fact]
+    public async Task A_subscriber_billed_by_invoice_is_never_emailed_about_credits()
+    {
+        var subscriber = OnPlanWithCredits(currency: "CHF", unitAmountMinor: 125);
+        subscriber.CollectionMethod = SubscriptionCollectionMethod.OfflineInvoice;
+        var (_, announced) = SetUpCreditPush(subscriber);
+
+        await ApplyCreditsAsync(Credits(("CHF", 150)));
+
+        announced.Single().Should().BeNull("an invoice-billed subscription cannot buy credits at all");
+    }
+
+    [Fact]
+    public async Task Identical_credit_terms_are_skipped()
+    {
+        var (written, _) = SetUpCreditPush(OnPlanWithCredits(currency: "CHF", unitAmountMinor: 125));
+
+        var result = await ApplyCreditsAsync(Credits(("CHF", 125)));
+
+        result.Skipped.Should().Be(1);
+        written.Should().BeEmpty();
+    }
+
+    private (List<MeterTopUpTerms?> Written, List<SubscriptionOutboxEvent?> Announced) SetUpCreditPush(
+        SubscriptionDetail subscriber)
+    {
+        var written = new List<MeterTopUpTerms?>();
+        var announced = new List<SubscriptionOutboxEvent?>();
+        _subscriptions
+            .Setup(repository => repository.ListRenewableOnPlanAsync(
+                TenantId, PlanId, null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([subscriber]);
+        _subscriptions
+            .Setup(repository => repository.TrySetMeterTopUpAsync(
+                TenantId, subscriber.ItemId, subscriber.Version, PlanId, MeterKey,
+                It.IsAny<MeterTopUpTerms?>(), It.IsAny<SubscriptionOutboxEvent?>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, string, int, string, string, MeterTopUpTerms?, SubscriptionOutboxEvent?, CancellationToken>(
+                (_, _, _, _, _, terms, outboxEvent, _) =>
+                {
+                    written.Add(terms);
+                    announced.Add(outboxEvent);
+                })
+            .ReturnsAsync(true);
+
+        return (written, announced);
+    }
+
+    private Task<PriceTermsExtension> ApplyCreditsAsync(MeterTopUpTerms terms) =>
+        new ExistingSubscriberPriceTerms(
+                _subscriptions.Object,
+                new SubscriptionOutboxEventFactory(),
+                Mock.Of<IOptionsMonitor<SubscriptionOptions>>(
+                    options => options.CurrentValue == new SubscriptionOptions()),
+                new ControlledTimeProvider(new DateTimeOffset(December1)),
+                NullLogger<ExistingSubscriberPriceTerms>.Instance)
+            .ApplyCreditTermsAsync(
+                TenantId, PlanId, MeterKey, terms, "Operator", "actor-1", "user-1", "corr-1",
+                CancellationToken.None);
+
+    private static MeterTopUpTerms Credits(params (string Currency, long UnitAmountMinor)[] prices) => new()
+    {
+        Enabled = true,
+        UnitPrices = [.. prices.Select(price => new MeterTopUpPrice
+        {
+            CurrencyCode = price.Currency,
+            UnitAmountMinor = price.UnitAmountMinor
+        })],
+        MinQuantity = 10,
+        MaxQuantity = 1_000
+    };
+
+    private static SubscriptionDetail OnPlanWithCredits(string currency, long unitAmountMinor)
+    {
+        var subscription = OnPlan(unitAmountMinor: 200);
+        subscription.CurrencyCode = currency;
+        subscription.Plan.Meters[0].TopUp = Credits((currency, unitAmountMinor));
+
+        return subscription;
+    }
+
     private const string PlanId = "plan-1";
     private const string MeterKey = "api-calls";
 
