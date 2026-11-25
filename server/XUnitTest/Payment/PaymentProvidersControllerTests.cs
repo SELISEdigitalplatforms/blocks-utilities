@@ -25,6 +25,7 @@ public sealed class PaymentProvidersControllerTests
     private readonly Mock<IPaymentProviderCredentialRotationService>
         _rotationService = new();
     private readonly Mock<IPaymentEncryptionAdminService> _encryptionService = new();
+    private readonly Mock<IPaymentAuditTrail> _audit = new();
 
     private PaymentProvidersController Controller()
     {
@@ -32,7 +33,8 @@ public sealed class PaymentProvidersControllerTests
             _queryService.Object,
             _configurationService.Object,
             _rotationService.Object,
-            _encryptionService.Object)
+            _encryptionService.Object,
+            _audit.Object)
         {
             ControllerContext = new ControllerContext
             {
@@ -315,5 +317,44 @@ public sealed class PaymentProvidersControllerTests
                 TraceId,
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task A_refused_credential_rotation_is_audited_with_its_error()
+    {
+        RotateReturns(PaymentProviderMutationResult.Failure(
+            PaymentFailureKind.Conflict,
+            "payment_provider_version_conflict",
+            "Stale.",
+            TraceId));
+
+        await Controller().RotatePaymentProviderCredentials("provider-9", RotateRequest(), CancellationToken.None);
+
+        _audit.Verify(trail => trail.RecordAsync(
+            It.Is<PaymentAuditEntry>(entry =>
+                entry.Operation == "PaymentProviderCredentialRotate" &&
+                entry.SubjectId == "provider-9" &&
+                entry.Outcome == "Rejected" &&
+                entry.ErrorCode == "payment_provider_version_conflict"),
+            TraceId,
+            It.IsAny<CancellationToken>()), Times.Once,
+            "a failed attempt on a merchant's credentials is what a security review looks for");
+    }
+
+    [Fact]
+    public async Task A_provider_update_is_audited_under_the_providers_organization()
+    {
+        UpdateReturns(PaymentProviderMutationResult.Success(ProviderResponse(), TraceId));
+
+        await Controller().UpdatePaymentProvider("provider-1", UpdateRequest(), CancellationToken.None);
+
+        _audit.Verify(trail => trail.RecordAsync(
+            It.Is<PaymentAuditEntry>(entry =>
+                entry.Operation == "PaymentProviderUpdate" &&
+                entry.Outcome == "Succeeded" &&
+                entry.ErrorCode == null &&
+                entry.OrganizationId == ProviderResponse().OrganizationId),
+            TraceId,
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 }

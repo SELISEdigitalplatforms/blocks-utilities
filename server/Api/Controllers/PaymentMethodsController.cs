@@ -13,11 +13,14 @@ public sealed class PaymentMethodsController : ControllerBase
     private readonly IStoredPaymentMethodQueryService _queryService;
     private readonly IStoredPaymentMethodRemovalService
         _removalService;
+    private readonly IPaymentAuditTrail? _audit;
 
     public PaymentMethodsController(
         IStoredPaymentMethodQueryService queryService,
-        IStoredPaymentMethodRemovalService removalService)
+        IStoredPaymentMethodRemovalService removalService,
+        IPaymentAuditTrail? audit = null)
     {
+        _audit = audit;
         _queryService = queryService;
         _removalService = removalService;
     }
@@ -92,6 +95,14 @@ public sealed class PaymentMethodsController : ControllerBase
                 paymentMethodId,
                 correlationId,
                 cancellationToken);
+
+        await AuditAsync(
+            new PaymentAuditEntry(
+                "PaymentMethodRemove", "PaymentMethod", paymentMethodId,
+                result.IsRemoved ? "Succeeded" : result.IsPending ? "Pending" : "Rejected",
+                result.IsRemoved || result.IsPending ? null : result.ErrorCode),
+            correlationId,
+            cancellationToken);
 
         ApplyRateLimitHeaders(result.RateLimit);
 
@@ -183,4 +194,8 @@ public sealed class PaymentMethodsController : ControllerBase
                 rateLimit.RetryAfterSeconds.ToString();
         }
     }
+
+    /// <summary>Never throws; see <see cref="IPaymentAuditTrail.RecordAsync"/>.</summary>
+    private Task AuditAsync(PaymentAuditEntry entry, string correlationId, CancellationToken cancellationToken) =>
+        _audit?.RecordAsync(entry, correlationId, cancellationToken) ?? Task.CompletedTask;
 }

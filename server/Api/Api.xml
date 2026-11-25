@@ -477,6 +477,17 @@
         <member name="M:Api.Controllers.OrganizationCreditsController.ListInvoices(Subscription.DomainService.Requests.GetFinancialDocumentsRequest,System.Threading.CancellationToken)">
             <summary>The invoices for the organization's standalone credit purchases, newest first.</summary>
         </member>
+        <member name="T:Api.Controllers.PaymentAuditController">
+            <summary>Who did what to payments, providers and saved cards, and how it ended.</summary>
+        </member>
+        <member name="M:Api.Controllers.PaymentAuditController.List(System.String,System.String,System.Int32,System.Threading.CancellationToken)">
+            <summary>
+            Newest first. The caller's own organization's events; the whole tenant's for the console or
+            a tenant-wide integration. Narrow with <c>subjectType</c> (<c>Payment</c>,
+            <c>PaymentProvider</c>, <c>PaymentMethod</c>, <c>Tenant</c>) and <c>subjectId</c>.
+            <c>limit</c> defaults to 100, at most 500. Actor ids stay in the database.
+            </summary>
+        </member>
         <member name="M:Api.Controllers.PaymentMethodsController.GetStoredPaymentMethods(System.String,System.Threading.CancellationToken)">
             <param name="organizationId">
             Honoured only for the console, whose own organization is fixed; every other caller is
@@ -484,6 +495,9 @@
             organization that saved them, so without this the console can never see the cards saved
             by the payments it took for another organization.
             </param>
+        </member>
+        <member name="M:Api.Controllers.PaymentMethodsController.AuditAsync(Payment.DomainService.Services.PaymentAuditEntry,System.String,System.Threading.CancellationToken)">
+            <summary>Never throws; see <see cref="M:Payment.DomainService.Services.IPaymentAuditTrail.RecordAsync(Payment.DomainService.Services.PaymentAuditEntry,System.String,System.Threading.CancellationToken)"/>.</summary>
         </member>
         <member name="M:Api.Controllers.PaymentProvidersController.GetPaymentProviders(System.Threading.CancellationToken)">
             <summary>
@@ -523,6 +537,9 @@
             nothing left to move.
             </remarks>
         </member>
+        <member name="M:Api.Controllers.PaymentProvidersController.AuditAsync(Payment.DomainService.Services.PaymentAuditEntry,System.String,System.Threading.CancellationToken)">
+            <summary>Never throws; see <see cref="M:Payment.DomainService.Services.IPaymentAuditTrail.RecordAsync(Payment.DomainService.Services.PaymentAuditEntry,System.String,System.Threading.CancellationToken)"/>.</summary>
+        </member>
         <member name="M:Api.Controllers.PaymentsController.RegisterProvider(Payment.DomainService.Requests.RegisterPaymentProviderRequest,System.Threading.CancellationToken)">
             <summary>
             Registers a payment provider for the calling tenant, once per organization the request
@@ -534,6 +551,9 @@
             did not all succeed: the organizations are independent, so reporting a single verdict
             would have to either discard the successes or hide the failures.
             </remarks>
+        </member>
+        <member name="M:Api.Controllers.PaymentsController.AuditAsync(Payment.DomainService.Services.PaymentAuditEntry,System.String,System.Threading.CancellationToken)">
+            <summary>Never throws; see <see cref="M:Payment.DomainService.Services.IPaymentAuditTrail.RecordAsync(Payment.DomainService.Services.PaymentAuditEntry,System.String,System.Threading.CancellationToken)"/>.</summary>
         </member>
         <member name="M:Api.Controllers.PaymentWebhooksController.Adyen">
             <summary>

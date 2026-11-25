@@ -677,6 +677,39 @@ newline in one would let a request forge log entries.
 Personal data — the shopper's email, name and phone — is still hashed or absent. The tenant
 identifier is still hashed as well, which is worth knowing when filtering.
 
+## Who did what: the payment audit trail
+
+Logs say *how* something happened and age out. The audit trail says **who did what, when, and how
+it ended**, and is kept forever (`PaymentAuditEvents`, append-only, no TTL). Every portal or API
+action below is recorded, refused attempts included:
+
+| Operation | Subject | When |
+| --- | --- | --- |
+| `PaymentProviderRegister` | `PaymentProvider` | A provider is registered; one record per organization it reached |
+| `PaymentProviderUpdate` | `PaymentProvider` | A provider's settings are changed |
+| `PaymentProviderCredentialRotate` | `PaymentProvider` | Its credentials are rotated |
+| `PaymentSecretsReEncrypt` | `Tenant` | Stored secrets are re-encrypted under the current key |
+| `PaymentCreate`, `RecurringPaymentCreate` | `Payment` | A payment is requested |
+| `PaymentRefund`, `PaymentCapture` | `Payment` | A refund or capture is requested on a payment |
+| `PaymentMethodRemove` | `PaymentMethod` | A saved card is removed |
+
+Each event carries `Outcome` (`Succeeded`, `Replayed` for an idempotent repeat, `Pending`,
+`Rejected`), the `ErrorCode` of a refusal, the amount where there is one (major units), a short
+`Detail`, the `CorrelationId` that joins it to the logs, and who acted (`ActorId`, `UserId`).
+Never a card number, a token, a provider payload or a secret.
+
+An event is filed under the **subject's** organization when it is known — a console refund of a
+customer's payment is that customer's history — else the caller's.
+
+**Reading it:** `GET payment-audit?subjectType=Payment&subjectId={paymentDetailId}&limit=100`
+(`payment::read`). An organization sees only its own events; the console and a tenant-wide
+integration see the whole tenant. Newest first; `limit` defaults to 100, at most 500. Actor and user
+ids stay in the database.
+
+**Failure:** an audit write never fails the action it describes. A failed write is logged as
+`PAYMENT_AUDIT_WRITE_FAILED` (critical) and swallowed — alert on it. Webhook-driven state changes are
+not in this trail; they are the payment's own status history.
+
 ## Settings worth knowing about
 
 Everything lives under the `Payment` configuration section. Most values are
