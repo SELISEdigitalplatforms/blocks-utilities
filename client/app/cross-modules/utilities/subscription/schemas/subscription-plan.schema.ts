@@ -579,6 +579,8 @@ export const buildSubscriptionPlanSchema = ({ requirePrice }: { requirePrice: bo
       entitlements: z.array(entitlementSchema()),
       trialGrants: z.array(trialGrantSchema()),
       meterCredits: z.array(meterCreditSchema()).default([]),
+      /** Editing only: push changed credit terms to subscribers already on the plan. */
+      applyCreditTermsToExistingSubscribers: z.boolean().default(false),
       prices: z.array(subscriptionPriceFieldsSchema()),
     })
     .superRefine((plan, context) => {
@@ -971,6 +973,7 @@ export const defaultSubscriptionPlanFormValues: CreateSubscriptionPlanFormValues
   entitlements: [],
   trialGrants: [],
   meterCredits: [],
+  applyCreditTermsToExistingSubscribers: false,
   // One empty row, not none: a plan needs a price, and an admin who never notices the section is
   // the one who ends up with a plan nobody can subscribe to.
   prices: [defaultSubscriptionPriceFormValues],

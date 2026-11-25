@@ -64,7 +64,12 @@ export const creditExpiryUnitOptions = (t: Translate): { value: number; label: s
   { value: CREDIT_EXPIRY_UNIT.Year, label: t("STEP_CREDITS.UNIT_YEARS") },
 ];
 
-export const StepCredits = () => {
+export const StepCredits = ({
+  offerApplyToExisting = false,
+}: {
+  /** Editing a plan that has subscribers: offer to push credit changes to them too. */
+  offerApplyToExisting?: boolean;
+}) => {
   const { t } = useT("utilities.subscription.plan-builder");
   const { control } = useFormContext<CreateSubscriptionPlanFormValues>();
   const credits = useFieldArray({ control, name: "meterCredits" });
@@ -115,6 +120,26 @@ export const StepCredits = () => {
             </CardListItem>
           ))}
         </CardListShell>
+      )}
+
+      {offerApplyToExisting && (
+        <FormField
+          control={control}
+          name="applyCreditTermsToExistingSubscribers"
+          render={({ field }) => (
+            <FormItem className="flex items-start gap-2 space-y-0">
+              <FormControl>
+                <Checkbox
+                  checked={field.value === true}
+                  onCheckedChange={(value) => field.onChange(value === true)}
+                />
+              </FormControl>
+              <FormLabel className="!m-0 text-xs font-normal leading-snug text-muted-foreground">
+                {t("STEP_CREDITS.APPLY_TO_EXISTING_SUBSCRIBERS")}
+              </FormLabel>
+            </FormItem>
+          )}
+        />
       )}
     </div>
   );

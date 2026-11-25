@@ -62,6 +62,17 @@ public interface ISubscriptionOutboxEventFactory
         string correlationId);
 
     /// <summary>
+    /// A meter's new credit terms extended to this subscriber, in effect immediately. Built from the
+    /// subscription before the write, so its plan copy still carries the terms being replaced.
+    /// </summary>
+    SubscriptionOutboxEvent CreateCreditTermsChanged(
+        SubscriptionDetail subscription,
+        PlanMeter meter,
+        MeterTopUpTerms? terms,
+        string? actorName,
+        string correlationId);
+
+    /// <summary>
     /// A plan change. <paramref name="subscription"/>'s own <c>Plan.Code</c> must already be the
     /// new one — this only needs told what it changed <em>from</em>.
     /// </summary>

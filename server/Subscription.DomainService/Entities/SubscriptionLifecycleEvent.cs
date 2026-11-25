@@ -149,6 +149,18 @@ public sealed class SubscriptionLifecycleEvent
     /// <summary>Set on extended overage rates: the bands billed from now on.</summary>
     public List<MeterTier>? OverageTiers { get; set; }
 
+    /// <summary>
+    /// Set on extended credit terms: one credit's price in the subscription's currency before the
+    /// change. Null when credits were not priced in it.
+    /// </summary>
+    public long? PreviousCreditUnitAmountMinor { get; set; }
+
+    /// <summary>Set on extended credit terms: one credit's price from now on.</summary>
+    public long? CreditUnitAmountMinor { get; set; }
+
+    /// <summary>Set on extended credit terms: whether credits can be bought from now on.</summary>
+    public bool? CreditsOnSale { get; set; }
+
     /// <summary>Set on an organization credit purchase (spec 005): the purchase record.</summary>
     public string? CreditPurchaseId { get; set; }
 

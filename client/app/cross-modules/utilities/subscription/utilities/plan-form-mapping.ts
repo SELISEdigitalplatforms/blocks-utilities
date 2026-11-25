@@ -161,6 +161,7 @@ export const toUpdatePlanRequest = (
 ): UpdateSubscriptionPlanRequest => ({
   organizationId: organizationId ?? undefined,
   ...toPlanDefinition(values),
+  applyCreditTermsToExistingSubscribers: values.applyCreditTermsToExistingSubscribers === true,
 });
 
 /** Response enums arrive as names; the form and the request body both want the number. */

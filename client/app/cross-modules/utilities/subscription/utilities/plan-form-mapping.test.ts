@@ -167,6 +167,16 @@ describe("planToFormValues", () => {
 });
 
 describe("toUpdatePlanRequest", () => {
+  it("pushes credit changes to existing subscribers only when the box is ticked", () => {
+    const values = planToFormValues(storedPlan());
+
+    expect(toUpdatePlanRequest(values, "org-1").applyCreditTermsToExistingSubscribers).toBe(false);
+    expect(
+      toUpdatePlanRequest({ ...values, applyCreditTermsToExistingSubscribers: true }, "org-1")
+        .applyCreditTermsToExistingSubscribers,
+    ).toBe(true);
+  });
+
   it("names the plan's own organization so the server can find it", () => {
     const request = toUpdatePlanRequest(planToFormValues(storedPlan()), "org-1");
 

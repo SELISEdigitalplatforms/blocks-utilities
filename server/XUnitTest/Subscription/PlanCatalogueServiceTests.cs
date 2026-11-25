@@ -1337,6 +1337,80 @@ public sealed class PlanCatalogueServiceTests
         _updated!.Entitlements[0].Limit.Should().Be(500);
     }
 
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public async Task A_credit_price_change_is_recorded_and_pushed_only_when_asked(bool apply, int scheduled)
+    {
+        var stored = StoredPlan();
+        stored.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screening",
+                TopUp = new MeterTopUpTerms
+                {
+                    Enabled = true,
+                    UnitPrices = [new MeterTopUpPrice { CurrencyCode = "CHF", UnitAmountMinor = 125 }],
+                    MinQuantity = 50,
+                    MaxQuantity = 500
+                }
+            }
+        ];
+        StorePlan(stored);
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _scheduler = new Mock<ISubscriptionWorkScheduler>();
+        var edited = EditedPlan();
+        edited.Meters[0].TopUp = new MeterTopUpRequest
+        {
+            Enabled = true,
+            UnitPrices = [new MeterTopUpPriceRequest { CurrencyCode = "chf", UnitAmountMinor = 150 }],
+            MinQuantity = 50,
+            MaxQuantity = 500
+        };
+        edited.ApplyCreditTermsToExistingSubscribers = apply;
+
+        var result = await Service().UpdatePlanAsync("plan-1", edited, "corr-1", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _auditTrail.Verify(trail => trail.RecordAsync(
+            It.Is<SubscriptionAuditEvent>(recorded =>
+                recorded.Operation == "PlanCreditTermsUpdate" &&
+                recorded.AggregateId == "plan-1" &&
+                recorded.Detail!.Contains("CHF 125") && recorded.Detail.Contains("CHF 150")),
+            It.IsAny<CancellationToken>()), Times.Once,
+            "a credit price change is recorded whether or not it is pushed");
+        _scheduler.Verify(scheduler => scheduler.TryScheduleAsync(
+            SubscriptionWorkType.PlanCreditTermsPropagation,
+            TenantId,
+            "plan-credit-terms/plan-1/corr-1/screening",
+            It.IsAny<DateTime>(),
+            "corr-1",
+            "plan-1",
+            It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()), Times.Exactly(scheduled));
+    }
+
+    [Fact]
+    public async Task An_edit_that_leaves_credit_terms_alone_pushes_nothing_even_when_asked()
+    {
+        StorePlan(StoredPlan());
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _scheduler = new Mock<ISubscriptionWorkScheduler>();
+        var edited = EditedPlan();
+        edited.ApplyCreditTermsToExistingSubscribers = true;
+
+        await Service().UpdatePlanAsync("plan-1", edited, "corr-1", CancellationToken.None);
+
+        _scheduler.VerifyNoOtherCalls();
+    }
+
     /// <summary>
     /// Starting to sell credits on a sold plan reaches the subscribers already on it. Without this
     /// an existing customer is told the credits are "not for sale" while a newer one beside them

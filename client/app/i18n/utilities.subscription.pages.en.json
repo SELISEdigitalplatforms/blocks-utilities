@@ -121,6 +121,7 @@
   "EDIT_PAGE.PRICE_RETIRED_DESCRIPTION": "It is no longer offered. Anyone already on it keeps their terms and renewals.",
   "EDIT_PAGE.RETIRE_FAILED": "The price could not be retired",
   "EDIT_PAGE.SAVED": "Changes saved",
+  "EDIT_PAGE.SAVED_CREDITS_EXTENDED_DESCRIPTION": "{{name}} was saved. Existing subscribers are being given the new credit terms and emailed.",
   "EDIT_PAGE.SAVED_DESCRIPTION": "{{name}} is up to date.",
   "EDIT_PAGE.SUBMITTING": "Saving…",
   "EDIT_PAGE.OVERAGE_RATES_APPLIED_DESCRIPTION": "New and existing subscribers use the new rates now. Existing subscribers whose rate changed are being emailed.",
