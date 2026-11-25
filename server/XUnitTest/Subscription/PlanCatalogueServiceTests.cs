@@ -1394,21 +1394,97 @@ public sealed class PlanCatalogueServiceTests
             It.IsAny<CancellationToken>()), Times.Exactly(scheduled));
     }
 
+    /// <summary>
+    /// The case the option exists for: terms changed before it existed, so the plan already holds
+    /// them and only the subscribers are behind. Re-saving with the box ticked must reach them even
+    /// though nothing changes in that save.
+    /// </summary>
     [Fact]
-    public async Task An_edit_that_leaves_credit_terms_alone_pushes_nothing_even_when_asked()
+    public async Task Re_saving_unchanged_credit_terms_with_the_box_pushes_the_current_terms()
     {
-        StorePlan(StoredPlan());
+        StorePlan(StoredPlanSellingCredits(unitAmountMinor: 80));
         _catalogue
             .Setup(repository => repository.TryUpdatePlanAsync(
                 TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         _scheduler = new Mock<ISubscriptionWorkScheduler>();
-        var edited = EditedPlan();
+        var edited = EditedPlanSellingCredits(unitAmountMinor: 80);
         edited.ApplyCreditTermsToExistingSubscribers = true;
 
         await Service().UpdatePlanAsync("plan-1", edited, "corr-1", CancellationToken.None);
 
+        _scheduler.Verify(scheduler => scheduler.TryScheduleAsync(
+            SubscriptionWorkType.PlanCreditTermsPropagation,
+            TenantId,
+            "plan-credit-terms/plan-1/corr-1/screening",
+            It.IsAny<DateTime>(),
+            "corr-1",
+            "plan-1",
+            It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()), Times.Once,
+            "subscribers still on the old terms are brought in step without changing the plan");
+        _auditTrail.Verify(trail => trail.RecordAsync(
+            It.Is<SubscriptionAuditEvent>(recorded => recorded.Operation == "PlanCreditTermsReapply"),
+            It.IsAny<CancellationToken>()), Times.Once,
+            "a push can reprice and email subscribers, so who asked for it is recorded");
+        _auditTrail.Verify(trail => trail.RecordAsync(
+            It.Is<SubscriptionAuditEvent>(recorded => recorded.Operation == "PlanCreditTermsUpdate"),
+            It.IsAny<CancellationToken>()), Times.Never,
+            "nothing about the terms changed in this save");
+    }
+
+    [Fact]
+    public async Task Re_saving_unchanged_credit_terms_without_the_box_pushes_and_records_nothing()
+    {
+        StorePlan(StoredPlanSellingCredits(unitAmountMinor: 80));
+        _catalogue
+            .Setup(repository => repository.TryUpdatePlanAsync(
+                TenantId, "plan-1", 1, It.IsAny<Plan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _scheduler = new Mock<ISubscriptionWorkScheduler>();
+
+        await Service().UpdatePlanAsync(
+            "plan-1", EditedPlanSellingCredits(unitAmountMinor: 80), "corr-1", CancellationToken.None);
+
         _scheduler.VerifyNoOtherCalls();
+        _auditTrail.Verify(trail => trail.RecordAsync(
+            It.Is<SubscriptionAuditEvent>(recorded => recorded.Operation.StartsWith("PlanCreditTerms")),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static Plan StoredPlanSellingCredits(long unitAmountMinor)
+    {
+        var stored = StoredPlan();
+        stored.Meters =
+        [
+            new PlanMeter
+            {
+                MeterKey = "screening",
+                TopUp = new MeterTopUpTerms
+                {
+                    Enabled = true,
+                    UnitPrices = [new MeterTopUpPrice { CurrencyCode = "CHF", UnitAmountMinor = unitAmountMinor }],
+                    MinQuantity = 50,
+                    MaxQuantity = 500
+                }
+            }
+        ];
+
+        return stored;
+    }
+
+    private static UpdatePlanRequest EditedPlanSellingCredits(long unitAmountMinor)
+    {
+        var edited = EditedPlan();
+        edited.Meters[0].TopUp = new MeterTopUpRequest
+        {
+            Enabled = true,
+            UnitPrices = [new MeterTopUpPriceRequest { CurrencyCode = "chf", UnitAmountMinor = unitAmountMinor }],
+            MinQuantity = 50,
+            MaxQuantity = 500
+        };
+
+        return edited;
     }
 
     /// <summary>
