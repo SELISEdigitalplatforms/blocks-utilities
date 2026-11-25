@@ -70,12 +70,24 @@ public sealed class PaymentAuditRepository : IPaymentAuditRepository
                 Builders<PaymentAuditEvent>.IndexKeys
                     .Ascending(x => x.TenantId).Ascending(x => x.OrganizationId)
                     .Descending(x => x.OccurredAtUtc),
-                new CreateIndexOptions { Name = "ix_payment_audit_organization" })
+                new CreateIndexOptions { Name = "ix_payment_audit_organization" }),
+
+            // The console's unfiltered list: tenant, newest first. Without it the sort runs in
+            // memory over every event in the tenant and fails once that passes MongoDB's limit.
+            new CreateIndexModel<PaymentAuditEvent>(
+                Builders<PaymentAuditEvent>.IndexKeys
+                    .Ascending(x => x.TenantId).Descending(x => x.OccurredAtUtc),
+                new CreateIndexOptions { Name = "ix_payment_audit_tenant_recent" })
         ], cancellationToken);
 
         _indexedTenants.TryAdd(tenantId, 0);
     }
 
     private IMongoCollection<PaymentAuditEvent> Events(string tenantId) =>
-        _db.GetDatabase(tenantId).GetCollection<PaymentAuditEvent>(CollectionName);
+        _db.GetDatabase(RequireTenant(tenantId)).GetCollection<PaymentAuditEvent>(CollectionName);
+
+    private static string RequireTenant(string tenantId) =>
+        !string.IsNullOrWhiteSpace(tenantId)
+            ? tenantId
+            : throw new InvalidOperationException("A tenant id is required for payment persistence.");
 }

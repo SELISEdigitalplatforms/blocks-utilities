@@ -45,7 +45,9 @@ public sealed class SubscriptionAuditTrail : ISubscriptionAuditTrail
 
         try
         {
-            await _repository.AppendAsync(auditEvent, cancellationToken);
+            // Not the caller's token: this records something that already happened, and a client
+            // disconnecting afterwards must neither lose the record nor raise a false alarm.
+            await _repository.AppendAsync(auditEvent, CancellationToken.None);
         }
         catch (Exception exception)
         {

@@ -69,10 +69,10 @@ public sealed class ExistingSubscriberPriceTerms
         string priceId,
         Func<PriceTerms, PriceTerms> edit,
         string? requestedByName,
+        string? actorId,
+        string? userId,
         string correlationId,
-        CancellationToken cancellationToken,
-        string? actorId = null,
-        string? userId = null)
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(edit);
 
@@ -90,7 +90,7 @@ public sealed class ExistingSubscriberPriceTerms
             {
                 extension = extension.Add(await ExtendToAsync(
                     subscription, priceId, edit, noticeEndsAtUtc, now, requestedByName,
-                    correlationId, cancellationToken, actorId, userId));
+                    actorId, userId, correlationId, cancellationToken));
             }
 
             if (page.Count < PageSize)
@@ -121,10 +121,10 @@ public sealed class ExistingSubscriberPriceTerms
         DateTime noticeEndsAtUtc,
         DateTime now,
         string? requestedByName,
-        string correlationId,
-        CancellationToken cancellationToken,
         string? actorId,
-        string? userId)
+        string? userId,
+        string correlationId,
+        CancellationToken cancellationToken)
     {
         // One re-read on a lost race: a subscriber renewing or changing seats at the same instant is
         // ordinary, and failing them over it would leave a gap the operator cannot see.
@@ -173,7 +173,7 @@ public sealed class ExistingSubscriberPriceTerms
                     cancellationToken))
             {
                 await RecordOnTimelineAsync(
-                    subscription, "PriceTermsScheduled", priceId, pending.EffectiveAtUtc,
+                    subscription, "PriceTermsScheduled", "Scheduled", priceId, pending.EffectiveAtUtc,
                     pending.Terms.UnitAmountMinor,
                     DescribeTermsChange(held?.Terms ?? PriceTerms.Of(subscription.Price), pending.Terms),
                     correlationId, actorId, userId, cancellationToken);
@@ -219,10 +219,10 @@ public sealed class ExistingSubscriberPriceTerms
         string meterKey,
         List<MeterRateTable> rateTables,
         string? requestedByName,
+        string? actorId,
+        string? userId,
         string correlationId,
-        CancellationToken cancellationToken,
-        string? actorId = null,
-        string? userId = null)
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rateTables);
 
@@ -237,8 +237,8 @@ public sealed class ExistingSubscriberPriceTerms
             foreach (var subscription in page)
             {
                 extension = extension.Add(await ApplyMeterRatesToAsync(
-                    subscription, planId, meterKey, rateTables, requestedByName, correlationId,
-                    cancellationToken, actorId, userId));
+                    subscription, planId, meterKey, rateTables, requestedByName,
+                    actorId, userId, correlationId, cancellationToken));
             }
 
             if (page.Count < PageSize)
@@ -270,10 +270,10 @@ public sealed class ExistingSubscriberPriceTerms
         string meterKey,
         List<MeterRateTable> rateTables,
         string? requestedByName,
-        string correlationId,
-        CancellationToken cancellationToken,
         string? actorId,
-        string? userId)
+        string? userId,
+        string correlationId,
+        CancellationToken cancellationToken)
     {
         // One re-read on a lost race, for the reason ExtendToAsync gives.
         for (var attempt = 0; attempt < 2; attempt++)
@@ -320,7 +320,7 @@ public sealed class ExistingSubscriberPriceTerms
                     cancellationToken))
             {
                 await RecordOnTimelineAsync(
-                    subscription, "OverageRatesApplied", null, null, null,
+                    subscription, "OverageRatesApplied", "Applied", null, null, null,
                     $"Overage rate for {meterKey}: {DescribeTiers(previous)} → {DescribeTiers(next)} " +
                         $"{subscription.CurrencyCode} (minor units)",
                     correlationId, actorId, userId, cancellationToken);
@@ -354,6 +354,7 @@ public sealed class ExistingSubscriberPriceTerms
     private Task RecordOnTimelineAsync(
         SubscriptionDetail subscription,
         string operation,
+        string outcome,
         string? priceId,
         DateTime? effectiveAtUtc,
         long? amountMinor,
@@ -374,8 +375,8 @@ public sealed class ExistingSubscriberPriceTerms
                     CorrelationId = correlationId,
                     Operation = operation,
                     Stage = "Catalogue",
-                    Outcome = "Scheduled",
-                    Source = "Api",
+                    Outcome = outcome,
+                    Source = actorId is null ? "Worker" : "Api",
                     ActorId = actorId,
                     UserId = userId,
                     TargetPriceId = priceId,

@@ -38,7 +38,8 @@ public static class SubscriptionWorkLogValue
     /// </remarks>
     public static bool AggregateIsSubscription(SubscriptionWorkType workType) =>
         workType is not (SubscriptionWorkType.FinancialDocumentIssue
-            or SubscriptionWorkType.FinancialDocumentDelivery);
+            or SubscriptionWorkType.FinancialDocumentDelivery
+            or SubscriptionWorkType.PlanMeterRatesPropagation);
 
     /// <summary>
     /// Scopes the lines that follow to one subscription, for code that learns the subscription only

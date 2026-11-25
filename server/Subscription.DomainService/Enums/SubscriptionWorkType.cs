@@ -75,5 +75,17 @@ public enum SubscriptionWorkType
     CreditGrantMaintenance = 12,
 
     /// <summary>Tell billing contacts whose card on file is about to expire.</summary>
-    PaymentMethodExpiryNotice = 13
+    PaymentMethodExpiryNotice = 13,
+
+    /// <summary>
+    /// Give every live subscriber on a plan a meter's current overage rates, after an operator
+    /// saved them with "apply to existing subscribers".
+    /// </summary>
+    /// <remarks>
+    /// Off the request because it writes once per subscriber, and a plan with thousands would time
+    /// the request out part-way. Reads the rates from the catalogue when it runs, so two edits in a
+    /// row push the latest, and repeating it is a no-op for anyone already on them.
+    /// <c>AggregateId</c> is the plan; the work key ends with the meter key.
+    /// </remarks>
+    PlanMeterRatesPropagation = 14
 }

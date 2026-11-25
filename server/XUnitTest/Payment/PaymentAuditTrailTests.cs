@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Payment.DomainService.Entities;
+using Payment.DomainService.Enums;
 using Payment.DomainService.Repositories;
 using Payment.DomainService.Responses;
 using Payment.DomainService.Services;
@@ -76,6 +77,35 @@ public sealed class PaymentAuditTrailTests
 
         await record.Should().NotThrowAsync(
             "a capture that happened must not be reported as one that did not, and invite a retry");
+    }
+
+    [Fact]
+    public async Task A_rate_limited_call_is_not_recorded()
+    {
+        Caller("org-1");
+
+        await Trail().RecordAsync(
+            new PaymentAuditEntry("PaymentCreate", "Payment", null, "Rejected", "payment_rate_limited",
+                FailureKind: PaymentFailureKind.RateLimited),
+            "corr-1",
+            CancellationToken.None);
+
+        _written.Should().BeEmpty("nothing was attempted, and the collection is kept forever");
+    }
+
+    [Fact]
+    public async Task A_caller_that_disconnects_after_a_refund_still_leaves_its_record()
+    {
+        Caller("org-1");
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await Trail().RecordAsync(
+            new PaymentAuditEntry("PaymentRefund", "Payment", "pay-1", "Succeeded"), "corr-1", cancelled.Token);
+
+        _repository.Verify(repository => repository.AppendAsync(
+            It.IsAny<PaymentAuditEvent>(), CancellationToken.None), Times.Once,
+            "the refund already happened; the request going away must not cancel its record");
     }
 
     [Theory]

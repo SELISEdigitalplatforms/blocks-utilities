@@ -9,6 +9,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Validators;
 
 namespace Subscription.DomainService.Services;
@@ -41,8 +42,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         ILogger<PlanCatalogueService> logger,
         ExistingSubscriberPriceTerms existingSubscribers,
         IMeterCatalogueService? meterCatalogue = null,
-        ISubscriptionAuditRepository? auditEvents = null)
+        ISubscriptionAuditRepository? auditEvents = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
+        _scheduler = scheduler;
         _auditEvents = auditEvents;
         _existingSubscribers = existingSubscribers;
         _meterCatalogue = meterCatalogue;
@@ -62,6 +65,9 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
 
     /// <summary>Optional: absent, a plan's history reads back empty rather than failing.</summary>
     private readonly ISubscriptionAuditRepository? _auditEvents;
+
+    /// <summary>Optional: absent (tests, hosts without a worker), overage rates are pushed inline.</summary>
+    private readonly ISubscriptionWorkScheduler? _scheduler;
 
     public async Task<SubscriptionOperationResult<PlanResponse>> CreatePlanAsync(
         CreatePlanRequest request,
@@ -955,10 +961,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                     TaxMode = terms.TaxMode
                 },
                 context.ActorName,
-                correlationId,
-                cancellationToken,
                 context.ActorId,
-                context.UserId);
+                context.UserId,
+                correlationId,
+                cancellationToken);
         }
 
         return await GetPlanAsync(
@@ -1055,10 +1061,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                     TaxMode = modeToStore
                 },
                 context.ActorName,
-                correlationId,
-                cancellationToken,
                 context.ActorId,
-                context.UserId);
+                context.UserId,
+                correlationId,
+                cancellationToken);
         }
 
         return await GetPlanAsync(
@@ -1158,10 +1164,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                     TaxMode = terms.TaxMode
                 },
                 context.ActorName,
-                correlationId,
-                cancellationToken,
                 context.ActorId,
-                context.UserId);
+                context.UserId,
+                correlationId,
+                cancellationToken);
         }
 
         return await GetPlanAsync(
@@ -1273,20 +1279,33 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 $"{DescribeRates(rateTables)}" +
                 (request.ApplyToExistingSubscribers ? "; applied to existing subscribers now" : string.Empty));
 
-        if (request.ApplyToExistingSubscribers)
+        if (request.ApplyToExistingSubscribers && _scheduler is not null)
         {
-            // After the catalogue write, for the reason the discount edit gives: a refused edit
-            // reaches nobody, and saving the same rates again finishes a run that failed part-way.
+            // Queued rather than run here: it writes once per subscriber, and a large plan would
+            // time the request out part-way. Scheduled after the catalogue write, so a refused edit
+            // reaches nobody; the worker reads the rates back from the catalogue.
+            await _scheduler.TryScheduleAsync(
+                SubscriptionWorkType.PlanMeterRatesPropagation,
+                context.TenantId,
+                PlanMeterRatesPropagationWorkHandler.KeyFor(plan.ItemId, correlationId, meterKey),
+                DateTime.UtcNow,
+                correlationId,
+                plan.ItemId,
+                plan.OrganizationId,
+                cancellationToken);
+        }
+        else if (request.ApplyToExistingSubscribers)
+        {
             await _existingSubscribers.ApplyMeterRatesAsync(
                 context.TenantId,
                 plan.ItemId,
                 meterKey,
                 rateTables,
                 context.ActorName,
-                correlationId,
-                cancellationToken,
                 context.ActorId,
-                context.UserId);
+                context.UserId,
+                correlationId,
+                cancellationToken);
         }
 
         return await GetPlanAsync(

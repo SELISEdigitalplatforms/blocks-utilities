@@ -10,6 +10,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Outbox;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Services;
 using Subscription.DomainService.Utilities;
 using Subscription.DomainService.Validators;
@@ -641,6 +642,53 @@ public sealed class PlanCatalogueServiceTests
             It.Is<List<MeterRateTable>>(tables =>
                 tables.Count == 1 && tables[0].CurrencyCode == "USD"),
             It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Overage_rates_for_existing_subscribers_are_queued_not_pushed_in_the_request()
+    {
+        var plan = StoredPlan();
+        plan.Meters = [new PlanMeter { MeterKey = "screening", DisplayName = "Screening" }];
+        _catalogue.Setup(repository => repository.GetPlanAsync(
+            TenantId, plan.ItemId, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
+        _catalogue.Setup(repository => repository.TryUpdatePlanMeterRatesAsync(
+            TenantId, plan.ItemId, "screening", plan.Version,
+            It.IsAny<List<MeterRateTable>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _scheduler = new Mock<ISubscriptionWorkScheduler>();
+
+        var result = await Service().UpdatePlanMeterRatesAsync(
+            plan.ItemId,
+            "screening",
+            new UpdatePlanMeterRatesRequest
+            {
+                RateTables =
+                [
+                    new MeterRateTableRequest
+                    {
+                        CurrencyCode = "usd",
+                        Tiers = [new MeterTierRequest { UnitAmountMinor = 25 }]
+                    }
+                ],
+                ApplyToExistingSubscribers = true
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _scheduler.Verify(scheduler => scheduler.TryScheduleAsync(
+            SubscriptionWorkType.PlanMeterRatesPropagation,
+            TenantId,
+            "plan-meter-rates/plan-1/corr-1/screening",
+            It.IsAny<DateTime>(),
+            "corr-1",
+            plan.ItemId,
+            plan.OrganizationId,
+            It.IsAny<CancellationToken>()), Times.Once);
+        _subscriptions.Verify(repository => repository.ListRenewableOnPlanAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int>(),
+            It.IsAny<CancellationToken>()), Times.Never,
+            "one write per subscriber is exactly what must not run inside the request");
     }
 
     [Fact]
@@ -2257,7 +2305,10 @@ public sealed class PlanCatalogueServiceTests
                 options => options.CurrentValue == new SubscriptionOptions()),
             TimeProvider.System,
             NullLogger<ExistingSubscriberPriceTerms>.Instance),
-        auditEvents: _auditEvents.Object);
+        auditEvents: _auditEvents.Object,
+        scheduler: _scheduler?.Object);
+
+    private Mock<ISubscriptionWorkScheduler>? _scheduler;
 
     private static Plan StoredPlan() => new()
     {

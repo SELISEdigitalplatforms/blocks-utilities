@@ -100,7 +100,8 @@ public sealed class PaymentMethodsController : ControllerBase
             new PaymentAuditEntry(
                 "PaymentMethodRemove", "PaymentMethod", paymentMethodId,
                 result.IsRemoved ? "Succeeded" : result.IsPending ? "Pending" : "Rejected",
-                result.IsRemoved || result.IsPending ? null : result.ErrorCode),
+                result.IsRemoved || result.IsPending ? null : result.ErrorCode,
+                FailureKind: result.FailureKind),
             correlationId,
             cancellationToken);
 

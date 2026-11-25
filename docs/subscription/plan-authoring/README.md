@@ -712,6 +712,13 @@ rated at the new rates when it closes, usage before the edit included; periods a
 the rates they were frozen with. Subscribers whose currency the new rates drop keep their old rates.
 Saving the same rates again is safe: anyone already on them is skipped and not emailed twice.
 
+The push runs on the background work queue (`PlanMeterRatesPropagation`), not inside the save, so a
+plan with thousands of subscribers cannot time the request out part-way. It normally completes
+within moments of the save, ahead of any usage period closing at the same time, and reads the rates
+from the catalogue when it runs: two saves in a row push the latest. A subscriber the run could not
+reach is retried. Who saved the rates is on the plan's `PlanMeterRatesUpdate` audit event; each
+subscriber's `OverageRatesApplied` event shares its correlation id.
+
 **Editing a plan ends when the first subscriber arrives.** After that the plan is frozen — a
 subscription bills from its own copy of the terms, which an edit cannot reach.
 

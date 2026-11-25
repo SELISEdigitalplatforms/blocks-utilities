@@ -681,7 +681,8 @@ identifier is still hashed as well, which is worth knowing when filtering.
 
 Logs say *how* something happened and age out. The audit trail says **who did what, when, and how
 it ended**, and is kept forever (`PaymentAuditEvents`, append-only, no TTL). Every portal or API
-action below is recorded, refused attempts included:
+action below is recorded, refused attempts included — except a rate-limited (429) call, which
+attempted nothing and would otherwise let one misbehaving client grow a collection kept forever:
 
 | Operation | Subject | When |
 | --- | --- | --- |
@@ -706,7 +707,8 @@ customer's payment is that customer's history — else the caller's.
 integration see the whole tenant. Newest first; `limit` defaults to 100, at most 500. Actor and user
 ids stay in the database.
 
-**Failure:** an audit write never fails the action it describes. A failed write is logged as
+**Failure:** an audit write never fails the action it describes, and is not cancelled with the
+request: a client that disconnects after a refund does not cost the refund its record. A failed write is logged as
 `PAYMENT_AUDIT_WRITE_FAILED` (critical) and swallowed — alert on it. Webhook-driven state changes are
 not in this trail; they are the payment's own status history.
 

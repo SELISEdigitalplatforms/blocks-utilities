@@ -266,7 +266,8 @@ public sealed class PaymentsController : ControllerBase
                 result.IsSuccess ? null : result.ErrorCode,
                 Amount: result.Refund?.Amount,
                 CurrencyCode: result.Refund?.CurrencyCode,
-                Detail: result.Refund is { } refund ? $"Refund {refund.RefundId}" : null),
+                Detail: result.Refund is { } refund ? $"Refund {refund.RefundId}" : null,
+                FailureKind: result.FailureKind),
             correlationId,
             cancellationToken);
 
@@ -318,7 +319,8 @@ public sealed class PaymentsController : ControllerBase
                 result.IsSuccess ? null : result.ErrorCode,
                 Amount: result.Capture?.Amount,
                 CurrencyCode: result.Capture?.CurrencyCode,
-                Detail: result.Capture is { } capture ? $"Capture {capture.CaptureId}" : null),
+                Detail: result.Capture is { } capture ? $"Capture {capture.CaptureId}" : null,
+                FailureKind: result.FailureKind),
             correlationId,
             cancellationToken);
 
@@ -582,5 +584,6 @@ public sealed class PaymentsController : ControllerBase
             result.IsSuccess ? null : result.ErrorCode,
             result.Payment?.OrganizationId,
             result.Payment?.Amount,
-            result.Payment?.CurrencyCode);
+            result.Payment?.CurrencyCode,
+            FailureKind: result.FailureKind);
 }
