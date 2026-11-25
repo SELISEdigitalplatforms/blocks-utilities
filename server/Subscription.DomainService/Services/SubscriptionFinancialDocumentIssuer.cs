@@ -901,7 +901,8 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
         // states the source's amounts either way; this decides how many lines explain them.
         var opening =
             kind == SubscriptionChargeKind.Initial &&
-            RecomposeOpening(subscription) is { Year: not null, Amounts: { } figures } recomposed &&
+            RecomposeOpening(subscription) is { Amounts: { } figures } recomposed &&
+            (recomposed.Year is not null || subscription.PrepaidPeriods > 1) &&
             figures.TotalMinor == amounts.TotalMinor &&
             figures.GrossSubtotalMinor == amounts.GrossSubtotalMinor
                 ? recomposed
@@ -1603,8 +1604,12 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
         var stubHoldsCode = annual is null ||
             SubscriptionDiscountPeriodAccounting.StubTakesCode(subscription.Discount);
 
-        if ((Reconciled(stubHoldsCode) ?? (annual is null ? null : Reconciled(!stubHoldsCode)))
-            is not { } charge)
+        long? prepaidStubGrossMinor = null;
+        var recomposed = subscription.PrepaidPeriods > 1
+            ? PrepaidReconciled()
+            : Reconciled(stubHoldsCode) ?? (annual is null ? null : Reconciled(!stubHoldsCode));
+
+        if (recomposed is not { } charge)
         {
             return default;
         }
@@ -1643,7 +1648,7 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
             PromotionCode = charge.DiscountApplied || prepaid is { DiscountApplied: true }
                 ? subscription.Discount?.Code
                 : null
-        }, prepaid, charge.GrossAmountMinor);
+        }, prepaid, prepaidStubGrossMinor ?? charge.GrossAmountMinor);
 
         // The stub as it would have been priced under one reading of the code, or null when the
         // pair it belongs to does not add up to what was actually charged.
@@ -1656,6 +1661,31 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
                 includePromotionalDiscount);
 
             return candidate.AmountMinor + prepaidMinor == frozen ? candidate : null;
+        }
+
+        // Spec 008: the ordinary opening charge plus the prepaid periods after it, priced the way
+        // signup priced them. Returned as one charge; the stub's own gross is kept for its line.
+        PeriodCharge? PrepaidReconciled()
+        {
+            var stub = SubscriptionAmountCalculator.FirstPeriodCharge(
+                subscription,
+                fraction,
+                subscription.CreatedAtUtc,
+                stubHoldsCode);
+            var extra = SubscriptionAmountCalculator.PrepaidExtraCharge(
+                subscription,
+                fraction.IsPartial,
+                annual,
+                annual?.DiscountApplied ?? stub.DiscountApplied,
+                subscription.CreatedAtUtc);
+
+            if (stub.AmountMinor + prepaidMinor + extra.Charge.AmountMinor != frozen)
+            {
+                return null;
+            }
+
+            prepaidStubGrossMinor = stub.GrossAmountMinor;
+            return SubscriptionAmountCalculator.Combine(stub, extra.Charge);
         }
     }
 
@@ -2136,6 +2166,60 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
             ];
         }
 
+        // Spec 008: a prepaid opening charge is the calendar stub, when there is one, and then the
+        // N whole periods as one line priced for the term, each over its own dates.
+        if (chargeKind == SubscriptionChargeKind.Initial &&
+            subscription is { PrepaidPeriods: > 1 } prepaid &&
+            period is not null)
+        {
+            var zone = period.TimeZoneId;
+            var periods = prepaid.PrepaidPeriods;
+            var termStartUtc = period.StartUtc;
+            var stubGrossMinor = 0L;
+            List<FinancialDocumentLine> lines = [];
+
+            if (prepaid.InitialChargeProrated && opening.Amounts is not null)
+            {
+                // A yearly stub was priced from its monthly basis; a monthly stub from the price.
+                // shortcut: a monthly stub ends at the current period's end, which holds while the
+                // invoice is issued before the first renewal (it is, seconds after activation).
+                var stubEndUtc = opening.Year?.StartUtc ?? prepaid.CurrentPeriodEndUtc;
+                var stubPrice = prepaid.Price;
+                var stubQuantityItems = terms.QuantityItems.ToList();
+                var yearlyStub = opening.Year is not null && CalendarBillingAlignment.TryStubBasis(
+                    prepaid.Price,
+                    terms.QuantityItems,
+                    out stubPrice,
+                    out stubQuantityItems);
+
+                stubGrossMinor = opening.StubGrossMinor;
+                lines.AddRange(PeriodLines(
+                    terms,
+                    yearlyStub ? stubQuantityItems : terms.QuantityItems,
+                    yearlyStub ? stubPrice.UnitAmountMinor : terms.Subject.UnitAmountMinor,
+                    stubGrossMinor,
+                    ServiceRange(period.StartUtc, stubEndUtc, zone)));
+                termStartUtc = stubEndUtc;
+            }
+
+            lines.AddRange(PeriodLines(
+                terms,
+                terms.QuantityItems,
+                terms.Subject.UnitAmountMinor * periods,
+                amounts.GrossSubtotalMinor - stubGrossMinor,
+                $"{periods} × {prepaid.Price.IntervalCount} {prepaid.Price.Interval}, " +
+                    ServiceRange(termStartUtc, period.EndUtc, zone),
+                WithLocalDates(new FinancialDocumentPeriod
+                {
+                    StartUtc = termStartUtc,
+                    EndUtc = period.EndUtc,
+                    TimeZoneId = zone
+                }),
+                periods));
+
+            return lines;
+        }
+
         // A calendar-aligned yearly signup paid for two periods at once: the days before the first
         // of the month, and the year that starts on it. One line for both would price a year's
         // worth of service against a fortnight's dates — the invoice the customer receives says
@@ -2206,7 +2290,8 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
         long unitAmountMinor,
         long grossMinor,
         string? periodLabel,
-        FinancialDocumentPeriod? linePeriod = null)
+        FinancialDocumentPeriod? linePeriod = null,
+        int periods = 1)
     {
         var suffix = periodLabel is { Length: > 0 } label ? $" ({label})" : string.Empty;
 
@@ -2244,8 +2329,8 @@ public sealed partial class SubscriptionFinancialDocumentIssuer : ISubscriptionF
             {
                 Description = $"{terms.Subject.PlanName} — {item.UnitLabel}{suffix}",
                 Quantity = item.Quantity,
-                UnitAmountMinor = item.UnitAmountMinor,
-                AmountMinor = item.UnitAmountMinor * item.Quantity,
+                UnitAmountMinor = item.UnitAmountMinor * periods,
+                AmountMinor = item.UnitAmountMinor * item.Quantity * periods,
                 ItemKey = item.ItemKey,
                 Period = linePeriod
             })

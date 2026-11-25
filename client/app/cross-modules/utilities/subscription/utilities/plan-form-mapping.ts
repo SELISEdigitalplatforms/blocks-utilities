@@ -334,6 +334,7 @@ const planPriceToFormValues = (price: PlanPrice): CreateSubscriptionPriceFormVal
   // Absent means the conservative reading, the same one the server and the form both default to:
   // collect the year when the year starts.
   calendarAnnualChargeTiming: price.calendarAnnualChargeTiming ?? "AtBoundary",
+  maxPrepaidPeriods: price.maxPrepaidPeriods ?? undefined,
   displayPriceNote: price.displayPriceNote ?? "",
   quantityItemKey: price.quantityItemKey ?? FLAT_FEE,
   taxPercent: price.taxRateBasisPoints

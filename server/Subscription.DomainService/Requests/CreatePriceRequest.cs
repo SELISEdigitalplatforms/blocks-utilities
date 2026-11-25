@@ -84,4 +84,10 @@ public sealed class CreatePriceRequest
     /// author realised.
     /// </summary>
     public AutomaticDiscountCombination? QuantityDiscountCombination { get; set; }
+
+    /// <summary>
+    /// The most periods a buyer may pay for upfront, 1 to 120. Omitted or 1: not prepayable.
+    /// On a calendar-aligned price the opening stub to the first comes on top of them.
+    /// </summary>
+    public int? MaxPrepaidPeriods { get; set; }
 }

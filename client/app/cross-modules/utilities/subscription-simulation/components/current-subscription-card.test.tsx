@@ -275,6 +275,27 @@ describe("CurrentSubscriptionCard scheduled plan change", () => {
     expect(onCancelPendingPlanChange).toHaveBeenCalledOnce();
   });
 
+  // Spec 008.
+  it("says how long a prepaid term runs and that nothing is charged until then", () => {
+    renderCard({
+      ...baseSubscription,
+      prepaidPeriods: 5,
+      prepaidThroughUtc: "2031-12-01T00:00:00Z",
+    });
+
+    expect(screen.getByTestId("prepaid-through").textContent).toContain("5 periods paid upfront");
+  });
+
+  it("says nothing about a prepaid term in its last period", () => {
+    renderCard({
+      ...baseSubscription,
+      prepaidPeriods: 5,
+      prepaidThroughUtc: baseSubscription.currentPeriodEndUtc,
+    });
+
+    expect(screen.queryByTestId("prepaid-through")).not.toBeInTheDocument();
+  });
+
   it("shows nothing when no plan change is scheduled", () => {
     renderCard(baseSubscription);
 

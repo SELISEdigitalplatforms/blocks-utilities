@@ -86,6 +86,8 @@ public static class PlanChangeClassifier
     /// </remarks>
     private static bool HoldsPaidAnnualTerm(SubscriptionDetail subscription) =>
         subscription.PendingAnnualPeriod is { IsPrepaid: true } ||
+        // Spec 008: several periods paid upfront are a commitment settled in full too.
+        SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription) is not null ||
         (subscription.Price.Interval == BillingInterval.Year &&
             subscription.Price.IntervalCount == 1);
 

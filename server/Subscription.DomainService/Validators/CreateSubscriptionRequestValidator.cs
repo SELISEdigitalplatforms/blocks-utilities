@@ -22,6 +22,12 @@ public sealed class CreateSubscriptionRequestValidator
                 "than surfacing at the first renewal.")
             .WithErrorCode("subscription_time_zone_unknown");
 
+        RuleFor(request => request.PrepaidPeriods!.Value)
+            .InclusiveBetween(1, SubscriptionConstants.MaxPrepaidPeriods)
+            .WithName(nameof(CreateSubscriptionRequest.PrepaidPeriods))
+            .WithErrorCode("subscription_prepaid_periods_invalid")
+            .When(request => request.PrepaidPeriods.HasValue);
+
         RuleForEach(request => request.Quantities)
             .ChildRules(quantity =>
             {

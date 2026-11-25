@@ -121,6 +121,13 @@ public sealed class SubscriptionPreviewResponse
     public SubscriptionPreviewAnnualPeriodResponse? PendingAnnualPeriod { get; init; }
 
     /// <summary>
+    /// The whole periods a prepaid signup (spec 008) pays for now, after any calendar stub. Null
+    /// when only one period is bought. Its gross is part of <see cref="SubtotalMinor"/>; the rest
+    /// of the subtotal is the stub covering <see cref="PeriodStartUtc"/> to <see cref="PeriodEndUtc"/>.
+    /// </summary>
+    public SubscriptionPreviewPrepaidResponse? Prepaid { get; init; }
+
+    /// <summary>
     /// Why this quote is temporary, when the discount code applied is a platform campaign rather
     /// than an ordinary promotional code. Null for a Standard discount and for no discount at all.
     /// </summary>
@@ -238,6 +245,21 @@ public sealed class SubscriptionPreviewNextChargeResponse
     public SubscriptionPreviewTaxResponse? Tax { get; init; }
 
     public long TotalMinor { get; init; }
+}
+
+/// <summary>The prepaid term a signup pays for upfront (spec 008).</summary>
+public sealed class SubscriptionPreviewPrepaidResponse
+{
+    public int Periods { get; init; }
+
+    /// <summary>Where the first whole period starts: the end of the stub, or now.</summary>
+    public DateTime StartUtc { get; init; }
+
+    /// <summary>The end of the last prepaid period; the next charge falls here.</summary>
+    public DateTime EndUtc { get; init; }
+
+    /// <summary>The whole periods before any discount — the subtotal minus the stub.</summary>
+    public long GrossAmountMinor { get; init; }
 }
 
 public sealed class SubscriptionPreviewAnnualPeriodResponse

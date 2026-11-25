@@ -179,6 +179,25 @@ public static class SubscriptionProrationCalculator
                 ? 0
                 : Prorate(newTaxInclusive, targetRemainingTicks, targetTotalTicks);
 
+        // Spec 008: the prepaid periods still to come after this one are part of what the subscriber
+        // holds and of what they move onto, so both sides carry them at a whole period each. Zero
+        // outside a prepaid term, which leaves every other settlement untouched.
+        // shortcut: future periods are priced with today's promotional-code state on both sides; a
+        // code that runs out mid-term is not modelled per period. Fine while codes are rare on terms.
+        // Whole periods on both sides, never a calendar stub's fraction.
+        var futurePrepaidPeriods = FuturePrepaidPeriods(subscription);
+
+        if (futurePrepaidPeriods > 0)
+        {
+            oldRemainingValue += futurePrepaidPeriods * FullPeriod(
+                subscription,
+                subscription.Plan,
+                subscription.Price,
+                subscription.QuantityItems,
+                subscription.CurrentPeriodEndUtc);
+            newRemainingCost += futurePrepaidPeriods * targetFullPeriodTotalMinor;
+        }
+
         var rawDelta = newRemainingCost - oldRemainingValue;
 
         // Reported, not recomputed later. Every figure below was needed to reach the charge, and an
@@ -354,7 +373,12 @@ public static class SubscriptionProrationCalculator
 
         var stubRawDelta = targetStub.ProratedValueMinor - outgoingStub.ProratedValueMinor;
         var annualRawDelta = targetAnnual.ProratedValueMinor - outgoingAnnual.ProratedValueMinor;
-        var combinedRawDelta = stubRawDelta + annualRawDelta;
+        // Spec 008: a prepaid term's years after this one, at the same whole-year figures. Kept out
+        // of the annual breakdown, which also prices the replacement for this one pending year.
+        // shortcut: the settlement invoice's two sides do not show this part; its total does.
+        var futureRawDelta = FuturePrepaidPeriods(subscription) *
+            (targetAnnual.ProratedValueMinor - outgoingAnnual.ProratedValueMinor);
+        var combinedRawDelta = stubRawDelta + annualRawDelta + futureRawDelta;
 
         var settled = SettleRawDelta(combinedRawDelta, subscription.CreditBalanceMinor);
 
@@ -457,6 +481,36 @@ public static class SubscriptionProrationCalculator
     /// not time anyone has had on the plan, and Prorate's floor turned them into a lost cent on
     /// both sides: a $0 -> $49.00 upgrade was invoiced 4899.
     /// </remarks>
+    /// <summary>
+    /// Whole prepaid periods (spec 008) between the end of what is already being settled — the
+    /// current period, or a calendar stub's pending year — and the end of the prepaid term. Zero
+    /// when there is no term past it.
+    /// </summary>
+    internal static int FuturePrepaidPeriods(SubscriptionDetail subscription)
+    {
+        if (SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription) is not { } termEndUtc)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        var cursorUtc = subscription.PendingAnnualPeriod is { } pendingYear &&
+            pendingYear.EndUtc > subscription.CurrentPeriodEndUtc
+                ? pendingYear.EndUtc
+                : subscription.CurrentPeriodEndUtc;
+
+        while (cursorUtc < termEndUtc &&
+               count < SubscriptionConstants.MaxPrepaidPeriods &&
+               BillingPeriodCalculator.TryGetPeriod(subscription.FeeSchedule, cursorUtc, out var period) &&
+               period.EndUtc > cursorUtc)
+        {
+            count++;
+            cursorUtc = period.EndUtc;
+        }
+
+        return count;
+    }
+
     private static long RemainingTicks(DateTime startUtc, DateTime endUtc, DateTime nowUtc)
     {
         var totalTicks = Math.Max(0, (endUtc - startUtc).Ticks);

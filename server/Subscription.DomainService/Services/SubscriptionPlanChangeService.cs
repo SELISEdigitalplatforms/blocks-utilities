@@ -349,7 +349,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 r.Now,
                 r.NewSchedule.CurrentPeriodStartUtc,
                 r.NewSchedule.CurrentPeriodEndUtc,
-                r.NewSchedule.FeePeriodFraction);
+                r.NewSchedule.FeePeriodFraction,
+                targetIsCurrentPeriod: KeepsPrepaidCycle(r.Subscription, r.NewSchedule));
 
             chargeMinor = outcome.ChargeMinor;
             rawSettlementMinor =
@@ -699,6 +700,22 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
                 correlationId);
         }
 
+        // Spec 008: inside a prepaid term an immediate change keeps the cycle it is in rather than
+        // restarting it today, so the term still ends when it was sold to end. The proration
+        // calculator charges the difference for the prepaid periods still to come. A cadence change
+        // never gets here as immediate — the classifier holds it for the term end.
+        if (SubscriptionPaidPeriod.PrepaidTermEndUtc(subscription) is not null &&
+            !PlanChangeClassifier.ChangesCadenceOrAlignment(subscription.Price, newPrice))
+        {
+            newSchedule = newSchedule with
+            {
+                FeeSchedule = subscription.FeeSchedule,
+                CurrentPeriodStartUtc = subscription.CurrentPeriodStartUtc,
+                CurrentPeriodEndUtc = subscription.CurrentPeriodEndUtc,
+                NextFeeBillingAtUtc = subscription.CurrentPeriodEndUtc
+            };
+        }
+
         return SubscriptionOperationResult<PlanChangeResolution>.Success(
             new PlanChangeResolution(
                 subscription, newPlan, newPrice, quantities, newSchedule, now,
@@ -795,7 +812,8 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
             now,
             newSchedule.CurrentPeriodStartUtc,
             newSchedule.CurrentPeriodEndUtc,
-            newSchedule.FeePeriodFraction);
+            newSchedule.FeePeriodFraction,
+            targetIsCurrentPeriod: KeepsPrepaidCycle(subscription, newSchedule));
 
         // What the change itself is worth for this period, before any credit balance pays for it.
         // Deliberately not outcome.ChargeMinor, which is what is left to collect *after* credit: a
@@ -1634,6 +1652,17 @@ public sealed class SubscriptionPlanChangeService : ISubscriptionPlanChangeServi
 
         return SubscriptionOperationResult<(Plan, Price)>.Success((plan, price), correlationId);
     }
+
+    /// <summary>
+    /// Whether <see cref="ResolveAsync"/> kept the subscriber's own cycle for a prepaid term
+    /// (spec 008), which makes the target the current period at new terms rather than a period
+    /// bought today — priced the way a quantity change is.
+    /// </summary>
+    /// <remarks>Reference equality on purpose: only that branch hands the same schedule back.</remarks>
+    private static bool KeepsPrepaidCycle(
+        SubscriptionDetail subscription,
+        SubscriptionPlanSchedule schedule) =>
+        ReferenceEquals(schedule.FeeSchedule, subscription.FeeSchedule);
 
     private static bool TryBuildSchedule(
         SubscriptionDetail subscription,

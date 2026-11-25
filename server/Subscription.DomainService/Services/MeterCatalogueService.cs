@@ -27,6 +27,7 @@ public sealed class MeterCatalogueService : IMeterCatalogueService
     private readonly IValidator<CreateMeterCatalogueEntryRequest> _createValidator;
     private readonly IValidator<UpdateMeterCatalogueEntryRequest> _updateValidator;
     private readonly ISubscriptionAuditTrail? _audit;
+    private readonly ISubscriptionAuditRepository? _auditEvents;
     private readonly ILogger<MeterCatalogueService> _logger;
     private readonly TimeProvider _time;
 
@@ -37,8 +38,10 @@ public sealed class MeterCatalogueService : IMeterCatalogueService
         IValidator<UpdateMeterCatalogueEntryRequest> updateValidator,
         ILogger<MeterCatalogueService> logger,
         ISubscriptionAuditTrail? audit = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISubscriptionAuditRepository? auditEvents = null)
     {
+        _auditEvents = auditEvents;
         _entries = entries;
         _context = context;
         _createValidator = createValidator;
@@ -59,6 +62,28 @@ public sealed class MeterCatalogueService : IMeterCatalogueService
 
         return SubscriptionOperationResult<IReadOnlyList<MeterCatalogueEntryResponse>>.Success(
             [.. entries.Select(Map)], correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>> GetAuditAsync(
+        string meterKey, string? organizationId, int limit, string correlationId, CancellationToken cancellationToken)
+    {
+        var resolution = await _context.ResolveAsync(correlationId, organizationId, cancellationToken);
+        if (!resolution.IsSuccess) return resolution.ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>(correlationId);
+        var context = resolution.Context!;
+
+        var entry = await _entries.ResolveAsync(
+            context.TenantId, ScopeOf(organizationId, context), meterKey, cancellationToken);
+
+        if (entry is null) return NotFound(correlationId).ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>();
+
+        var events = _auditEvents is null
+            ? []
+            : await _auditEvents.ListForAggregateAsync(
+                context.TenantId, "MeterCatalogueEntry", entry!.ItemId, limit <= 0 ? 100 : limit, cancellationToken,
+                legacyOperationIdPrefix: null);
+
+        return SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>.Success(
+            events.Select(SubscriptionAuditEventResponse.From).ToList(), correlationId);
     }
 
     public async Task<SubscriptionOperationResult<MeterCatalogueEntryResponse>> GetAsync(

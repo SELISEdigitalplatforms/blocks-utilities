@@ -7,7 +7,7 @@ The subscription module never writes email text. It publishes a mail request wit
 a **language** and a set of **values**. The platform mail module then picks your template by
 purpose and language and fills in the values. If you don't create a template, no email is sent.
 
-## The nine emails
+## The emails
 
 | Purpose | Sent when | To |
 | --- | --- | --- |
@@ -16,11 +16,17 @@ purpose and language and fills in the values. If you don't create a template, no
 | `subscription_cancellation_requested` | Someone cancels for the end of the paid period | Billing contact |
 | `subscription_canceled` | A subscription ends: an immediate cancel, or a scheduled one reaching its date | Billing contact |
 | `subscription_cancellation_withdrawn` | A scheduled cancellation is undone | Billing contact |
-| `subscription_price_terms_changed` | An administrator edits a price's discount or tax and ticks **Also apply to existing subscribers**. Sent to every subscriber on that price when the edit is saved, ahead of the renewal that first bills it | Billing contact |
+| `subscription_price_terms_changed` | An administrator edits a price's amount, discount or tax and ticks **Also apply to existing subscribers**. Sent to every subscriber on that price when the edit is saved, ahead of the renewal that first bills it | Billing contact |
 | `subscription_overage_rates_changed` | An administrator edits a meter's overage rates on a plan that has subscribers and ticks **Also apply to existing subscribers now**. Sent to every live subscriber on the plan whose rate in their own currency changed. The new rate is already in effect, including for usage earlier in the current billing period | Billing contact |
 | `subscription_member_assigned` | An administrator gives someone a seat on a per-person subscription | That person |
 | `subscription_member_removed` | An administrator takes a seat back | That person |
 | `subscription_payment_method_expiring` | The card a billing account charges expires within `PaymentMethodExpiryNoticeDays` (default 30). Sent once per card expiry by the worker sweep | Billing contact |
+| `subscription_usage_threshold` | A meter's usage crosses one of its `ThresholdPercents` (e.g. 80%). Once per threshold per meter per billing period | Billing contact |
+| `organization_credits_purchased` | An organization's standalone credit purchase is paid for. Confirms the purchase; the invoice arrives separately | Billing contact of the account charged |
+
+Invoices, trial invoices and credit notes are emailed too, with the PDF attached. Their purposes,
+placeholders and starter templates, and the full placeholder set of the two emails above, are in
+[the complete email reference](../v1/emails/README.md).
 
 Nothing is sent when a decrease or plan change is merely *scheduled*. The email goes out when it
 happens. The one exception is `subscription_price_terms_changed`, which exists to give notice: it
@@ -48,6 +54,7 @@ the template.
 | `MeterName` | Overage rate changes: the meter's name |
 | `PreviousOverageRate`, `NewOverageRate` | Overage rate changes: the per-unit rate before and after, e.g. `2.00 USD`, or `up to 1000: 2.00 USD; above 1000: 1.00 USD` for bands |
 | `PreviousTaxMode`, `NewTaxMode` | Price terms changes: `Inclusive` or `Exclusive`, so the template can word it; empty when there is no tax |
+| `PreviousPrice`, `NewPrice` | Price terms changes: the price before and from `EffectiveDate`, e.g. `10.00 USD` or `10.00 USD per seat`. **Empty unless the amount itself changed**, so a tax or discount edit doesn't announce a price change |
 
 For `subscription_price_terms_changed`, `EffectiveDate` is the renewal that first bills the new
 terms: the first one at least `Subscription:PriceTermsNoticeDays` (default 7) after the edit.
@@ -84,6 +91,9 @@ The mail module only uses a template whose language matches the request **exactl
 - **Billing contacts** get the billing profile's *Email language*, else the language given when
   the subscription was created, else `en-US`.
 - **Members** get their language from IAM, else `en-US`.
+- **Card expiry and credit purchase** emails get the billing profile's *Email language*, else the
+  billing account's language, else `en-US`.
+- **Usage warnings and documents** are always sent in `en-US`.
 
 So create every purpose in every language your users and billing contacts have set. Also note two
 more cases where no email arrives, both decided by the mail module:

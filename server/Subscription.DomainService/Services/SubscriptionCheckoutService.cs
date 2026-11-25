@@ -357,7 +357,8 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             !string.Equals(
                 request.TimeZoneId,
                 subscription.FeeSchedule.TimeZoneId,
-                StringComparison.Ordinal))
+                StringComparison.Ordinal) ||
+            (request.PrepaidPeriods ?? 1) != Math.Max(1, subscription.PrepaidPeriods))
         {
             return false;
         }
@@ -1138,6 +1139,16 @@ public sealed class SubscriptionCheckoutService : ISubscriptionCheckoutService
             new SubscriptionTransition(SubscriptionStatus.Incomplete, target)
             {
                 ActivatedAtUtc = DateTime.UtcNow,
+                // Only a prepaid term changes what this path records; see OpeningDiscountPeriods.
+                DiscountPeriodsApplied = subscription.PrepaidPeriods > 1
+                    ? SubscriptionDiscountPeriodAccounting.OpeningDiscountPeriods(subscription)
+                    : null,
+                // A year billed with the opening charge is settled here as the card path settles it
+                // on payment: an offline customer's opening invoice already asks for it, and leaving
+                // it unsettled made the boundary invoice the same year a second time.
+                MarkPendingAnnualPeriodPrepaid =
+                    target == SubscriptionStatus.Active &&
+                    subscription.PendingAnnualPeriod is { CollectedWithCheckout: true },
                 Event = _events.Create(subscription, eventType, correlationId),
                 // In the activating write: nothing else would ever rediscover it.
                 DocumentSource = openingInvoice

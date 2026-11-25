@@ -12,12 +12,15 @@ public sealed class SubscriptionBillingProfileService : ISubscriptionBillingProf
     private readonly ISubscriptionContextResolver _context;
     private readonly ISubscriptionBillingProfileRepository _profiles;
     private readonly IValidator<UpdateBillingProfileRequest> _validator;
+    private readonly ISubscriptionAuditTrail? _audit;
 
     public SubscriptionBillingProfileService(
         ISubscriptionContextResolver context,
         ISubscriptionBillingProfileRepository profiles,
-        IValidator<UpdateBillingProfileRequest> validator)
+        IValidator<UpdateBillingProfileRequest> validator,
+        ISubscriptionAuditTrail? audit = null)
     {
+        _audit = audit;
         _context = context;
         _profiles = profiles;
         _validator = validator;
@@ -85,6 +88,11 @@ public sealed class SubscriptionBillingProfileService : ISubscriptionBillingProf
 
         var address = ToAddress(request.Address);
 
+        // Read first, only so the audit record can say which fields moved.
+        var previous = _audit is null
+            ? null
+            : await _profiles.GetAsync(context.TenantId, context.OrganizationId, cancellationToken);
+
         var stored = await _profiles.UpsertAsync(
             new SubscriptionBillingProfile
             {
@@ -117,10 +125,72 @@ public sealed class SubscriptionBillingProfileService : ISubscriptionBillingProf
                 cancellationToken);
         }
 
+        if (_audit is not null)
+        {
+            await _audit.RecordAsync(
+                new SubscriptionAuditEvent
+                {
+                    TenantId = context.TenantId,
+                    OrganizationId = context.OrganizationId,
+                    AggregateType = "BillingProfile",
+                    AggregateId = context.OrganizationId,
+                    OperationId = correlationId,
+                    CorrelationId = correlationId,
+                    Operation = previous is null ? "BillingProfileCreate" : "BillingProfileUpdate",
+                    Stage = "Settings",
+                    Outcome = "Changed",
+                    Source = "Api",
+                    ActorId = context.ActorId,
+                    UserId = context.UserId,
+                    Detail = DescribeChange(previous, stored),
+                    OccurredAtUtc = DateTime.UtcNow
+                },
+                cancellationToken);
+        }
+
         return SubscriptionOperationResult<SubscriptionBillingProfileResponse>.Success(
             Map(stored, context.OrganizationId),
             correlationId);
     }
+
+    /// <summary>
+    /// The names of the fields that changed, never their values: a billing profile holds a person's
+    /// name and email, and the audit trail keeps records forever.
+    /// </summary>
+    internal static string DescribeChange(SubscriptionBillingProfile? before, SubscriptionBillingProfile after)
+    {
+        if (before is null)
+        {
+            return "Billing profile created";
+        }
+
+        var changed = new List<string>();
+        void Compare(string name, object? left, object? right)
+        {
+            if (!Equals(left, right))
+            {
+                changed.Add(name);
+            }
+        }
+
+        Compare(nameof(after.LegalName), before.LegalName, after.LegalName);
+        Compare(nameof(after.DisplayName), before.DisplayName, after.DisplayName);
+        Compare(nameof(after.BillingContactName), before.BillingContactName, after.BillingContactName);
+        Compare(nameof(after.BillingContactEmail), before.BillingContactEmail, after.BillingContactEmail);
+        Compare(nameof(after.BillingContactLanguage), before.BillingContactLanguage, after.BillingContactLanguage);
+        Compare(nameof(after.TaxRegistrationId), before.TaxRegistrationId, after.TaxRegistrationId);
+        Compare(nameof(after.Address), AddressKey(before.Address), AddressKey(after.Address));
+
+        return changed.Count == 0
+            ? "Saved with no changes"
+            : $"Changed: {string.Join(", ", changed)}";
+    }
+
+    private static string? AddressKey(BillingAddress? address) =>
+        address is null
+            ? null
+            : string.Join("|", address.Line1, address.Line2, address.City, address.Region,
+                address.PostalCode, address.CountryCode);
 
     private static SubscriptionBillingProfileResponse Map(
         SubscriptionBillingProfile? profile,

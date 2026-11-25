@@ -435,6 +435,29 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
     }
 
     [Fact]
+    public async Task A_resend_lands_on_the_subscribers_own_timeline()
+    {
+        var document = await UnsentAsync();
+        Console();
+        var audit = new Mock<ISubscriptionAuditTrail>();
+        SubscriptionAuditEvent? recorded = null;
+        audit
+            .Setup(trail => trail.RecordAsync(It.IsAny<SubscriptionAuditEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAuditEvent, CancellationToken>((auditEvent, _) => recorded = auditEvent)
+            .Returns(Task.CompletedTask);
+
+        await Service(audit: audit.Object).ResendAsync(document.ItemId, "corr-1", CancellationToken.None);
+
+        recorded.Should().NotBeNull();
+        recorded!.Operation.Should().Be("InvoiceResend");
+        recorded.OrganizationId.Should().Be(document.OrganizationId,
+            "filed under the customer's organization, not the console's, so the customer can see it");
+        recorded.SubscriptionId.Should().Be(document.SubscriptionId);
+        recorded.AggregateCode.Should().Be("INV-2026-000001");
+        recorded.Outcome.Should().Be(nameof(FinancialDocumentResendStatus.Queued));
+    }
+
+    [Fact]
     public async Task A_second_resend_before_the_first_is_sent_joins_it_rather_than_adding_another()
     {
         var document = await UnsentAsync();
@@ -788,7 +811,8 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
     }
 
     private ISubscriptionFinancialDocumentHistoryService Service(
-        ISubscriptionFinancialDocumentDeliveryService? delivery = null) =>
+        ISubscriptionFinancialDocumentDeliveryService? delivery = null,
+        ISubscriptionAuditTrail? audit = null) =>
         new SubscriptionFinancialDocumentHistoryService(
             _context.Object,
             _documents,
@@ -800,7 +824,8 @@ public sealed class SubscriptionFinancialDocumentHistoryServiceTests
             new RecordFinancialDocumentPaymentRequestValidator(new FixedTime(Now)),
             _scheduler.Object,
             new FixedTime(Now),
-            delivery);
+            delivery,
+            audit);
 
     private (ISubscriptionFinancialDocumentDeliveryService Delivery, Mock<IFinancialDocumentPdfRenderer> Renderer)
         RealDelivery()

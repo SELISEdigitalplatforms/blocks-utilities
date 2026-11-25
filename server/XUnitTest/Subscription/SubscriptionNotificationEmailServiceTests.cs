@@ -28,7 +28,8 @@ public sealed class SubscriptionNotificationEmailServiceTests
         "QuantityChanges", "EffectiveDate", "CancellationReason",
         "PreviousDiscount", "NewDiscount", "PreviousTaxRate", "NewTaxRate",
         "PreviousTaxMode", "NewTaxMode",
-        "MeterName", "PreviousOverageRate", "NewOverageRate"
+        "MeterName", "PreviousOverageRate", "NewOverageRate",
+        "PreviousPrice", "NewPrice"
     ];
 
     private readonly Mock<ISubscriptionRepository> _subscriptions = new();
@@ -237,6 +238,44 @@ public sealed class SubscriptionNotificationEmailServiceTests
         _recorded.Should().ContainSingle().Which.Should().Match<MailDeliveryReportRequest>(report =>
             report.Outcome == MailDeliveryReportOutcome.NotAttempted &&
             report.ErrorCode == "billing_email_missing");
+    }
+
+    [Fact]
+    public async Task A_scheduled_price_rise_names_both_amounts_per_unit()
+    {
+        long minorInOne = 100;
+        decimal before = 10m, after = 12.5m;
+        _currency.Setup(currency => currency.TryConvert(1m, "USD", out minorInOne)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(1_000, "USD", out before)).Returns(true);
+        _currency.Setup(currency => currency.TryConvertBack(1_250, "USD", out after)).Returns(true);
+        var subscription = Subscription();
+        subscription.Price = new PriceSnapshot { CurrencyCode = "USD", QuantityItemKey = "seat" };
+        subscription.Plan.QuantityItems = [new PlanQuantityItem { ItemKey = "seat", UnitLabel = "seat" }];
+        _subscriptions
+            .Setup(repository => repository.GetByIdAsync("tenant-1", "subscription-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(subscription);
+        var lifecycleEvent = Event(SubscriptionConstants.SubscriptionPriceTermsChangeScheduled);
+        lifecycleEvent.PreviousPriceTerms = new PriceTerms { UnitAmountMinor = 1_000 };
+        lifecycleEvent.PriceTerms = new PriceTerms { UnitAmountMinor = 1_250 };
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        _queued!.Payload.BodyDataContext["PreviousPrice"].Should().Be("10.00 USD per seat");
+        _queued.Payload.BodyDataContext["NewPrice"].Should().Be("12.50 USD per seat");
+    }
+
+    [Fact]
+    public async Task A_tax_only_change_leaves_the_price_keys_empty()
+    {
+        var lifecycleEvent = Event(SubscriptionConstants.SubscriptionPriceTermsChangeScheduled);
+        lifecycleEvent.PreviousPriceTerms = new PriceTerms { UnitAmountMinor = 1_000, TaxRateBasisPoints = 810 };
+        lifecycleEvent.PriceTerms = new PriceTerms { UnitAmountMinor = 1_000, TaxRateBasisPoints = 770 };
+
+        await Service().SendAsync(lifecycleEvent, CancellationToken.None);
+
+        _queued!.Payload.BodyDataContext["PreviousPrice"].Should().BeEmpty(
+            "a template must not announce a price change that did not happen");
+        _queued.Payload.BodyDataContext["NewPrice"].Should().BeEmpty();
     }
 
     [Fact]

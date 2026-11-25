@@ -21,6 +21,12 @@ public sealed class CreateSubscriptionRequest
     public string? DiscountCode { get; set; }
 
     /// <summary>
+    /// How many periods to pay for upfront. Omitted means 1. Must not exceed the price's
+    /// <c>maxPrepaidPeriods</c>, and is refused for a signup that gets a trial.
+    /// </summary>
+    public int? PrepaidPeriods { get; set; }
+
+    /// <summary>
     /// Which organization within the tenant this subscribes. Omit it to use the caller's own
     /// organization.
     /// </summary>

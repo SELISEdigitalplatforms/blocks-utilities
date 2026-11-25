@@ -144,4 +144,20 @@ describe("submitting a plan's prices", () => {
       "Anniversary",
     ]);
   });
+
+  // Spec 008: how many periods a buyer may pay for upfront.
+  it("sends the max prepaid periods for an anniversary price", async () => {
+    const [request] = await submit({ interval: 3, intervalCount: 1, maxPrepaidPeriods: 5 });
+
+    expect(request.maxPrepaidPeriods).toBe(5);
+  });
+
+  it("sends max prepaid periods on a calendar-aligned price and drops it when it is 1", async () => {
+    const requests = await submit(
+      { interval: 2, intervalCount: 1, billingAlignment: "CalendarMonth", maxPrepaidPeriods: 6 },
+      { interval: 2, intervalCount: 1, maxPrepaidPeriods: 1 },
+    );
+
+    expect(requests.map((request) => request.maxPrepaidPeriods)).toEqual([6, undefined]);
+  });
 });

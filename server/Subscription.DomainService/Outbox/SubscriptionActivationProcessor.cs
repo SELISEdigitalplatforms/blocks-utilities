@@ -709,9 +709,7 @@ public sealed class SubscriptionActivationProcessor : ISubscriptionActivationPro
                 // document that was never issued.
                 InitialPaymentDetailId = IsCardSetup(link) ? null : payment.ItemId,
                 DiscountPeriodsApplied =
-                    SubscriptionDiscountPeriodAccounting.OpeningChargeSpentPeriod(subscription)
-                        ? 1
-                        : null,
+                    SubscriptionDiscountPeriodAccounting.OpeningDiscountPeriods(subscription),
                 // The opening charge included the year on a price that collects it here, and this
                 // is the transition that says that charge was confirmed. Marking it any earlier
                 // would report an unpaid checkout as settled; any later leaves the boundary unable

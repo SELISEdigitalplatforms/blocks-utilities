@@ -368,6 +368,9 @@ public sealed class PlanPriceResponse
     /// </summary>
     public string? CalendarAnnualChargeTiming { get; init; }
 
+    /// <summary>The most periods a buyer may pay for upfront. Null when not prepayable.</summary>
+    public int? MaxPrepaidPeriods { get; init; }
+
     public string? DisplayPriceNote { get; init; }
 
     public string? QuantityItemKey { get; init; }

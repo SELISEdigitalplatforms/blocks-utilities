@@ -133,6 +133,71 @@ public static class SubscriptionAmountCalculator
     }
 
     /// <summary>
+    /// What a prepaid term (spec 008) adds on top of the ordinary opening charge: the whole periods
+    /// the opening charge does not already cover, with the promotional code on as many of them as
+    /// its <see cref="DiscountTerms.DurationPeriods"/> still allows.
+    /// </summary>
+    /// <remarks>
+    /// The ordinary opening charge covers the first whole period — on a calendar-aligned yearly
+    /// price, the stub and the year after it. A calendar-aligned monthly stub covers no whole month,
+    /// so all N months are extra. Each extra period is priced and taxed on its own and summed, so the
+    /// term costs exactly what the same periods bought one by one would.
+    /// </remarks>
+    /// <param name="openingProrated">Whether the opening charge was a calendar stub.</param>
+    /// <param name="annual">The year a calendar-aligned yearly stub opens into, if any.</param>
+    /// <param name="openingDiscounted">Whether the code reduced the opening charge (or its year).</param>
+    public static PrepaidExtra PrepaidExtraCharge(
+        SubscriptionDetail subscription,
+        bool openingProrated,
+        PendingAnnualPeriod? annual,
+        bool openingDiscounted,
+        DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        var periods = openingProrated && annual is null
+            ? subscription.PrepaidPeriods
+            : subscription.PrepaidPeriods - 1;
+        var openingSpent = openingDiscounted ? 1 : 0;
+        var budget = subscription.Discount?.DurationPeriods is { } duration
+            ? Math.Max(0, duration - openingSpent)
+            : periods;
+
+        // Whole periods at the price's own cadence: on a calendar yearly price that is the annual
+        // amount, never the monthly stub basis.
+        var withCode = FirstPeriodCharge(subscription, default, nowUtc);
+        var discountedPeriods = withCode.DiscountApplied ? Math.Min(periods, budget) : 0;
+        var withoutCode = discountedPeriods == periods
+            ? withCode
+            : FirstPeriodCharge(subscription, default, nowUtc, includePromotionalDiscount: false);
+        var plainPeriods = periods - discountedPeriods;
+
+        var charge = new PeriodCharge(
+            withCode.AmountMinor * discountedPeriods + withoutCode.AmountMinor * plainPeriods,
+            discountedPeriods > 0,
+            0,
+            withCode.TaxAmountMinor * discountedPeriods + withoutCode.TaxAmountMinor * plainPeriods,
+            withCode.NetAmountMinor * discountedPeriods + withoutCode.NetAmountMinor * plainPeriods,
+            withCode.GrossAmountMinor * discountedPeriods + withoutCode.GrossAmountMinor * plainPeriods,
+            withCode.BuiltInDiscountMinor * discountedPeriods +
+                withoutCode.BuiltInDiscountMinor * plainPeriods,
+            withCode.PromotionalDiscountMinor * discountedPeriods);
+
+        return new PrepaidExtra(charge, periods, openingSpent + discountedPeriods);
+    }
+
+    /// <summary>Two charges as one: what a prepaid opening charge is made of.</summary>
+    public static PeriodCharge Combine(PeriodCharge first, PeriodCharge second) => new(
+        first.AmountMinor + second.AmountMinor,
+        first.DiscountApplied || second.DiscountApplied,
+        first.CreditConsumedMinor + second.CreditConsumedMinor,
+        first.TaxAmountMinor + second.TaxAmountMinor,
+        first.NetAmountMinor + second.NetAmountMinor,
+        first.GrossAmountMinor + second.GrossAmountMinor,
+        first.BuiltInDiscountMinor + second.BuiltInDiscountMinor,
+        first.PromotionalDiscountMinor + second.PromotionalDiscountMinor);
+
+    /// <summary>
     /// What a renewal charges, and whether the discount actually reduced it — so the caller
     /// knows whether to count this period against <see cref="DiscountTerms.DurationPeriods"/>.
     /// The discounted amount is split into net and tax by the price's own mode — added on top when
@@ -638,3 +703,9 @@ public readonly record struct PeriodCharge(
     long GrossAmountMinor = 0,
     long BuiltInDiscountMinor = 0,
     long PromotionalDiscountMinor = 0);
+
+/// <summary>What <see cref="SubscriptionAmountCalculator.PrepaidExtraCharge"/> resolved.</summary>
+/// <param name="Charge">The extra periods together.</param>
+/// <param name="Periods">How many whole periods were added to the opening charge.</param>
+/// <param name="DiscountedPeriods">Promotional periods the whole term spends, opening included.</param>
+public readonly record struct PrepaidExtra(PeriodCharge Charge, int Periods, int DiscountedPeriods);

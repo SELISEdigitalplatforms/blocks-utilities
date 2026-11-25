@@ -26,6 +26,8 @@ public sealed class SubscriptionBillingProfileTests
 
     private readonly Mock<ISubscriptionBillingProfileRepository> _profiles = new();
     private readonly Mock<ISubscriptionContextResolver> _context = new();
+    private readonly List<SubscriptionAuditEvent> _audited = [];
+    private readonly Mock<ISubscriptionAuditTrail> _audit = new();
 
     public SubscriptionBillingProfileTests()
     {
@@ -42,6 +44,58 @@ public sealed class SubscriptionBillingProfileTests
                 It.IsAny<SubscriptionBillingProfile>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubscriptionBillingProfile profile, CancellationToken _) => profile);
+
+        _audit
+            .Setup(trail => trail.RecordAsync(It.IsAny<SubscriptionAuditEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAuditEvent, CancellationToken>((auditEvent, _) => _audited.Add(auditEvent))
+            .Returns(Task.CompletedTask);
+    }
+
+    [Fact]
+    public async Task A_billing_profile_edit_is_audited_by_field_name_never_by_value()
+    {
+        Existing();
+
+        await Service().UpdateAsync(
+            new UpdateBillingProfileRequest
+            {
+                LegalName = "Northwind Trading AG",
+                BillingContactName = "Ada Byron",
+                BillingContactEmail = "billing@northwind.example",
+                Address = new BillingAddressRequest { Line1 = "1 Bahnhofstrasse", CountryCode = "CH" },
+                TaxRegistrationId = "CHE-123.456.789"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        var recorded = _audited.Single();
+        recorded.Operation.Should().Be("BillingProfileUpdate");
+        recorded.AggregateType.Should().Be("BillingProfile");
+        recorded.AggregateId.Should().Be(OrganizationId);
+        recorded.ActorId.Should().Be("actor-1", "who changed it is the point of the record");
+        recorded.Detail.Should().Be("Changed: BillingContactEmail");
+        recorded.Detail.Should().NotContain("northwind.example",
+            "the audit trail is kept forever and must not hold a person's email");
+    }
+
+    [Fact]
+    public async Task A_first_billing_profile_is_audited_as_created()
+    {
+        _profiles
+            .Setup(profiles => profiles.GetAsync(TenantId, OrganizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SubscriptionBillingProfile?)null);
+
+        await Service().UpdateAsync(
+            new UpdateBillingProfileRequest
+            {
+                LegalName = "Northwind Trading AG",
+                BillingContactName = "Ada Byron",
+                BillingContactEmail = "ada@northwind.example"
+            },
+            "corr-1",
+            CancellationToken.None);
+
+        _audited.Single().Operation.Should().Be("BillingProfileCreate");
     }
 
     [Fact]
@@ -435,7 +489,8 @@ public sealed class SubscriptionBillingProfileTests
         new SubscriptionBillingProfileService(
             _context.Object,
             _profiles.Object,
-            new UpdateBillingProfileRequestValidator());
+            new UpdateBillingProfileRequestValidator(),
+            _audit.Object);
 
     private ISubscriptionBillingProfileGuard Guard(
         bool required = true,

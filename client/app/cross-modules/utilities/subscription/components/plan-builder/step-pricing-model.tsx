@@ -38,7 +38,7 @@ import { ExistingMeterRatesFields, type OnSaveMeterRates } from "./existing-mete
 import { StepHeading } from "./step-heading";
 import { MeterRateTableFields } from "./meter-rate-table-fields";
 import { MeterPaceFields } from "./meter-pace-fields";
-import { PlanPriceFields } from "./plan-price-fields";
+import { PlanPriceFields, type OnUpdatePriceAmount } from "./plan-price-fields";
 import { QuantityDiscountTiers } from "./quantity-discount-tiers";
 import { ThresholdChipInput } from "./threshold-chip-input";
 
@@ -48,6 +48,7 @@ export const StepPricingModel = ({
   onRetirePrice,
   onUpdatePriceTax,
   onUpdatePriceDiscount,
+  onUpdatePriceAmount,
   retiringPriceId = null,
   existingMeters = [],
   onUpdateMeterRates,
@@ -59,6 +60,7 @@ export const StepPricingModel = ({
   onUpdateMeterRates?: OnSaveMeterRates;
   onRetirePrice?: (priceId: string) => void;
   onUpdatePriceTax?: (priceId: string, taxPercent?: number, taxMode?: "Exclusive" | "Inclusive") => Promise<void>;
+  onUpdatePriceAmount?: OnUpdatePriceAmount;
   onUpdatePriceDiscount?: (priceId: string, discountPercent?: number, combination?: "BestDiscount" | "Additive") => Promise<void>;
   retiringPriceId?: string | null;
 }) => {
@@ -581,6 +583,7 @@ export const StepPricingModel = ({
         existingPrices={existingPrices}
         onRetirePrice={onRetirePrice}
         onUpdatePriceTax={onUpdatePriceTax}
+        onUpdatePriceAmount={onUpdatePriceAmount}
         onUpdatePriceDiscount={onUpdatePriceDiscount}
         retiringPriceId={retiringPriceId}
       />

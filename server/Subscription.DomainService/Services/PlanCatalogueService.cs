@@ -1,3 +1,4 @@
+using System.Globalization;
 ﻿using FluentValidation;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
@@ -8,6 +9,7 @@ using Subscription.DomainService.Enums;
 using Subscription.DomainService.Repositories;
 using Subscription.DomainService.Requests;
 using Subscription.DomainService.Responses;
+using Subscription.DomainService.Scheduling;
 using Subscription.DomainService.Validators;
 
 namespace Subscription.DomainService.Services;
@@ -39,8 +41,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
         ISubscriptionAuditTrail auditTrail,
         ILogger<PlanCatalogueService> logger,
         ExistingSubscriberPriceTerms existingSubscribers,
-        IMeterCatalogueService? meterCatalogue = null)
+        IMeterCatalogueService? meterCatalogue = null,
+        ISubscriptionAuditRepository? auditEvents = null,
+        ISubscriptionWorkScheduler? scheduler = null)
     {
+        _scheduler = scheduler;
+        _auditEvents = auditEvents;
         _existingSubscribers = existingSubscribers;
         _meterCatalogue = meterCatalogue;
         _catalogue = catalogue;
@@ -56,6 +62,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
 
     /// <summary>Optional so hosts and tests without a catalogue still author plans; see spec 005.</summary>
     private readonly IMeterCatalogueService? _meterCatalogue;
+
+    /// <summary>Optional: absent, a plan's history reads back empty rather than failing.</summary>
+    private readonly ISubscriptionAuditRepository? _auditEvents;
+
+    /// <summary>Optional: absent (tests, hosts without a worker), overage rates are pushed inline.</summary>
+    private readonly ISubscriptionWorkScheduler? _scheduler;
 
     public async Task<SubscriptionOperationResult<PlanResponse>> CreatePlanAsync(
         CreatePlanRequest request,
@@ -142,6 +154,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(plan.Code),
             correlationId);
+
+        await RecordCatalogueChangeAsync(
+            context, plan, "PlanCreate", correlationId, cancellationToken,
+            detail: $"Plan {plan.Code} created");
 
         // A meter authored inside a plan joins the catalogue, so a later plan or a credit offer
         // can pick it (spec 005). After the save: the plan is the product, the catalogue follows it.
@@ -241,6 +257,10 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(plan.Code),
             correlationId);
+
+        await RecordCatalogueChangeAsync(
+            context, plan, "PlanUpdate", correlationId, cancellationToken,
+            detail: $"Plan {plan.Code} edited");
 
         await AdoptNewCreditTermsAsync(context.TenantId, plan.ItemId, edited, correlationId, cancellationToken);
 
@@ -413,6 +433,70 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
     /// and swallowed — the log line beside it carries the same facts.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Records a catalogue edit against the plan it belongs to, so one plan's history
+    /// (<see cref="GetPlanAuditAsync"/>) covers its prices and meters too.
+    /// </summary>
+    /// <remarks>
+    /// After the write, and only for one that landed. The audit trail never fails the edit it
+    /// describes: a failed write is logged as <c>SUBSCRIPTION_AUDIT_WRITE_FAILED</c> and swallowed.
+    /// </remarks>
+    private Task RecordCatalogueChangeAsync(
+        SubscriptionContext context,
+        Plan plan,
+        string operation,
+        string correlationId,
+        CancellationToken cancellationToken,
+        string? priceId = null,
+        long? amountMinor = null,
+        string? currencyCode = null,
+        string? detail = null) =>
+        _auditTrail.RecordAsync(
+            new SubscriptionAuditEvent
+            {
+                TenantId = context.TenantId,
+                OrganizationId = context.OrganizationId,
+                AggregateType = PlanAggregateType,
+                AggregateId = plan.ItemId,
+                AggregateCode = plan.Code,
+                OperationId = correlationId,
+                CorrelationId = correlationId,
+                Operation = operation,
+                Stage = "Catalogue",
+                Outcome = "Changed",
+                Source = "Api",
+                ActorId = context.ActorId,
+                UserId = context.UserId,
+                TargetPriceId = priceId,
+                AmountMinor = amountMinor,
+                CurrencyCode = currencyCode,
+                Detail = detail,
+                OccurredAtUtc = DateTime.UtcNow
+            },
+            cancellationToken);
+
+    private const string PlanAggregateType = "Plan";
+
+    private static string ExtendedNote(bool applyToExistingSubscribers) =>
+        applyToExistingSubscribers ? "; extended to existing subscribers" : string.Empty;
+
+    internal static string Percent(int? basisPoints) =>
+        string.Create(CultureInfo.InvariantCulture, $"{(basisPoints ?? 0) / 100m:0.##}%");
+
+    internal static string DescribeTax(int? basisPoints, TaxMode? mode) =>
+        basisPoints > 0 ? $"{Percent(basisPoints)} {mode ?? TaxMode.Exclusive}" : "none";
+
+    /// <summary>Minor units, so the record never depends on a currency being resolvable.</summary>
+    internal static string DescribeAmount(long amountMinor, string currencyCode) =>
+        string.Create(CultureInfo.InvariantCulture, $"{amountMinor} {currencyCode} (minor units)");
+
+    /// <summary><c>CHF 200; EUR 150/90</c>: each currency's per-unit bands, in minor units.</summary>
+    private static string DescribeRates(List<MeterRateTable>? tables) =>
+        tables is null or { Count: 0 }
+            ? "none"
+            : string.Join("; ", tables.Select(table =>
+                $"{table.CurrencyCode} {string.Join("/", table.Tiers.Select(tier => tier.UnitAmountMinor))}"));
+
     private async Task RecordArchiveAsync(
         SubscriptionContext context,
         string planId,
@@ -429,7 +513,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 {
                     TenantId = context.TenantId,
                     OrganizationId = context.OrganizationId,
-                    AggregateType = "Plan",
+                    AggregateType = PlanAggregateType,
                     AggregateId = planId,
                     AggregateCode = code,
                     OperationId = correlationId,
@@ -562,6 +646,7 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             CalendarAnnualChargeTiming = stubBasePrice is null
                 ? CalendarAnnualChargeTiming.AtBoundary
                 : request.CalendarAnnualChargeTiming ?? CalendarAnnualChargeTiming.AtBoundary,
+            MaxPrepaidPeriods = request.MaxPrepaidPeriods > 1 ? request.MaxPrepaidPeriods : null,
             Status = CatalogueStatus.Active
         };
 
@@ -580,6 +665,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Hash(plan.ItemId),
             PaymentLogValue.Label(price.CurrencyCode),
             correlationId);
+
+        await RecordCatalogueChangeAsync(
+            context, plan, "PriceCreate", correlationId, cancellationToken,
+            priceId: price.ItemId, amountMinor: price.UnitAmountMinor, currencyCode: price.CurrencyCode,
+            detail: $"Price created: {DescribeAmount(price.UnitAmountMinor, price.CurrencyCode)} " +
+                $"every {price.IntervalCount} {price.Interval}");
 
         // The resolved organization, which is the plan's own once the request named it. Reading
         // back under the caller's unresolved scope reported the plan as missing — after the
@@ -743,6 +834,11 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Hash(plan.ItemId),
             correlationId);
 
+        await RecordCatalogueChangeAsync(
+            context, plan, "PriceArchive", correlationId, cancellationToken,
+            priceId: priceId, amountMinor: price.UnitAmountMinor, currencyCode: price.CurrencyCode,
+            detail: $"Price archived: {DescribeAmount(price.UnitAmountMinor, price.CurrencyCode)}");
+
         return await GetPlanAsync(
             plan.ItemId,
             context.OrganizationId,
@@ -838,6 +934,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                     : AutomaticDiscountCombination.BestDiscount).ToString()),
             correlationId);
 
+        await RecordCatalogueChangeAsync(
+            context, plan, "PriceDiscountUpdate", correlationId, cancellationToken,
+            priceId: priceId, currencyCode: price.CurrencyCode,
+            detail: $"Automatic discount {Percent(price.AutomaticDiscountBasisPoints)} → {Percent(basisPoints)}" +
+                ExtendedNote(request.ApplyToExistingSubscribers));
+
         if (request.ApplyToExistingSubscribers)
         {
             var combinationToStore = basisPoints > 0
@@ -852,12 +954,15 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 priceId,
                 terms => new PriceTerms
                 {
+                    UnitAmountMinor = terms.UnitAmountMinor,
                     AutomaticDiscountBasisPoints = basisPoints,
                     QuantityDiscountCombination = combinationToStore,
                     TaxRateBasisPoints = terms.TaxRateBasisPoints,
                     TaxMode = terms.TaxMode
                 },
                 context.ActorName,
+                context.ActorId,
+                context.UserId,
                 correlationId,
                 cancellationToken);
         }
@@ -935,6 +1040,12 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 correlationId);
         }
 
+        await RecordCatalogueChangeAsync(
+            context, plan, "PriceTaxUpdate", correlationId, cancellationToken,
+            priceId: priceId, currencyCode: price.CurrencyCode,
+            detail: $"Tax {DescribeTax(price.TaxRateBasisPoints, price.TaxMode)} → {DescribeTax(rate, modeToStore)}" +
+                ExtendedNote(request.ApplyToExistingSubscribers));
+
         if (request.ApplyToExistingSubscribers)
         {
             // See the discount edit above for why this follows the catalogue write.
@@ -943,12 +1054,118 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 priceId,
                 terms => new PriceTerms
                 {
+                    UnitAmountMinor = terms.UnitAmountMinor,
                     AutomaticDiscountBasisPoints = terms.AutomaticDiscountBasisPoints,
                     QuantityDiscountCombination = terms.QuantityDiscountCombination,
                     TaxRateBasisPoints = rate,
                     TaxMode = modeToStore
                 },
                 context.ActorName,
+                context.ActorId,
+                context.UserId,
+                correlationId,
+                cancellationToken);
+        }
+
+        return await GetPlanAsync(
+            plan.ItemId,
+            context.OrganizationId,
+            correlationId,
+            cancellationToken);
+    }
+
+    public async Task<SubscriptionOperationResult<PlanResponse>> UpdatePriceAmountAsync(
+        string priceId,
+        UpdatePriceAmountRequest request,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.UnitAmountMinor < 0)
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Validation,
+                "subscription_price_amount_invalid",
+                "The amount cannot be negative.",
+                correlationId);
+        }
+
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            request.OrganizationId,
+            cancellationToken);
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<PlanResponse>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var price = await _catalogue.GetPriceAsync(context.TenantId, priceId, cancellationToken);
+        if (price is null)
+        {
+            return NotFound(correlationId);
+        }
+
+        var plan = await _catalogue.GetPlanAsync(context.TenantId, price.PlanId, cancellationToken);
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return NotFound(correlationId);
+        }
+
+        var archivedRefusal = RefuseIfArchived(plan, correlationId);
+
+        if (archivedRefusal is not null)
+        {
+            return archivedRefusal;
+        }
+
+        if (!await _catalogue.TryUpdatePriceAmountAsync(
+                context.TenantId,
+                priceId,
+                price.Version,
+                request.UnitAmountMinor,
+                DateTime.UtcNow,
+                cancellationToken))
+        {
+            return SubscriptionOperationResult<PlanResponse>.Failure(
+                PaymentFailureKind.Conflict,
+                "subscription_price_amount_conflict",
+                "The price changed while its amount was being saved.",
+                correlationId);
+        }
+
+        _logger.LogInformation(
+            "Subscription price amount updated TenantId={TenantId} PriceHash={PriceHash} " +
+                "CorrelationId={CorrelationId}",
+            PaymentLogValue.Id(context.TenantId),
+            PaymentLogValue.Hash(priceId),
+            correlationId);
+
+        await RecordCatalogueChangeAsync(
+            context, plan, "PriceAmountUpdate", correlationId, cancellationToken,
+            priceId: priceId, amountMinor: request.UnitAmountMinor, currencyCode: price.CurrencyCode,
+            detail: $"Amount {DescribeAmount(price.UnitAmountMinor, price.CurrencyCode)} → " +
+                $"{DescribeAmount(request.UnitAmountMinor, price.CurrencyCode)}" +
+                ExtendedNote(request.ApplyToExistingSubscribers));
+
+        if (request.ApplyToExistingSubscribers)
+        {
+            // See the discount edit above for why this follows the catalogue write.
+            await _existingSubscribers.ExtendAsync(
+                context.TenantId,
+                priceId,
+                terms => new PriceTerms
+                {
+                    UnitAmountMinor = request.UnitAmountMinor,
+                    AutomaticDiscountBasisPoints = terms.AutomaticDiscountBasisPoints,
+                    QuantityDiscountCombination = terms.QuantityDiscountCombination,
+                    TaxRateBasisPoints = terms.TaxRateBasisPoints,
+                    TaxMode = terms.TaxMode
+                },
+                context.ActorName,
+                context.ActorId,
+                context.UserId,
                 correlationId,
                 cancellationToken);
         }
@@ -1055,16 +1272,38 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
             PaymentLogValue.Label(meterKey),
             correlationId);
 
-        if (request.ApplyToExistingSubscribers)
+        await RecordCatalogueChangeAsync(
+            context, plan, "PlanMeterRatesUpdate", correlationId, cancellationToken,
+            detail: $"Overage rates for {meterKey}: " +
+                $"{DescribeRates(plan.Meters.Find(meter => meter.MeterKey == meterKey)?.RateTables)} → " +
+                $"{DescribeRates(rateTables)}" +
+                (request.ApplyToExistingSubscribers ? "; applied to existing subscribers now" : string.Empty));
+
+        if (request.ApplyToExistingSubscribers && _scheduler is not null)
         {
-            // After the catalogue write, for the reason the discount edit gives: a refused edit
-            // reaches nobody, and saving the same rates again finishes a run that failed part-way.
+            // Queued rather than run here: it writes once per subscriber, and a large plan would
+            // time the request out part-way. Scheduled after the catalogue write, so a refused edit
+            // reaches nobody; the worker reads the rates back from the catalogue.
+            await _scheduler.TryScheduleAsync(
+                SubscriptionWorkType.PlanMeterRatesPropagation,
+                context.TenantId,
+                PlanMeterRatesPropagationWorkHandler.KeyFor(plan.ItemId, correlationId, meterKey),
+                DateTime.UtcNow,
+                correlationId,
+                plan.ItemId,
+                plan.OrganizationId,
+                cancellationToken);
+        }
+        else if (request.ApplyToExistingSubscribers)
+        {
             await _existingSubscribers.ApplyMeterRatesAsync(
                 context.TenantId,
                 plan.ItemId,
                 meterKey,
                 rateTables,
                 context.ActorName,
+                context.ActorId,
+                context.UserId,
                 correlationId,
                 cancellationToken);
         }
@@ -1181,6 +1420,45 @@ public sealed class PlanCatalogueService : IPlanCatalogueService
                 predecessorDisplayName: predecessorName,
                 successorPlanId: successor?.ItemId,
                 successorDisplayName: successor?.DisplayName),
+            correlationId);
+    }
+
+    public async Task<SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>> GetPlanAuditAsync(
+        string planId,
+        string? organizationId,
+        int limit,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _contextResolver.ResolveAsync(
+            correlationId,
+            organizationId,
+            cancellationToken);
+
+        if (!resolution.IsSuccess)
+        {
+            return resolution.ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>(correlationId);
+        }
+
+        var context = resolution.Context!;
+        var plan = await _catalogue.GetPlanAsync(context.TenantId, planId, cancellationToken);
+
+        if (plan is null || !IsVisibleTo(plan, context.OrganizationId))
+        {
+            return NotFound(correlationId).ToFailure<IReadOnlyList<SubscriptionAuditEventResponse>>();
+        }
+
+        var events = _auditEvents is null
+            ? []
+            : await _auditEvents.ListForAggregateAsync(
+                context.TenantId,
+                PlanAggregateType,
+                plan.ItemId,
+                limit <= 0 ? 100 : limit,
+                cancellationToken);
+
+        return SubscriptionOperationResult<IReadOnlyList<SubscriptionAuditEventResponse>>.Success(
+            events.Select(SubscriptionAuditEventResponse.From).ToList(),
             correlationId);
     }
 

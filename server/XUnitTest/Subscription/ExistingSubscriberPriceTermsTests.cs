@@ -249,7 +249,8 @@ public sealed class ExistingSubscriberPriceTermsTests
                 new ControlledTimeProvider(new DateTimeOffset(December1)),
                 NullLogger<ExistingSubscriberPriceTerms>.Instance)
             .ApplyMeterRatesAsync(
-                TenantId, PlanId, MeterKey, rateTables, "Operator", "corr-1", CancellationToken.None);
+                TenantId, PlanId, MeterKey, rateTables, "Operator", "actor-1", "user-1", "corr-1",
+                CancellationToken.None);
 
     private static List<MeterRateTable> Rates(params (string Currency, long UnitAmountMinor)[] rates) =>
         rates.Select(rate => new MeterRateTable
@@ -282,16 +283,53 @@ public sealed class ExistingSubscriberPriceTermsTests
         return subscription;
     }
 
+    [Fact]
+    public void Terms_scheduled_before_amounts_could_change_leave_the_amount_alone()
+    {
+        var price = new PriceSnapshot { UnitAmountMinor = 8_900 };
+
+        new PriceTerms { AutomaticDiscountBasisPoints = 1500 }.ApplyTo(price);
+
+        price.UnitAmountMinor.Should().Be(8_900,
+            "pending terms stored without an amount must not reprice the subscriber to zero");
+        PriceTerms.Of(price).UnitAmountMinor.Should().Be(8_900);
+    }
+
+    [Fact]
+    public async Task Each_subscriber_given_new_terms_has_the_change_on_their_own_timeline()
+    {
+        _onPrice = [OnPrice()];
+        var audit = new Mock<ISubscriptionAuditTrail>();
+        SubscriptionAuditEvent? recorded = null;
+        audit
+            .Setup(trail => trail.RecordAsync(It.IsAny<SubscriptionAuditEvent>(), It.IsAny<CancellationToken>()))
+            .Callback<SubscriptionAuditEvent, CancellationToken>((auditEvent, _) => recorded = auditEvent)
+            .Returns(Task.CompletedTask);
+
+        await ExtendDiscountAsync(new DateTime(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc), 1500, audit.Object);
+
+        recorded.Should().NotBeNull("a customer asking why their price changed looks at their own timeline");
+        recorded!.SubscriptionId.Should().Be("sub-1");
+        recorded.Operation.Should().Be("PriceTermsScheduled");
+        recorded.TargetPriceId.Should().Be(PriceId);
+        recorded.EffectiveAtUtc.Should().Be(December1);
+        recorded.ActorId.Should().Be("actor-1");
+        recorded.Detail.Should().Be("Automatic discount 8% → 15%",
+            "only what moved, so a discount edit does not read as a price change");
+    }
+
     private Task<PriceTermsExtension> ExtendDiscountAsync(
         DateTime nowUtc,
-        int basisPoints) =>
+        int basisPoints,
+        ISubscriptionAuditTrail? audit = null) =>
         new ExistingSubscriberPriceTerms(
                 _subscriptions.Object,
                 new SubscriptionOutboxEventFactory(),
                 Mock.Of<IOptionsMonitor<SubscriptionOptions>>(
                     options => options.CurrentValue == new SubscriptionOptions()),
                 new ControlledTimeProvider(new DateTimeOffset(nowUtc)),
-                NullLogger<ExistingSubscriberPriceTerms>.Instance)
+                NullLogger<ExistingSubscriberPriceTerms>.Instance,
+                audit)
             .ExtendAsync(
                 TenantId,
                 PriceId,
@@ -302,6 +340,8 @@ public sealed class ExistingSubscriberPriceTermsTests
                     TaxMode = terms.TaxMode
                 },
                 "Operator",
+                "actor-1",
+                "user-1",
                 "corr-1",
                 CancellationToken.None);
 

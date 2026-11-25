@@ -207,6 +207,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISubscriptionWorkHandler, ActivationRecoveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, SettlementReservationRecoveryWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, RenewalWorkHandler>();
+        services.AddScoped<ISubscriptionWorkHandler, PlanMeterRatesPropagationWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, CancellationEffectiveWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsagePeriodClosureWorkHandler>();
         services.AddScoped<ISubscriptionWorkHandler, UsageInvoiceChargeWorkHandler>();
