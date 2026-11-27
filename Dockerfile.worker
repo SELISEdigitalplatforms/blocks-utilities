@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # =============================================================================
-# Blocks IDP Worker — background workers / consumers only (no HTTP host)
-# Build: docker build -f Dockerfile.worker -t blocks-idp-worker .
+# Blocks Utilities Worker — background workers / consumers only (no HTTP host)
+# Build: docker build -f Dockerfile.worker -t blocks-utilities-worker .
 # =============================================================================
 
 ARG DOTNET_PUBLISH_PLATFORM=linux/amd64
@@ -64,8 +64,8 @@ RUN javac -cp "/opt/dss/lib/*" -d /opt/dss /tmp/dss-src/DssValidator.java \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
 
 ARG BUILD_VERSION=0.0.0
-LABEL org.opencontainers.image.title="blocks-idp-worker" \
-    org.opencontainers.image.description="Blocks IDP background worker (Generic Host, message consumers)." \
+LABEL org.opencontainers.image.title="blocks-utilities-worker" \
+    org.opencontainers.image.description="Blocks Utilities background worker (Generic Host, message consumers)." \
     org.opencontainers.image.version="${BUILD_VERSION}"
 
 WORKDIR /app
@@ -211,4 +211,6 @@ RUN mkdir -p /tmp/pdf-ingestion /tmp/dss-tl-cache \
 
 USER app
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD pgrep -x dotnet >/dev/null || exit 1
 ENTRYPOINT ["dotnet", "Worker.dll"]
