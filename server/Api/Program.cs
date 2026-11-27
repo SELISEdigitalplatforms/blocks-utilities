@@ -123,6 +123,9 @@ services.AddOpenTelemetry()
 
 var app = builder.Build();
 
+// Before the static files and the SPA fallback, so their HTML responses carry it (ZAP 10020).
+app.UseSpaFrameProtection();
+
 var documentationPath = Path.Combine(app.Environment.ContentRootPath, "Documentation");
 Directory.CreateDirectory(documentationPath);
 var documentationFiles = new PhysicalFileProvider(documentationPath);
