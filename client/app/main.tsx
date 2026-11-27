@@ -10,6 +10,10 @@ import { router } from "./router";
 import { ThemeProvider } from "@seliseblocks/genesis-os/providers";
 import { BlocksAppLayout } from "@seliseblocks/genesis-os";
 import { TooltipProvider } from "./components/ui-kits/tooltip/tooltip";
+// DM Sans is bundled (optical size and weight axes, upright and italic) instead of loaded from
+// Google Fonts: a third-party stylesheet cannot carry a stable integrity hash (ZAP 90003).
+import "@fontsource-variable/dm-sans/opsz.css";
+import "@fontsource-variable/dm-sans/opsz-italic.css";
 import "./styles/globals.css";
 
 const darkLogoUrl = "/utilities_logo_black.svg";

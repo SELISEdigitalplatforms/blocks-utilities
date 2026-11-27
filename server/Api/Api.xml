@@ -1882,6 +1882,38 @@
             outside the scope it belongs to.
             </summary>
         </member>
+        <member name="T:Api.Middleware.SpaFrameProtectionMiddleware">
+            <summary>
+            Refuses framing of the console's HTML pages (the SPA shell and the API documentation pages).
+            </summary>
+            <remarks>
+            The console is an authenticated admin application with no page meant to be embedded, so any
+            frame around it is a clickjacking attempt. The header is added to <c>text/html</c> responses
+            outside <c>/api</c> only: API responses are JSON, and the HTML the magic-link endpoint returns
+            is left as it is.
+            </remarks>
+        </member>
+        <member name="F:Api.Middleware.SpaFrameProtectionMiddleware.HeaderName">
+            <summary>The header that refuses framing.</summary>
+        </member>
+        <member name="F:Api.Middleware.SpaFrameProtectionMiddleware.HeaderValue">
+            <summary>Refuse every frame, the console's own included.</summary>
+        </member>
+        <member name="M:Api.Middleware.SpaFrameProtectionMiddleware.#ctor(Microsoft.AspNetCore.Http.RequestDelegate)">
+            <summary>Creates the middleware around the rest of the pipeline.</summary>
+        </member>
+        <member name="M:Api.Middleware.SpaFrameProtectionMiddleware.InvokeAsync(Microsoft.AspNetCore.Http.HttpContext)">
+            <summary>Registers the header for the response, then runs the rest of the pipeline.</summary>
+        </member>
+        <member name="M:Api.Middleware.SpaFrameProtectionMiddleware.AppliesTo(Microsoft.AspNetCore.Http.PathString,System.String)">
+            <summary>True for an HTML response outside the API.</summary>
+        </member>
+        <member name="T:Api.Middleware.SpaFrameProtectionMiddlewareExtensions">
+            <summary>Registration of <see cref="T:Api.Middleware.SpaFrameProtectionMiddleware"/>.</summary>
+        </member>
+        <member name="M:Api.Middleware.SpaFrameProtectionMiddlewareExtensions.UseSpaFrameProtection(Microsoft.AspNetCore.Builder.IApplicationBuilder)">
+            <summary>Adds <see cref="T:Api.Middleware.SpaFrameProtectionMiddleware"/>; register it before the static files.</summary>
+        </member>
         <member name="T:Api.OpenApi.ApiResponseFailureExampleOperationTransformer">
             <summary>
             Gives each 4xx/5xx response an explicit example showing <c>success: false</c>.
