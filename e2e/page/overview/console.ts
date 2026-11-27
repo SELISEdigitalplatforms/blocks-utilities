@@ -64,16 +64,18 @@ export async function verifyProjectSettingsCrossAppNavigation(page: Page): Promi
 }
 
 /**
- * Console: Resources cards (Docs/Code/Cloud) actually navigate to their
- * target URL when clicked. Each link is opened in a popup and verified
+ * Console: Resources cards (Read Docs/Install CLI/Bootstrap) actually navigate
+ * to their target URL when clicked. Each link is opened in a popup and verified
  * against its href attribute.
+ * Drift: genesis-os 4.4.x (824c6eb4, 4.3.4 -> 4.4.1) replaced the Docs/Code/Cloud
+ * cards with Read Docs/Install CLI/Bootstrap; each card's link name starts with its heading.
  */
 export async function verifyResourceCardsNavigate(page: Page): Promise<void> {
-  const docsLink = page.getByRole("link", { name: "Docs", exact: false });
-  const codeLink = page.getByRole("link", { name: "Code", exact: false });
-  const cloudLink = page.getByRole("link", { name: "Cloud", exact: false });
+  const docsLink = page.getByRole("link", { name: /^Read Docs:/ });
+  const cliLink = page.getByRole("link", { name: /^Install CLI:/ });
+  const bootstrapLink = page.getByRole("link", { name: /^Bootstrap:/ });
 
-  for (const link of [docsLink, codeLink, cloudLink]) {
+  for (const link of [docsLink, cliLink, bootstrapLink]) {
     await expect(link).toBeVisible({ timeout: 15_000 });
     await expect(link).toHaveAttribute("href", /^https?:\/\//);
     await expect(link).toHaveAttribute("target", "_blank");

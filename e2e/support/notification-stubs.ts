@@ -75,8 +75,10 @@ export async function stubNotificationFeed(page: Page): Promise<void> {
   });
 }
 
+// Drift: since genesis-os 4.4.9 (3149b0fe) only rows with a redirect path are cursor-pointer
+// buttons; the stubbed row has none and renders as a plain row.
 export function notificationRows(page: Page) {
   return page
-    .locator('[class*="cursor-pointer"][class*="items-start"][class*="border-b"]')
+    .locator('[class*="items-start"][class*="border-b"]')
     .filter({ hasText: "E2e Hover Read" });
 }
