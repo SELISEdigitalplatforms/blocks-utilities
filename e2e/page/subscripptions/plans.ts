@@ -80,10 +80,11 @@ export async function verifySearchNarrowsCatalogue(page: Page): Promise<void> {
 }
 
 /**
- * Plans: Create plan opens the wizard on step 1 (Identity) with all four
+ * Plans: Create plan opens the wizard on step 1 (Identity) with all five
  * remaining step labels visible (Pricing model, What the plan grants,
- * Trial, Review). The full sequence is 5 steps now: Identity, Pricing
- * model, What the plan grants, Trial, Review.
+ * Credits, Trial, Review). The full sequence is 6 steps since b4b29653
+ * (#688): Identity, Pricing model, What the plan grants, Credits (heading
+ * "Sell extra credits"), Trial, Review.
  */
 export async function verifyCreatePlanOpensWizardStep1(page: Page): Promise<void> {
   await page.getByRole("link", { name: "Create plan" }).first().click();
@@ -92,6 +93,7 @@ export async function verifyCreatePlanOpensWizardStep1(page: Page): Promise<void
   await expect(page.getByRole("heading", { name: "Identity" })).toBeVisible();
   await expect(page.getByText("Pricing model", { exact: true })).toBeVisible();
   await expect(page.getByText("What the plan grants", { exact: true })).toBeVisible();
+  await expect(page.getByText("Credits", { exact: true })).toBeVisible();
   await expect(page.getByText("Trial", { exact: true })).toBeVisible();
   await expect(page.getByText("Review", { exact: true })).toBeVisible();
 }
@@ -145,11 +147,14 @@ export async function fillPricingStepAndAdvance(page: Page, amount: string): Pro
 }
 
 /**
- * Plans: Steps 3 (What the plan grants) and 4 (Trial) are both fully
- * optional - just advance through them.
+ * Plans: Steps 3 (What the plan grants), 4 (Sell extra credits) and 5 (Trial)
+ * are all optional - just advance through them.
  */
 export async function skipUsageLimitsAndTrialSteps(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { name: "What the plan grants" })).toBeVisible();
+  await page.getByRole("button", { name: "Next" }).click();
+  // Step 4 "Sell extra credits" (b4b29653, #688) sits between the grants and the trial; optional.
+  await expect(page.getByRole("heading", { name: "Sell extra credits" })).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
 
   await expect(page.getByRole("heading", { name: "Trial" })).toBeVisible();
@@ -292,7 +297,7 @@ export async function verifyDetailPageActionsExposeDuplicateAndEdit(page: Page):
     return;
   }
   await expect(page.getByRole("link", { name: "Duplicate plan" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Add price" })).toHaveCount(0);
 }
 
@@ -319,7 +324,7 @@ export async function addSecondPriceThroughEditor(
   if (!(await isPlanDetailUrl(page))) {
     return;
   }
-  await page.getByRole("link", { name: "Edit" }).click();
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
   await expect(page).toHaveURL(/\/edit$/);
   await expect(page.getByRole("heading", { name: `Edit ${displayName}` })).toBeVisible();
 
@@ -373,7 +378,7 @@ export async function verifyEditOpensBuilderWithIdentityLocked(
   if (!(await isPlanDetailUrl(page))) {
     return;
   }
-  await page.getByRole("link", { name: "Edit" }).click();
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
   await expect(page).toHaveURL(/\/edit$/);
   await expect(page.getByRole("heading", { name: `Edit ${displayName}`, level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Identity" })).toBeVisible();
@@ -399,6 +404,9 @@ export async function editDescriptionAndSaveReturnsToDetailPage(
   await expect(page.getByRole("heading", { name: "Pricing model" })).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByRole("heading", { name: "What the plan grants" })).toBeVisible();
+  await page.getByRole("button", { name: "Next" }).click();
+  // Step 4 "Sell extra credits" (b4b29653, #688) sits between the grants and the trial; optional.
+  await expect(page.getByRole("heading", { name: "Sell extra credits" })).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByRole("heading", { name: "Trial" })).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
@@ -474,6 +482,9 @@ export async function verifyCatalogueTabsSortAndOrgScope(page: Page): Promise<vo
  */
 export async function verifyGrantsAndTrialStepsRender(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { name: "What the plan grants" })).toBeVisible();
+  await page.getByRole("button", { name: "Next" }).click();
+  // Step 4 "Sell extra credits" (b4b29653, #688) sits between the grants and the trial; optional.
+  await expect(page.getByRole("heading", { name: "Sell extra credits" })).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByRole("heading", { name: "Trial" })).toBeVisible();
   await page.getByRole("button", { name: "Next" }).click();

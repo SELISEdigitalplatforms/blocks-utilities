@@ -268,8 +268,9 @@ export async function verifyAllOfferTypesAreSelectable(page: Page): Promise<void
  * Layout-dependent — uses viewport resize + scroll; asserts data-stuck and z-order of Select.
  */
 export async function verifyStickyBarsOnEligibility(page: Page): Promise<void> {
-  // Tall viewport first so Identity fits without pinning the action bar.
-  await page.setViewportSize({ width: 1440, height: 1200 });
+  // Tall viewport first so Identity fits without pinning the action bar. Identity gained the
+  // "Applies to" choice in b4b29653 (#688) and no longer fits in 1200px (r1 2026-11-27: data-stuck=true).
+  await page.setViewportSize({ width: 1440, height: 1600 });
   await page.getByRole("button", { name: "New discount" }).click();
   await expect(page.getByRole("region", { name: "Discount creation progress" })).toBeVisible();
   await expect(page.getByTestId("campaign-builder-actions")).toHaveAttribute("data-stuck", "false");
