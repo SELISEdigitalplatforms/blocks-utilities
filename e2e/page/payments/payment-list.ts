@@ -863,6 +863,11 @@ export async function verifyRefundSubmitShowsSuccessToast(page: Page): Promise<v
   await page.getByLabel("Refund amount").fill("5");
   await page.getByLabel(/^Reason/).fill("e2e stubbed refund");
   await page.getByRole("button", { name: "Confirm refund" }).click();
-  await expect(page.getByText("Refund request submitted")).toBeVisible({ timeout: 15_000 });
+  // Exact: for about a second the toast's screen-reader announcement (a role="status" span reading
+  // "Notification Refund request submitted...") carries the same words, and a substring match then
+  // finds two elements (strict-mode failure in r11/r12 on 11e68a4a, 2026-11-27).
+  await expect(page.getByText("Refund request submitted", { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.getByRole("heading", { name: "Refund payment" })).toHaveCount(0);
 }
