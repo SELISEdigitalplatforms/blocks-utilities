@@ -14,7 +14,7 @@ export async function openInvoices(page: Page): Promise<void> {
 }
 
 /**
- * Invoices: page header, intro paragraph and the four filter controls are
+ * Invoices: page header, intro paragraph and the five filter controls are
  * visible.
  */
 export async function verifyPageHeaderAndFilterControlsVisible(page: Page): Promise<void> {
@@ -24,7 +24,9 @@ export async function verifyPageHeaderAndFilterControlsVisible(page: Page): Prom
   ).toBeVisible();
   await expect(page.getByText(/Every document this application has issued/i)).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Document type" })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Status", exact: true })).toBeVisible();
+  // Payment status filter added by 623aeaef (#796).
+  await expect(page.getByRole("combobox", { name: "Payment status" })).toBeVisible();
   await expect(page.getByLabel("Issued from")).toBeVisible();
   await expect(page.getByLabel("Issued to")).toBeVisible();
 }
@@ -73,7 +75,7 @@ export async function verifyDocumentTypeFilterNarrowsListing(page: Page): Promis
  * the end so subsequent steps see the default listing.
  */
 export async function verifyStatusFilterNarrowsListing(page: Page): Promise<void> {
-  const statusSelect = page.getByRole("combobox", { name: "Status" });
+  const statusSelect = page.getByRole("combobox", { name: "Status", exact: true });
   await statusSelect.click();
   await page.getByRole("option", { name: "Issued", exact: true }).click();
 

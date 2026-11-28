@@ -33,7 +33,7 @@ test.describe("flow: Overview menu", () => {
 
     await test.step("Topbar: switching theme to Dark applies it, then Light restores it", () =>
       switchTheme(page));
-    await test.step("Topbar: language selector lists EN/German/French with non-English disabled", () =>
+    await test.step("Topbar: language selector opens the Change language menu with English checked", () =>
       verifyLanguageSelector(page));
     await test.step("Topbar: an unread notification is marked read on hover (not requiring a click)", () =>
       verifyNotificationMarksReadOnHover(page));
@@ -48,7 +48,7 @@ test.describe("flow: Overview menu", () => {
       verifyProjectList(page));
     await test.step("Console: project card's settings icon navigates cross-app to the environments overview (Blocks OS)", () =>
       verifyProjectSettingsCrossAppNavigation(page));
-    await test.step("Console: Resources cards (Docs/Code/Cloud) actually navigate to their target URL when clicked", () =>
+    await test.step("Console: Resources cards (Read Docs/Install CLI/Bootstrap) actually navigate to their target URL when clicked", () =>
       verifyResourceCardsNavigate(page));
 
     const dashboardUrl = await openDashboard(page);

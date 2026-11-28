@@ -29,21 +29,26 @@ export async function switchTheme(page: Page): Promise<void> {
   await expect(page.locator("html")).toHaveClass(/dark/);
 }
 
-/** Topbar: language selector lists EN/German/French with non-English disabled. */
+/**
+ * Topbar: the language selector opens a "Change language" menu with English checked and at least
+ * one more language offered.
+ * Drift: genesis-os 4.5.0 (80cde76f, #776) names the trigger "Change language" and lists the
+ * UI languages as radio items; the app ships a second UI language since #761, so the old
+ * "every other language is disabled" check no longer describes the menu.
+ */
 export async function verifyLanguageSelector(page: Page): Promise<void> {
-  const languageButton = page.getByRole("button", { name: /^en$/i });
+  const languageButton = page.getByRole("button", { name: "Change language" });
+  await expect(languageButton).toContainText(/^en$/i);
   await languageButton.click();
-  await expect(page.getByRole("menuitem", { name: "English" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "German" })).toHaveAttribute(
-    "aria-disabled",
+  const menu = page.getByRole("menu", { name: "Change language" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitemradio", { name: "English" })).toHaveAttribute(
+    "aria-checked",
     "true",
   );
-  await expect(page.getByRole("menuitem", { name: "French" })).toHaveAttribute(
-    "aria-disabled",
-    "true",
-  );
+  expect(await menu.getByRole("menuitemradio").count()).toBeGreaterThan(1);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("menuitem", { name: "English" })).toHaveCount(0);
+  await expect(menu).toHaveCount(0);
 }
 
 /** Topbar: an unread notification is marked read on hover (not requiring a click). */
